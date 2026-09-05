@@ -40,8 +40,8 @@ make_fixture() {
            "$root/typescript/packages/driver-grpc/test" \
            "$root/typescript/packages/driver" \
            "$root/python/packages/driver"
-  cp "$SCRIPTS_DIR/resolve-openapi-contract.sh" "$SCRIPTS_DIR/adopt-contract-version.sh" \
-     "$SCRIPTS_DIR/fetch-contract.sh" "$root/scripts/"
+  cp "$SCRIPTS_DIR/resolve-openapi-contract.sh" "$SCRIPTS_DIR/resolve-proto-contract.sh" \
+     "$SCRIPTS_DIR/adopt-contract-version.sh" "$SCRIPTS_DIR/fetch-contract.sh" "$root/scripts/"
   mkdir -p "$root/fake-arcadedb/grpc/src/main/proto"
   echo 'syntax = "proto3";' > "$root/fake-arcadedb/grpc/src/main/proto/arcadedb-server.proto"
   echo '{}' > "$root/contracts/arcadedb-openapi-${version}.json"
@@ -373,6 +373,36 @@ RUN_URL="https://example.invalid/runs/4"
 check "$(marker_of "$(build_body 2>/dev/null)")" "$(marker_of "$body")" "a later run with the same finding reads back the same marker"
 
 check "$(marker_of "no marker here at all")" "" "an unmarked body yields no marker rather than a false match"
+
+# report-contract-watch.sh sets its OWN `set -euo pipefail` (line 21), and since
+# it was SOURCED above rather than run in a subshell, that -e leaked into this
+# harness's shell and stayed there. Nothing between the source and here happens
+# to trip it, so it went unnoticed - but the checks below deliberately capture a
+# script's nonzero exit via `out="$(...)"; rc=$?`, and under -e the assignment
+# itself aborts the whole harness before `rc=$?` ever runs, exactly the
+# "silently skips every later check" failure mode this file's own header
+# warns about. Restore the harness's own invariant (no -e, ever) before relying
+# on it again.
+set +e
+
+echo "resolve-proto-contract.sh"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+out="$("$FIX/scripts/resolve-proto-contract.sh" "$FIX/contracts" 2>/dev/null)"; rc=$?
+check "$rc" "0" "exits 0 with exactly one proto"
+check "$(basename "${out:-<none>}")" "arcadedb-server-26.9.1-SNAPSHOT.proto" "prints the single proto path"
+
+# Two protos: refuses rather than picking one.
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.9.2-SNAPSHOT.proto"
+out="$("$FIX/scripts/resolve-proto-contract.sh" "$FIX/contracts" 2>&1)"; rc=$?
+check "$rc" "1" "refuses two protos instead of silently picking the older one"
+rm -f "$FIX/contracts/arcadedb-server-26.9.2-SNAPSHOT.proto"
+
+# No proto at all: refuses.
+rm -f "$FIX"/contracts/arcadedb-server-*.proto
+"$FIX/scripts/resolve-proto-contract.sh" "$FIX/contracts" >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses when no proto is present"
+rm -rf "$FIX"
 
 echo
 echo "passed: $PASS   failed: $FAIL"

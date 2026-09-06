@@ -251,6 +251,12 @@ and leaked transactions (filed against ad hoc transaction code as ArcadeData/arc
 carrying another transaction's id, leaves the handle naming this transaction's database and id
 instead.
 
+The binding happens on a **copy**: the request object you passed in comes back unchanged. That
+matters because the alternative reintroduces #5040 by aliasing - a request bound in place would
+keep the handle's `database` and a now-committed transaction's id after the block ended, and
+reusing it (through `client.raw`, or in a later transaction before `_bind` ran) would send that
+dead id to the server.
+
 **The commit-flag check.** On a clean exit, `transaction` calls `CommitTransaction` and checks the
 response's `committed` field - not `success`. A transaction id the server no longer recognises
 (for example, one already reaped past `arcadedb.server.httpTxExpireTimeout`) answers
@@ -307,27 +313,42 @@ there is nothing this package's own type could add by standing between the calle
 Two behaviours below were settled deliberately during implementation rather than fixed as bugs.
 Both are documented at length in the code itself; this section summarizes them.
 
-**Cancelling a transaction body bypasses the rollback.** `AsyncTransaction.__aexit__` rolls back on
-any exception the body raises - except `asyncio.CancelledError`. Since Python 3.8,
-`CancelledError` inherits from `BaseException`, not `Exception`, so `__aexit__`'s
-`except Exception` clauses never see it. Widening that to `except BaseException` would not
-actually fix the hazard either: issuing the rollback itself is a suspension point inside a task
-that is already cancelling, so it cannot simply be awaited there. The transaction is left open on
-the server until `arcadedb.server.httpTxExpireTimeout` reaps it - the same leaked-transaction shape
-(ArcadeData/arcadedb#5042) this module otherwise exists to prevent. This is accepted rather than
-silently overlooked: a real fix (a shielded rollback via `asyncio.shield`, say) trades a reaped
-transaction for a task that can hang against an unresponsive server, which is a design decision for
-this repository's owner, not something to settle unilaterally. A caller who needs the rollback to
-be certain under cancellation should issue it themselves rather than rely on this context manager.
+**Cancelling a transaction body DOES roll back; cancelling it twice does not.** The obvious
+reading - that `asyncio.CancelledError` inherits from `BaseException` rather than `Exception` and
+so slips past `__aexit__` - is wrong, and this README said it for a while. `__aexit__`'s guard is
+`if exc is not None`, not an `isinstance(exc, Exception)` test, so a cancelled body takes the
+rollback branch like any other failure; and after a single `task.cancel()` the `CancelledError` has
+already been delivered and the task's `_must_cancel` flag cleared, so the `await` inside the
+rollback does not immediately re-raise. `test_cancelling_the_body_still_rolls_back` asserts the
+server saw exactly `BeginTransaction`, `RollbackTransaction`.
+
+The real limitation is narrower. A **second** cancellation, landing while that rollback is still in
+flight, is raised at the `await` and escapes `__aexit__` uncaught - replacing whatever the body
+raised, and leaving the transaction open on the server until
+`arcadedb.server.httpTxExpireTimeout` reaps it, the leaked-transaction shape
+(ArcadeData/arcadedb#5042) this package otherwise exists to prevent. `_safe_rollback`, on the
+commit-failure path, has the same gap in a smaller form: its `contextlib.suppress(Exception)`
+genuinely does not cover `CancelledError`, so a cancellation there replaces the commit error the
+caller was meant to see.
+
+This is accepted rather than silently overlooked: a real fix (a shielded rollback via
+`asyncio.shield`, say) trades a reaped transaction for a task that can hang against an unresponsive
+server, which is a design decision for this repository's owner, not something to settle
+unilaterally. A caller who needs the rollback to be certain even under repeated cancellation should
+issue it themselves rather than rely on this context manager.
 
 **`insert_stream`'s close-forwarding is best-effort.** When the async facade abandons an
 in-progress `chunks` source early - the RPC aborts mid-stream, or nothing pulls the rest - it tries
-to forward that closure to the caller's own iterable, so a generator wrapping a file handle or a
-database cursor gets its `finally` block run. That forwarding calls `close()`/`aclose()` via
-`getattr`, because an arbitrary `Iterable` or `AsyncIterable` is not required to have either - only
-generators are. A caller-supplied iterator with its own cleanup protocol that is *not* a generator
-(no `close`/`aclose` method) gets no forwarded close at all; this package cannot invent a protocol
-the object does not already implement.
+to forward that closure to the caller's source, so a generator wrapping a file handle or a
+database cursor gets its `finally` block run. It forwards to the **iterator** it is actually
+driving (`iter(chunks)` / `chunks.__aiter__()`), not to the `Iterable`/`AsyncIterable` it was
+handed: for a bare generator the two are the same object, but for a class whose `__aiter__` is an
+async generator function they are not, and closing the wrong one forwards the close to nothing.
+That forwarding then calls `close()`/`aclose()` via `getattr`, because an arbitrary `Iterable` or
+`AsyncIterable` is not required to have either - only generators are. A caller-supplied iterator
+with its own cleanup protocol that is *not* a generator (no `close`/`aclose` method) gets no
+forwarded close at all; this package cannot invent a protocol the object does not already
+implement.
 
 ## Contract version and compatibility
 

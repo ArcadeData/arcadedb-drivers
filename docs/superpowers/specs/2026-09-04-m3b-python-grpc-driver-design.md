@@ -207,7 +207,10 @@ The mechanism differs. Each helper returns **one object implementing all four
 attached to the channel rather than passed per call. This is not stylistic: a channel interceptor
 authenticates calls made through `raw` too, which is the property TypeScript gets for free by putting
 its interceptor on the transport. Per-call `metadata=` would authenticate the three facade wrappers
-and silently leave `raw` anonymous - and `raw` is where 11 of the 14 data-plane RPCs live.
+and silently leave `raw` anonymous - and `raw` is where most of the 14 data-plane RPCs live: the
+facade wraps five (`StreamQuery`, `InsertStream`, and the `Begin`/`Commit`/`Rollback` trio
+`transaction()` drives), so 9 are reachable only through `raw` outside a transaction, and 3
+(`BulkInsert`, `InsertBidirectional`, `GraphBatchLoad`) even inside one.
 
 Call credentials (`grpc.metadata_call_credentials`) are deliberately not used. They require a secure
 channel, and password auth over an insecure channel is exactly the configuration the e2e suite runs

@@ -6,9 +6,13 @@ a marker lets one pair of public helpers serve both facades.
 
 The interceptors are attached to the CHANNEL rather than passed as per-call
 `metadata=`. That is not stylistic: a channel interceptor also authenticates calls
-made through `client.raw`, and `raw` is where 11 of the 14 data-plane RPCs live.
-Per-call metadata would authenticate the three facade wrappers and leave `raw`
-silently anonymous.
+made through `client.raw`, and `raw` is where most of the 14 data-plane RPCs live.
+The top-level facade wraps five of them - `StreamQuery`, `InsertStream`, and the
+`Begin`/`Commit`/`Rollback` trio `transaction()` drives - leaving the other 9
+reachable only through `raw`. Opening a transaction narrows that to 3: the six CRUD
+RPCs gain a wrapper on the handle, while `BulkInsert`, `InsertBidirectional` and
+`GraphBatchLoad` have none anywhere, ever. Per-call metadata on the wrappers would
+leave every one of those calls silently anonymous.
 
 Call credentials (`grpc.metadata_call_credentials`) are deliberately not used: they
 require a secure channel, and password auth over an insecure channel is exactly the

@@ -11,6 +11,8 @@ from ._generated import arcadedb_server_pb2 as messages
 from ._generated import arcadedb_server_pb2_grpc as _pb2_grpc
 from .auth import Auth, bearer_auth, password_auth, sync_interceptors
 from .errors import InsecureChannelError
+from .stream import InsertStreamRequest
+from .stream import insert_stream as _insert_stream
 from .stream import stream_query as _stream_query
 
 __version__ = "0.1.0"
@@ -19,6 +21,7 @@ __all__ = [
     "ArcadeDBGrpcClient",
     "Auth",
     "InsecureChannelError",
+    "InsertStreamRequest",
     "__version__",
     "bearer_auth",
     "create_client",
@@ -50,6 +53,10 @@ class ArcadeDBGrpcClient:
     ) -> Iterator[messages.GrpcRecord]:
         """Streams a query's results row by row. See `stream.stream_query`."""
         return _stream_query(self.raw, request, timeout=timeout)
+
+    def insert_stream(self, request: InsertStreamRequest, *, timeout: float | None = None) -> messages.InsertSummary:
+        """Streams rows to the server in chunks. See `stream.insert_stream`."""
+        return _insert_stream(self.raw, request, timeout=timeout)
 
     def __enter__(self) -> ArcadeDBGrpcClient:
         return self

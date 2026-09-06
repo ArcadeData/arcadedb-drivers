@@ -86,13 +86,40 @@ async def _aiter_chunks(
     The parameter is `AsyncIterable`, not `AsyncIterator`, because that is what
     `InsertStreamRequest.chunks` declares: an object with `__aiter__` but no `__anext__`
     of its own is a legitimate caller value, and narrowing this would reject it.
+
+    Both branches FORWARD THE CLOSE to the source they were handed, and that is the whole
+    reason this is a `try/finally` rather than two plain loops. `_envelope_chunks` closes
+    this wrapper, but closing the wrapper does not close what the wrapper is iterating:
+    `aclose()` throws `GeneratorExit` at the `yield` below, which unwinds out of the loop,
+    and neither `for` nor `async for` ever closes its iterator. Without these two
+    `finally`s the caller's own generator is left SUSPENDED, its `finally` deferred to a
+    garbage collection that never comes - `InsertStreamRequest.chunks` still holds a
+    strong reference to it - so the file handle or cursor they wrapped it in is never
+    released. The sync facade has no equivalent hazard because it closes the caller's
+    iterator directly (`iter(g) is g` for a generator).
+
+    `getattr` rather than a bare call in both cases: an arbitrary `Iterable` or
+    `AsyncIterable` need not be a generator, and only generators are required to have
+    `close`/`aclose`.
     """
     if isinstance(chunks, Iterable):
-        for chunk in chunks:
-            yield chunk
+        iterator = iter(chunks)
+        try:
+            for chunk in iterator:
+                yield chunk
+        finally:
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                close()
         return
-    async for chunk in chunks:
-        yield chunk
+
+    try:
+        async for chunk in chunks:
+            yield chunk
+    finally:
+        aclose = getattr(chunks, "aclose", None)
+        if aclose is not None:
+            await aclose()
 
 
 async def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> AsyncGenerator[messages.InsertChunk, None]:
@@ -259,8 +286,30 @@ class AsyncTransaction:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        # Returns None, not a bool: a falsy return does not suppress the body's exception,
-        # and an exception raised in here (the failed-commit check below) propagates.
+        """Commits on a clean exit, rolls back on any other.
+
+        Returns None, not a bool: a falsy return does not suppress the body's exception,
+        and an exception raised in here (the failed-commit check below) propagates.
+
+        KNOWN LIMITATION - cancellation bypasses the rollback. If the body is cancelled,
+        `exc` is an `asyncio.CancelledError`, which since 3.8 inherits from
+        `BaseException` and NOT from `Exception`. The `except Exception` clauses below
+        therefore do not see it, and - more to the point - `await self._rollback()` is
+        itself a suspension point inside an already-cancelling task, so it is not
+        something this method can simply be widened to `BaseException` to fix. The
+        transaction is left open on the server until
+        `arcadedb.server.httpTxExpireTimeout` reaps it: a leaked transaction, which is
+        the ArcadeData/arcadedb#5042 shape this module otherwise exists to prevent.
+
+        This is accepted rather than overlooked. The fix would be a shielded rollback
+        (`asyncio.shield`, or a rollback issued from `asyncio.CancelledError`'s handler
+        with the cancellation re-raised afterwards), and a shielded await during
+        cancellation carries its own hang risk against an unresponsive server - trading a
+        reaped transaction for a task that will not die. Choosing between those is a
+        design decision for this repository's owner, not something to settle silently
+        here. A caller who needs the rollback to be certain under cancellation should
+        issue it themselves rather than relying on this context manager.
+        """
         if exc is not None:
             # Roll back, then let the original exception propagate. A rollback failure
             # attaches as __cause__ rather than replacing what the caller actually hit.

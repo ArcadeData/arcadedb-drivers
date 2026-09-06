@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
+import grpc
 import pytest
 from arcadedb_driver_grpc import InsecureChannelError, InsertStreamRequest, messages
-from arcadedb_driver_grpc.aio import create_client
+from arcadedb_driver_grpc.aio import _envelope_chunks, create_client
 from arcadedb_driver_grpc.auth import bearer_auth, password_auth
 
 from .conftest import RecordingServicer
@@ -251,3 +252,110 @@ async def test_insert_stream_is_not_offered_on_the_handle(
     async with create_client(target) as client, client.transaction("db") as tx:
         assert not hasattr(tx, "insert_stream")
         assert not hasattr(tx, "bulk_insert")
+
+
+async def test_the_callers_async_generator_is_finalised_when_the_stream_is_abandoned() -> None:
+    # The discriminating case, and the async twin of the sync suite's: the RPC (or the
+    # caller) stops consuming mid-stream while a reference to the caller's generator
+    # survives - which is the real situation, because `InsertStreamRequest.chunks` holds
+    # that reference and defeats ordinary refcount-triggered cleanup.
+    #
+    # `_envelope_chunks` closing its own `source` is NOT enough here. `aclose()` throws
+    # GeneratorExit at `_aiter_chunks`'s `yield`, which unwinds out of its `async for` -
+    # and `async for` never closes the iterator it was given. Without `_aiter_chunks`
+    # forwarding the close, `chunks()` below stays suspended forever and its `finally`
+    # (closing a file handle, a database cursor) never runs.
+    closed = False
+
+    async def chunks() -> AsyncIterator[list[messages.GrpcRecord]]:
+        nonlocal closed
+        try:
+            yield _records("a")
+            yield _records("b")
+            yield _records("c")
+        finally:
+            closed = True
+
+    source = chunks()
+    request = InsertStreamRequest(database="db", chunks=source)  # keeps the generator alive
+    envelope = _envelope_chunks(request, "session-1")
+    await anext(envelope)
+    await envelope.aclose()
+
+    # `inspect.getasyncgenstate` would pin this harder, but it is 3.12+ and the floor
+    # here is 3.10. The flag is discriminating on its own: without the fix it stays False.
+    assert closed is True
+
+
+async def test_a_callers_sync_generator_is_finalised_when_the_stream_is_abandoned() -> None:
+    # The same hazard on `_aiter_chunks`'s OTHER branch: a plain `for` does not close its
+    # iterator either, so handing the async facade a sync generator must forward the close
+    # just as the sync facade does.
+    closed = False
+
+    def chunks() -> Iterator[list[messages.GrpcRecord]]:
+        nonlocal closed
+        try:
+            yield _records("a")
+            yield _records("b")
+            yield _records("c")
+        finally:
+            closed = True
+
+    source = chunks()
+    request = InsertStreamRequest(database="db", chunks=source)
+    envelope = _envelope_chunks(request, "session-1")
+    await anext(envelope)
+    await envelope.aclose()
+
+    # `inspect.getasyncgenstate` would pin this harder, but it is 3.12+ and the floor
+    # here is 3.10. The flag is discriminating on its own: without the fix it stays False.
+    assert closed is True
+
+
+async def test_commit_failure_rolls_back_and_reraises_the_commit_error(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # A best-effort rollback is issued so the server does not hold the transaction open
+    # until it is reaped, and the commit's own error - not the rollback's - is what the
+    # caller sees. `_safe_rollback` exists for exactly this path.
+    target, servicer = async_fake_server
+    servicer.commit_raises = True
+    with pytest.raises(grpc.RpcError):
+        async with create_client(target) as client, client.transaction("db"):
+            pass
+    assert servicer.calls == ["BeginTransaction", "CommitTransaction", "RollbackTransaction"]
+
+
+async def test_rollback_failure_attaches_as_cause_but_the_bodys_exception_still_propagates(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The body's own exception is what the caller asked about; a rollback failure on top
+    # of it is attached as __cause__ rather than replacing it.
+    target, servicer = async_fake_server
+    servicer.rollback_raises = True
+    sentinel = RuntimeError("boom")
+    with pytest.raises(RuntimeError) as caught:
+        async with create_client(target) as client, client.transaction("db"):
+            raise sentinel
+    assert caught.value is sentinel
+    assert isinstance(caught.value.__cause__, grpc.RpcError)
+
+
+async def test_a_failing_rollback_does_not_mask_the_commit_error(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Both calls fail. `_safe_rollback` swallowing its own failure is what makes the
+    # COMMIT's error the one that surfaces - without the suppression the rollback's error
+    # would replace it, and the caller would be told the wrong thing about why their
+    # writes did not land. `test_commit_failure_rolls_back_and_reraises_the_commit_error`
+    # alone cannot see this: its rollback succeeds, so nothing is there to mask.
+    target, servicer = async_fake_server
+    servicer.commit_raises = True
+    servicer.rollback_raises = True
+    with pytest.raises(grpc.RpcError) as caught:
+        async with create_client(target) as client, client.transaction("db"):
+            pass
+    assert "commit failed" in str(caught.value)
+    assert "rollback failed" not in str(caught.value)
+    assert servicer.calls == ["BeginTransaction", "CommitTransaction", "RollbackTransaction"]

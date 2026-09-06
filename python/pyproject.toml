@@ -56,7 +56,7 @@ ignore_errors = true
 [tool.pytest.ini_options]
 # e2e/ is excluded here and has its own invocation, so `pytest` never starts a
 # container - the same split typescript/vitest.config.ts makes.
-testpaths = ["packages/driver/tests"]
+testpaths = ["packages/driver/tests", "packages/driver-grpc/tests"]
 asyncio_mode = "strict"
 
 [dependency-groups]

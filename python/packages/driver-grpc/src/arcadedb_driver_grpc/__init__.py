@@ -14,6 +14,7 @@ from .errors import InsecureChannelError
 from .stream import InsertStreamRequest
 from .stream import insert_stream as _insert_stream
 from .stream import stream_query as _stream_query
+from .transaction import Transaction, TransactionHandle
 
 __version__ = "0.1.0"
 
@@ -22,6 +23,8 @@ __all__ = [
     "Auth",
     "InsecureChannelError",
     "InsertStreamRequest",
+    "Transaction",
+    "TransactionHandle",
     "__version__",
     "bearer_auth",
     "create_client",
@@ -57,6 +60,10 @@ class ArcadeDBGrpcClient:
     def insert_stream(self, request: InsertStreamRequest, *, timeout: float | None = None) -> messages.InsertSummary:
         """Streams rows to the server in chunks. See `stream.insert_stream`."""
         return _insert_stream(self.raw, request, timeout=timeout)
+
+    def transaction(self, database: str) -> Transaction:
+        """Runs a server-side transaction: `with client.transaction("db") as tx:`."""
+        return Transaction(self.raw, database)
 
     def __enter__(self) -> ArcadeDBGrpcClient:
         return self

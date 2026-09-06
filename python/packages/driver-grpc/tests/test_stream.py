@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Generator, Iterator
+from typing import cast
 
+import pytest
 from arcadedb_driver_grpc import InsertStreamRequest, create_client, messages
 
 from .conftest import RecordingServicer
@@ -136,10 +138,39 @@ def test_an_empty_stream_sends_one_empty_final_chunk_rather_than_raising(
     assert summary.received == 0
 
 
+def test_a_none_row_batch_is_not_confused_with_end_of_stream(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `next(iterator, None)` would conflate a `None` row batch - easy to produce from a
+    # `dict.get()` in a batching helper, and not statically ruled out for an untyped
+    # caller - with genuine end-of-stream, silently dropping every chunk after it: the
+    # server would report a smaller `received` and nothing would raise anywhere. The
+    # private `_EndOfStream` sentinel closes that hole.
+    target, servicer = fake_server
+    with create_client(target) as client:
+        client.insert_stream(
+            InsertStreamRequest(
+                database="db",
+                chunks=[_records("a"), None, _records("c")],  # type: ignore[list-item]  # deliberately off-contract
+            )
+        )
+    chunks = servicer.insert_chunks
+    assert len(chunks) == 3
+    assert [c.chunk_seq for c in chunks] == [1, 2, 3]
+    assert [c.last for c in chunks] == [False, False, True]
+    assert [list(c.rows) for c in chunks] == [[messages.GrpcRecord(rid="a")], [], [messages.GrpcRecord(rid="c")]]
+
+
 def test_the_callers_iterator_is_finalised_when_the_stream_ends() -> None:
     # The chunk iterator is pulled MANUALLY, because knowing which chunk is last needs
     # one-element lookahead. Manual pulling means finalisation is not automatic, so the
     # caller's own `finally` - closing a file handle, a cursor - must still run.
+    #
+    # Kept as documentation of intent only: this exhaustion-only case cannot actually
+    # fail. Draining a generator to `StopIteration` already runs its own `finally`
+    # regardless of what the consumer does - see
+    # `test_the_callers_iterator_is_finalised_when_the_stream_is_abandoned` below for the
+    # case that genuinely exercises `_envelope_chunks_inner`'s `try/finally`.
     closed = False
 
     def chunks() -> Iterator[list[messages.GrpcRecord]]:
@@ -154,3 +185,55 @@ def test_the_callers_iterator_is_finalised_when_the_stream_ends() -> None:
 
     list(_envelope_chunks(InsertStreamRequest(database="db", chunks=chunks()), "session-1"))
     assert closed is True
+
+
+def test_the_callers_iterator_is_finalised_when_the_stream_is_abandoned() -> None:
+    # The discriminating case: the RPC (or the caller) stops consuming mid-stream while a
+    # reference to the caller's iterator survives - which is the real situation, because
+    # `InsertStreamRequest.chunks` holds that reference and defeats ordinary
+    # refcount-triggered cleanup. Without `_envelope_chunks_inner`'s `try/finally`, `chunks()`
+    # below would stay suspended forever, its own `finally` (closing a file handle, a
+    # database cursor) never running.
+    closed = False
+
+    def chunks() -> Iterator[list[messages.GrpcRecord]]:
+        nonlocal closed
+        try:
+            yield _records("a")
+            yield _records("b")
+            yield _records("c")
+        finally:
+            closed = True
+
+    from arcadedb_driver_grpc.stream import _envelope_chunks
+
+    request = InsertStreamRequest(database="db", chunks=chunks())  # keeps the generator alive
+    # `_envelope_chunks`'s declared return type is the narrower `Iterator`, which has no
+    # `.close()` - but it is always, in fact, a generator, and that is exactly the
+    # abandonment behaviour this test exercises.
+    envelope = cast(Generator[messages.InsertChunk, None, None], _envelope_chunks(request, "session-1"))
+    next(envelope)
+    envelope.close()
+    assert closed is True
+
+
+def test_an_async_iterable_is_rejected_before_grpc_ever_sees_it(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The isinstance guard used to live inside `_envelope_chunks`'s own generator body,
+    # which does not run at all until the first `next()` pull - here, only once grpc
+    # starts consuming the request iterator to open the RPC. That made the TypeError
+    # below never reach the caller: grpc caught it inside its own request-consumption
+    # loop and re-raised an opaque `_InactiveRpcError` instead. Driving this through
+    # `client.insert_stream` (not the private `_envelope_chunks` directly) is what
+    # actually exercises that failure mode - a test calling `_envelope_chunks` directly
+    # would pass even with the guard back inside the generator, and hide the defect.
+    class _AsyncChunks:
+        async def __aiter__(self) -> AsyncIterator[list[messages.GrpcRecord]]:
+            yield _records("a")
+
+    target, servicer = fake_server
+    with create_client(target) as client, pytest.raises(TypeError, match="async iterable"):
+        client.insert_stream(InsertStreamRequest(database="db", chunks=_AsyncChunks()))
+    # No RPC was ever opened: the guard fired before grpc saw a single chunk.
+    assert servicer.insert_chunks == []

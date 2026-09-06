@@ -93,15 +93,52 @@ def _build_chunk(
     return chunk
 
 
+class _EndOfStream:
+    """Sentinel distinguishing "no more chunks" from a row batch that happens to be `None`.
+
+    `next(iterator, None)` would conflate the two: a caller whose generator yields `None` -
+    easy to produce from a `dict.get()` in a batching helper - would have the REST OF THE
+    STREAM SILENTLY DROPPED, because the lookahead below would mistake that `None` batch for
+    end-of-stream. The server would then report a smaller `received` than the caller sent and
+    nothing would raise anywhere: a silent partial insert, the worst failure mode this wrapper
+    could have. A private sentinel object (never equal or identical to any real value the
+    caller could produce) closes that hole.
+    """
+
+
+_END_OF_STREAM = _EndOfStream()
+
+
 def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Iterator[messages.InsertChunk]:
-    """Turns `request.chunks` into wire `InsertChunk`s, adding the envelope bookkeeping."""
+    """Turns `request.chunks` into wire `InsertChunk`s, adding the envelope bookkeeping.
+
+    Validates `request.chunks` EAGERLY, in this function's own body, rather than inside the
+    generator that does the actual iterating (`_envelope_chunks_inner`). A generator's body
+    does not run AT ALL until the first `next()` pull - for `insert_stream`, that pull happens
+    only once grpc itself starts consuming the request iterator to open the RPC. A `raise`
+    written inside that generator would not fire until then, and grpc catches it there and
+    re-raises its own opaque `_InactiveRpcError` (`StatusCode.UNKNOWN`, "Exception iterating
+    requests!") instead of this function's message ever reaching the caller - verified against
+    a real in-process server. Splitting the eager check into this plain (non-generator)
+    function, which merely returns the generator `_envelope_chunks_inner` produces, is what
+    makes the `TypeError` below raise synchronously in the caller's own stack frame, before any
+    RPC is opened at all.
+    """
     if not isinstance(request.chunks, Iterable):
         raise TypeError(
             "insert_stream: `chunks` is an async iterable, which the sync facade cannot consume. "
             "Use arcadedb_driver_grpc.aio.create_client, or pass a synchronous iterable."
         )
+    return _envelope_chunks_inner(request, session_id)
 
-    iterator = iter(request.chunks)
+
+def _envelope_chunks_inner(request: InsertStreamRequest, session_id: str) -> Iterator[messages.InsertChunk]:
+    """The chunk-by-chunk iteration itself, once `_envelope_chunks` has confirmed `request.chunks`
+    is synchronous."""
+    # `request.chunks` is a synchronous `Iterable` here - `_envelope_chunks` already checked -
+    # but mypy cannot see that guarantee across the function boundary, so the declared type is
+    # still the full sync/async union. `iter()` only accepts the synchronous half of it.
+    iterator = iter(request.chunks)  # type: ignore[arg-type]
 
     # The iterator is pulled MANUALLY rather than with a plain `for`, because knowing
     # which chunk is last needs one-element lookahead. Manual pulling means finalisation
@@ -111,8 +148,8 @@ def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Iterator[
     # cursor) would never run. The try/finally makes that cleanup happen on every exit
     # path, not only on normal completion.
     try:
-        current = next(iterator, None)
-        if current is None:
+        current = next(iterator, _END_OF_STREAM)
+        if isinstance(current, _EndOfStream):
             # An empty stream is a legitimate outcome, not an error: a filter that matched
             # nothing produces one. Send a single empty final chunk and let the server
             # answer with whatever summary it likes, rather than inventing a result or
@@ -122,9 +159,9 @@ def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Iterator[
 
         seq = 1
         while True:
-            nxt = next(iterator, None)
-            yield _build_chunk(request, session_id, seq, current, last=nxt is None)
-            if nxt is None:
+            nxt = next(iterator, _END_OF_STREAM)
+            yield _build_chunk(request, session_id, seq, current, last=isinstance(nxt, _EndOfStream))
+            if isinstance(nxt, _EndOfStream):
                 return
             current = nxt
             seq += 1

@@ -12,7 +12,8 @@ Run everything from `python/`.
 ```bash
 uv sync                    # install (Python >= 3.10; uv resolves and creates .venv)
 ./scripts/generate.sh      # regenerate the HTTP client from contracts/
-uv run mypy                # strict type-check (packages/driver/src, packages/driver/tests, e2e)
+./scripts/generate-grpc.sh # regenerate the gRPC client from contracts/
+uv run mypy                # strict type-check (packages/driver/{src,tests}, packages/driver-grpc/{src,tests}, e2e)
 uv run ruff check .        # lint
 uv run ruff format --check .   # formatting check (use `ruff format .` without --check to fix)
 uv run pytest              # unit tests only, offline, no Docker
@@ -23,15 +24,16 @@ uv run pytest -k "rolls_back"                          # a single test by name (
 ```
 
 `pyproject.toml`'s `[tool.pytest.ini_options]` scopes `testpaths` to `packages/driver/tests` and
-excludes `e2e/`, the same split `typescript/vitest.config.ts` makes, so `uv run pytest` never
-starts a container. `-k` matches against the *test function name*, not a literal string with
-spaces the way it might read - `-k "rolls back"` (space) does not filter to
-`test_rolls_back_and_reraises_when_the_body_raises` the way it looks like it should; the test
+`packages/driver-grpc/tests`, and excludes `e2e/`, the same split `typescript/vitest.config.ts`
+makes, so `uv run pytest` never starts a container. `-k` matches against the *test function name*,
+not a literal string with spaces the way it might read - `-k "rolls back"` (space) does not filter
+to `test_rolls_back_and_reraises_when_the_body_raises` the way it looks like it should; the test
 names use underscores, so match on those.
 
 The workspace root (`python/pyproject.toml`, `[tool.uv] package = false`) is not published; only
-`packages/driver` is a real package. `uv sync` from `python/` installs both the dev tooling and
-`packages/driver` in editable mode via `[tool.uv.workspace]` / `[tool.uv.sources]`.
+`packages/driver` and `packages/driver-grpc` are real packages. `uv sync` from `python/` installs
+both the dev tooling and both packages in editable mode via `[tool.uv.workspace]` /
+`[tool.uv.sources]`.
 
 ## Generation
 
@@ -55,24 +57,57 @@ decision to leave it unwrapped or hand-written - never a way to quiet the check.
 that makes the generator skip something *not* on the list, or stops skipping something that *is*,
 fails CI.
 
+## gRPC generation
+
+`scripts/generate-grpc.sh` runs `grpc_tools.protoc` against the contract located by
+`../scripts/resolve-proto-contract.sh`, writing into
+`packages/driver-grpc/src/arcadedb_driver_grpc/_generated`. Two facts about how it stages the
+contract before invoking `protoc` are not arbitrary, and the script's own comment block spells out
+the full reasoning - read that before touching the script:
+
+1. **The contract is staged under a normalised filename.** `protoc` treats `.` in a proto's
+   filename as a directory separator, not a literal dot, so handing it
+   `contracts/arcadedb-server-26.9.1.proto` directly produces an unimportable tree (an import line
+   that is a `SyntaxError`). The script copies the contract to a fixed `arcadedb_server.proto`
+   first. The happy side effect: the generated module carries no version stamp, unlike the
+   TypeScript gRPC client's `arcadedb-server-<version>_pb.ts` - nothing to retire and no imports to
+   repoint on a contract bump (see the root `CLAUDE.md`'s note on `adopt-contract-version.sh`).
+2. **The staged path mirrors the Python package path.** `protoc` derives a generated module's
+   cross-file import from the proto's path relative to its include root. Staging at that root would
+   emit a bare `import arcadedb_server_pb2`, which only resolves if the generated directory happens
+   to be on `sys.path`; staging under `arcadedb_driver_grpc/_generated/` instead makes `protoc` emit
+   `from arcadedb_driver_grpc._generated import arcadedb_server_pb2`, the import that actually
+   resolves once the package is installed as a wheel.
+
 ## Two facades, one generated layer
 
-The synchronous facade and `aio.py` (`Async*`, asynchronous) are hand-written and share the same
-generated `_generated/` tree - every generated operation emits both a `sync_detailed` and an
-`asyncio_detailed` function returning the same `Response` shape, so the two facades differ only in
-which call style they use and both funnel through the same request-building and
-envelope-normalising helpers in `facade/data.py`. The sync/async split does not line up with the
-module split: most sync classes live under `facade/` (`ArcadeDBDatabase` in `__init__.py`,
-`Transaction` in `facade/transaction.py`) while their `Async*` twins live in `aio.py`, but
-`facade/timeseries.py` and `facade/dashboards.py` each hold both their sync and async classes
-side by side. Don't assume "facade/" means sync-only or "aio.py" means every async class - check
-the class name, not the file it happens to be in.
+Both packages are shaped this way: a hand-written facade sits on top of one generated layer, and
+the generated layer is never hand-edited.
+
+`arcadedb-driver`'s synchronous facade and `aio.py` (`Async*`, asynchronous) are hand-written and
+share the same generated `_generated/` tree - every generated operation emits both a
+`sync_detailed` and an `asyncio_detailed` function returning the same `Response` shape, so the two
+facades differ only in which call style they use and both funnel through the same
+request-building and envelope-normalising helpers in `facade/data.py`. The sync/async split does
+not line up with the module split: most sync classes live under `facade/` (`ArcadeDBDatabase` in
+`__init__.py`, `Transaction` in `facade/transaction.py`) while their `Async*` twins live in
+`aio.py`, but `facade/timeseries.py` and `facade/dashboards.py` each hold both their sync and
+async classes side by side. Don't assume "facade/" means sync-only or "aio.py" means every async
+class - check the class name, not the file it happens to be in.
 
 The duplication between the sync and async facades is mechanical and deliberate.
 [`unasync`](https://github.com/python-trio/unasync)-style single-source generation (write async,
 strip `await`/`async` mechanically to produce sync) is a **non-goal** here: it would add a build
 step and a second thing that can drift, to remove duplication that mypy already keeps honest -
 `aio.py`'s docstring says the same. Keep both facades in sync by hand when one changes.
+
+`arcadedb-driver-grpc` follows the same shape with a much thinner facade: `create_client` /
+`aio.create_client` wrap only the RPCs the generated stub handles badly (`stream_query`,
+`insert_stream`, `transaction`), and everything else is used directly through `raw`, the generated
+stub itself - there is no `_generated`-tree envelope-normalising step to mirror `facade/data.py`,
+because gRPC responses need no such unwrapping (see that package's README, "Errors:
+`grpc.RpcError`, not a package-specific error"). See `packages/driver-grpc/README.md` for its own
+sync/async split and its transaction and streaming wrappers; it is not duplicated here.
 
 ## Deliberate asymmetries
 
@@ -217,7 +252,8 @@ type in the second) - not by changing anything in this client.
 
 ## Prose conventions
 
-The root `CLAUDE.md`'s note on prose conventions applies here too: the package README and the code
-comments document failure modes and deliberate asymmetries at length (the two contract defects
-above, why `exists` cannot prove absence, why `.raw` and the facade disagree about raising). When
-you change behaviour in one of those areas, update the prose with it.
+The root `CLAUDE.md`'s note on prose conventions applies here too: each package's README and the
+code comments document failure modes and deliberate asymmetries at length (the two contract
+defects above, why `exists` cannot prove absence, why `.raw` and the facade disagree about
+raising, why `arcadedb-driver-grpc` raises `grpc.RpcError` directly rather than a package-specific
+error). When you change behaviour in one of those areas, update the prose with it.

@@ -21,8 +21,10 @@ if the checked-in generated code and a fresh regeneration disagree.
   - `@arcadedb/driver`, the HTTP client. See `typescript/packages/driver/README.md` for usage.
   - `@arcadedb/driver-grpc`, the gRPC client. See `typescript/packages/driver-grpc/README.md` for
     usage, including why it has no browser build.
-- `python/` - `arcadedb-driver`, the HTTP client. See `python/packages/driver/README.md` for
-  usage.
+- `python/` - two Python clients, sharing one toolchain and one CI job:
+  - `arcadedb-driver`, the HTTP client. See `python/packages/driver/README.md` for usage.
+  - `arcadedb-driver-grpc`, the gRPC client. See `python/packages/driver-grpc/README.md` for usage,
+    including why it raises `grpc.RpcError` directly rather than a package-specific error.
 - `scripts/fetch-contract.sh` - fetches the OpenAPI contract from a released ArcadeDB version or a
   running Docker image, or copies the Protobuf contract out of a local `arcadedb` checkout, and
   writes the result into `contracts/`. See "The contracts" below.

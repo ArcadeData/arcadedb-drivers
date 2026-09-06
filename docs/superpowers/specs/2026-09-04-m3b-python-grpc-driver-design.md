@@ -13,8 +13,13 @@ data plane only. It is the Python sibling of `@arcadedb/driver-grpc` and the gRP
 `arcadedb-driver`.
 
 The facade is three wrappers - `stream_query`, `insert_stream`, `transaction` - in both a sync and
-an async flavour. The other 11 data-plane RPCs and all 9 admin RPCs are reachable through the
-generated stub, which the package exports but does not wrap.
+an async flavour. Between them they cover five of the 14 data-plane RPCs: `StreamQuery`,
+`InsertStream`, and the `Begin`/`Commit`/`Rollback` trio that `transaction` drives internally rather
+than exposing. The other 9 are reachable through the generated stub, which the package exports but
+does not wrap - though six of those nine, the CRUD calls, do gain a bound wrapper once a transaction
+is open, through the handle `transaction` hands back, leaving `BulkInsert`, `InsertBidirectional`
+and `GraphBatchLoad` unwrapped everywhere. All 9 admin RPCs are reachable through the generated stub
+as well.
 
 ## 2. Decisions
 

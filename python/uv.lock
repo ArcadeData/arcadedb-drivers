@@ -74,8 +74,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "grpcio", specifier = ">=1.60" },
-    { name = "protobuf", specifier = ">=4.25" },
+    { name = "grpcio", specifier = ">=1.83.1" },
+    { name = "protobuf", specifier = ">=7.35.1" },
 ]
 
 [[package]]

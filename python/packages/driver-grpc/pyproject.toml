@@ -7,9 +7,18 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 keywords = ["arcadedb", "database", "graph-database", "multi-model", "grpc"]
+# These floors are NOT a preference - they are what the COMMITTED generated code under
+# `_generated/` enforces at import time. `arcadedb_server_pb2_grpc.py` stamps
+# `GRPC_GENERATED_VERSION` and raises `RuntimeError` on import if the installed grpcio is
+# lower; `arcadedb_server_pb2.py` calls `_runtime_version.ValidateProtobufRuntimeVersion`
+# with the protoc-compiler's own version baked in, and raises if the installed protobuf is
+# lower (or, per protobuf's own cross-version gencode policy, from a different major).
+# Both numbers must be raised in lockstep with whatever `generate-grpc.sh` recorded the
+# next time it runs against a newer `grpcio-tools` - that linkage is exactly what let this
+# floor drift out of date in the first place.
 dependencies = [
-    "grpcio>=1.60",
-    "protobuf>=4.25",
+    "grpcio>=1.83.1",
+    "protobuf>=7.35.1",
 ]
 
 [project.urls]

@@ -3,14 +3,14 @@ from __future__ import annotations
 import grpc
 from arcadedb_driver_grpc._generated import arcadedb_server_pb2 as pb2
 from arcadedb_driver_grpc._generated import arcadedb_server_pb2_grpc as pb2_grpc
-from arcadedb_driver_grpc.auth import bearer_auth, password_auth, sync_interceptors
+from arcadedb_driver_grpc.auth import Auth, bearer_auth, password_auth, sync_interceptors
 
 from .conftest import RecordingServicer
 
 
-def _call(target: str, auth: object) -> None:
+def _call(target: str, auth: Auth | None) -> None:
     channel = grpc.insecure_channel(target)
-    intercepted = grpc.intercept_channel(channel, *sync_interceptors(auth))  # type: ignore[arg-type]
+    intercepted = grpc.intercept_channel(channel, *sync_interceptors(auth))
     stub = pb2_grpc.ArcadeDbServiceStub(intercepted)
     stub.ExecuteCommand(pb2.ExecuteCommandRequest(database="db", command="SELECT 1"))
     channel.close()

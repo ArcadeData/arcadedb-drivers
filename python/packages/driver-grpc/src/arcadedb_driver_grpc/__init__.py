@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from types import TracebackType
 
 import grpc
@@ -10,6 +11,7 @@ from ._generated import arcadedb_server_pb2 as messages
 from ._generated import arcadedb_server_pb2_grpc as _pb2_grpc
 from .auth import Auth, bearer_auth, password_auth, sync_interceptors
 from .errors import InsecureChannelError
+from .stream import stream_query as _stream_query
 
 __version__ = "0.1.0"
 
@@ -42,6 +44,12 @@ class ArcadeDBGrpcClient:
     def close(self) -> None:
         """Closes the underlying channel. Safe to call more than once."""
         self._channel.close()
+
+    def stream_query(
+        self, request: messages.StreamQueryRequest, *, timeout: float | None = None
+    ) -> Iterator[messages.GrpcRecord]:
+        """Streams a query's results row by row. See `stream.stream_query`."""
+        return _stream_query(self.raw, request, timeout=timeout)
 
     def __enter__(self) -> ArcadeDBGrpcClient:
         return self

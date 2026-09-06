@@ -174,8 +174,12 @@ def _envelope_chunks_inner(request: InsertStreamRequest, session_id: str) -> Ite
             current = nxt
             seq += 1
     finally:
+        # `callable(...)`, not merely `is not None`: a custom iterable that happens to
+        # carry a non-callable attribute named `close` (a plain data field, unrelated to
+        # generator cleanup) would otherwise make this raise `TypeError` while trying to
+        # call it, which is worse than the missing cleanup this guard exists to provide.
         close = getattr(iterator, "close", None)
-        if close is not None:
+        if callable(close):
             close()
 
 

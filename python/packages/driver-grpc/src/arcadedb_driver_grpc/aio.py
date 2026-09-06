@@ -98,7 +98,7 @@ async def _aiter_chunks(
     released. The sync facade has no equivalent hazard because it closes the caller's
     iterator directly (`iter(g) is g` for a generator).
 
-    Both branches also take the ITERATOR first (`iter()` / `__aiter__()`) and close THAT,
+    Both branches also take the ITERATOR first (`iter()` / `aiter()`) and close THAT,
     never the `Iterable`/`AsyncIterable` they were handed. For a bare generator the two
     are the same object, but for a class whose `__aiter__` is an async generator function
     they are not: `async for` would build a fresh async generator, abandoning it would
@@ -106,9 +106,13 @@ async def _aiter_chunks(
     `None` - so the close would be forwarded to nothing and the caller's `finally` would
     never run. Same story for `__iter__` on the sync half.
 
-    `getattr` rather than a bare call in both cases: an arbitrary `Iterable` or
-    `AsyncIterable` need not be a generator, and only generators are required to have
-    `close`/`aclose`.
+    `getattr` plus `callable(...)` rather than a bare call in both cases: an arbitrary
+    `Iterable` or `AsyncIterable` need not be a generator, and only generators are
+    required to have `close`/`aclose`. Checking `callable(...)` rather than merely
+    `is not None` matters too - a custom iterable that happens to carry a non-callable
+    attribute named `close` or `aclose` (a plain data field, unrelated to generator
+    cleanup) would otherwise make this raise `TypeError` while trying to call it, which
+    is worse than the missing cleanup this guard exists to provide.
     """
     if isinstance(chunks, Iterable):
         iterator = iter(chunks)
@@ -117,17 +121,17 @@ async def _aiter_chunks(
                 yield chunk
         finally:
             close = getattr(iterator, "close", None)
-            if close is not None:
+            if callable(close):
                 close()
         return
 
-    aiterator = chunks.__aiter__()
+    aiterator = aiter(chunks)
     try:
         async for chunk in aiterator:
             yield chunk
     finally:
         aclose = getattr(aiterator, "aclose", None)
-        if aclose is not None:
+        if callable(aclose):
             await aclose()
 
 

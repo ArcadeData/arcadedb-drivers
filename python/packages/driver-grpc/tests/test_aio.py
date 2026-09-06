@@ -499,6 +499,64 @@ async def test_an_aiter_style_class_is_finalised_when_the_stream_is_abandoned() 
     assert source.closed is True
 
 
+class _SyncChunksWithADataCloseAttribute:
+    """A sync iterator carrying an unrelated `close` attribute that is plain data, not a method."""
+
+    def __init__(self) -> None:
+        self.close = "not a cleanup hook"
+        self._rows = iter([_records("a"), _records("b")])
+
+    def __iter__(self) -> Iterator[list[messages.GrpcRecord]]:
+        return self
+
+    def __next__(self) -> list[messages.GrpcRecord]:
+        return next(self._rows)
+
+
+async def test_a_non_callable_close_attribute_on_the_sync_branch_does_not_raise() -> None:
+    # `_aiter_chunks`'s sync branch: `getattr(iterator, "close", None)` alone is not
+    # enough, because a caller's iterable can legitimately carry an attribute named
+    # `close` that is plain data, unrelated to generator cleanup. Before this fix,
+    # `if close is not None: close()` would try to CALL that data value here and raise
+    # `TypeError: 'str' object is not callable`, instead of leaving it alone.
+    request = InsertStreamRequest(database="db", chunks=_SyncChunksWithADataCloseAttribute())
+    envelope = _envelope_chunks(request, "session-1")
+    chunks = [chunk async for chunk in envelope]
+    assert len(chunks) == 2
+
+
+class _AsyncChunksWithADataAcloseAttribute:
+    """An async ITERATOR (not an async-generator-function) whose `aclose` attribute is
+    plain data, not a method. `__aiter__` returns `self` - unlike
+    `_AiterChunks` above, whose `__aiter__` is itself an async-generator function and so
+    returns a FRESH object (with a real `aclose`) on every call - so `aiter(chunks)`,
+    which `_aiter_chunks` actually closes, is this very instance and its data `aclose`.
+    """
+
+    def __init__(self) -> None:
+        self.aclose = "not a cleanup hook"
+        self._rows = iter([_records("a"), _records("b")])
+
+    def __aiter__(self) -> _AsyncChunksWithADataAcloseAttribute:
+        return self
+
+    async def __anext__(self) -> list[messages.GrpcRecord]:
+        try:
+            return next(self._rows)
+        except StopIteration:
+            raise StopAsyncIteration from None
+
+
+async def test_a_non_callable_aclose_attribute_on_the_async_branch_does_not_raise() -> None:
+    # `_aiter_chunks`'s async branch: same hazard as the sync one above, but for
+    # `aclose`. Before this fix, `if aclose is not None: await aclose()` would try to
+    # AWAIT-CALL that data value here and raise `TypeError`, instead of leaving it alone.
+    request = InsertStreamRequest(database="db", chunks=_AsyncChunksWithADataAcloseAttribute())
+    envelope = _envelope_chunks(request, "session-1")
+    chunks = [chunk async for chunk in envelope]
+    assert len(chunks) == 2
+
+
 async def test_a_chunks_value_in_neither_half_of_the_union_is_rejected_before_the_rpc_opens(
     async_fake_server: tuple[str, RecordingServicer],
 ) -> None:

@@ -241,6 +241,33 @@ def test_the_callers_iterator_is_finalised_when_the_stream_is_abandoned() -> Non
     assert closed is True
 
 
+class _ChunksWithADataCloseAttribute:
+    """An iterator carrying an unrelated `close` attribute that is plain data, not a method."""
+
+    def __init__(self) -> None:
+        self.close = "not a cleanup hook"
+        self._rows = iter([_records("a"), _records("b")])
+
+    def __iter__(self) -> Iterator[list[messages.GrpcRecord]]:
+        return self
+
+    def __next__(self) -> list[messages.GrpcRecord]:
+        return next(self._rows)
+
+
+def test_a_non_callable_close_attribute_does_not_raise_during_finalisation() -> None:
+    # `getattr(iterator, "close", None)` alone is not enough: a caller's iterable can
+    # legitimately carry an attribute named `close` that is plain data, unrelated to
+    # generator cleanup - `callable(...)` is what tells the two apart. Before this fix,
+    # `_envelope_chunks_inner`'s `if close is not None: close()` would try to CALL that
+    # data value here and raise `TypeError: 'str' object is not callable`, instead of
+    # leaving it alone.
+    from arcadedb_driver_grpc.stream import _envelope_chunks
+
+    request = InsertStreamRequest(database="db", chunks=_ChunksWithADataCloseAttribute())
+    assert len(list(_envelope_chunks(request, "session-1"))) == 2
+
+
 def test_an_async_iterable_is_rejected_before_grpc_ever_sees_it(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:

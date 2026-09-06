@@ -254,6 +254,32 @@ async def test_refuses_to_run_the_body_without_a_real_transaction_id(
     assert ran is False
 
 
+async def test_the_handles_crud_methods_forward_timeout_and_metadata_to_the_server(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The async twin of the sync suite's equivalent test. `RecordingServicer` implements
+    # only `ExecuteCommand`, so that is the one call this asserts through, but the
+    # forwarding (`self._raw.<Method>(bound, timeout=, metadata=)`) is identical on all
+    # six CRUD methods. Before this fix `execute_command` took only `request` and
+    # calling it with `timeout=`/`metadata=` raised `TypeError`.
+    target, servicer = async_fake_server
+    async with create_client(target) as client, client.transaction("db") as tx:
+        await tx.execute_command(
+            messages.ExecuteCommandRequest(command="INSERT INTO P SET n = 1"),
+            timeout=30.0,
+            metadata=(("x-test-header", "hello"),),
+        )
+    # `grpc.aio`'s `ServicerContext.time_remaining()` answers `None` when no timeout was
+    # set at all and the actual remaining seconds otherwise, so a non-`None`, bounded
+    # value here is only reachable by the `timeout=30.0` above having actually reached
+    # the server. Read from `command_time_remaining`/`command_metadata`, not the
+    # last-call `time_remaining`/`metadata`: the `async with` block's own
+    # `CommitTransaction` follows this call and would otherwise overwrite them first.
+    assert servicer.command_time_remaining[0] is not None
+    assert servicer.command_time_remaining[0] < 60.0
+    assert ("x-test-header", "hello") in servicer.command_metadata[0]
+
+
 async def test_stream_query_through_the_handle_is_bound_to_the_transaction(
     async_fake_server: tuple[str, RecordingServicer],
 ) -> None:

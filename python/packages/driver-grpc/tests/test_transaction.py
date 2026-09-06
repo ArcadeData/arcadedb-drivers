@@ -135,6 +135,34 @@ def test_rollback_failure_attaches_as_cause_but_the_bodys_exception_still_propag
     assert isinstance(caught.value.__cause__, grpc.RpcError)
 
 
+def test_the_handles_crud_methods_forward_timeout_and_metadata_to_the_server(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `execute_query`, `create_record`, `update_record`, `delete_record` and
+    # `lookup_by_rid` all funnel through the same `self._raw.<Method>(bound, timeout=,
+    # metadata=)` shape as `execute_command` below - `RecordingServicer` implements only
+    # `ExecuteCommand`, so that is the one call this asserts through, but the forwarding
+    # is identical on all six. Before this fix `execute_command` took only `request` and
+    # calling it with `timeout=`/`metadata=` raised `TypeError`.
+    target, servicer = fake_server
+    with create_client(target) as client, client.transaction("db") as tx:
+        tx.execute_command(
+            messages.ExecuteCommandRequest(command="INSERT INTO P SET n = 1"),
+            timeout=30.0,
+            metadata=(("x-test-header", "hello"),),
+        )
+    # A real deadline reached the server: `grpc._server`'s sync `ServicerContext`
+    # answers a huge sentinel float (~9.2e18) when no timeout was set at all, and the
+    # actual remaining seconds otherwise - so a small bounded value here is only
+    # reachable by the `timeout=30.0` above having actually been forwarded. Read from
+    # `command_time_remaining`/`command_metadata`, not the last-call `time_remaining`/
+    # `metadata`: the `with` block's own `CommitTransaction` follows this call and would
+    # otherwise overwrite them first.
+    assert servicer.command_time_remaining[0] is not None
+    assert servicer.command_time_remaining[0] < 60.0
+    assert ("x-test-header", "hello") in servicer.command_metadata[0]
+
+
 def test_stream_query_through_the_handle_is_bound_to_the_transaction(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:

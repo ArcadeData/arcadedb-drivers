@@ -231,23 +231,59 @@ class AsyncTransactionHandle:
         )
         return bound
 
-    async def execute_query(self, request: messages.ExecuteQueryRequest) -> messages.ExecuteQueryResponse:
-        return await self._raw.ExecuteQuery(self._bind(request))
+    async def execute_query(
+        self,
+        request: messages.ExecuteQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.ExecuteQueryResponse:
+        return await self._raw.ExecuteQuery(self._bind(request), timeout=timeout, metadata=metadata)
 
-    async def execute_command(self, request: messages.ExecuteCommandRequest) -> messages.ExecuteCommandResponse:
-        return await self._raw.ExecuteCommand(self._bind(request))
+    async def execute_command(
+        self,
+        request: messages.ExecuteCommandRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.ExecuteCommandResponse:
+        return await self._raw.ExecuteCommand(self._bind(request), timeout=timeout, metadata=metadata)
 
-    async def create_record(self, request: messages.CreateRecordRequest) -> messages.CreateRecordResponse:
-        return await self._raw.CreateRecord(self._bind(request))
+    async def create_record(
+        self,
+        request: messages.CreateRecordRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.CreateRecordResponse:
+        return await self._raw.CreateRecord(self._bind(request), timeout=timeout, metadata=metadata)
 
-    async def update_record(self, request: messages.UpdateRecordRequest) -> messages.UpdateRecordResponse:
-        return await self._raw.UpdateRecord(self._bind(request))
+    async def update_record(
+        self,
+        request: messages.UpdateRecordRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.UpdateRecordResponse:
+        return await self._raw.UpdateRecord(self._bind(request), timeout=timeout, metadata=metadata)
 
-    async def delete_record(self, request: messages.DeleteRecordRequest) -> messages.DeleteRecordResponse:
-        return await self._raw.DeleteRecord(self._bind(request))
+    async def delete_record(
+        self,
+        request: messages.DeleteRecordRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.DeleteRecordResponse:
+        return await self._raw.DeleteRecord(self._bind(request), timeout=timeout, metadata=metadata)
 
-    async def lookup_by_rid(self, request: messages.LookupByRidRequest) -> messages.LookupByRidResponse:
-        return await self._raw.LookupByRid(self._bind(request))
+    async def lookup_by_rid(
+        self,
+        request: messages.LookupByRidRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.LookupByRidResponse:
+        return await self._raw.LookupByRid(self._bind(request), timeout=timeout, metadata=metadata)
 
     def stream_query(
         self, request: messages.StreamQueryRequest, *, timeout: float | None = None

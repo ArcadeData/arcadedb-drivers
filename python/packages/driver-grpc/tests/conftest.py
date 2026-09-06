@@ -32,6 +32,19 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self.command_requests: list[pb2.ExecuteCommandRequest] = []
         self.stream_query_requests: list[pb2.StreamQueryRequest] = []
         self.rollback_requests: list[pb2.RollbackTransactionRequest] = []
+        # `time_remaining()` is how a call's `timeout=` reaching the server is observed:
+        # `grpc._server`'s sync `ServicerContext` returns a huge sentinel float (~9.2e18)
+        # when no deadline was set and the actual remaining seconds otherwise; `grpc.aio`'s
+        # returns `None` in the no-deadline case and a float otherwise. Either way, a small
+        # bounded value here is only reachable by a caller-supplied `timeout=`.
+        self.time_remaining: float | None = None
+        # Per-ExecuteCommand-call metadata/deadline, index-aligned with `command_requests`.
+        # A transaction test's `ExecuteCommand` is never the LAST call on the wire - the
+        # `with` block's `CommitTransaction` follows it and would overwrite `self.metadata`
+        # / `self.time_remaining` above before the test gets to look at them. These two
+        # lists are what a test asserting a specific call's timeout/metadata should read.
+        self.command_metadata: list[list[tuple[str, str | bytes]]] = []
+        self.command_time_remaining: list[float | None] = []
         # Configurable responses.
         self.transaction_id = "tx-1"
         self.commit_committed = True
@@ -43,6 +56,7 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
     def _record(self, name: str, context: grpc.ServicerContext) -> None:
         self.calls.append(name)
         self.metadata = [(k, v) for k, v in context.invocation_metadata()]
+        self.time_remaining = context.time_remaining()
 
     def StreamQuery(self, request: pb2.StreamQueryRequest, context: grpc.ServicerContext) -> Iterator[pb2.QueryResult]:
         self._record("StreamQuery", context)
@@ -55,6 +69,8 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
     ) -> pb2.ExecuteCommandResponse:
         self._record("ExecuteCommand", context)
         self.command_requests.append(request)
+        self.command_metadata.append(list(context.invocation_metadata()))
+        self.command_time_remaining.append(context.time_remaining())
         return pb2.ExecuteCommandResponse(success=True)
 
     def InsertStream(

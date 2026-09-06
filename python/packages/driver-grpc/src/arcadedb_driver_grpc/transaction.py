@@ -20,7 +20,7 @@ one is the one that needs the safety.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from types import TracebackType
 from typing import TypeVar
 
@@ -40,6 +40,24 @@ _Request = TypeVar(
     messages.LookupByRidRequest,
     messages.StreamQueryRequest,
 )
+
+
+def _as_metadata(
+    metadata: Sequence[tuple[str, str | bytes]] | None,
+) -> tuple[tuple[str, str | bytes], ...] | None:
+    """Adapts this facade's public `Sequence` parameter to the sync stub's own type.
+
+    `grpc-stubs` types the SYNC `UnaryUnaryMultiCallable.__call__`'s `metadata` as
+    `tuple[tuple[str, str | bytes], ...] | None` - a concrete homogeneous tuple, not
+    `Sequence` - while `grpc.aio`'s equivalent accepts the broader
+    `Metadata | Sequence[MetadatumType]`, which is why `aio.py`'s `AsyncTransactionHandle`
+    needs no equivalent conversion. Narrowing this handle's own public parameter to a
+    tuple would fix the mismatch too, but `Sequence` is what a caller most naturally has
+    on hand (a list built up in a loop) and is already the shape `auth.Auth.metadata`
+    documents, so the conversion happens here instead of pushing a tuple requirement onto
+    every caller.
+    """
+    return None if metadata is None else tuple(metadata)
 
 
 class TransactionHandle:
@@ -82,23 +100,59 @@ class TransactionHandle:
         )
         return bound
 
-    def execute_query(self, request: messages.ExecuteQueryRequest) -> messages.ExecuteQueryResponse:
-        return self._raw.ExecuteQuery(self._bind(request))
+    def execute_query(
+        self,
+        request: messages.ExecuteQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.ExecuteQueryResponse:
+        return self._raw.ExecuteQuery(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
-    def execute_command(self, request: messages.ExecuteCommandRequest) -> messages.ExecuteCommandResponse:
-        return self._raw.ExecuteCommand(self._bind(request))
+    def execute_command(
+        self,
+        request: messages.ExecuteCommandRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.ExecuteCommandResponse:
+        return self._raw.ExecuteCommand(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
-    def create_record(self, request: messages.CreateRecordRequest) -> messages.CreateRecordResponse:
-        return self._raw.CreateRecord(self._bind(request))
+    def create_record(
+        self,
+        request: messages.CreateRecordRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.CreateRecordResponse:
+        return self._raw.CreateRecord(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
-    def update_record(self, request: messages.UpdateRecordRequest) -> messages.UpdateRecordResponse:
-        return self._raw.UpdateRecord(self._bind(request))
+    def update_record(
+        self,
+        request: messages.UpdateRecordRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.UpdateRecordResponse:
+        return self._raw.UpdateRecord(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
-    def delete_record(self, request: messages.DeleteRecordRequest) -> messages.DeleteRecordResponse:
-        return self._raw.DeleteRecord(self._bind(request))
+    def delete_record(
+        self,
+        request: messages.DeleteRecordRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.DeleteRecordResponse:
+        return self._raw.DeleteRecord(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
-    def lookup_by_rid(self, request: messages.LookupByRidRequest) -> messages.LookupByRidResponse:
-        return self._raw.LookupByRid(self._bind(request))
+    def lookup_by_rid(
+        self,
+        request: messages.LookupByRidRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.LookupByRidResponse:
+        return self._raw.LookupByRid(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
     def stream_query(
         self, request: messages.StreamQueryRequest, *, timeout: float | None = None

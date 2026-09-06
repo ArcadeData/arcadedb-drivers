@@ -85,12 +85,16 @@ password_auth("root", "playwithdata", "mydb")  # x-arcade-user / x-arcade-passwo
 ```
 
 Both helpers return an `Auth` value that `create_client` turns into a **channel** interceptor, not
-per-call metadata. That is not a stylistic choice: `raw` is where 11 of this package's 14
-data-plane RPCs live (only `stream_query`, `insert_stream`, and the transaction calls have a
-wrapper at all), and per-call metadata would have authenticated only those three wrappers, leaving
-every call made through `raw` silently anonymous. Attaching auth to the channel means it is
-impossible to reach the server through this client without it - `client.raw.ExecuteCommand(...)`
-carries the same headers `client.stream_query(...)` does.
+per-call metadata. That is not a stylistic choice: the top-level client wraps only three things -
+`stream_query`, `insert_stream`, and the three transaction RPCs (`BeginTransaction`,
+`CommitTransaction`, `RollbackTransaction`) that `transaction` manages internally. The six CRUD
+RPCs (`ExecuteQuery`, `ExecuteCommand`, `CreateRecord`, `UpdateRecord`, `DeleteRecord`,
+`LookupByRid`) get a wrapper only once a transaction is open, through `TransactionHandle` /
+`AsyncTransactionHandle` - outside a transaction they reach the server through `raw` directly - and
+`BulkInsert`, `InsertBidirectional`, and `GraphBatchLoad` have no wrapper anywhere, ever. Attaching
+auth as per-call metadata on just the top-level wrappers would leave every one of those other calls
+silently anonymous. Attaching it to the channel instead makes that impossible -
+`client.raw.ExecuteCommand(...)` carries the same headers `client.stream_query(...)` does.
 
 ### The insecure-channel guard
 
@@ -98,6 +102,8 @@ carries the same headers `client.stream_query(...)` does.
 pair it with a channel that has no transport credentials, unless you pass `insecure=True`:
 
 ```python
+import grpc
+
 create_client("localhost:50051", auth=password_auth("root", "playwithdata"))
 # raises InsecureChannelError: refusing to send a plaintext password over an insecure
 # channel to "localhost:50051" ...

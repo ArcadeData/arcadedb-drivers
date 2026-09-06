@@ -162,7 +162,7 @@ as an all-zero summary) - it does not invent a summary itself.
 This is a compatibility workaround for servers older than the fix for
 [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (merged in
 `7ccade7348`, not yet in a release as of this writing): `InsertChunk.database` is marked
-`// REQUIRED` on the first chunk in `arcadedb-server.proto`, but on 26.9.1 and every earlier
+`// REQUIRED` on the first chunk in `arcadedb-server.proto`, but on 26.10.1-SNAPSHOT and every earlier
 release the server's `InsertContext` construction only reads `InsertOptions.database` - it never
 looks at `InsertChunk.database` at all. Without this mirroring, every stream against such a server
 fails at the deferred commit with `Invalid database name: name is required`, even though `database`
@@ -261,13 +261,13 @@ client surfaces the error its own transport actually gives it.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.9.1.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.10.1-SNAPSHOT.proto`, recorded in
 `package.json` as `arcadedb.serverVersion`:
 
 ```json
 {
   "arcadedb": {
-    "serverVersion": "26.9.1"
+    "serverVersion": "26.10.1-SNAPSHOT"
   }
 }
 ```

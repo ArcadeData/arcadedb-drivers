@@ -255,7 +255,7 @@ export interface paths {
         put?: never;
         /**
          * Transfer leadership
-         * @description Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         * @description Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership: a server that is not the leader answers 409 naming the leader to reissue against, rather than routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["transferClusterLeadership"];
         delete?: never;
@@ -355,7 +355,7 @@ export interface paths {
         put?: never;
         /**
          * Step down from leadership
-         * @description Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         * @description Asks this server to give up leadership, triggering an election. Answers 409 when this server is not the leader - it has nothing to step down from, and the request must be reissued against the leader the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["stepDownClusterLeader"];
         delete?: never;
@@ -3019,6 +3019,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -3363,6 +3373,16 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;

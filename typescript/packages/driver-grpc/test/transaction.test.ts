@@ -9,7 +9,7 @@ import type {
   ExecuteQueryRequestSchema,
   RollbackTransactionRequestSchema,
   RollbackTransactionResponseSchema,
-} from "../src/gen/arcadedb-server-26.9.1_pb.js";
+} from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { createTransaction } from "../src/transaction.js";
 
 type BeginRequest = MessageInitShape<typeof BeginTransactionRequestSchema>;

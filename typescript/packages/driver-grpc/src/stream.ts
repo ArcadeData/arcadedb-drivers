@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape, MessageShape } from "@bufbuild/protobuf";
-import type { ArcadeDbService } from "./gen/arcadedb-server-26.9.1_pb.js";
+import type { ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import {
   DatabaseCredentialsSchema,
   GrpcRecordSchema,
@@ -11,7 +11,7 @@ import {
   QueryResultSchema,
   StreamQueryRequestSchema,
   TransactionContextSchema,
-} from "./gen/arcadedb-server-26.9.1_pb.js";
+} from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
 type RawClient = Client<typeof ArcadeDbService>;
@@ -58,7 +58,7 @@ export interface InsertStreamRequest {
    * REQUIRED there on the first chunk). This field is authoritative on a server carrying the fix
    * for [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (merged in
    * `7ccade7348`, not yet in a release as of this writing): such a server re-reads a non-empty
-   * chunk `database` on every chunk it appears on, it is not cached. 26.9.1 and every earlier
+   * chunk `database` on every chunk it appears on, it is not cached. 26.10.1-SNAPSHOT and every earlier
    * server ignore it entirely, which is why {@link envelopeChunks} also mirrors it into
    * `options.database` on the first chunk - see the comment there.
    */
@@ -133,7 +133,7 @@ async function* envelopeChunks(request: InsertStreamRequest, sessionId: string):
       yield {
         ...(isFirst ? { database: request.database } : {}),
         credentials: request.credentials,
-        // Empirically verified against a real server (task 6 of the M1B plan): on 26.9.1 and
+        // Empirically verified against a real server (task 6 of the M1B plan): on 26.10.1-SNAPSHOT and
         // every earlier release, `InsertContext` builds itself from `InsertOptions.database`
         // only and never reads `InsertChunk.database` at all, despite the .proto contract
         // documenting the latter as REQUIRED on the first chunk. Without this mirror, every

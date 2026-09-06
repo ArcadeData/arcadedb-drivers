@@ -6,7 +6,7 @@ import {
   QueryResultSchema,
   StreamQueryRequest_RetrievalMode,
   StreamQueryRequestSchema,
-} from "../src/gen/arcadedb-server-26.9.1_pb.js";
+} from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { createInsertStream, createStreamQuery } from "../src/stream.js";
 
 type QueryResult = MessageShape<typeof QueryResultSchema>;
@@ -167,7 +167,7 @@ describe("insertStream", () => {
 
   it("mirrors database into options.database on the first chunk only, working around a server-side gap", async () => {
     // Regression test for a real-server finding (task 6 of the M1B plan), filed as
-    // ArcadeData/arcadedb#6597: on 26.9.1 and every earlier server, `ArcadeDbGrpcService
+    // ArcadeData/arcadedb#6597: on 26.10.1-SNAPSHOT and every earlier server, `ArcadeDbGrpcService
     // #insertStream` builds its `InsertContext` from `InsertOptions.database` only and never
     // reads `InsertChunk.database`, even though the .proto contract documents the latter as
     // REQUIRED on the first chunk. Without mirroring `database` into `options.database`, every

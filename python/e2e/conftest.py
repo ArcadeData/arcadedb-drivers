@@ -10,7 +10,7 @@ import httpx
 import pytest
 from testcontainers.core.container import DockerContainer
 
-# Image pin: arcadedata/arcadedb:26.9.1 is the release the committed OpenAPI
+# Image pin: arcadedata/arcadedb:26.10.1-SNAPSHOT is the release the committed OpenAPI
 # contract was generated from, so the client under test and the server it runs
 # against are the same version.
 #
@@ -22,7 +22,7 @@ from testcontainers.core.container import DockerContainer
 # #6562). That argument was sound but load-bearing, and it had to be re-made on
 # every bump. Pinning to the contract's own release retires it. Move this pin with
 # the contract and it stays retired.
-DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.9.1"
+DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.10.1-SNAPSHOT"
 
 # ARCADEDB_DOCKER_IMAGE overrides the pin. It exists for the smoke job in
 # ArcadeData/arcadedb, which runs against the image built from the server commit

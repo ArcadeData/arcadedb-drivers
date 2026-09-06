@@ -1777,7 +1777,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "ArcadeDB HTTP API",
-    "version": "26.9.1"
+    "version": "26.10.1-SNAPSHOT"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -3496,7 +3496,7 @@
     },
     "/api/v1/cluster/leader": {
       "post": {
-        "description": "Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "description": "Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership: a server that is not the leader answers 409 naming the leader to reissue against, rather than routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
         "operationId": "transferClusterLeadership",
         "requestBody": {
           "content": {
@@ -3564,6 +3564,21 @@
               }
             },
             "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -4040,7 +4055,7 @@
     },
     "/api/v1/cluster/stepdown": {
       "post": {
-        "description": "Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "description": "Asks this server to give up leadership, triggering an election. Answers 409 when this server is not the leader - it has nothing to step down from, and the request must be reissued against the leader the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
         "operationId": "stepDownClusterLeader",
         "responses": {
           "200": {
@@ -4097,6 +4112,21 @@
               }
             },
             "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"

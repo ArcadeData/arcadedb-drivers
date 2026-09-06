@@ -98,6 +98,14 @@ async def _aiter_chunks(
     released. The sync facade has no equivalent hazard because it closes the caller's
     iterator directly (`iter(g) is g` for a generator).
 
+    Both branches also take the ITERATOR first (`iter()` / `__aiter__()`) and close THAT,
+    never the `Iterable`/`AsyncIterable` they were handed. For a bare generator the two
+    are the same object, but for a class whose `__aiter__` is an async generator function
+    they are not: `async for` would build a fresh async generator, abandoning it would
+    leave it suspended, and `getattr(chunks, "aclose", None)` on the class instance is
+    `None` - so the close would be forwarded to nothing and the caller's `finally` would
+    never run. Same story for `__iter__` on the sync half.
+
     `getattr` rather than a bare call in both cases: an arbitrary `Iterable` or
     `AsyncIterable` need not be a generator, and only generators are required to have
     `close`/`aclose`.
@@ -113,11 +121,12 @@ async def _aiter_chunks(
                 close()
         return
 
+    aiterator = chunks.__aiter__()
     try:
-        async for chunk in chunks:
+        async for chunk in aiterator:
             yield chunk
     finally:
-        aclose = getattr(chunks, "aclose", None)
+        aclose = getattr(aiterator, "aclose", None)
         if aclose is not None:
             await aclose()
 
@@ -149,8 +158,14 @@ async def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Asy
       every exit path, not only on normal completion. `source` is always an async
       generator (it is `_aiter_chunks`'s own return value), so `aclose()` is always there.
 
-    Unlike `stream._envelope_chunks` there is no eager-validation split here: both halves
-    of the `chunks` union are accepted, so there is nothing to reject before the RPC opens.
+    Unlike `stream._envelope_chunks` this function carries no eager-validation split of its
+    own - but that is not because there is nothing to reject. Both halves of the DECLARED
+    union are accepted here, yet a value in neither half still has to be refused, and this
+    is an async generator, so a `raise` in its body would not fire until grpc pulls the
+    first chunk to open the RPC - where grpc swallows it and re-raises an opaque
+    `_InactiveRpcError` instead, exactly as it did on the sync side before the split. The
+    check therefore lives in `AsyncArcadeDBGrpcClient.insert_stream`, which is a plain
+    `async def` and so raises in the caller's own frame with no split needed.
     """
     source = _aiter_chunks(request.chunks)
     try:
@@ -189,22 +204,32 @@ class AsyncTransactionHandle:
         self._transaction_id = transaction_id
 
     def _bind(self, request: _Request) -> _Request:
-        """Forces `database` and `transaction` onto `request`, overriding the caller.
+        """Returns a COPY of `request` with `database` and `transaction` forced onto it.
 
         The override is the mechanism, not a detail: it is what makes the 2026-07 gRPC
         audit's #5040-#5042 unrepeatable. A request that arrived naming another database,
         or carrying another transaction id, leaves here naming this one.
 
-        `CopyFrom`, never `MergeFrom`: `TransactionContext` also carries inline
-        `begin`/`commit`/`rollback`/`read_only` flags, and a merge would correct the id
-        while letting a caller-supplied `rollback=True` ride through into a call this
-        handle is meant to have full control over.
+        The caller's own object is LEFT ALONE. Binding in place would let this handle's
+        transaction id outlive the transaction: after `async with client.transaction("db")
+        as tx: await tx.execute_command(req)` the caller's `req` would permanently carry
+        `database="db"` and a now-committed transaction's id, and reusing it - through
+        `client.raw`, or in a later transaction before `_bind` runs - would send that dead
+        id to the server. That is #5040's shape reached by aliasing, in the module built to
+        make it unrepeatable.
+
+        `CopyFrom`, never `MergeFrom`, for the transaction field: `TransactionContext` also
+        carries inline `begin`/`commit`/`rollback`/`read_only` flags, and a merge would
+        correct the id while letting a caller-supplied `rollback=True` ride through into a
+        call this handle is meant to have full control over.
         """
-        request.database = self._database
-        request.transaction.CopyFrom(
+        bound = type(request)()
+        bound.CopyFrom(request)
+        bound.database = self._database
+        bound.transaction.CopyFrom(
             messages.TransactionContext(transaction_id=self._transaction_id, database=self._database)
         )
-        return request
+        return bound
 
     async def execute_query(self, request: messages.ExecuteQueryRequest) -> messages.ExecuteQueryResponse:
         return await self._raw.ExecuteQuery(self._bind(request))
@@ -291,15 +316,25 @@ class AsyncTransaction:
         Returns None, not a bool: a falsy return does not suppress the body's exception,
         and an exception raised in here (the failed-commit check below) propagates.
 
-        KNOWN LIMITATION - cancellation bypasses the rollback. If the body is cancelled,
-        `exc` is an `asyncio.CancelledError`, which since 3.8 inherits from
-        `BaseException` and NOT from `Exception`. The `except Exception` clauses below
-        therefore do not see it, and - more to the point - `await self._rollback()` is
-        itself a suspension point inside an already-cancelling task, so it is not
-        something this method can simply be widened to `BaseException` to fix. The
-        transaction is left open on the server until
-        `arcadedb.server.httpTxExpireTimeout` reaps it: a leaked transaction, which is
-        the ArcadeData/arcadedb#5042 shape this module otherwise exists to prevent.
+        Cancellation DOES roll back, contrary to what the obvious reading suggests. The
+        guard below is `if exc is not None`, not `isinstance(exc, Exception)`, so an
+        `asyncio.CancelledError` - a `BaseException`, not an `Exception`, since 3.8 -
+        takes the rollback branch like any other failure. Nor does the `await` inside
+        `_rollback()` re-raise immediately: after a single `task.cancel()` the
+        `CancelledError` has already been delivered and the task's `_must_cancel` flag
+        cleared, so the rollback runs to completion. `test_aio.py`'s
+        `test_cancelling_the_body_still_rolls_back` observes exactly that -
+        `servicer.calls == ["BeginTransaction", "RollbackTransaction"]`.
+
+        KNOWN LIMITATION - a SECOND cancellation, arriving while `_rollback()` is still in
+        flight, is not survived. That `CancelledError` is raised at the `await` and escapes
+        `__aexit__` uncaught, replacing whatever the body raised; the rollback never
+        reaches the server and the transaction is left open until
+        `arcadedb.server.httpTxExpireTimeout` reaps it - the ArcadeData/arcadedb#5042
+        shape this module otherwise exists to prevent. `_safe_rollback`, on the
+        commit-failure path, has the narrower version of the same gap: its
+        `contextlib.suppress(Exception)` does not cover `CancelledError`, so a cancellation
+        landing there replaces the commit error the caller was meant to see.
 
         This is accepted rather than overlooked. The fix would be a shielded rollback
         (`asyncio.shield`, or a rollback issued from `asyncio.CancelledError`'s handler
@@ -307,8 +342,9 @@ class AsyncTransaction:
         cancellation carries its own hang risk against an unresponsive server - trading a
         reaped transaction for a task that will not die. Choosing between those is a
         design decision for this repository's owner, not something to settle silently
-        here. A caller who needs the rollback to be certain under cancellation should
-        issue it themselves rather than relying on this context manager.
+        here. A caller who needs the rollback to be certain even under repeated
+        cancellation should issue it themselves rather than relying on this context
+        manager.
         """
         if exc is not None:
             # Roll back, then let the original exception propagate. A rollback failure
@@ -410,7 +446,21 @@ class AsyncArcadeDBGrpcClient:
         NOT available on `AsyncTransactionHandle`: ArcadeData/arcadedb#6607 has the server
         ignoring `TransactionContext` here, so offering it there would imply a
         transactional guarantee the server does not honour.
+
+        A `chunks` value in NEITHER half of the union is rejected here, before the RPC is
+        opened. This method being a plain `async def` is what makes that cheap: the check
+        runs in the caller's own frame the moment the coroutine is awaited. Left to
+        `_envelope_chunks` - an async generator, whose body does not run until grpc pulls
+        the first chunk - the same `TypeError` would be raised inside grpc's request loop,
+        which catches it and re-raises an opaque `_InactiveRpcError` ("Exception iterating
+        requests!") instead. That is the failure mode the sync facade's eager-validation
+        split closed; this is the async facade's cheaper form of the same guard.
         """
+        if not isinstance(request.chunks, Iterable | AsyncIterable):
+            raise TypeError(
+                "insert_stream: `chunks` must be an iterable or an async iterable of row batches, "
+                f"not {type(request.chunks).__name__}."
+            )
         return await self.raw.InsertStream(_envelope_chunks(request, str(uuid.uuid4())), timeout=timeout)
 
     def transaction(self, database: str) -> AsyncTransaction:

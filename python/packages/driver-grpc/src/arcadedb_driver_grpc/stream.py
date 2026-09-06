@@ -40,6 +40,14 @@ class InsertStreamRequest:
     wire `InsertChunk`. This wrapper owns the envelope bookkeeping around those batches
     (`session_id`, `chunk_seq`, first-chunk-only `database`, final-chunk `last`); it does
     not decide how rows are batched, which is the caller's call.
+
+    `transaction` IS FORWARDED BUT NOT HONOURED. It is set on every chunk, exactly as the
+    caller gave it, because the `.proto` declares the field - but on 26.9.1 and earlier the
+    server ignores `TransactionContext` for `InsertStream` entirely
+    (ArcadeData/arcadedb#6607), so setting it buys no transactional guarantee. That is the
+    same reason `insert_stream` is not offered on `TransactionHandle` at all: there the
+    omission makes the gap visible, whereas here the field is part of the wire message and
+    cannot be hidden. Do not rely on it until #6607 lands.
     """
 
     database: str

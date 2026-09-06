@@ -56,17 +56,31 @@ class TransactionHandle:
         self._transaction_id = transaction_id
 
     def _bind(self, request: _Request) -> _Request:
-        """Forces `database` and `transaction` onto `request`, overriding the caller.
+        """Returns a COPY of `request` with `database` and `transaction` forced onto it.
 
         The override is the mechanism, not a detail: it is what makes #5040-#5042
         unrepeatable. A request that arrived naming another database, or carrying another
         transaction id, leaves here naming this one.
+
+        The caller's own object is LEFT ALONE. Binding in place would let this handle's
+        transaction id outlive the transaction: after `with client.transaction("db") as tx:
+        tx.execute_command(req)` the caller's `req` would permanently carry `database="db"`
+        and a now-committed transaction's id, and reusing it - through `client.raw`, or in a
+        later transaction before `_bind` runs - would send that dead id to the server. That
+        is #5040's shape reached by aliasing, in the module built to make it unrepeatable.
+
+        `CopyFrom`, never `MergeFrom`, for the transaction field: `TransactionContext` also
+        carries inline `begin`/`commit`/`rollback`/`read_only` flags, and a merge would
+        correct the id while letting a caller-supplied `rollback=True` ride through into a
+        call this handle is meant to have full control over.
         """
-        request.database = self._database
-        request.transaction.CopyFrom(
+        bound = type(request)()
+        bound.CopyFrom(request)
+        bound.database = self._database
+        bound.transaction.CopyFrom(
             messages.TransactionContext(transaction_id=self._transaction_id, database=self._database)
         )
-        return request
+        return bound
 
     def execute_query(self, request: messages.ExecuteQueryRequest) -> messages.ExecuteQueryResponse:
         return self._raw.ExecuteQuery(self._bind(request))

@@ -88,6 +88,7 @@ jobs:
         run: uv run pytest
 
       - name: Verify the recorded server version matches the committed contract
+        if: ${{ inputs.package == 'driver' }}
         working-directory: python
         # The package records the ArcadeDB release it was generated against in
         # pyproject.toml's [tool.arcadedb] server-version. That must still match the
@@ -95,11 +96,14 @@ jobs:
         # compatibility table this package ships in its README would be lying the
         # moment it is published. The contract file's name carries the version, so
         # it is located by pattern rather than hardcoded, and the check fails loudly
-        # if zero or more than one candidate is found. This is the same check for
-        # either package (driver against the OpenAPI contract, driver-grpc against
-        # the same contract's info.version - both packages are generated from
-        # different files of the same ArcadeDB release), just read from
-        # $PKG_DIR/pyproject.toml rather than a hardcoded path.
+        # if zero or more than one candidate is found.
+        #
+        # arcadedb-driver ONLY: this reads the OpenAPI contract, which is what
+        # arcadedb-driver is generated from - driver-grpc is generated from the .proto
+        # and never reads this JSON at all, so gating this on `driver` (rather than
+        # running it unconditionally) is what keeps a proto-only contract bump from
+        # blocking a driver-grpc publish on an OpenAPI contract it does not depend on.
+        # The step below is driver-grpc's own equivalent gate, on its own contract.
         run: |
           uv run python - <<'PY'
           import json, os, pathlib, sys, tomllib
@@ -125,15 +129,17 @@ jobs:
         if: ${{ inputs.package == 'driver-grpc' }}
         working-directory: python
         # The step above compares server-version against the OPENAPI contract's
-        # info.version. That is the right source for arcadedb-driver, which is generated
-        # from it - but only indirect evidence for arcadedb-driver-grpc, which is
-        # generated from the .proto and never reads that JSON at all. The two agree today
-        # only because adopt-contract-version.sh stamps every package from one argument;
-        # fetch-contract.sh has independent --release/--image (OpenAPI) and --proto-from
-        # (proto) modes, so the two contracts CAN be fetched apart and left disagreeing,
-        # and nothing else here would notice. This workflow is the only irreversible one
-        # in the repository - a wrong publish cannot be taken back - so the gRPC package
-        # gets its own gate on its own contract rather than inheriting the JSON one.
+        # info.version, gated to `driver` only - the right source for arcadedb-driver,
+        # which is generated from it, but only indirect evidence for
+        # arcadedb-driver-grpc, which is generated from the .proto and never reads that
+        # JSON at all. The two agree today only because adopt-contract-version.sh
+        # stamps every package from one argument; fetch-contract.sh has independent
+        # --release/--image (OpenAPI) and --proto-from (proto) modes, so the two
+        # contracts CAN be fetched apart and left disagreeing, and nothing else here
+        # would notice. This workflow is the only irreversible one in the repository -
+        # a wrong publish cannot be taken back - so the gRPC package gets its own gate
+        # on its own contract here, gated to `driver-grpc`, rather than inheriting the
+        # JSON one or blocking on a contract it does not depend on.
         #
         # resolve-proto-contract.sh already refuses zero or two matches, which is the
         # other half of the check: a version bump transiently leaves two contracts side

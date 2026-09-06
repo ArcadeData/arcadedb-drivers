@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Tests for scripts/resolve-openapi-contract.sh and scripts/adopt-contract-version.sh.
+# Tests for scripts/resolve-openapi-contract.sh, scripts/resolve-proto-contract.sh
+# and scripts/adopt-contract-version.sh.
 #
 # Both scripts exist because of failures that were INVISIBLE while they happened:
 # generating a client from a stale contract, and a half-applied version bump that
@@ -396,6 +397,11 @@ check "$(basename "${out:-<none>}")" "arcadedb-server-26.9.1-SNAPSHOT.proto" "pr
 echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.9.2-SNAPSHOT.proto"
 out="$("$FIX/scripts/resolve-proto-contract.sh" "$FIX/contracts" 2>&1)"; rc=$?
 check "$rc" "1" "refuses two protos instead of silently picking the older one"
+# `out` already captures stderr, so assert what it SAID and not only that it failed -
+# the same thing the resolve-openapi-contract.sh section above asserts. A rc-only
+# check goes green for any nonzero exit, including one from a script that broke
+# before it ever got to the count.
+case "$out" in *"expected exactly one"*) ok "explains what it found" ;; *) bad "explains what it found (got: $out)" ;; esac
 rm -f "$FIX/contracts/arcadedb-server-26.9.2-SNAPSHOT.proto"
 
 # No proto at all: refuses.

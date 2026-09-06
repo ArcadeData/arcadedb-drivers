@@ -31,8 +31,15 @@ def _person(name: str) -> messages.GrpcRecord:
     return messages.GrpcRecord(type="Person", properties={"name": messages.GrpcValue(string_value=name)})
 
 
+# Same story as `auth._SyncAuthInterceptor`: grpc-stubs declares these four base
+# classes `Generic[TRequest, TResponse]` for mypy's benefit, but the real runtime
+# classes (grpc/__init__.py) only extend `abc.ABC` - they are not `typing.Generic`
+# and cannot be subscripted at class definition time. Parameterizing them here would
+# raise `TypeError: ... is not subscriptable` on import, so the per-line
+# `# type: ignore[type-arg]` accepts mypy's "missing type arguments" note instead of
+# a runtime crash.
 class _CallRecorder(
-    grpc.UnaryUnaryClientInterceptor,  # type: ignore[type-arg]  # not runtime-Generic, see auth.py
+    grpc.UnaryUnaryClientInterceptor,  # type: ignore[type-arg]
     grpc.UnaryStreamClientInterceptor,  # type: ignore[type-arg]
     grpc.StreamUnaryClientInterceptor,  # type: ignore[type-arg]
     grpc.StreamStreamClientInterceptor,  # type: ignore[type-arg]

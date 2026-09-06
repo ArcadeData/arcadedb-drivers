@@ -121,6 +121,46 @@ jobs:
           print(f"OK: server-version matches contract info.version ({pkg_version})")
           PY
 
+      - name: Verify the committed .proto contract matches the recorded server version
+        if: ${{ inputs.package == 'driver-grpc' }}
+        working-directory: python
+        # The step above compares server-version against the OPENAPI contract's
+        # info.version. That is the right source for arcadedb-driver, which is generated
+        # from it - but only indirect evidence for arcadedb-driver-grpc, which is
+        # generated from the .proto and never reads that JSON at all. The two agree today
+        # only because adopt-contract-version.sh stamps every package from one argument;
+        # fetch-contract.sh has independent --release/--image (OpenAPI) and --proto-from
+        # (proto) modes, so the two contracts CAN be fetched apart and left disagreeing,
+        # and nothing else here would notice. This workflow is the only irreversible one
+        # in the repository - a wrong publish cannot be taken back - so the gRPC package
+        # gets its own gate on its own contract rather than inheriting the JSON one.
+        #
+        # resolve-proto-contract.sh already refuses zero or two matches, which is the
+        # other half of the check: a version bump transiently leaves two contracts side
+        # by side, and a glob resolves those in LEXICAL order - 26.9.1 before 26.9.2, the
+        # stale one. All this step adds is comparing the surviving file's filename version
+        # against what the package recorded.
+        run: |
+          PROTO="$(../scripts/resolve-proto-contract.sh)"
+          export PROTO
+          uv run python - <<'PY'
+          import os, pathlib, sys, tomllib
+          proto = pathlib.Path(os.environ["PROTO"])
+          proto_version = proto.name.removeprefix("arcadedb-server-").removesuffix(".proto")
+          pkg_dir = pathlib.Path(os.environ["PKG_DIR"])
+          pkg = tomllib.loads((pkg_dir / "pyproject.toml").read_text())
+          pkg_version = pkg.get("tool", {}).get("arcadedb", {}).get("server-version")
+          if not proto_version or not pkg_version:
+              sys.exit(f'Missing version(s): proto filename="{proto.name}", server-version="{pkg_version}"')
+          if proto_version != pkg_version:
+              sys.exit(
+                  f'{pkg_dir}/pyproject.toml [tool.arcadedb] server-version ("{pkg_version}") does not match '
+                  f'the committed contract {proto.name} ("{proto_version}"). Run '
+                  f"scripts/adopt-contract-version.sh so both contracts and every package agree."
+              )
+          print(f"OK: {proto.name} matches server-version ({pkg_version})")
+          PY
+
       - name: Build the wheel and sdist, and verify their contents
         working-directory: python
         # Asserting the built artifacts actually contain the generated tree and the
@@ -177,7 +217,12 @@ jobs:
         #     package, but the pinned glob costs nothing and removes the assumption).
         run: |
           DIST_NAME="arcadedb_${PKG//-/_}"
-          COUNT="$(uv run python -m zipfile -l dist/"$DIST_NAME"-*.whl | grep -cE 'arcadedb_server_pb2(_grpc)?\.(py|pyi)')"
+          # `|| true` is load-bearing: `grep -c` exits 1 when it matches nothing, and
+          # under `set -e` (which the shell runs with) that aborts the assignment - so the
+          # zero-match case, the one the diagnostic below exists for, would kill the step
+          # before it could print anything. With `|| true` the count is 0 and the `if`
+          # below reports it properly.
+          COUNT="$(uv run python -m zipfile -l dist/"$DIST_NAME"-*.whl | grep -cE 'arcadedb_server_pb2(_grpc)?\.(py|pyi)' || true)"
           if [[ "$COUNT" -ne 4 ]]; then
             echo "Expected 4 generated gRPC files (arcadedb_server_pb2.py/.pyi, arcadedb_server_pb2_grpc.py/.pyi) in the wheel, found $COUNT:" >&2
             uv run python -m zipfile -l dist/"$DIST_NAME"-*.whl | grep -E 'arcadedb_server_pb2(_grpc)?\.(py|pyi)' >&2

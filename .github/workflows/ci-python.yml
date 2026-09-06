@@ -80,6 +80,30 @@ jobs:
         # never generated in the first place.
         run: uv run python scripts/check_codegen_skips.py
 
+      # Two-part, not three. The HTTP gate's third part exists because
+      # openapi-python-client drops an endpoint it cannot model, warns, and exits 0, so
+      # neither check above can see an endpoint that was never generated. protoc has no
+      # such failure mode - it fails loudly - so a third check here would imply a risk
+      # that does not exist.
+      - name: Regenerate the gRPC client and verify no drift
+        working-directory: python
+        run: |
+          ./scripts/generate-grpc.sh
+
+          GEN=packages/driver-grpc/src/arcadedb_driver_grpc/_generated
+
+          # Catches a MODIFIED generated file (existing path, changed content).
+          git diff --exit-code -- "$GEN"
+
+          # Catches an ADDED or RENAMED generated file: `git diff` above is blind to
+          # untracked paths, so a contract that introduced a new message would leave the
+          # diff check green while the new file went uncommitted.
+          if [[ -n "$(git status --porcelain -- "$GEN")" ]]; then
+            echo "Generated gRPC output changed - commit the regenerated output:" >&2
+            git status --porcelain -- "$GEN" >&2
+            exit 1
+          fi
+
       - name: Test
         working-directory: python
         run: uv run pytest

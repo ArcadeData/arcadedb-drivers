@@ -14,7 +14,9 @@ differs from what is checked in. If a generated file looks wrong, fix the contra
 generator config — editing the output only makes CI red.
 
 See `typescript/CLAUDE.md` for the TypeScript workspace and `python/CLAUDE.md` for the Python
-workspace (commands, package layout, conventions).
+workspace (commands, package layout, conventions). The Python workspace hosts two packages the
+same way the TypeScript one does: `arcadedb-driver`, the HTTP client, and `arcadedb-driver-grpc`,
+the gRPC client generated from the `.proto` contract.
 
 ## The contracts
 
@@ -31,20 +33,32 @@ scripts/fetch-contract.sh --proto-from <checkout> [<version>]  # copy arcadedb-s
 
 scripts/adopt-contract-version.sh <version>          # retire the old version, adopt the new one, repo-wide
 scripts/resolve-openapi-contract.sh                  # print the single OpenAPI contract path, or fail
-scripts/tests/test-contract-scripts.sh               # tests for the two scripts above (runs in CI)
+scripts/resolve-proto-contract.sh                    # print the single .proto contract path, or fail
+scripts/tests/test-contract-scripts.sh               # tests for the scripts above (runs in CI)
 ```
 
 `fetch-contract.sh` writes the new contract **beside** the old one rather than in place, so a
 version bump is a two-step operation: fetch both contracts, then run
 `adopt-contract-version.sh <version>`, which deletes the retired contract and generated module,
-rewrites the version-stamped imports, and updates each package's `arcadedb.serverVersion`. It
-deliberately does not touch the compatibility tables in the READMEs — those rows are a historical
-record tied to a package version, and adding one is a human decision.
+rewrites the version-stamped imports, and updates each package's recorded server version
+(`arcadedb.serverVersion` in a TypeScript `package.json`, `[tool.arcadedb] server-version` in a
+Python `pyproject.toml`). It deliberately does not touch the compatibility tables in the READMEs —
+those rows are a historical record tied to a package version, and adding one is a human decision.
 
 `adopt-contract-version.sh` is language-aware: which files it rewrites is driven by an explicit
 `LANGUAGES` table (file suffixes and directories to skip, per language) rather than by crawling
 every top-level directory. Adding a language client to this repository is a deliberate one-line
 addition to that table, not something the script infers by finding a new sibling of `contracts/`.
+
+`arcadedb-driver-grpc` needed **no** change to that script, and this is the opposite of what the M3
+design predicted for a second gRPC client: M3 assumed a Python client would inherit the TypeScript
+gRPC client's `_pb.ts`-style version-stamped generated filename, and so would need its own
+retirement step and import-repointing pattern. It does not, because the Python generator can't
+tolerate a version-stamped proto filename at all — protoc treats `.` in a proto's filename as a
+directory separator, so the contract is staged under a fixed, unstamped name before generation (see
+`python/CLAUDE.md`). An unstamped generated module has nothing to retire and no import to repoint;
+`adopt-contract-version.sh`'s existing glob over `python/packages/*/pyproject.toml` already picks up
+`arcadedb-driver-grpc`'s `server-version` key for free.
 
 In `--release` / `--image` mode the fetched OpenAPI spec is rejected unless it is structurally
 post-M0 (the `/api/v1/begin/{database}` 204 response carrying the `arcadedb-session-id` header).
@@ -59,10 +73,16 @@ describes the contract itself and a future Python or Go client reads the same mo
   Node 20; then a separate e2e job on Node 24 (testcontainers@12 needs Node >= 22.22). Its `paths`
   filters include root `buf.yaml` and `.gitignore` on purpose: both can change generated output or
   silence the drift gate while leaving `typescript/` untouched.
-- `ci-python.yml` — the same shape for the Python client: lint, typecheck, and a three-part drift
-  gate (regenerate and diff, catch untracked new generated files, and verify the generator skipped
-  exactly the allowlisted endpoints via `scripts/check_codegen_skips.py`) on the declared floor
-  Python, then unit tests; a separate e2e job runs against a real container on a newer Python.
+- `ci-python.yml` — the same shape for the Python client: lint, typecheck, then **two** drift gates,
+  one per package, then unit tests, all on the declared floor Python; a separate e2e job runs
+  against a real container on a newer Python. The HTTP gate is three-part (regenerate and diff,
+  catch untracked new generated files, and verify the generator skipped exactly the allowlisted
+  endpoints via `scripts/check_codegen_skips.py`); the gRPC gate is only **two**-part (regenerate
+  and diff, catch untracked new generated files) — deliberately with no third part, because `protoc`
+  has no equivalent of `openapi-python-client`'s silent-skip failure mode. `openapi-python-client`
+  meets an endpoint it can't model, prints a warning, drops it, and exits 0, so a skip leaves no
+  trace `git diff` can catch; `protoc` fails loudly on anything it can't generate, so a third check
+  mirroring `check_codegen_skips.py` would imply a risk that does not exist here.
 - `contract-watch.yml` — daily, refreshes contracts from the SNAPSHOT server built off arcadedb's
   `main`. A changed contract gets an issue plus an adopt-and-regenerate PR; an unchanged contract
   with a red suite gets an issue only (it is a server regression no PR here can fix). Both are
@@ -86,11 +106,20 @@ describes the contract itself and a future Python or Go client reads the same mo
   versions).
 - `publish-python.yml` — the npm workflow's sibling, and the only thing that talks to PyPI; also
   **manual workflow_dispatch only**, with the same dispatch-input/version/contract re-verification.
-  Its bootstrap story inverts npm's: PyPI supports pending publishers, so the trusted publisher for
-  `arcadedb-driver` can be configured before the package exists on the index, and the first publish
-  needs no stored secret at all. See the workflow file's comments for the caveat that does carry
-  over from npm (check the workflow filename in PyPI's publisher settings against this file's
-  actual name whenever either changes).
+  It publishes **one package per dispatch**, chosen by a `package` input (`driver` or
+  `driver-grpc`), and is parameterised for the same reason `publish.yml` is: PyPI, like npm, keys a
+  trusted publisher on the workflow **filename**, so both packages naming this one file means one
+  thing to configure and cross-check instead of two. The version-check gate compares the chosen
+  package's `[tool.arcadedb] server-version` against the committed OpenAPI contract's
+  `info.version` — for **both** packages, including `driver-grpc`. That is not a proto-specific
+  check masquerading as one; it works today only because `adopt-contract-version.sh` stamps every
+  package's `server-version` from the same version argument, so the OpenAPI contract's version is a
+  correct stand-in for the version the `.proto` contract carries too. Its bootstrap story inverts
+  npm's: PyPI supports pending publishers, so the trusted publisher for a package — `driver-grpc`
+  included, even though it has never been published — can be configured before the package exists
+  on the index, and the first publish of either package needs no stored secret at all. See the
+  workflow file's comments for the caveat that does carry over from npm (check the workflow
+  filename in PyPI's publisher settings against this file's actual name whenever either changes).
 
 ## Design docs
 
@@ -100,8 +129,9 @@ before reworking a client's public surface.
 
 ## Prose conventions
 
-Both package READMEs and the code comments document failure modes and deliberate asymmetries at
-length (why `truncated` matters, why `exists` cannot prove absence, why the gRPC client throws
-`ConnectError` and not `ArcadeDBError`, why `bulkInsert` cannot join a `transaction()`). When you
-change behaviour in one of those areas, update the prose with it — those passages are load-bearing
-documentation, not decoration.
+Every package README and the code comments document failure modes and deliberate asymmetries at
+length (why `truncated` matters, why `exists` cannot prove absence, why the TypeScript gRPC client
+throws `ConnectError` and not `ArcadeDBError` while its Python sibling raises `grpc.RpcError`
+directly, why `bulkInsert` cannot join a `transaction()`). When you change behaviour in one of
+those areas, update the prose with it — those passages are load-bearing documentation, not
+decoration.

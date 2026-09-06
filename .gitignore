@@ -8,3 +8,7 @@ __pycache__/
 .venv/
 .mypy_cache/
 .pytest_cache/
+
+# Scratch workspace for subagent-driven plan execution (ledger, briefs, review packages).
+# Never part of a commit; see docs/superpowers/plans/.
+.superpowers/

@@ -8,11 +8,12 @@ sequence. A fake servicer records what actually arrived.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from concurrent import futures
 
 import grpc
 import pytest
+import pytest_asyncio
 from arcadedb_driver_grpc._generated import arcadedb_server_pb2 as pb2
 from arcadedb_driver_grpc._generated import arcadedb_server_pb2_grpc as pb2_grpc
 
@@ -107,3 +108,31 @@ def fake_server() -> Iterator[tuple[str, RecordingServicer]]:
         yield f"127.0.0.1:{port}", servicer
     finally:
         server.stop(grace=None)
+
+
+@pytest_asyncio.fixture
+async def async_fake_server() -> AsyncIterator[tuple[str, RecordingServicer]]:
+    """The `grpc.aio` twin of `fake_server`, yielding `(target, servicer)`.
+
+    ONE servicer serves both suites. `RecordingServicer`'s methods are plain sync
+    `def`s, and `grpc.aio` accepts them: it calls a non-coroutine handler directly and
+    treats the generator a server-streaming handler returns as the response stream.
+    Verified here for all three call shapes the async tests exercise - unary-unary
+    (ExecuteCommand), unary-stream (StreamQuery) and stream-unary (InsertStream).
+    Duplicating the recording logic into an async servicer would give the two suites
+    two different notions of what "what arrived on the wire" means.
+
+    `@pytest_asyncio.fixture`, not `@pytest.fixture`: under `asyncio_mode = "strict"`
+    the plain decorator hands the test the un-awaited async generator object itself.
+    """
+    # Same `# type: ignore[abstract]` story as `fake_server` above: mypy-protobuf marks
+    # every RPC on the generated servicer base `abstractmethod`, the runtime .py does not.
+    servicer = RecordingServicer()  # type: ignore[abstract]
+    server = grpc.aio.server()
+    pb2_grpc.add_ArcadeDbServiceServicer_to_server(servicer, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    try:
+        yield f"127.0.0.1:{port}", servicer
+    finally:
+        await server.stop(grace=None)

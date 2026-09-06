@@ -9,6 +9,7 @@ import grpc
 
 from ._generated import arcadedb_server_pb2 as messages
 from ._generated import arcadedb_server_pb2_grpc as _pb2_grpc
+from .aio import AsyncArcadeDBGrpcClient, AsyncTransaction, AsyncTransactionHandle
 from .auth import Auth, bearer_auth, password_auth, sync_interceptors
 from .errors import InsecureChannelError
 from .stream import InsertStreamRequest
@@ -20,6 +21,9 @@ __version__ = "0.1.0"
 
 __all__ = [
     "ArcadeDBGrpcClient",
+    "AsyncArcadeDBGrpcClient",
+    "AsyncTransaction",
+    "AsyncTransactionHandle",
     "Auth",
     "InsecureChannelError",
     "InsertStreamRequest",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import AsyncIterator, Iterator
 
@@ -21,8 +22,9 @@ def _records(*rids: str) -> list[messages.GrpcRecord]:
 async def test_raw_reaches_the_server_and_is_authenticated(
     async_fake_server: tuple[str, RecordingServicer],
 ) -> None:
-    # `raw` is where 11 of the 14 data-plane RPCs live, so the async facade attaching its
-    # auth to the CHANNEL rather than to the three wrapped calls is the property worth
+    # Of the 14 data-plane RPCs the facade wraps five, so 9 are reachable only through
+    # `raw` outside a transaction and 3 even inside one. The async facade attaching its
+    # auth to the CHANNEL rather than to the wrapped calls is therefore the property worth
     # asserting: a call that bypasses the facade entirely still arrives authenticated.
     target, servicer = async_fake_server
     async with create_client(target, auth=bearer_auth("t0ken")) as client:
@@ -359,3 +361,108 @@ async def test_a_failing_rollback_does_not_mask_the_commit_error(
     assert "commit failed" in str(caught.value)
     assert "rollback failed" not in str(caught.value)
     assert servicer.calls == ["BeginTransaction", "CommitTransaction", "RollbackTransaction"]
+
+
+async def test_the_callers_request_object_is_left_unchanged(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `_bind` binds onto a COPY. Binding in place would leave the caller's own request
+    # carrying `database="db"` and a now-committed transaction's id after the block
+    # ended, so reusing it - through `client.raw`, or in a later transaction before
+    # `_bind` runs - would send a dead transaction id to the server: #5040's shape
+    # reached by aliasing, in the module built to make it unrepeatable.
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    request = messages.ExecuteCommandRequest(command="INSERT INTO P SET n = 1", language="sql")
+    async with create_client(target) as client, client.transaction("db") as tx:
+        await tx.execute_command(request)
+
+    # What arrived on the wire IS bound - the override is still the mechanism.
+    sent = servicer.command_requests[0]
+    assert sent.database == "db"
+    assert sent.transaction.transaction_id == "tx-42"
+    # The caller's object is byte-for-byte what they built.
+    assert request == messages.ExecuteCommandRequest(command="INSERT INTO P SET n = 1", language="sql")
+    assert request.database == ""
+    assert request.transaction.transaction_id == ""
+
+
+async def test_cancelling_the_body_still_rolls_back(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `__aexit__`'s guard is `if exc is not None`, NOT `isinstance(exc, Exception)`, so a
+    # cancelled body takes the rollback branch like any other failure - and after a single
+    # `task.cancel()` the CancelledError has already been delivered and `_must_cancel`
+    # cleared, so the `await` inside `_rollback` does not immediately re-raise. This
+    # module's docstring and the README both used to claim the opposite; this test is what
+    # keeps that claim honest. (A SECOND cancellation arriving while the rollback is in
+    # flight IS lost - that is the limitation `__aexit__` documents, and it is not
+    # something this context manager can fix without a shielded await.)
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    entered = asyncio.Event()
+
+    async def body() -> None:
+        async with create_client(target) as client, client.transaction("db"):
+            entered.set()
+            await asyncio.sleep(3600)
+
+    task = asyncio.create_task(body())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert servicer.calls == ["BeginTransaction", "RollbackTransaction"]
+    assert servicer.rollback_requests[0].transaction.transaction_id == "tx-42"
+
+
+async def test_an_aiter_style_class_is_finalised_when_the_stream_is_abandoned() -> None:
+    # `InsertStreamRequest.chunks` is declared `AsyncIterable`, not `AsyncIterator`, and
+    # deliberately so: an object with `__aiter__` but no `__anext__` of its own is a
+    # legitimate caller value. For such an object `async for chunks` builds a FRESH async
+    # generator every time, and `getattr(chunks, "aclose", None)` on the class instance is
+    # `None` - so closing `chunks` rather than the iterator forwards the close to nothing
+    # and leaves that generator suspended forever, its `finally` never running. Both
+    # existing abandonment tests hand over a bare async generator, where `chunks` and its
+    # iterator are the same object, so neither of them can see this.
+    class _AiterChunks:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def __aiter__(self) -> AsyncIterator[list[messages.GrpcRecord]]:
+            try:
+                yield _records("a")
+                yield _records("b")
+                yield _records("c")
+            finally:
+                self.closed = True
+
+    source = _AiterChunks()
+    request = InsertStreamRequest(database="db", chunks=source)  # keeps it alive
+    envelope = _envelope_chunks(request, "session-1")
+    await anext(envelope)
+    await envelope.aclose()
+
+    assert source.closed is True
+
+
+async def test_a_chunks_value_in_neither_half_of_the_union_is_rejected_before_the_rpc_opens(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Both halves of the DECLARED union are accepted here, but a value in neither half
+    # still has to be refused - and refused EAGERLY. `_envelope_chunks` is an async
+    # generator, so a `raise` in its body would not fire until grpc pulled the first chunk
+    # to open the RPC, where grpc catches it and re-raises an opaque `_InactiveRpcError`
+    # ("Exception iterating requests!") instead: exactly the failure mode the sync facade's
+    # eager-validation split closed. `insert_stream` being a plain `async def` is what
+    # makes the guard raise in the caller's own frame instead.
+    target, servicer = async_fake_server
+    async with create_client(target) as client:
+        with pytest.raises(TypeError, match="iterable or an async iterable"):
+            await client.insert_stream(
+                InsertStreamRequest(database="db", chunks=object())  # type: ignore[arg-type]  # off-contract on purpose
+            )
+    # No RPC was ever opened: the guard fired before grpc saw a single chunk.
+    assert servicer.calls == []
+    assert servicer.insert_chunks == []

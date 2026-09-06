@@ -17,8 +17,10 @@ def test_raw_reaches_the_server(fake_server: tuple[str, RecordingServicer]) -> N
 
 
 def test_raw_is_authenticated_too(fake_server: tuple[str, RecordingServicer]) -> None:
-    # The reason auth is a CHANNEL interceptor. `raw` is where 11 of the 14
-    # data-plane RPCs live; per-call metadata on the facade would leave it anonymous.
+    # The reason auth is a CHANNEL interceptor. Of the 14 data-plane RPCs the facade
+    # wraps five, so 9 are reachable only through `raw` outside a transaction and 3
+    # (BulkInsert, InsertBidirectional, GraphBatchLoad) even inside one; per-call
+    # metadata on the facade would leave every one of them anonymous.
     target, servicer = fake_server
     with create_client(target, auth=bearer_auth("t0ken")) as client:
         client.raw.ExecuteCommand(pb2.ExecuteCommandRequest(database="db", command="SELECT 1"))
@@ -58,7 +60,12 @@ def test_password_auth_over_a_secure_channel_is_not_refused() -> None:
 
 
 def test_close_is_idempotent(fake_server: tuple[str, RecordingServicer]) -> None:
+    # `auth=` on purpose: `create_client` skips `grpc.intercept_channel` entirely when
+    # `auth is None`, so an un-authenticated client closes a bare `grpc.Channel` while
+    # every authenticated one closes the interceptor WRAPPER `intercept_channel` returns.
+    # Only the second is the path a real caller takes, and only the second exercises
+    # whether that wrapper forwards `close()` idempotently.
     target, _ = fake_server
-    client = create_client(target)
+    client = create_client(target, auth=bearer_auth("t0ken"))
     client.close()
     client.close()

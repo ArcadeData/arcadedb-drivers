@@ -157,3 +157,47 @@ def test_insert_stream_is_not_offered_on_the_handle(
     with create_client(target) as client, client.transaction("db") as tx:
         assert not hasattr(tx, "insert_stream")
         assert not hasattr(tx, "bulk_insert")
+
+
+def test_the_callers_request_object_is_left_unchanged(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `_bind` binds onto a COPY. Binding in place would leave the caller's own request
+    # carrying `database="db"` and a now-committed transaction's id after the block
+    # ended, so reusing it - through `client.raw`, or in a later transaction before
+    # `_bind` runs - would send a dead transaction id to the server: #5040's shape
+    # reached by aliasing, in the module built to make it unrepeatable.
+    target, servicer = fake_server
+    servicer.transaction_id = "tx-42"
+    request = messages.ExecuteCommandRequest(command="INSERT INTO P SET n = 1", language="sql")
+    with create_client(target) as client, client.transaction("db") as tx:
+        tx.execute_command(request)
+
+    # What arrived on the wire IS bound - the override is still the mechanism.
+    sent = servicer.command_requests[0]
+    assert sent.database == "db"
+    assert sent.transaction.transaction_id == "tx-42"
+    # The caller's object is byte-for-byte what they built.
+    assert request == messages.ExecuteCommandRequest(command="INSERT INTO P SET n = 1", language="sql")
+    assert request.database == ""
+    assert request.transaction.transaction_id == ""
+
+
+def test_a_failing_rollback_does_not_mask_the_commit_error(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Both calls fail. `_safe_rollback` swallowing its own failure is what makes the
+    # COMMIT's error the one that surfaces - without the suppression the rollback's error
+    # would replace it, and the caller would be told the wrong thing about why their
+    # writes did not land. `test_commit_failure_rolls_back_and_reraises_the_commit_error`
+    # alone cannot see this: its rollback succeeds, so nothing is there to mask. The
+    # async suite has carried this test since the start; the sync side had only its
+    # sibling, leaving `contextlib.suppress(Exception)` here untested.
+    target, servicer = fake_server
+    servicer.commit_raises = True
+    servicer.rollback_raises = True
+    with pytest.raises(grpc.RpcError) as caught, create_client(target) as client, client.transaction("db"):
+        pass
+    assert "commit failed" in str(caught.value)
+    assert "rollback failed" not in str(caught.value)
+    assert servicer.calls == ["BeginTransaction", "CommitTransaction", "RollbackTransaction"]

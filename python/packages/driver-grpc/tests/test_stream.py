@@ -118,6 +118,30 @@ def test_mirroring_preserves_the_callers_other_options(
     assert sent.server_batch_size == 32
 
 
+def test_later_chunks_carry_the_callers_options_without_the_database_mirror(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `_build_chunk`'s `elif request.options is not None` branch. The `database` mirror is
+    # a first-chunk-only workaround (#6597), so it must NOT leak onto chunk 2+ - while the
+    # caller's own option fields must survive on every chunk, not just the first. Asserting
+    # only the first chunk (as `test_mirroring_preserves_the_callers_other_options` does)
+    # leaves this branch unexercised: an implementation that dropped `options` entirely
+    # after chunk 1, or that mirrored `database` onto every chunk, passes that test.
+    target, servicer = fake_server
+    options = messages.InsertOptions(target_class="Person")
+    with create_client(target) as client:
+        client.insert_stream(InsertStreamRequest(database="db", chunks=[_records("a"), _records("b")], options=options))
+
+    sent = servicer.insert_chunks
+    assert len(sent) == 2
+    assert sent[0].options.target_class == "Person"
+    assert sent[0].options.database == "db"
+    assert sent[1].options.target_class == "Person"
+    assert sent[1].options.database == ""
+    # The mirror is built on a copy: the caller's own InsertOptions is not touched.
+    assert options == messages.InsertOptions(target_class="Person")
+
+
 def test_an_empty_stream_sends_one_empty_final_chunk_rather_than_raising(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:

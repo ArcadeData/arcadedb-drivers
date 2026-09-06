@@ -35,6 +35,8 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self.transaction_id = "tx-1"
         self.commit_committed = True
         self.commit_message = ""
+        self.commit_raises = False
+        self.rollback_raises = False
         self.stream_batches: list[list[str]] = [["a", "b"], ["c"]]
 
     def _record(self, name: str, context: grpc.ServicerContext) -> None:
@@ -74,6 +76,9 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self, request: pb2.CommitTransactionRequest, context: grpc.ServicerContext
     ) -> pb2.CommitTransactionResponse:
         self._record("CommitTransaction", context)
+        if self.commit_raises:
+            context.abort(grpc.StatusCode.INTERNAL, "commit failed")
+            raise AssertionError("unreachable - context.abort raises")
         return pb2.CommitTransactionResponse(success=True, committed=self.commit_committed, message=self.commit_message)
 
     def RollbackTransaction(
@@ -81,6 +86,9 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
     ) -> pb2.RollbackTransactionResponse:
         self._record("RollbackTransaction", context)
         self.rollback_requests.append(request)
+        if self.rollback_raises:
+            context.abort(grpc.StatusCode.INTERNAL, "rollback failed")
+            raise AssertionError("unreachable - context.abort raises")
         return pb2.RollbackTransactionResponse(success=True, rolled_back=True)
 
 

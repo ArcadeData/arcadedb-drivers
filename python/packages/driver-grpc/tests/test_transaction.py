@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import grpc
 import pytest
 from arcadedb_driver_grpc import create_client, messages
 
@@ -31,6 +32,12 @@ def test_the_handle_overrides_a_transaction_the_caller_supplied(
 ) -> None:
     # The override IS the mechanism. A caller cannot forget, drop or mismatch the
     # transaction id the way the 2026-07 gRPC audit found three times (#5040-#5042).
+    # Asserting only transaction_id/database here would also go green for a `_bind`
+    # written with `MergeFrom` instead of `CopyFrom` - MergeFrom overwrites the id and
+    # database but leaves the caller's inline rollback/read_only/commit/timeout_ms
+    # flags in place, which is the same silent-data-loss shape this module exists to
+    # make unrepeatable. Populating those fields and asserting they arrive cleared is
+    # what actually distinguishes CopyFrom from MergeFrom.
     target, servicer = fake_server
     servicer.transaction_id = "tx-42"
     with create_client(target) as client, client.transaction("db") as tx:
@@ -38,12 +45,22 @@ def test_the_handle_overrides_a_transaction_the_caller_supplied(
             messages.ExecuteCommandRequest(
                 database="somewhere-else",
                 command="INSERT INTO P SET n = 1",
-                transaction=messages.TransactionContext(transaction_id="tx-forged"),
+                transaction=messages.TransactionContext(
+                    transaction_id="tx-forged",
+                    rollback=True,
+                    read_only=True,
+                    commit=True,
+                    timeout_ms=5,
+                ),
             )
         )
     sent = servicer.command_requests[0]
     assert sent.transaction.transaction_id == "tx-42"
     assert sent.database == "db"
+    assert sent.transaction.rollback is False
+    assert sent.transaction.read_only is False
+    assert sent.transaction.commit is False
+    assert sent.transaction.timeout_ms == 0
 
 
 def test_rolls_back_and_reraises_when_the_body_raises(
@@ -89,6 +106,33 @@ def test_raises_when_the_server_reports_the_commit_did_not_take_effect(
         client.transaction("db"),
     ):
         pass
+
+
+def test_commit_failure_rolls_back_and_reraises_the_commit_error(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # A best-effort rollback is issued so the server does not hold the transaction open
+    # until it is reaped, and the commit's own error - not the rollback's - is what the
+    # caller sees.
+    target, servicer = fake_server
+    servicer.commit_raises = True
+    with pytest.raises(grpc.RpcError), create_client(target) as client, client.transaction("db"):
+        pass
+    assert servicer.calls == ["BeginTransaction", "CommitTransaction", "RollbackTransaction"]
+
+
+def test_rollback_failure_attaches_as_cause_but_the_bodys_exception_still_propagates(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The body's own exception is what the caller asked about; a rollback failure on top
+    # of it is attached as __cause__ rather than replacing it.
+    target, servicer = fake_server
+    servicer.rollback_raises = True
+    sentinel = RuntimeError("boom")
+    with pytest.raises(RuntimeError) as caught, create_client(target) as client, client.transaction("db"):
+        raise sentinel
+    assert caught.value is sentinel
+    assert isinstance(caught.value.__cause__, grpc.RpcError)
 
 
 def test_stream_query_through_the_handle_is_bound_to_the_transaction(

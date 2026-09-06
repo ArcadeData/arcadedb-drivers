@@ -33,6 +33,32 @@ async def test_raw_reaches_the_server_and_is_authenticated(
     assert ("authorization", "Bearer t0ken") in servicer.metadata
 
 
+async def test_auth_reaches_every_rpc_shape_not_only_unary_unary(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Regression test for a real defect found against a real server during M3b's e2e
+    # work: `grpc.aio.Channel.__init__` buckets each interceptor it is given with an
+    # `isinstance(...)`/`elif` chain, so a SINGLE interceptor object implementing all
+    # four client-interceptor protocols (this module's original combined
+    # `_AsyncAuthInterceptor`) lands in only the FIRST matching bucket (unary-unary) and
+    # is silently never invoked for the other three call shapes - `StreamQuery` came
+    # back `UNAUTHENTICATED` even though `ExecuteCommand` on the same client, moments
+    # earlier, succeeded. `async_interceptors` now returns four separate objects, one
+    # per shape. This exercises unary-stream (`StreamQuery`) and stream-unary
+    # (`InsertStream`) in addition to the unary-unary case
+    # `test_raw_reaches_the_server_and_is_authenticated` above already covers - the two
+    # additional call shapes this fake in-process server can answer without a
+    # transaction.
+    target, servicer = async_fake_server
+    async with create_client(target, auth=bearer_auth("t0ken")) as client:
+        async for _ in client.stream_query(messages.StreamQueryRequest(database="db", query="SELECT 1")):
+            pass
+        assert ("authorization", "Bearer t0ken") in servicer.metadata
+
+        await client.insert_stream(InsertStreamRequest(database="db", chunks=[_records("a")]))
+        assert ("authorization", "Bearer t0ken") in servicer.metadata
+
+
 async def test_password_auth_over_an_insecure_channel_is_refused() -> None:
     # The async facade carries the same #5048 guard as the sync one; a facade that
     # quietly dropped it would be the easier of the two to reach by accident.

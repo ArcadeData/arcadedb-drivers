@@ -96,6 +96,25 @@ auth as per-call metadata on just the top-level wrappers would leave every one o
 silently anonymous. Attaching it to the channel instead makes that impossible -
 `client.raw.ExecuteCommand(...)` carries the same headers `client.stream_query(...)` does.
 
+**The async side needs four interceptor objects, not one.** `create_client` and
+`aio.create_client` both authenticate via a channel interceptor, but the async facade
+cannot use a single object implementing all four of grpc's client-interceptor protocols
+the way the sync side's `_SyncAuthInterceptor` does. `grpc.aio.Channel.__init__` sorts
+every interceptor it is given into one of four buckets with an `isinstance(...)`/`elif`
+chain and stops at the first match, so a combined object - an instance of all four
+protocol classes at once - lands in only the first bucket (unary-unary) and is never
+invoked for the other three call shapes. `sync_interceptors` is unaffected: the sync
+side's `grpc.intercept_channel` checks all four independently. `async_interceptors`
+therefore returns four separate interceptor objects, one per RPC shape, so that
+`stream_query` (unary-stream), `insert_stream` (stream-unary) and `InsertBidirectional`
+(stream-stream) get authenticated exactly as `ExecuteCommand` (unary-unary) does. A
+single combined object was this module's original shape and passed the whole unit
+suite, because the in-process fake server that suite drives had only ever been
+exercised through a unary-unary call under auth; the gap surfaced only once the async
+facade's transaction and streaming paths were run against a real server (see
+`e2e/test_grpc_aio.py`), where `stream_query` came back `UNAUTHENTICATED` moments after
+`ExecuteCommand`, over the same authenticated client, succeeded.
+
 ### The insecure-channel guard
 
 `password_auth` sends the password in plaintext gRPC metadata, so `create_client` **refuses** to

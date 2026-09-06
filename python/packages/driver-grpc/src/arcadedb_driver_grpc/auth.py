@@ -144,16 +144,32 @@ class _SyncAuthInterceptor(
         return continuation(_augment(client_call_details, self._extra), request_iterator)
 
 
-# Same story as `_SyncAuthInterceptor` above: grpc.aio's base classes aren't
-# runtime-Generic either, so they can't be subscripted - hence the same
-# per-line `# type: ignore[type-arg]`.
-class _AsyncAuthInterceptor(
-    grpc.aio.UnaryUnaryClientInterceptor,  # type: ignore[type-arg]
-    grpc.aio.UnaryStreamClientInterceptor,  # type: ignore[type-arg]
-    grpc.aio.StreamUnaryClientInterceptor,  # type: ignore[type-arg]
-    grpc.aio.StreamStreamClientInterceptor,  # type: ignore[type-arg]
-):
-    """The `grpc.aio` twin of `_SyncAuthInterceptor`; its hooks are coroutines."""
+# FOUR interceptor classes, one per RPC shape - NOT a single class implementing all
+# four protocols the way `_SyncAuthInterceptor` above does. That difference is not
+# stylistic; it is what makes streaming calls authenticated at all on this side.
+#
+# `grpc.aio.Channel.__init__` (`grpc/aio/_channel.py`) buckets every interceptor it is
+# given with an `isinstance(...)`/`elif` chain - `UnaryUnaryClientInterceptor` first,
+# then `UnaryStreamClientInterceptor`, then the other two - and stops at the FIRST
+# match. An object that is an instance of more than one of the four (the shape a
+# combined class necessarily has) lands in exactly one bucket and is silently never
+# invoked for the other three call shapes; unlike the sync side, where
+# `grpc._interceptor.intercept_channel` checks all four independently, so
+# `_SyncAuthInterceptor`'s single combined class reaches every call shape there.
+#
+# A single `_AsyncAuthInterceptor` combining all four protocols - this module's
+# original shape - authenticated ExecuteQuery/ExecuteCommand (unary-unary, the first
+# bucket checked) while silently leaving StreamQuery (unary-stream), InsertStream
+# (stream-unary) and InsertBidirectional (stream-stream) completely unauthenticated.
+# This was found against a REAL server during M3b's e2e work: `stream_query` under
+# `password_auth`/`bearer_auth` came back `UNAUTHENTICATED` even though `ExecuteCommand`
+# on the very same client succeeded moments earlier. The in-process fake server the
+# unit suite used until then only ever exercised bearer auth through `ExecuteCommand`
+# (unary-unary) - never through a streaming call - so nothing had caught it; see
+# `test_aio.py`'s `test_auth_reaches_every_rpc_shape_not_only_unary_unary` for the
+# regression test this defect earned.
+class _AsyncUnaryUnaryAuthInterceptor(grpc.aio.UnaryUnaryClientInterceptor):  # type: ignore[type-arg]
+    """Authenticates unary-unary calls (ExecuteQuery, ExecuteCommand, CreateRecord, ...)."""
 
     def __init__(self, auth: Auth) -> None:
         self._extra = auth.metadata
@@ -163,15 +179,36 @@ class _AsyncAuthInterceptor(
     ) -> Any:
         return await continuation(_augment(client_call_details, self._extra), request)
 
+
+class _AsyncUnaryStreamAuthInterceptor(grpc.aio.UnaryStreamClientInterceptor):  # type: ignore[type-arg]
+    """Authenticates unary-stream calls (StreamQuery)."""
+
+    def __init__(self, auth: Auth) -> None:
+        self._extra = auth.metadata
+
     async def intercept_unary_stream(
         self, continuation: Any, client_call_details: grpc.aio.ClientCallDetails, request: Any
     ) -> Any:
         return await continuation(_augment(client_call_details, self._extra), request)
 
+
+class _AsyncStreamUnaryAuthInterceptor(grpc.aio.StreamUnaryClientInterceptor):  # type: ignore[type-arg]
+    """Authenticates stream-unary calls (InsertStream, BulkInsert)."""
+
+    def __init__(self, auth: Auth) -> None:
+        self._extra = auth.metadata
+
     async def intercept_stream_unary(
         self, continuation: Any, client_call_details: grpc.aio.ClientCallDetails, request_iterator: Any
     ) -> Any:
         return await continuation(_augment(client_call_details, self._extra), request_iterator)
+
+
+class _AsyncStreamStreamAuthInterceptor(grpc.aio.StreamStreamClientInterceptor):  # type: ignore[type-arg]
+    """Authenticates stream-stream calls (InsertBidirectional)."""
+
+    def __init__(self, auth: Auth) -> None:
+        self._extra = auth.metadata
 
     async def intercept_stream_stream(
         self, continuation: Any, client_call_details: grpc.aio.ClientCallDetails, request_iterator: Any
@@ -185,8 +222,25 @@ def sync_interceptors(auth: Auth | None) -> list[grpc.Interceptor]:
 
 
 def async_interceptors(auth: Auth | None) -> list[grpc.aio.ClientInterceptor]:
-    """Channel interceptors for an async channel; empty when `auth` is None."""
+    """Channel interceptors for an async channel; empty when `auth` is None.
+
+    FOUR separate objects, not one combined interceptor - see the module-level
+    comment above the four `_Async*AuthInterceptor` classes for why: a single object
+    implementing all four protocols would authenticate only unary-unary calls under
+    `grpc.aio`'s isinstance/elif interceptor bucketing, leaving every streaming RPC
+    silently unauthenticated.
+    """
+    if auth is None:
+        return []
     # grpc-stubs aliases `grpc.aio.ClientInterceptor` to a private sentinel type
     # (`_PartialStubMustCastOrIgnore`) that no concrete interceptor nominally
     # matches - the stub's own name says a cast is expected here.
-    return [] if auth is None else cast("list[grpc.aio.ClientInterceptor]", [_AsyncAuthInterceptor(auth)])
+    return cast(
+        "list[grpc.aio.ClientInterceptor]",
+        [
+            _AsyncUnaryUnaryAuthInterceptor(auth),
+            _AsyncUnaryStreamAuthInterceptor(auth),
+            _AsyncStreamUnaryAuthInterceptor(auth),
+            _AsyncStreamStreamAuthInterceptor(auth),
+        ],
+    )

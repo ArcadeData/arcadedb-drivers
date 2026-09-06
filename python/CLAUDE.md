@@ -102,12 +102,23 @@ step and a second thing that can drift, to remove duplication that mypy already 
 `aio.py`'s docstring says the same. Keep both facades in sync by hand when one changes.
 
 `arcadedb-driver-grpc` follows the same shape with a much thinner facade: `create_client` /
-`aio.create_client` wrap only the RPCs the generated stub handles badly (`stream_query`,
-`insert_stream`, `transaction`), and everything else is used directly through `raw`, the generated
-stub itself - there is no `_generated`-tree envelope-normalising step to mirror `facade/data.py`,
-because gRPC responses need no such unwrapping (see that package's README, "Errors:
-`grpc.RpcError`, not a package-specific error"). See `packages/driver-grpc/README.md` for its own
-sync/async split and its transaction and streaming wrappers; it is not duplicated here.
+`aio.create_client` wrap only the RPCs the generated stub handles badly at the top level
+(`stream_query`, `insert_stream`, `transaction`) - there is no `_generated`-tree
+envelope-normalising step to mirror `facade/data.py`, because gRPC responses need no such
+unwrapping (see that package's README, "Errors: `grpc.RpcError`, not a package-specific error").
+`transaction()` itself returns a **second** wrapper, `TransactionHandle` (`transaction.py`), not a
+bare route back to `raw`: every call made through it (`execute_query`, `execute_command`,
+`create_record`, `update_record`, `delete_record`, `lookup_by_rid`, plus `stream_query` again,
+bound this time) passes through `_bind`, which forcibly overwrites `request.database` and
+`request.transaction` with the handle's own values, discarding whatever the caller had set on the
+request object first. That override is the safety mechanism, not an incidental detail - it is
+what makes transaction hijack, silent data loss, and leaked transactions
+(ArcadeData/arcadedb#5040-#5042) unrepeatable through the handle, the gRPC-specific way
+`arcadedb-driver`'s second `ArcadeDBDatabase` handle (see "The transaction contract" below) keeps a
+transaction's calls separated from the outer handle's. Only three RPCs are ever reachable solely
+through `raw` with no wrapper at any level: `BulkInsert`, `InsertBidirectional`, and
+`GraphBatchLoad`. See `packages/driver-grpc/README.md` for its own sync/async split and its
+transaction and streaming wrappers; it is not duplicated here.
 
 ## Deliberate asymmetries
 

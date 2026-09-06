@@ -155,6 +155,7 @@ jobs:
           set -euo pipefail
           (cd typescript && npm run generate)
           (cd python && ./scripts/generate.sh)
+          (cd python && ./scripts/generate-grpc.sh)
 
       - name: Detect contract change
         id: detect

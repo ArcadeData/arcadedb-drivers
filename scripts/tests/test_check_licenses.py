@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 _CHECKER = Path(__file__).resolve().parent.parent / "check-licenses.py"
 
 
@@ -136,3 +138,13 @@ def test_npm_undeclared_license_yields_an_empty_signal() -> None:
     # Empty rather than a guess: evaluate() turns it into a violation with
     # "no license declared", which is what a human needs to see.
     assert cl._npm_signal({})[0] == ""
+
+
+def test_npm_collector_refuses_an_empty_or_half_installed_tree(tmp_path: Path) -> None:
+    # A checker that silently checks nothing is worse than no checker: an empty
+    # node_modules (or a half-installed one, well short of a real `npm ci`) must fail
+    # loudly rather than report a clean, empty result.
+    node_modules = tmp_path / "node_modules"
+    node_modules.mkdir()
+    with pytest.raises(cl.CollectorError):
+        cl.collect_npm(tmp_path)

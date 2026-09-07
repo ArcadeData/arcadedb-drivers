@@ -29,7 +29,6 @@ Exit codes: 0 clean, 1 policy violation, 2 usage or environment error.
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
@@ -321,9 +320,15 @@ def _npm_signal(pkg: dict[str, object]) -> tuple[str, str]:
 def _npm_installed_index(node_modules: Path) -> dict[tuple[str, str], dict[str, object]]:
     """Indexes every installed package.json by (name, version).
 
-    Walks node_modules rather than resolving each dependency's path from `npm ls`,
-    because hoisting means a package's directory is not reliably node_modules/<name> -
-    it may sit in a nested node_modules under whichever dependent pulled it in.
+    Walks node_modules rather than resolving each dependency's path by name, because
+    hoisting means a package's directory is not reliably node_modules/<name> - it may
+    sit in a nested node_modules under whichever dependent pulled it in. Reading each
+    manifest's own declared `name` (rather than trusting the directory it lives in)
+    also makes this correct for an npm alias such as
+    `"string-width-cjs": "npm:string-width@^4.2.0"`, where the installed directory is
+    named `string-width-cjs` but the package.json inside it declares itself as
+    `string-width` - the identity that matters for licensing is the one the package
+    declares for itself.
     """
     index: dict[tuple[str, str], dict[str, object]] = {}
     for manifest in node_modules.rglob("package.json"):
@@ -337,51 +342,38 @@ def _npm_installed_index(node_modules: Path) -> dict[tuple[str, str], dict[str, 
     return index
 
 
+# A real `npm ci` here installs several hundred packages. This is a floor, not an exact
+# count: an exact count would be brittle (it changes on every dependency bump) and a gate
+# people have to re-baseline constantly is a gate they learn to edit rather than trust.
+# 50 is low enough never to fire on a legitimate install and high enough to catch an
+# empty or half-installed tree, which is the failure mode this guard exists to catch -
+# a checker that silently checks nothing is worse than no checker.
+_MIN_PLAUSIBLE_NPM_PACKAGES = 50
+
+
 def collect_npm(typescript_dir: Path) -> list[Record]:
-    """Collects every package in the npm dependency tree, dev included."""
+    """Collects every package installed under the npm workspace, dev included.
+
+    node_modules itself is the authority here, not `npm ls`: the packages actually on
+    disk are precisely the code this repository ships and depends on, which is what a
+    license audit is about. Walking node_modules is alias-correct by construction (each
+    package.json is read under its own declared name, never the directory it happens to
+    live in) and platform-correct by construction (an optional native binary for another
+    OS/CPU that never installed on this machine ships nothing to anyone here, so it is
+    rightly absent rather than a bug to chase).
+    """
     node_modules = typescript_dir / "node_modules"
     if not node_modules.is_dir():
         raise CollectorError(f"{node_modules} does not exist - run `npm ci` in {typescript_dir} first.")
 
-    try:
-        completed = subprocess.run(
-            ["npm", "ls", "--all", "--json"],
-            cwd=typescript_dir,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        tree = json.loads(completed.stdout)
-    except (OSError, json.JSONDecodeError) as err:
-        raise CollectorError(f"could not read the npm dependency tree: {err}") from err
-
-    wanted: set[tuple[str, str]] = set()
-
-    def walk(node: dict[str, object]) -> None:
-        deps = node.get("dependencies")
-        if not isinstance(deps, dict):
-            return
-        for name, info in deps.items():
-            if not isinstance(info, dict):
-                continue
-            version = info.get("version")
-            # Our own workspace packages are the thing being licensed, not a dependency
-            # of it. They resolve to a file: URL rather than the registry.
-            if isinstance(version, str) and not str(info.get("resolved", "")).startswith("file:"):
-                wanted.add((name, version))
-            walk(info)
-
-    walk(tree)
-
     index = _npm_installed_index(node_modules)
-    records = []
-    for name, version in sorted(wanted):
-        body = index.get((name, version))
-        if body is None:
-            raise CollectorError(
-                f"{name}@{version} is in the npm tree but not installed under {node_modules}; "
-                "the tree and node_modules disagree - re-run `npm ci`."
-            )
-        signal, source = _npm_signal(body)
-        records.append(Record("npm", name, version, signal, source))
-    return records
+    # Our own workspace packages are the thing being licensed, not a dependency of it.
+    installed = {key: body for key, body in index.items() if not key[0].startswith("@arcadedb/")}
+
+    if len(installed) < _MIN_PLAUSIBLE_NPM_PACKAGES:
+        raise CollectorError(
+            f"only {len(installed)} package(s) found under {node_modules}, fewer than the "
+            f"{_MIN_PLAUSIBLE_NPM_PACKAGES} a real install has - run `npm ci` in {typescript_dir}."
+        )
+
+    return [Record("npm", name, version, *_npm_signal(body)) for (name, version), body in sorted(installed.items())]

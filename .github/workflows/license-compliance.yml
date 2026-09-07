@@ -1,0 +1,97 @@
+name: License compliance
+
+on:
+  push:
+    branches:
+      - main
+    # Written out longhand and duplicated verbatim below, matching ci.yml and
+    # ci-python.yml. A YAML anchor would be shorter, but GitHub's workflow parser is not
+    # PyYAML and has long been reported not to support anchors - and a workflow file
+    # GitHub rejects is a gate that never runs, which is the one failure mode a license
+    # gate must not have. Keep the two lists identical when either changes.
+    paths:
+      - "typescript/package-lock.json"
+      - "typescript/**/package.json"
+      - "python/uv.lock"
+      - "python/**/pyproject.toml"
+      # The checker and the policy are themselves gated: an edit to either must re-run
+      # the gate it changes, or a widened allow-list lands unverified.
+      - "scripts/check-licenses.py"
+      - "scripts/tests/test_check_licenses.py"
+      - "CLAUDE.md"
+      - ".github/workflows/license-compliance.yml"
+  pull_request:
+    paths:
+      - "typescript/package-lock.json"
+      - "typescript/**/package.json"
+      - "python/uv.lock"
+      - "python/**/pyproject.toml"
+      # The checker and the policy are themselves gated: an edit to either must re-run
+      # the gate it changes, or a widened allow-list lands unverified.
+      - "scripts/check-licenses.py"
+      - "scripts/tests/test_check_licenses.py"
+      - "CLAUDE.md"
+      - ".github/workflows/license-compliance.yml"
+  schedule:
+    # Weekly, Sunday 03:00 UTC. NOT redundant with the path filters above: a package can
+    # be RELICENSED on a version already pinned in a lockfile, and no manifest changes
+    # when that happens. This trigger is the only one that catches it.
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  licenses:
+    name: Check dependency licenses
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: python/uv.lock
+
+      # Both trees must be fully installed, dev dependencies included: the allow-list
+      # covers development dependencies too, and a partial install would leave the
+      # checker reporting a clean bill of health over a tree it could not see.
+      - name: Install npm dependencies
+        working-directory: typescript
+        run: npm ci
+
+      - name: Install Python dependencies
+        working-directory: python
+        # --python 3.10 is the declared floor, matching ci-python.yml's build job. Left
+        # unpinned this would audit whatever interpreter uv happened to pick, and a
+        # metadata API that breaks on a newer Python would surface here as a `uv run`
+        # failure the collector reports as an unsynced workspace - the wrong diagnosis.
+        run: uv sync --frozen --python 3.10
+
+      - name: Test the checker
+        working-directory: python
+        run: uv run python -m pytest ../scripts/tests/test_check_licenses.py -v
+
+      - name: Check dependency licenses
+        run: ./scripts/check-licenses.py
+
+      - name: Write the license spread to the job summary
+        if: always()
+        run: |
+          {
+            echo "### Dependency licenses"
+            echo
+            echo '```'
+            ./scripts/check-licenses.py 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -73,7 +73,10 @@ matters, because a package can be relicensed on a version already in the lockfil
 
 ## 4. What we actually depend on
 
-Measured, not estimated, at the time of writing.
+Measured, not estimated, at the time of writing, against Python 3.12 - CI now pins the `python/`
+job to the 3.10 floor instead, which resolves more distributions (openapi-python-client's dev
+dependency on `python-dateutil` only applies below 3.11), so a run against the pinned floor prints
+higher Python and combined totals than the figures below.
 
 | Ecosystem | Packages | Distinct license signals |
 |---|---|---|
@@ -343,11 +346,14 @@ schedule - the same argument that puts `buf.yaml` at the repository root.
   no manifest changes when that happens. This is the only trigger that catches it.
 - `workflow_dispatch`.
 
-**Steps:** checkout, `npm ci` in `typescript/`, `uv sync` in `python/`, run the checker, run its
-tests, write the license spread to the job summary.
+**Steps:** checkout, `npm ci` in `typescript/`, `uv sync --frozen --python 3.10` in `python/` - the
+declared floor, pinned deliberately so CI audits the interpreter that resolves the most
+distributions rather than whichever happens to be on the runner - run the checker, run its tests,
+write the license spread to the job summary.
 
-The job summary lists the spread (`240 MIT, 47 Apache-2.0, ...`) so a passing run still shows what
-we depend on rather than only asserting that it is fine.
+The job summary lists the spread (`240 MIT, 47 Apache-2.0, ...` - also measured on 3.12; the 3.10
+floor's job summary will show more) so a passing run still shows what we depend on rather than
+only asserting that it is fine.
 
 ## 10. Testing
 

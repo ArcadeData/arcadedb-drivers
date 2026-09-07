@@ -136,9 +136,26 @@ NORMALISE = {
     # materially more restrictive (the advertising clause is a real obligation, and is why
     # 4-Clause is GPL-incompatible). Mapping the classifier to BSD-3-Clause therefore
     # ASSUMES away 4-Clause rather than proving its absence. That is acceptable only while
-    # the entry has few enough consumers to check by hand: today only `Jinja2` reaches it
-    # and it is genuinely BSD-3-Clause. Revisit this row if a new distribution lands on it,
-    # or if BSD-2-Clause or BSD-3-Clause ever leaves ALLOWED_IDS.
+    # the entry has few enough consumers to check by hand: on the Python 3.10 floor CI
+    # actually audits, two reach it, both genuinely safe.
+    #
+    #   - `Jinja2` carries no License-Expression and no usable legacy `License` field, so
+    #     _python_signal falls through to its sole classifier, "BSD License". It is
+    #     genuinely BSD-3-Clause.
+    #   - `python-dateutil` reaches this row the same way but by a less obvious path: it
+    #     declares a legacy `License: Dual License` field, which names no license and is
+    #     therefore listed in _LEGACY_NON_ANSWERS, so _python_signal discards it and falls
+    #     through to classifiers - not because it lacks a legacy field, but because that
+    #     field is a non-answer. Its first classifier is "BSD License" (it also carries
+    #     "Apache Software License", but only the first classifier is taken). It is
+    #     genuinely Apache-2.0/BSD-3-Clause dual-licensed, and both are allowed, so it
+    #     passes either way this row resolves it.
+    #
+    # `python-dateutil` only reaches this repository's tree on the 3.10 floor, through
+    # openapi-python-client 0.28.4 (its uv.lock resolution marker is
+    # `python_full_version < '3.11'`); on 3.12 only `Jinja2` reaches this row. Revisit this
+    # row if a new distribution lands on it, or if BSD-2-Clause or BSD-3-Clause ever leaves
+    # ALLOWED_IDS.
     "bsd license": "BSD-3-Clause",
     # Eclipse Distribution License 1.0 is textually BSD-3-Clause and has no SPDX id.
     "edl-1.0": "BSD-3-Clause",

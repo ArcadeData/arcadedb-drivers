@@ -3,14 +3,12 @@
 A TypeScript/JavaScript gRPC client for ArcadeDB's data plane, generated from ArcadeDB's Protobuf
 contract with [Connect-ES](https://connectrpc.com/).
 
-**This package is not yet published to npm**, though the path to publish it now exists:
-`publish.yml` takes a `package` input, and dispatching it with `package=driver-grpc` publishes
-this one. What it still needs is npm-side setup — a first publish under the `@arcadedb` scope, and
-its own trusted publisher afterwards, neither of which `@arcadedb/driver` having them does for it.
-Until that runs, consume it from this repository (workspace link or `npm pack`).
-
 If you want an HTTP client instead - including from a browser - see
 [`@arcadedb/driver`](../driver/README.md).
+
+Published on npm as [`@arcadedb/driver-grpc`](https://www.npmjs.com/package/@arcadedb/driver-grpc),
+with a provenance attestation: every release is built and published by `publish.yml`, dispatched
+with `package=driver-grpc`, from a clean checkout of this repository, never from anyone's laptop.
 
 ## Requirements
 

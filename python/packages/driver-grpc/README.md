@@ -4,8 +4,13 @@ A Python gRPC client for [ArcadeDB](https://arcadedb.com)'s data plane, generate
 protobuf contract (`contracts/arcadedb-server-*.proto`), with a hand-written facade on top for
 authentication, the two streaming RPCs, and explicit transactions.
 
-If you want an HTTP client instead - including one that works from environments gRPC cannot reach
-- see [`arcadedb-driver`](../driver/README.md).
+If you want an HTTP client instead - including one that works from environments gRPC cannot reach -
+see [`arcadedb-driver`](../driver/README.md).
+
+Published on PyPI as [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/), with
+attestations: every release is built and published by `publish-python.yml`, dispatched with
+`package=driver-grpc`, from a clean checkout of this repository through PyPI's trusted publishing,
+with no long-lived token anywhere in the chain.
 
 ## Requirements
 
@@ -96,24 +101,24 @@ auth as per-call metadata on just the top-level wrappers would leave every one o
 silently anonymous. Attaching it to the channel instead makes that impossible -
 `client.raw.ExecuteCommand(...)` carries the same headers `client.stream_query(...)` does.
 
-**The async side needs four interceptor objects, not one.** `create_client` and
-`aio.create_client` both authenticate via a channel interceptor, but the async facade
-cannot use a single object implementing all four of grpc's client-interceptor protocols
-the way the sync side's `_SyncAuthInterceptor` does. `grpc.aio.Channel.__init__` sorts
-every interceptor it is given into one of four buckets with an `isinstance(...)`/`elif`
-chain and stops at the first match, so a combined object - an instance of all four
-protocol classes at once - lands in only the first bucket (unary-unary) and is never
-invoked for the other three call shapes. `sync_interceptors` is unaffected: the sync
-side's `grpc.intercept_channel` checks all four independently. `async_interceptors`
-therefore returns four separate interceptor objects, one per RPC shape, so that
-`stream_query` (unary-stream), `insert_stream` (stream-unary) and `InsertBidirectional`
-(stream-stream) get authenticated exactly as `ExecuteCommand` (unary-unary) does. A
-single combined object was this module's original shape and passed the whole unit
-suite, because the in-process fake server that suite drives had only ever been
-exercised through a unary-unary call under auth; the gap surfaced only once the async
-facade's transaction and streaming paths were run against a real server (see
-`e2e/test_grpc_aio.py`), where `stream_query` came back `UNAUTHENTICATED` moments after
-`ExecuteCommand`, over the same authenticated client, succeeded.
+### The async side needs four interceptor objects, not one
+
+`create_client` and `aio.create_client` both authenticate via a channel interceptor, but the async
+facade cannot use a single object implementing all four of grpc's client-interceptor protocols the
+way the sync side's `_SyncAuthInterceptor` does. `grpc.aio.Channel.__init__` sorts every
+interceptor it is given into one of four buckets with an `isinstance(...)`/`elif` chain and stops
+at the first match, so a combined object - an instance of all four protocol classes at once - lands
+in only the first bucket (unary-unary) and is never invoked for the other three call shapes.
+`sync_interceptors` is unaffected: the sync side's `grpc.intercept_channel` checks all four
+independently. `async_interceptors` therefore returns four separate interceptor objects, one per
+RPC shape, so that `stream_query` (unary-stream), `insert_stream` (stream-unary) and
+`InsertBidirectional` (stream-stream) get authenticated exactly as `ExecuteCommand` (unary-unary)
+does. A single combined object was this module's original shape and passed the whole unit suite,
+because the in-process fake server that suite drives had only ever been exercised through a
+unary-unary call under auth; the gap surfaced only once the async facade's transaction and
+streaming paths were run against a real server (see `e2e/test_grpc_aio.py`), where `stream_query`
+came back `UNAUTHENTICATED` moments after `ExecuteCommand`, over the same authenticated client,
+succeeded.
 
 ### The insecure-channel guard
 
@@ -208,19 +213,21 @@ only the envelope bookkeeping around those batches, which is easy to get wrong b
   documented `// REQUIRED` there for exactly that chunk)
 - `last=True` on the final chunk only
 
-**The `options.database` mirror.** `insert_stream` also sets `options.database` to the same value
-as the first chunk's `database`. This is a compatibility workaround, established empirically
-against a real server: on ArcadeDB 26.9.1 and every earlier release, the server builds its
-`InsertContext` from `InsertOptions.database` **alone** and never reads `InsertChunk.database` at
-all, despite the `.proto` documenting the latter as required. Without this mirror, every stream
-against such a server fails at the deferred commit with `Invalid database name: name is required`
-- even though `database` was sent exactly as the contract specifies. A server carrying the fix for
+### The `options.database` mirror
+
+`insert_stream` also sets `options.database` to the same value as the first chunk's `database`.
+This is a compatibility workaround, established empirically against a real server: on ArcadeDB
+26.9.1 and every earlier release, the server builds its `InsertContext` from
+`InsertOptions.database` **alone** and never reads `InsertChunk.database` at all, despite the
+`.proto` documenting the latter as required. Without this mirror, every stream against such a
+server fails at the deferred commit with `Invalid database name: name is required` - even though
+`database` was sent exactly as the contract specifies. A server carrying the fix for
 [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) prefers a non-empty
 `InsertChunk.database` and falls back to `InsertOptions.database`, so setting both to the same
 value is correct on either side of that fix and safe to keep sending once it ships.
 
-**An empty stream is not an error.** A caller whose row source produces zero batches (a filter
-that matched nothing, say) gets a single wire chunk with zero rows and `last=True`, and whatever
+An empty stream is not an error. A caller whose row source produces zero batches (a filter that
+matched nothing, say) gets a single wire chunk with zero rows and `last=True`, and whatever
 `InsertSummary` the server answers for it - not an exception and not an invented result. A filter
 matching nothing is a legitimate outcome, and turning it into an error would be the wrong failure
 mode for the common case of "there was nothing to insert this time."
@@ -261,14 +268,15 @@ this package does not have to relearn the shape; the TypeScript sibling instead 
 `grpc.transaction(database, async (tx) => { ... })`, because Connect-ES has no equivalent
 convention to match.
 
-**The binding override.** `TransactionHandle._bind` forces `database` and `transaction` onto every
-request the handle sends, overriding whatever the caller supplied - including a transaction id or
-database name set on the request object before it reached the handle. This override *is* the
-safety mechanism, not an incidental detail: it is what makes transaction hijack, silent data loss,
-and leaked transactions (filed against ad hoc transaction code as ArcadeData/arcadedb#5040 through
-#5042) unrepeatable through this handle. A request that arrived naming another database, or
-carrying another transaction's id, leaves the handle naming this transaction's database and id
-instead.
+### The binding override
+
+`TransactionHandle._bind` forces `database` and `transaction` onto every request the handle sends,
+overriding whatever the caller supplied - including a transaction id or database name set on the
+request object before it reached the handle. This override *is* the safety mechanism, not an
+incidental detail: it is what makes transaction hijack, silent data loss, and leaked transactions
+(filed against ad hoc transaction code as ArcadeData/arcadedb#5040 through #5042) unrepeatable
+through this handle. A request that arrived naming another database, or carrying another
+transaction's id, leaves the handle naming this transaction's database and id instead.
 
 The binding happens on a **copy**: the request object you passed in comes back unchanged. That
 matters because the alternative reintroduces #5040 by aliasing - a request bound in place would
@@ -276,16 +284,17 @@ keep the handle's `database` and a now-committed transaction's id after the bloc
 reusing it (through `client.raw`, or in a later transaction before `_bind` ran) would send that
 dead id to the server.
 
-**The commit-flag check.** On a clean exit, `transaction` calls `CommitTransaction` and checks the
-response's `committed` field - not `success`. A transaction id the server no longer recognises
-(for example, one already reaped past `arcadedb.server.httpTxExpireTimeout`) answers
-`success=true, committed=false`, with no error status at all. Trusting `success` alone would report
-the commit as having gone through while silently losing every write the transaction made; checking
-`committed` instead raises `RuntimeError` (including the server's own message) so that failure
-cannot pass unnoticed. The same check exists on both facades. `BeginTransaction`'s response is
-checked the same way: a missing or blank `transaction_id` raises immediately, before the block
-runs, rather than handing back a handle that would silently auto-commit every call outside any
-real transaction.
+### The commit-flag check
+
+On a clean exit, `transaction` calls `CommitTransaction` and checks the response's `committed`
+field - not `success`. A transaction id the server no longer recognises (for example, one already
+reaped past `arcadedb.server.httpTxExpireTimeout`) answers `success=true, committed=false`, with no
+error status at all. Trusting `success` alone would report the commit as having gone through while
+silently losing every write the transaction made; checking `committed` instead raises
+`RuntimeError` (including the server's own message) so that failure cannot pass unnoticed. The same
+check exists on both facades. `BeginTransaction`'s response is checked the same way: a missing or
+blank `transaction_id` raises immediately, before the block runs, rather than handing back a handle
+that would silently auto-commit every call outside any real transaction.
 
 On any other exit - the block raises - the transaction rolls back and the block's own exception
 propagates; a rollback failure attaches as `__cause__` rather than replacing it. If the commit
@@ -293,14 +302,15 @@ call itself raises, a best-effort rollback is attempted first (its own failure d
 server-side transaction is not left open until it is reaped, and then the commit's error
 propagates.
 
-**`insert_stream` and `bulk_insert` are not on `TransactionHandle`.** On this server,
-`ArcadeDbGrpcService#insertStream` and `#bulkInsert` never read a request's `TransactionContext` -
-each builds its own `InsertContext`, resolves its own database, and commits independently,
-regardless of any `BeginTransaction`/`CommitTransaction`/`RollbackTransaction` issued around it.
-Adding them to `TransactionHandle` would silently misrepresent this: their writes would not
-actually be part of the transaction, would commit even if the transaction's body raised, and would
-survive a rollback. Both remain reachable outside a transaction - `client.insert_stream(...)` and
-`client.raw.BulkInsert(...)` - but never through `tx`. See
+### `insert_stream` and `bulk_insert` cannot join a `transaction()` on this server
+
+On this server, `ArcadeDbGrpcService#insertStream` and `#bulkInsert` never read a request's
+`TransactionContext` - each builds its own `InsertContext`, resolves its own database, and commits
+independently, regardless of any `BeginTransaction`/`CommitTransaction`/`RollbackTransaction`
+issued around it. Adding them to `TransactionHandle` would silently misrepresent this: their writes
+would not actually be part of the transaction, would commit even if the transaction's body raised,
+and would survive a rollback. Both remain reachable outside a transaction -
+`client.insert_stream(...)` and `client.raw.BulkInsert(...)` - but never through `tx`. See
 [ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607), filed against this
 gap; this restriction is removable once that lands server-side.
 
@@ -332,14 +342,16 @@ there is nothing this package's own type could add by standing between the calle
 Two behaviours below were settled deliberately during implementation rather than fixed as bugs.
 Both are documented at length in the code itself; this section summarizes them.
 
-**Cancelling a transaction body DOES roll back; cancelling it twice does not.** The obvious
-reading - that `asyncio.CancelledError` inherits from `BaseException` rather than `Exception` and
-so slips past `__aexit__` - is wrong, and this README said it for a while. `__aexit__`'s guard is
-`if exc is not None`, not an `isinstance(exc, Exception)` test, so a cancelled body takes the
-rollback branch like any other failure; and after a single `task.cancel()` the `CancelledError` has
-already been delivered and the task's `_must_cancel` flag cleared, so the `await` inside the
-rollback does not immediately re-raise. `test_cancelling_the_body_still_rolls_back` asserts the
-server saw exactly `BeginTransaction`, `RollbackTransaction`.
+### Cancelling a transaction body does roll back; cancelling it twice does not
+
+The obvious reading - that `asyncio.CancelledError` inherits from `BaseException` rather than
+`Exception` and so slips past `__aexit__` - is wrong, and this README said it for a while.
+`__aexit__`'s guard is `if exc is not None`, not an `isinstance(exc, Exception)` test, so a
+cancelled body takes the rollback branch like any other failure; and after a single `task.cancel()`
+the `CancelledError` has already been delivered and the task's `_must_cancel` flag cleared, so the
+`await` inside the rollback does not immediately re-raise.
+`test_cancelling_the_body_still_rolls_back` asserts the server saw exactly `BeginTransaction`,
+`RollbackTransaction`.
 
 The real limitation is narrower. A **second** cancellation, landing while that rollback is still in
 flight, is raised at the `await` and escapes `__aexit__` uncaught - replacing whatever the body
@@ -356,18 +368,19 @@ server, which is a design decision for this repository's owner, not something to
 unilaterally. A caller who needs the rollback to be certain even under repeated cancellation should
 issue it themselves rather than rely on this context manager.
 
-**`insert_stream`'s close-forwarding is best-effort.** When the async facade abandons an
-in-progress `chunks` source early - the RPC aborts mid-stream, or nothing pulls the rest - it tries
-to forward that closure to the caller's source, so a generator wrapping a file handle or a
-database cursor gets its `finally` block run. It forwards to the **iterator** it is actually
-driving (`iter(chunks)` / `chunks.__aiter__()`), not to the `Iterable`/`AsyncIterable` it was
-handed: for a bare generator the two are the same object, but for a class whose `__aiter__` is an
-async generator function they are not, and closing the wrong one forwards the close to nothing.
-That forwarding then calls `close()`/`aclose()` via `getattr`, because an arbitrary `Iterable` or
-`AsyncIterable` is not required to have either - only generators are. A caller-supplied iterator
-with its own cleanup protocol that is *not* a generator (no `close`/`aclose` method) gets no
-forwarded close at all; this package cannot invent a protocol the object does not already
-implement.
+### `insert_stream`'s close-forwarding is best-effort
+
+When the async facade abandons an in-progress `chunks` source early - the RPC aborts mid-stream, or
+nothing pulls the rest - it tries to forward that closure to the caller's source, so a generator
+wrapping a file handle or a database cursor gets its `finally` block run. It forwards to the
+**iterator** it is actually driving (`iter(chunks)` / `chunks.__aiter__()`), not to the
+`Iterable`/`AsyncIterable` it was handed: for a bare generator the two are the same object, but for
+a class whose `__aiter__` is an async generator function they are not, and closing the wrong one
+forwards the close to nothing. That forwarding then calls `close()`/`aclose()` via `getattr`,
+because an arbitrary `Iterable` or `AsyncIterable` is not required to have either - only generators
+are. A caller-supplied iterator with its own cleanup protocol that is *not* a generator (no
+`close`/`aclose` method) gets no forwarded close at all; this package cannot invent a protocol the
+object does not already implement.
 
 ## Contract version and compatibility
 

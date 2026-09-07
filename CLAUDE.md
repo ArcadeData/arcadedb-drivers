@@ -117,11 +117,12 @@ describes the contract itself and a future Python or Go client reads the same mo
   check masquerading as one; it works today only because `adopt-contract-version.sh` stamps every
   package's `server-version` from the same version argument, so the OpenAPI contract's version is a
   correct stand-in for the version the `.proto` contract carries too. Its bootstrap story inverts
-  npm's: PyPI supports pending publishers, so the trusted publisher for a package — `driver-grpc`
-  included, even though it has never been published — can be configured before the package exists
-  on the index, and the first publish of either package needs no stored secret at all. See the
-  workflow file's comments for the caveat that does carry over from npm (check the workflow
-  filename in PyPI's publisher settings against this file's actual name whenever either changes).
+  npm's: PyPI supports pending publishers, so a package's trusted publisher can be configured
+  before the package exists on the index, and the first publish of either package needed no stored
+  secret at all. Both are on PyPI at 0.1.0 today, `driver-grpc` included, each published that way.
+  See the workflow file's comments for the caveat that does carry over from npm (check the
+  workflow filename in PyPI's publisher settings against this file's actual name whenever either
+  changes).
 - `license-compliance.yml` — runs `scripts/check-licenses.py` over both dependency trees on a push
   or pull request that touches either lockfile, either package's manifests, the checker itself, its
   tests, or this file (a policy edit must re-run the gate it changes), plus weekly and on demand.

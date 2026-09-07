@@ -35,6 +35,8 @@ scripts/adopt-contract-version.sh <version>          # retire the old version, a
 scripts/resolve-openapi-contract.sh                  # print the single OpenAPI contract path, or fail
 scripts/resolve-proto-contract.sh                    # print the single .proto contract path, or fail
 scripts/tests/test-contract-scripts.sh               # tests for the scripts above (runs in CI)
+
+scripts/check-licenses.py                            # fail if any dependency's license is off the allow-list
 ```
 
 `fetch-contract.sh` writes the new contract **beside** the old one rather than in place, so a
@@ -120,6 +122,58 @@ describes the contract itself and a future Python or Go client reads the same mo
   on the index, and the first publish of either package needs no stored secret at all. See the
   workflow file's comments for the caveat that does carry over from npm (check the workflow
   filename in PyPI's publisher settings against this file's actual name whenever either changes).
+- `license-compliance.yml` — runs `scripts/check-licenses.py` over both dependency trees on a push
+  or pull request that touches either lockfile, either package's manifests, the checker itself, its
+  tests, or this file (a policy edit must re-run the gate it changes), plus weekly and on demand.
+  The weekly run is not redundant with the path filters: a package can be relicensed on a version
+  already pinned in a lockfile, which changes no manifest for the path filters to catch.
+
+## Dependency licenses
+
+Every dependency of this repository — in both ecosystems, runtime and development alike —
+must carry a license on the allow-list below. This is ArcadeDB's policy, and the two
+repositories are expected to agree; ArcadeDB's own copy lives in its `CLAUDE.md`.
+
+- ✅ **ALLOWED:** Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, EPL-1.0/2.0, UPL-1.0,
+  EDL-1.0, LGPL-2.1+ (libraries only), MPL-2.0 (libraries only, unmodified),
+  CDDL-1.0/1.1 (libraries only, unmodified), GPL-2.0 **WITH** the Classpath Exception
+  specifically (never a bare GPL), CC0-1.0 / Public Domain, Unlicense, BlueOak-1.0.0,
+  PSF-2.0 / Python-2.0
+- ❌ **FORBIDDEN:** GPL, AGPL, SSPL, Commons Clause, BUSL-1.1, Elastic-2.0, and
+  proprietary licenses without explicit permission
+
+**This is an allow-list**: a license in neither row is not permitted by default. Anything
+not allowed is denied whatever it is called, which is strictly stronger than enumerating
+the bad ones — the FORBIDDEN row exists so a reader can tell a deliberate denial from an
+accidental omission.
+
+`scripts/check-licenses.py` enforces it over both dependency trees, and
+`.github/workflows/license-compliance.yml` runs it on dependency changes, weekly, and on
+demand. The weekly run is not redundant: a package can be **relicensed** on a version
+already pinned in a lockfile, and no manifest changes when that happens.
+
+Four entries above are this repository's own additions to ArcadeDB's list, each made on
+evidence from this tree rather than in the abstract: `BlueOak-1.0.0` (5 npm dev packages —
+`jackspeak`, `minimatch`, `minipass`, `package-json-from-dist`, `path-scurry`),
+`PSF-2.0`/`Python-2.0` (`typing_extensions`, a runtime dependency of `arcadedb-driver`),
+`Unlicense` (one npm dev package, `tweetnacl`; CLAUDE.md already allowed "CC0/Public
+Domain" and this is that category under its SPDX name), and `MPL-2.0` — already allowed
+upstream for libraries, recorded explicitly here because `certifi` makes it a **runtime**
+dependency (pulled in through `httpx`) rather than the dev-scope case ArcadeDB originally
+blessed.
+
+**What the gate cannot check.** "Libraries only, unmodified" is a rule for humans. The
+checker sees a license identifier attached to a package; it cannot know whether this
+repository has vendored, patched or re-published that package's source. A green run does
+not certify that nobody copied an MPL-2.0 file into the tree. Nothing is vendored today —
+the generated code under `_generated/` and `src/gen/` comes from ArcadeDB's own Apache-2.0
+contracts — and if that ever changes, both this rule and the absence of an
+`ATTRIBUTIONS.md` need revisiting.
+
+Adding a license to the ALLOWED row means editing `ALLOWED_IDS` in
+`scripts/check-licenses.py` **and** this section, together. A new *spelling* of a license
+already allowed goes in that script's `NORMALISE` map instead — do not widen the
+allow-list for a spelling.
 
 ## Design docs
 

@@ -234,3 +234,37 @@ def test_python_collector_refuses_an_implausibly_small_distribution_set(
     monkeypatch.setattr(cl.subprocess, "run", _fake_run)
     with pytest.raises(cl.CollectorError):
         cl.collect_python(tmp_path)
+
+
+def test_check_separates_violations_from_the_spread() -> None:
+    records = [
+        cl.Record("npm", "a", "1.0", "MIT", "package.json:license"),
+        cl.Record("npm", "b", "2.0", "SSPL-1.0", "package.json:license"),
+        cl.Record("python", "c", "3.0", "MIT", "License-Expression"),
+    ]
+    violations, spread = cl.check(records)
+    assert [v.name for v in violations] == ["b"]
+    assert spread["MIT"] == 2
+
+
+def test_an_empty_inventory_is_an_error_not_a_pass(capsys: pytest.CaptureFixture[str]) -> None:
+    # THE guard. ArcadeDB's checker once reported success while inspecting a near-empty
+    # aggregator pom, and this repository shipped a testpaths setting that excluded every
+    # gRPC test while CI stayed green. A checker that silently checks nothing is worse
+    # than no checker: it converts an absence of evidence into a passing gate.
+    assert cl.report([], cl.Counter()) == 2
+    assert "no dependencies" in capsys.readouterr().err.lower()
+
+
+def test_report_returns_1_and_names_the_offender(capsys: pytest.CaptureFixture[str]) -> None:
+    bad = cl.Record("npm", "evil", "6.6.6", "SSPL-1.0", "package.json:license")
+    assert cl.report([bad], cl.Counter({"SSPL-1.0": 1})) == 1
+    err = capsys.readouterr().err
+    # Everything a reviewer needs to act, without opening the tree.
+    for expected in ("evil", "6.6.6", "SSPL-1.0", "package.json:license"):
+        assert expected in err
+
+
+def test_report_returns_0_on_a_clean_inventory(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cl.report([], cl.Counter({"MIT": 3})) == 0
+    assert "3" in capsys.readouterr().out

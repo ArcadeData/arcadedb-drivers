@@ -28,8 +28,11 @@ Exit codes: 0 clean, 1 policy violation, 2 usage or environment error.
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
+import sys
+from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
@@ -488,3 +491,82 @@ def collect_python(python_dir: Path) -> list[Record]:
         )
 
     return sorted(records)
+
+
+# ---------------------------------------------------------------------------
+# Driver and CLI.
+# ---------------------------------------------------------------------------
+
+
+def check(records: list[Record]) -> tuple[list[Record], Counter[str]]:
+    """Splits an inventory into violations and a license spread."""
+    violations = []
+    spread: Counter[str] = Counter()
+    for record in records:
+        spread[record.signal or "<undeclared>"] += 1
+        allowed, _ = evaluate(record.signal)
+        if not allowed:
+            violations.append(record)
+    return violations, spread
+
+
+def report(violations: list[Record], spread: Counter[str]) -> int:
+    """Prints the outcome and returns the process exit code."""
+    total = sum(spread.values())
+
+    # An inventory of zero is an ENVIRONMENT failure, never a pass. See the test for why
+    # this guard is not optional.
+    if total == 0:
+        print("No dependencies found - nothing was checked.", file=sys.stderr)
+        print("This usually means node_modules is absent or the uv workspace is not", file=sys.stderr)
+        print("synced. Run `npm ci` in typescript/ and `uv sync` in python/.", file=sys.stderr)
+        return 2
+
+    if violations:
+        print("Dependencies with licenses outside the allow-list (see CLAUDE.md):", file=sys.stderr)
+        for record in violations:
+            _, reason = evaluate(record.signal)
+            print(
+                f"  [{record.ecosystem}] {record.name}@{record.version}: "
+                f"{record.signal or '<undeclared>'!r} - {reason} (from {record.source})",
+                file=sys.stderr,
+            )
+        print(file=sys.stderr)
+        print("If this license should be permitted: get maintainer sign-off, add its SPDX id", file=sys.stderr)
+        print("to ALLOWED_IDS in this script, and update CLAUDE.md's ALLOWED row to match.", file=sys.stderr)
+        print("If it is a new SPELLING of a license already allowed, add it to NORMALISE", file=sys.stderr)
+        print("instead - do not widen the allow-list for a spelling.", file=sys.stderr)
+        return 1
+
+    print(f"OK: all {total} dependency license(s) are on the allow-list.")
+    for signal, count in spread.most_common():
+        print(f"  {count:5}  {signal}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--ecosystem",
+        choices=("npm", "python", "all"),
+        default="all",
+        help="which dependency tree to check (default: all)",
+    )
+    args = parser.parse_args(argv)
+
+    records: list[Record] = []
+    try:
+        if args.ecosystem in ("npm", "all"):
+            records += collect_npm(REPO_ROOT / "typescript")
+        if args.ecosystem in ("python", "all"):
+            records += collect_python(REPO_ROOT / "python")
+    except CollectorError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 2
+
+    violations, spread = check(records)
+    return report(violations, spread)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

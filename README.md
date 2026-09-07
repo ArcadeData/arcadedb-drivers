@@ -13,18 +13,37 @@ from. A client's own package never hand-edits its generated types - the contract
 source of truth, and each client's build regenerates from it and fails the build (a "drift gate")
 if the checked-in generated code and a fresh regeneration disagree.
 
+## Packages
+
+Four published clients, two per language. Each links to its registry page; the badge shows the
+version currently on that registry, so this table cannot go stale the way a hardcoded number would.
+
+| | Package | API | Install |
+|---|---|---|---|
+| [![npm](https://img.shields.io/npm/v/@arcadedb/driver?logo=npm&label=)](https://www.npmjs.com/package/@arcadedb/driver) | [`@arcadedb/driver`](https://www.npmjs.com/package/@arcadedb/driver) | HTTP | `npm install @arcadedb/driver` |
+| [![npm](https://img.shields.io/npm/v/@arcadedb/driver-grpc?logo=npm&label=)](https://www.npmjs.com/package/@arcadedb/driver-grpc) | [`@arcadedb/driver-grpc`](https://www.npmjs.com/package/@arcadedb/driver-grpc) | gRPC | `npm install @arcadedb/driver-grpc` |
+| [![PyPI](https://img.shields.io/pypi/v/arcadedb-driver?logo=pypi&logoColor=white&label=)](https://pypi.org/project/arcadedb-driver/) | [`arcadedb-driver`](https://pypi.org/project/arcadedb-driver/) | HTTP | `pip install arcadedb-driver` |
+| [![PyPI](https://img.shields.io/pypi/v/arcadedb-driver-grpc?logo=pypi&logoColor=white&label=)](https://pypi.org/project/arcadedb-driver-grpc/) | [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/) | gRPC | `pip install arcadedb-driver-grpc` |
+
+Usage lives in each package's own README, linked from `## Layout` below. Every one of the four is
+Apache-2.0 and generated from the contracts in `contracts/`.
+
 ## Layout
 
 - `contracts/` - the OpenAPI and Protobuf contracts, fetched by `scripts/fetch-contract.sh` and
   committed.
 - `typescript/` - two TypeScript/JavaScript clients, sharing one toolchain and one CI job:
-  - `@arcadedb/driver`, the HTTP client. See `typescript/packages/driver/README.md` for usage.
-  - `@arcadedb/driver-grpc`, the gRPC client. See `typescript/packages/driver-grpc/README.md` for
-    usage, including why it has no browser build.
+  - [`@arcadedb/driver`](https://www.npmjs.com/package/@arcadedb/driver), the HTTP client.
+    See `typescript/packages/driver/README.md` for usage.
+  - [`@arcadedb/driver-grpc`](https://www.npmjs.com/package/@arcadedb/driver-grpc), the gRPC
+    client. See `typescript/packages/driver-grpc/README.md` for usage, including why it has no
+    browser build.
 - `python/` - two Python clients, sharing one toolchain and one CI job:
-  - `arcadedb-driver`, the HTTP client. See `python/packages/driver/README.md` for usage.
-  - `arcadedb-driver-grpc`, the gRPC client. See `python/packages/driver-grpc/README.md` for usage,
-    including why it raises `grpc.RpcError` directly rather than a package-specific error.
+  - [`arcadedb-driver`](https://pypi.org/project/arcadedb-driver/), the HTTP client.
+    See `python/packages/driver/README.md` for usage.
+  - [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/), the gRPC client.
+    See `python/packages/driver-grpc/README.md` for usage, including why it raises
+    `grpc.RpcError` directly rather than a package-specific error.
 - `scripts/fetch-contract.sh` - fetches the OpenAPI contract from a released ArcadeDB version or a
   running Docker image, or copies the Protobuf contract out of a local `arcadedb` checkout, and
   writes the result into `contracts/`. See "The contracts" below.

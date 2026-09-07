@@ -47,9 +47,15 @@ jobs:
 
       - name: Lint
         working-directory: python
+        # The two ../scripts paths are named explicitly because `ruff check .` from
+        # python/ reaches only python/scripts/. The license checker and its tests live at
+        # the repository root, outside this working directory, so without them ruff would
+        # never see the files mypy already type-checks (they are on mypy's `files` list in
+        # pyproject.toml). Confirm any change here with `ruff check <args> --show-files`,
+        # which prints exactly what ruff will lint.
         run: |
-          uv run ruff check .
-          uv run ruff format --check .
+          uv run ruff check . ../scripts/check-licenses.py ../scripts/tests/test_check_licenses.py
+          uv run ruff format --check . ../scripts/check-licenses.py ../scripts/tests/test_check_licenses.py
 
       - name: Typecheck
         working-directory: python

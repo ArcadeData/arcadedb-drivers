@@ -4,7 +4,12 @@ on:
   push:
     branches:
       - main
-    paths: &license-paths
+    # Written out longhand and duplicated verbatim below, matching ci.yml and
+    # ci-python.yml. A YAML anchor would be shorter, but GitHub's workflow parser is not
+    # PyYAML and has long been reported not to support anchors - and a workflow file
+    # GitHub rejects is a gate that never runs, which is the one failure mode a license
+    # gate must not have. Keep the two lists identical when either changes.
+    paths:
       - "typescript/package-lock.json"
       - "typescript/**/package.json"
       - "python/uv.lock"
@@ -16,7 +21,17 @@ on:
       - "CLAUDE.md"
       - ".github/workflows/license-compliance.yml"
   pull_request:
-    paths: *license-paths
+    paths:
+      - "typescript/package-lock.json"
+      - "typescript/**/package.json"
+      - "python/uv.lock"
+      - "python/**/pyproject.toml"
+      # The checker and the policy are themselves gated: an edit to either must re-run
+      # the gate it changes, or a widened allow-list lands unverified.
+      - "scripts/check-licenses.py"
+      - "scripts/tests/test_check_licenses.py"
+      - "CLAUDE.md"
+      - ".github/workflows/license-compliance.yml"
   schedule:
     # Weekly, Sunday 03:00 UTC. NOT redundant with the path filters above: a package can
     # be RELICENSED on a version already pinned in a lockfile, and no manifest changes
@@ -57,7 +72,11 @@ jobs:
 
       - name: Install Python dependencies
         working-directory: python
-        run: uv sync --frozen
+        # --python 3.10 is the declared floor, matching ci-python.yml's build job. Left
+        # unpinned this would audit whatever interpreter uv happened to pick, and a
+        # metadata API that breaks on a newer Python would surface here as a `uv run`
+        # failure the collector reports as an unsynced workspace - the wrong diagnosis.
+        run: uv sync --frozen --python 3.10
 
       - name: Test the checker
         working-directory: python

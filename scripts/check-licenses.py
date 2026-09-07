@@ -68,7 +68,6 @@ ALLOWED_IDS = {
     "CDDL-1.1",
     # Public domain and equivalents.
     "CC0-1.0",
-    "Unlicense",
     # --- Additions made by this repository, each on evidence from its own tree. ---
     # OSI-approved, permissive, drafted as a plain-language MIT/BSD equivalent with an
     # explicit patent grant. Ships in 5 npm dev packages.
@@ -79,6 +78,10 @@ ALLOWED_IDS = {
     # npm metadata - and they name the same license.
     "PSF-2.0",
     "Python-2.0",
+    # Public-domain dedication, distinct from CC0-1.0 above. CLAUDE.md already allows
+    # "CC0 / Public Domain"; this is that same category under its own SPDX id. Ships in
+    # 1 npm package.
+    "Unlicense",
 }
 
 # Allowed (license, exception) pairs for SPDX `WITH`. This set is looked up ATOMICALLY and

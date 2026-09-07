@@ -199,6 +199,22 @@ def test_python_multiline_legacy_license_text_is_not_used_as_a_signal() -> None:
     assert cl._python_signal(meta)[0] == ""
 
 
+def test_python_overlong_singleline_legacy_license_falls_back_to_the_classifier() -> None:
+    # A single-line legacy License value can STILL be too long to be a plausible license
+    # NAME rather than pasted text - the newline check alone would accept it. This pins
+    # the length half of the guard independently of the newline half: the string below
+    # has no newline at all, so only _MAX_LICENSE_NAME rejects it, and a classifier is
+    # present so the assertion also shows the fall-through lands on it rather than on "".
+    meta = {
+        "name": "whatever",
+        "version": "1.0",
+        "license_expression": "",
+        "license": "A" * (cl._MAX_LICENSE_NAME + 1),
+        "classifiers": ["License :: OSI Approved :: MIT License"],
+    }
+    assert cl._python_signal(meta) == ("MIT License", "Classifier")
+
+
 def test_python_collector_refuses_an_implausibly_small_distribution_set(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

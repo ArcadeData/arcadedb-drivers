@@ -34,6 +34,8 @@ files = [
     "packages/driver-grpc/src/arcadedb_driver_grpc",
     "packages/driver-grpc/tests",
     "e2e",
+    "../scripts/check-licenses.py",
+    "../scripts/tests/test_check_licenses.py",
 ]
 # scripts/ is not a package (its modules are loaded via sys.path.insert, since a
 # top-level scripts/ can't be a workspace member), so mypy needs the extra search

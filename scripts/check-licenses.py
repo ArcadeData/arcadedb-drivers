@@ -120,10 +120,25 @@ NORMALISE = {
     "public domain": "CC0-1.0",
     # Trove classifiers, which are coarser than an SPDX id by design.
     "mozilla public license 2.0 (mpl 2.0)": "MPL-2.0",
+    # "Apache Software License" is the classifier for the WHOLE Apache family, not for
+    # Apache-2.0 alone - it also covers Apache-1.0 and Apache-1.1, neither of which is on
+    # the allow-list (1.1's advertising clause is a real obligation 2.0 dropped, and
+    # neither 1.x version carries 2.0's patent grant). Mapping it to Apache-2.0 therefore
+    # ASSUMES the modern license rather than proving it, and a distribution old enough to
+    # mean Apache-1.x would be normalised to something more permissive than it is. NO
+    # distribution in either tree reaches this entry today; it is kept because the
+    # classifier is common enough to arrive with the next dependency. When one does arrive,
+    # confirm what it actually ships before trusting this row.
     "apache software license": "Apache-2.0",
-    # The "BSD License" classifier CANNOT distinguish 2-Clause from 3-Clause. Mapping it to
-    # BSD-3-Clause is safe ONLY because both are on the allow-list; if either is ever
-    # removed, this entry must be revisited rather than silently keeping a dependency green.
+    # The "BSD License" classifier is the WHOLE BSD family under one label. It cannot
+    # distinguish 2-Clause from 3-Clause - which is benign, since both are allowed - but it
+    # also historically covers BSD-4-Clause, which is NOT on the allow-list and is
+    # materially more restrictive (the advertising clause is a real obligation, and is why
+    # 4-Clause is GPL-incompatible). Mapping the classifier to BSD-3-Clause therefore
+    # ASSUMES away 4-Clause rather than proving its absence. That is acceptable only while
+    # the entry has few enough consumers to check by hand: today only `Jinja2` reaches it
+    # and it is genuinely BSD-3-Clause. Revisit this row if a new distribution lands on it,
+    # or if BSD-2-Clause or BSD-3-Clause ever leaves ALLOWED_IDS.
     "bsd license": "BSD-3-Clause",
     # Eclipse Distribution License 1.0 is textually BSD-3-Clause and has no SPDX id.
     "edl-1.0": "BSD-3-Clause",
@@ -387,19 +402,27 @@ def collect_npm(typescript_dir: Path) -> list[Record]:
 # interpreter that can see the workspace's installed distributions. Keeping it as a
 # string here rather than a separate file keeps the checker a single self-contained
 # script, matching the upstream tool it ports.
+#
+# Every header is read with `m.get(...) or ""`, never `m[...]`. Subscripting an ABSENT
+# header returns None today and warns "Implicit None on return values is deprecated and
+# will raise KeyErrors" - and most distributions carry no `License-Expression`, so that
+# fires on nearly every record. Once it becomes a KeyError this dump would exit non-zero
+# and collect_python would report it as an unsynced workspace: the wrong diagnosis for a
+# metadata field that is simply, legitimately, absent. `.get()` matches the
+# `get_all("Classifier")` call two lines below, which was never subscriptable.
 _PYTHON_DUMP = """
 import importlib.metadata as md, json
 out = []
 for dist in md.distributions():
     m = dist.metadata
-    name = m["Name"]
+    name = m.get("Name") or ""
     if not name:
         continue
     out.append({
         "name": name,
-        "version": m["Version"] or "",
-        "license_expression": m["License-Expression"] or "",
-        "license": m["License"] or "",
+        "version": m.get("Version") or "",
+        "license_expression": m.get("License-Expression") or "",
+        "license": m.get("License") or "",
         "classifiers": [c for c in (m.get_all("Classifier") or []) if c.startswith("License ::")],
     })
 print(json.dumps(out))
@@ -460,7 +483,10 @@ def collect_python(python_dir: Path) -> list[Record]:
     """Collects every distribution installed in the uv workspace, dev included."""
     try:
         completed = subprocess.run(
-            ["uv", "run", "--project", str(python_dir), "python", "-c", _PYTHON_DUMP],
+            # --frozen: resolve against the committed uv.lock and never re-lock. Without it
+            # a by-hand run can silently install newer versions than the lockfile pins, so
+            # the audit would report on a tree that is not the one being shipped.
+            ["uv", "run", "--frozen", "--project", str(python_dir), "python", "-c", _PYTHON_DUMP],
             capture_output=True,
             text=True,
             check=True,

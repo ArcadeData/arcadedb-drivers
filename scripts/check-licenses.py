@@ -146,6 +146,23 @@ NORMALISE = {
     "eclipse distribution license - v 1.0": "BSD-3-Clause",
 }
 
+# Strings that are grammatically a license NAME but name no license. They are a
+# non-answer, not an unrecognised license, so the classifier is consulted instead of
+# failing the package closed on text that could never have identified anything.
+#
+# Deliberately a curated set of OBSERVED values, not a pattern: anything not listed here
+# still fails closed with its raw text, which is what lets a human tell a new non-answer
+# from a license we genuinely do not know.
+#
+# `python-dateutil` is the one entry's evidence. It declares `License: Dual License` with
+# no `License-Expression` and two classifiers (Apache Software License, BSD License), and
+# it reaches this repository only on the Python 3.10 floor, through
+# openapi-python-client 0.28.4. "Dual License" is a pointer to those classifiers, not a
+# license name - and it is short and single-line, so the pasted-text guard below cannot
+# catch it. Without this set the license job fails on a package whose BOTH licenses are
+# on the allow-list.
+_LEGACY_NON_ANSWERS = {"dual license"}
+
 _ALLOWED_LOWER = {spdx.lower() for spdx in ALLOWED_IDS}
 _ALLOWED_WITH_LOWER = {(lic.lower(), exc.lower()) for lic, exc in ALLOWED_WITH}
 
@@ -453,10 +470,20 @@ def _python_signal(meta: dict[str, object]) -> tuple[str, str]:
         return expression, "License-Expression"
 
     legacy = str(meta.get("license") or "").strip()
-    # Some distributions paste the entire license TEXT into this field. Its first line is
-    # not a license name, and using it as one would be exactly the guess this design
-    # refuses to make - so fall through to the classifier instead.
-    if legacy and "\n" not in legacy and len(legacy) <= _MAX_LICENSE_NAME:
+    # Two ways the legacy field can be present and still unusable, both falling through to
+    # the classifier rather than being reported as a violation:
+    #
+    #   - Some distributions paste the entire license TEXT into it. Its first line is not a
+    #     license name, and using it as one would be exactly the guess this design refuses
+    #     to make. Caught by the newline and length tests.
+    #   - Some declare a NON-ANSWER: grammatically a name, naming no license. Caught by
+    #     _LEGACY_NON_ANSWERS, which is a curated list of observed values rather than a
+    #     pattern - an unlisted one still fails closed with its raw text for a human.
+    #
+    # An unusable legacy field is not evidence about the license, so it must not outrank
+    # the classifier that is. Anything else here is still taken at face value.
+    usable = legacy and "\n" not in legacy and len(legacy) <= _MAX_LICENSE_NAME
+    if usable and legacy.lower() not in _LEGACY_NON_ANSWERS:
         return legacy, "License"
 
     classifiers = meta.get("classifiers")

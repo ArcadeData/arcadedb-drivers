@@ -234,6 +234,48 @@ def test_python_multiline_legacy_license_text_is_not_used_as_a_signal() -> None:
     assert cl._python_signal(meta)[0] == ""
 
 
+def test_python_legacy_non_answer_falls_back_to_the_classifier() -> None:
+    # The real `python-dateutil` shape, and the reason _LEGACY_NON_ANSWERS exists. Its
+    # legacy License field says "Dual License": grammatically a license name, naming no
+    # license - it is a pointer to the two classifiers beside it. Short and single-line, so
+    # neither half of the pasted-text guard catches it, and without the non-answer set
+    # evaluate() fails it closed as an unparseable two-token expression. That would red the
+    # license gate on a package BOTH of whose licenses are on the allow-list.
+    #
+    # This distribution reaches this repository only on the Python 3.10 floor, via
+    # openapi-python-client 0.28.4 - which is exactly why the workflow pins the floor.
+    meta = {
+        "name": "python-dateutil",
+        "version": "2.9.0.post0",
+        "license_expression": "",
+        "license": "Dual License",
+        "classifiers": [
+            "License :: OSI Approved :: BSD License",
+            "License :: OSI Approved :: Apache Software License",
+        ],
+    }
+    # The FIRST classifier wins, and `source` says the answer came from a classifier rather
+    # than from the legacy field - which is what a reviewer needs in order to judge it.
+    assert cl._python_signal(meta) == ("BSD License", "Classifier")
+    # ...and the whole point: the package passes the gate.
+    assert cl.evaluate(cl._python_signal(meta)[0])[0] is True
+
+
+def test_python_an_unlisted_legacy_non_answer_still_fails_closed() -> None:
+    # _LEGACY_NON_ANSWERS is a curated set of OBSERVED values, never a pattern. A legacy
+    # field that is unusable in some new way must still surface loudly with its raw text,
+    # so a human decides whether it is a fresh non-answer or a license we do not know.
+    meta = {
+        "name": "hypothetical",
+        "version": "1.0",
+        "license_expression": "",
+        "license": "See LICENSE file",
+        "classifiers": ["License :: OSI Approved :: MIT License"],
+    }
+    assert cl._python_signal(meta) == ("See LICENSE file", "License")
+    assert cl.evaluate("See LICENSE file")[0] is False
+
+
 def test_python_overlong_singleline_legacy_license_falls_back_to_the_classifier() -> None:
     # A single-line legacy License value can STILL be too long to be a plausible license
     # NAME rather than pasted text - the newline check alone would accept it. This pins

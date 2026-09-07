@@ -127,6 +127,31 @@ describes the contract itself and a future Python or Go client reads the same mo
   tests, or this file (a policy edit must re-run the gate it changes), plus weekly and on demand.
   The weekly run is not redundant with the path filters: a package can be relicensed on a version
   already pinned in a lockfile, which changes no manifest for the path filters to catch.
+- `claude.yml` — answers an `@claude` mention on an issue, a PR review, or a review comment. Ported
+  from ArcadeData/arcadedb and deliberately kept byte-identical to its copy there, so a fix to one
+  can be copied to the other without a merge. Its tool allow-list is read-only `gh` plus
+  `gh pr comment`: Claude can read the repository and reply, and can change nothing else.
+- `claude-code-review.yml` — reviews every pull request on open and on push. This is the one ported
+  file that does **not** match arcadedb's: its prompt adds the three rules a
+  reviewer needs here and nowhere else (generated code is never hand-edited, `contracts/` holds
+  exactly one file of each kind, and the load-bearing prose in the READMEs moves with the behaviour
+  it documents), and the commented-out `paths` and author-filter scaffolding the action's
+  template ships with is dropped. The job body, pins and allow-list are arcadedb's unchanged.
+- `classify-issue.yml` — byte-identical to arcadedb's, two jobs in one file. One labels an issue
+  opened by an ArcadeData GitHub Sponsor `high_priority`, creating that label on first use. The
+  other asks Claude which of the repository's **existing** labels fit a newly opened issue, and a
+  separate `github-script` step applies the answer. That split is the containment, not a style
+  choice: the issue body is untrusted input, so Claude gets a read-only tool allow-list pinned to
+  this one issue number and no write tool at all, and the applying step intersects what it asked
+  for against the live label list — a hallucinated or injected name never reaches the API. It also
+  passes `github_token` rather than taking `id-token: write`, because the OIDC exchange rejects
+  issues opened by anyone without write access, i.e. every external reporter.
+
+  The classifier can only ever choose from labels that already exist, so the repository's label
+  set *is* its vocabulary: eleven area labels (`typescript`, `python`, `go`, `http-driver`,
+  `grpc-driver`, `contract`, `codegen`, `build`, `release`, `e2e`, `licensing`) alongside the
+  triage labels shared with arcadedb. Deleting a label silently narrows what the classifier can
+  say; adding one widens it with no workflow edit.
 
 ## Dependency licenses
 

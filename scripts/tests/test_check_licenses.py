@@ -69,6 +69,40 @@ def test_or_fails_when_no_operand_is_allowed() -> None:
     assert cl.evaluate("GPL-3.0-only OR AGPL-3.0-only")[0] is False
 
 
+def test_and_binds_tighter_than_or() -> None:
+    # SPDX precedence, and the reason _or() and _and() are two functions rather than one
+    # loop over {OR, AND}. Both expressions below are unparenthesised, so only precedence
+    # decides them - and the two possible parses disagree, which is what makes this a real
+    # test rather than a restatement of the AND and OR cases above.
+    #
+    #   MIT OR (Apache-2.0 AND SSPL-1.0)  -> True OR False  -> allowed    <- correct
+    #   (MIT OR Apache-2.0) AND SSPL-1.0  -> True AND False -> denied     <- wrong
+    #
+    # A merged loop would evaluate strictly left to right, produce the second parse, and
+    # start rejecting legitimately dual-licensed packages. Nothing else in this file would
+    # notice.
+    assert cl.evaluate("MIT OR Apache-2.0 AND SSPL-1.0")[0] is True
+
+    # The mirror image, parenthesised: an allowed operand ANDed with a group in which
+    # NOTHING is allowed must fail. This is the direction that matters for safety - it
+    # pins that a forbidden group cannot be laundered by an allowed sibling.
+    assert cl.evaluate("MIT AND (SSPL-1.0 OR GPL-3.0-only)")[0] is False
+
+
+def test_with_applied_to_a_group_is_rejected() -> None:
+    # `WITH` takes a license IDENTIFIER on its left, never a parenthesised expression -
+    # this is invalid SPDX. It is also the exact shape in which a careless parser leaks a
+    # bare GPL: if _with() were "simplified" to accept a WITH suffix after the paren
+    # branch, the group below would evaluate to True on MIT's account while the reader
+    # sees GPL-2.0-only pass through a Classpath exception it was never paired with.
+    #
+    # Fail-closed does the work here: the expression is refused as unparseable rather than
+    # decided. That is the right answer for invalid SPDX - never a guess.
+    allowed, reason = cl.evaluate("(GPL-2.0-only OR MIT) WITH Classpath-exception-2.0")
+    assert allowed is False
+    assert "unrecognis" in reason.lower() or "unparse" in reason.lower()
+
+
 def test_with_is_atomic_and_allowed_as_a_pair() -> None:
     assert cl.evaluate("GPL-2.0-only WITH Classpath-exception-2.0")[0] is True
 

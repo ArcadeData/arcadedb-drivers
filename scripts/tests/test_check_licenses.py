@@ -119,3 +119,20 @@ def test_the_four_policy_additions_are_present() -> None:
     # removing one should break a test, not silently start failing the real run.
     for spdx in ("BlueOak-1.0.0", "PSF-2.0", "Python-2.0", "Unlicense", "MPL-2.0"):
         assert cl.evaluate(spdx)[0] is True, spdx
+
+
+def test_npm_license_field_variants_normalise_to_one_signal() -> None:
+    # npm packages declare a license three different ways across the registry's history.
+    assert cl._npm_signal({"license": "MIT"}) == ("MIT", "package.json:license")
+    assert cl._npm_signal({"license": {"type": "MIT"}}) == ("MIT", "package.json:license")
+    # The legacy array form meant "the consumer may choose", i.e. OR.
+    assert cl._npm_signal({"licenses": [{"type": "MIT"}, {"type": "Apache-2.0"}]}) == (
+        "MIT OR Apache-2.0",
+        "package.json:licenses[]",
+    )
+
+
+def test_npm_undeclared_license_yields_an_empty_signal() -> None:
+    # Empty rather than a guess: evaluate() turns it into a violation with
+    # "no license declared", which is what a human needs to see.
+    assert cl._npm_signal({})[0] == ""

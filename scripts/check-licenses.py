@@ -28,7 +28,10 @@ Exit codes: 0 clean, 1 policy violation, 2 usage or environment error.
 
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -272,3 +275,113 @@ def evaluate(signal: str) -> tuple[bool, str]:
         return False, f"unrecognised or unparseable license expression ({err})"
 
     return (True, "") if allowed else (False, "not on the allow-list")
+
+
+# ---------------------------------------------------------------------------
+# Collectors. Both normalise their ecosystem into one Record shape, which is what
+# lets a single policy engine serve two package managers.
+# ---------------------------------------------------------------------------
+
+
+class Record(NamedTuple):
+    ecosystem: str
+    name: str
+    version: str
+    signal: str
+    source: str
+
+
+class CollectorError(Exception):
+    """Raised when an ecosystem's dependency tree cannot be read at all."""
+
+
+def _npm_signal(pkg: dict[str, object]) -> tuple[str, str]:
+    """Extracts one license signal from a package.json body.
+
+    npm has accumulated three spellings over its history. The legacy `licenses` ARRAY
+    meant "the consumer may choose any of these", so it maps to an SPDX OR rather than
+    an AND - picking AND here would reject dual-licensed packages that are entirely fine.
+    """
+    license_field = pkg.get("license")
+    if isinstance(license_field, str):
+        return license_field, "package.json:license"
+    if isinstance(license_field, dict):
+        return str(license_field.get("type", "")), "package.json:license"
+
+    licenses = pkg.get("licenses")
+    if isinstance(licenses, list):
+        parts = [str(entry.get("type", "")) if isinstance(entry, dict) else str(entry) for entry in licenses]
+        parts = [p for p in parts if p]
+        if parts:
+            return " OR ".join(parts), "package.json:licenses[]"
+
+    return "", "package.json:absent"
+
+
+def _npm_installed_index(node_modules: Path) -> dict[tuple[str, str], dict[str, object]]:
+    """Indexes every installed package.json by (name, version).
+
+    Walks node_modules rather than resolving each dependency's path from `npm ls`,
+    because hoisting means a package's directory is not reliably node_modules/<name> -
+    it may sit in a nested node_modules under whichever dependent pulled it in.
+    """
+    index: dict[tuple[str, str], dict[str, object]] = {}
+    for manifest in node_modules.rglob("package.json"):
+        try:
+            body = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue  # Fixtures, test scaffolding and broken files are not dependencies.
+        name, version = body.get("name"), body.get("version")
+        if isinstance(name, str) and isinstance(version, str):
+            index.setdefault((name, version), body)
+    return index
+
+
+def collect_npm(typescript_dir: Path) -> list[Record]:
+    """Collects every package in the npm dependency tree, dev included."""
+    node_modules = typescript_dir / "node_modules"
+    if not node_modules.is_dir():
+        raise CollectorError(f"{node_modules} does not exist - run `npm ci` in {typescript_dir} first.")
+
+    try:
+        completed = subprocess.run(
+            ["npm", "ls", "--all", "--json"],
+            cwd=typescript_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        tree = json.loads(completed.stdout)
+    except (OSError, json.JSONDecodeError) as err:
+        raise CollectorError(f"could not read the npm dependency tree: {err}") from err
+
+    wanted: set[tuple[str, str]] = set()
+
+    def walk(node: dict[str, object]) -> None:
+        deps = node.get("dependencies")
+        if not isinstance(deps, dict):
+            return
+        for name, info in deps.items():
+            if not isinstance(info, dict):
+                continue
+            version = info.get("version")
+            # Our own workspace packages are the thing being licensed, not a dependency
+            # of it. They resolve to a file: URL rather than the registry.
+            if isinstance(version, str) and not str(info.get("resolved", "")).startswith("file:"):
+                wanted.add((name, version))
+            walk(info)
+
+    walk(tree)
+
+    index = _npm_installed_index(node_modules)
+    records = []
+    for name, version in sorted(wanted):
+        body = index.get((name, version))
+        if body is None:
+            raise CollectorError(
+                f"{name}@{version} is in the npm tree but not installed under {node_modules}; "
+                "the tree and node_modules disagree - re-run `npm ci`."
+            )
+        signal, source = _npm_signal(body)
+        records.append(Record("npm", name, version, signal, source))
+    return records

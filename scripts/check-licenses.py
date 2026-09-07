@@ -29,6 +29,7 @@ Exit codes: 0 clean, 1 policy violation, 2 usage or environment error.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import NamedTuple
 
@@ -377,3 +378,113 @@ def collect_npm(typescript_dir: Path) -> list[Record]:
         )
 
     return [Record("npm", name, version, *_npm_signal(body)) for (name, version), body in sorted(installed.items())]
+
+
+# The metadata dump runs INSIDE the uv-managed environment, because that is the only
+# interpreter that can see the workspace's installed distributions. Keeping it as a
+# string here rather than a separate file keeps the checker a single self-contained
+# script, matching the upstream tool it ports.
+_PYTHON_DUMP = """
+import importlib.metadata as md, json
+out = []
+for dist in md.distributions():
+    m = dist.metadata
+    name = m["Name"]
+    if not name:
+        continue
+    out.append({
+        "name": name,
+        "version": m["Version"] or "",
+        "license_expression": m["License-Expression"] or "",
+        "license": m["License"] or "",
+        "classifiers": [c for c in (m.get_all("Classifier") or []) if c.startswith("License ::")],
+    })
+print(json.dumps(out))
+"""
+
+# Longest plausible one-line license NAME. Anything longer is license TEXT pasted into the
+# metadata field, which is not a signal - see _python_signal.
+_MAX_LICENSE_NAME = 80
+
+
+def _python_signal(meta: dict[str, object]) -> tuple[str, str]:
+    """Extracts one license signal from a distribution's metadata.
+
+    Python exposes license information through three channels of DECREASING fidelity, and
+    the precedence below is a real decision rather than a convenience:
+
+      1. PEP 639 `License-Expression` - a validated SPDX expression. Authoritative.
+      2. the legacy `License` free-text field - a name, usually, but see below.
+      3. Trove classifiers - coarsest: "License :: OSI Approved :: BSD License" cannot
+         distinguish 2-Clause from 3-Clause.
+
+    A distribution may carry several of these and they may disagree; httpcore declares
+    both `BSD-3-Clause` and the vaguer `BSD License` classifier. Taking the most precise
+    available is what keeps the coarse fallback from erasing information we already have.
+    """
+    expression = str(meta.get("license_expression") or "").strip()
+    if expression:
+        return expression, "License-Expression"
+
+    legacy = str(meta.get("license") or "").strip()
+    # Some distributions paste the entire license TEXT into this field. Its first line is
+    # not a license name, and using it as one would be exactly the guess this design
+    # refuses to make - so fall through to the classifier instead.
+    if legacy and "\n" not in legacy and len(legacy) <= _MAX_LICENSE_NAME:
+        return legacy, "License"
+
+    classifiers = meta.get("classifiers")
+    if isinstance(classifiers, list):
+        for classifier in classifiers:
+            trailing = str(classifier).split("::")[-1].strip()
+            if trailing and trailing != "OSI Approved":
+                return trailing, "Classifier"
+
+    return "", "absent"
+
+
+# A synced workspace here holds roughly 49 distributions; a bare venv holds a handful. This
+# is a floor, not an exact count, for the same reason _MIN_PLAUSIBLE_NPM_PACKAGES is: an
+# exact count is brittle (it changes on every dependency bump) and a gate people have to
+# re-baseline constantly is a gate they learn to edit rather than trust. Without this guard,
+# a `uv run` that succeeds against a nearly-empty venv would let the checker report a clean
+# bill of health over almost nothing - the same failure mode that once let a `testpaths`
+# setting exclude every gRPC test while CI stayed green.
+_MIN_PLAUSIBLE_PYTHON_DISTRIBUTIONS = 20
+
+
+def collect_python(python_dir: Path) -> list[Record]:
+    """Collects every distribution installed in the uv workspace, dev included."""
+    try:
+        completed = subprocess.run(
+            ["uv", "run", "--project", str(python_dir), "python", "-c", _PYTHON_DUMP],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except OSError as err:
+        raise CollectorError(f"could not run uv: {err}") from err
+    except subprocess.CalledProcessError as err:
+        raise CollectorError(f"`uv run` failed in {python_dir} - run `uv sync` there first.\n{err.stderr}") from err
+
+    try:
+        dists = json.loads(completed.stdout)
+    except json.JSONDecodeError as err:
+        raise CollectorError(f"could not parse the Python metadata dump: {err}") from err
+
+    records = []
+    for meta in dists:
+        name = str(meta.get("name", ""))
+        # Our own packages are the thing being licensed, not a dependency of it.
+        if name in {"arcadedb-driver", "arcadedb-driver-grpc"}:
+            continue
+        signal, source = _python_signal(meta)
+        records.append(Record("python", name, str(meta.get("version", "")), signal, source))
+
+    if len(records) < _MIN_PLAUSIBLE_PYTHON_DISTRIBUTIONS:
+        raise CollectorError(
+            f"only {len(records)} distribution(s) found in {python_dir}, fewer than the "
+            f"{_MIN_PLAUSIBLE_PYTHON_DISTRIBUTIONS} a real sync has - run `uv sync` in {python_dir}."
+        )
+
+    return sorted(records)

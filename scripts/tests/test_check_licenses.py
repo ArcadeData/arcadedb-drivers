@@ -148,3 +148,73 @@ def test_npm_collector_refuses_an_empty_or_half_installed_tree(tmp_path: Path) -
     node_modules.mkdir()
     with pytest.raises(cl.CollectorError):
         cl.collect_npm(tmp_path)
+
+
+def test_python_source_precedence_prefers_the_spdx_expression() -> None:
+    # httpcore carries BOTH a PEP 639 License-Expression and the vaguer "BSD License"
+    # Trove classifier. The precise one must win: the classifier cannot distinguish
+    # 2-Clause from 3-Clause.
+    meta = {
+        "name": "httpcore",
+        "version": "1.0.0",
+        "license_expression": "BSD-3-Clause",
+        "license": "",
+        "classifiers": ["License :: OSI Approved :: BSD License"],
+    }
+    assert cl._python_signal(meta) == ("BSD-3-Clause", "License-Expression")
+
+
+def test_python_falls_back_to_the_legacy_license_field() -> None:
+    meta = {
+        "name": "protobuf",
+        "version": "7.36.1",
+        "license_expression": "",
+        "license": "3-Clause BSD License",
+        "classifiers": [],
+    }
+    assert cl._python_signal(meta) == ("3-Clause BSD License", "License")
+
+
+def test_python_falls_back_to_a_trove_classifier_last() -> None:
+    meta = {
+        "name": "certifi",
+        "version": "2026.1.1",
+        "license_expression": "",
+        "license": "",
+        "classifiers": ["License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"],
+    }
+    assert cl._python_signal(meta) == ("Mozilla Public License 2.0 (MPL 2.0)", "Classifier")
+
+
+def test_python_multiline_legacy_license_text_is_not_used_as_a_signal() -> None:
+    # Some packages paste their entire license TEXT into the License field. That is not a
+    # signal, and treating its first line as one would be a guess.
+    meta = {
+        "name": "whatever",
+        "version": "1.0",
+        "license_expression": "",
+        "license": "Copyright (c) 2026\n\nPermission is hereby granted, free of charge...",
+        "classifiers": [],
+    }
+    assert cl._python_signal(meta)[0] == ""
+
+
+def test_python_collector_refuses_an_implausibly_small_distribution_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Mirrors collect_npm's floor guard (test_npm_collector_refuses_an_empty_or_half_installed_tree):
+    # a `uv run` that succeeds against a near-empty venv must fail loudly rather than let the
+    # checker report a clean bill of health over almost nothing. Faking `uv run`'s stdout
+    # rather than actually `uv sync`-ing a throwaway project keeps this test hermetic.
+    tiny_dump = '[{"name": "pip", "version": "1.0", "license_expression": "", "license": "MIT", "classifiers": []}]'
+
+    class _FakeCompleted:
+        stdout = tiny_dump
+        stderr = ""
+
+    def _fake_run(*args: object, **kwargs: object) -> _FakeCompleted:
+        return _FakeCompleted()
+
+    monkeypatch.setattr(cl.subprocess, "run", _fake_run)
+    with pytest.raises(cl.CollectorError):
+        cl.collect_python(tmp_path)

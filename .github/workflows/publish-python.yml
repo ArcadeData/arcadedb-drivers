@@ -12,9 +12,9 @@ name: Publish to PyPI
 # packages naming this one file means one thing to configure and cross-check instead
 # of two. Each package still needs its own trusted publisher.
 #
-# Unlike npm, PyPI supports PENDING publishers: arcadedb-driver-grpc's can be
-# configured before the package exists on the index, so its first publish needs no
-# bootstrap token.
+# Unlike npm, PyPI supports PENDING publishers: one can be configured before the
+# package exists on the index, so a first publish needs no bootstrap token - which is
+# how arcadedb-driver-grpc 0.1.0 reached PyPI.
 on:
   workflow_dispatch:
     inputs:
@@ -245,7 +245,7 @@ jobs:
       #    publisher can even be configured. PyPI instead supports PENDING publishers: a
       #    trusted publisher for a project can be configured on PyPI before the project
       #    exists there at all. So the first publish of EITHER package here - including
-      #    arcadedb-driver-grpc, which does not exist on PyPI yet - needs no bootstrap
+      #    arcadedb-driver-grpc, whose 0.1.0 went out exactly this way - needs no bootstrap
       #    token and no stored secret, ever; every run, including the first, authenticates
       #    purely via the id-token permission above. This is per package, same as npm:
       #    arcadedb-driver's trusted publisher configuration does nothing for

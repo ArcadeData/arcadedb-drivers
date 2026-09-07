@@ -7,6 +7,11 @@ authentication, the two streaming RPCs, and explicit transactions.
 If you want an HTTP client instead - including one that works from environments gRPC cannot reach
 - see [`arcadedb-driver`](../driver/README.md).
 
+Published on PyPI as [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/), with
+attestations: every release is built and published by `publish-python.yml`, dispatched with
+`package=driver-grpc`, from a clean checkout of this repository through PyPI's trusted publishing,
+with no long-lived token anywhere in the chain.
+
 ## Requirements
 
 - Python `>=3.10`.

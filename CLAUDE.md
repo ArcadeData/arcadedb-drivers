@@ -135,7 +135,7 @@ must carry a license on the allow-list below. This is ArcadeDB's policy, and the
 repositories are expected to agree; ArcadeDB's own copy lives in its `CLAUDE.md`.
 
 - ✅ **ALLOWED:** Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, EPL-1.0/2.0, UPL-1.0,
-  EDL-1.0, LGPL-2.1+ (libraries only), MPL-2.0 (libraries only, unmodified),
+  EDL-1.0, LGPL-2.1+ (i.e. 2.1 or 3.0, libraries only), MPL-2.0 (libraries only, unmodified),
   CDDL-1.0/1.1 (libraries only, unmodified), GPL-2.0 **WITH** the Classpath Exception
   specifically (never a bare GPL), CC0-1.0 / Public Domain, Unlicense, BlueOak-1.0.0,
   PSF-2.0 / Python-2.0

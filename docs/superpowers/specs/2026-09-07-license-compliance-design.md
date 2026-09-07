@@ -4,6 +4,13 @@
 **Date:** 2026-09-07
 **Ports:** ArcadeDB's `.github/scripts/check-license-allowlist.py` and `license-compliance.yml`
 
+> **This is a dated design record, not a synced policy source.** The live policy is `ALLOWED_IDS`
+> in `scripts/check-licenses.py` plus the "Dependency licenses" section of the root `CLAUDE.md`,
+> which reference each other and are changed together. Read this document for *why* the gate is
+> shaped the way it is; read those two for *what is allowed today*. The measured figures below were
+> re-derived against the tree as of the implementation's final review and will drift with the next
+> dependency bump - that is expected, and is not something to chase.
+
 ## 1. Scope
 
 A CI gate that fails when any dependency of this repository declares a license outside an
@@ -15,7 +22,7 @@ ecosystems.
 
 **Runtime and development dependencies are both gated**, under one allow-list, matching what
 ArcadeDB's Maven checker does for its whole reactor. The measured cost of that choice is small:
-416 packages produce only 27 distinct license signals.
+362 packages produce only 19 distinct license signals.
 
 ## 2. Decisions
 
@@ -70,12 +77,19 @@ Measured, not estimated, at the time of writing.
 
 | Ecosystem | Packages | Distinct license signals |
 |---|---|---|
-| npm (`typescript/`, all deps) | 367 | 11 |
-| Python (`python/`, all deps) | 49 | 16 |
+| npm (`typescript/`, all deps) | 313 | 11 |
+| Python (`python/`, all deps) | 49 | 13 |
+| **Both** | **362** | **19** |
 
-npm's spread is entirely SPDX ids: MIT (239), Apache-2.0 (41), ISC (27), BSD-3-Clause (14),
-BSD-2-Clause (6), BlueOak-1.0.0 (5), MPL-2.0 (2), `(Apache-2.0 AND BSD-3-Clause)`,
-`(MIT OR CC0-1.0)`, Python-2.0, Unlicense. Zero undeclared.
+The two ecosystems share five signals (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, MPL-2.0), which
+is why 11 + 13 is 19 and not 24.
+
+npm's spread is entirely SPDX ids: MIT (216), Apache-2.0 (40), ISC (26), BSD-3-Clause (14),
+BSD-2-Clause (6), BlueOak-1.0.0 (5), MPL-2.0 (2), `(Apache-2.0 AND BSD-3-Clause)` (1),
+`(MIT OR CC0-1.0)` (1), Python-2.0 (1), Unlicense (1). Zero undeclared.
+
+The npm count is what a run on *this* machine installs, not what the lockfile enumerates - see
+section 6.2 for why those differ and what it costs.
 
 Python's spread arrives through **three** metadata channels with different fidelity: PEP 639
 `License-Expression` (SPDX), the legacy free-text `License` field (`3-Clause BSD License`,
@@ -83,8 +97,14 @@ Python's spread arrives through **three** metadata channels with different fidel
 `Mozilla Public License 2.0 (MPL 2.0)`). It also contains one unparenthesised compound,
 `Apache-2.0 OR BSD-2-Clause`.
 
-The **runtime** graph - what a user inherits by installing our packages - is 5 npm and 10 Python
-distributions.
+Python's 13 signals break down as MIT (24), Apache-2.0 (7), BSD-3-Clause (6), BSD-2-Clause (2),
+`MIT License` (2), and one each of `MPL-2.0`, `BSD License`, `Apache License 2.0`,
+`Apache-2.0 OR BSD-2-Clause`, `Mozilla Public License 2.0 (MPL 2.0)`, `3-Clause BSD License`,
+`ISC License` and `PSF-2.0`. Six of those thirteen are free text or Trove classifiers rather than
+SPDX ids - the whole reason `NORMALISE` exists.
+
+The **runtime** graph - what a user inherits by installing our packages - is 5 npm and 11 Python
+distributions, the eleventh being `exceptiongroup`, which `anyio` pulls in only below Python 3.11.
 
 ## 5. Policy
 
@@ -198,9 +218,41 @@ responses.
 
 ### 6.2 npm collector
 
-`npm ls --all --json` from `typescript/` for the tree, then each package's
-`node_modules/<name>/package.json` for its `license` field, including the legacy `licenses: [...]`
-array form. No new dependency, and it works on a workspace - which `license-checker` does not.
+**`node_modules` itself is the authority, not `npm ls`.** The collector walks
+`typescript/node_modules` with `rglob("package.json")`, reads each manifest, and indexes it by the
+`(name, version)` the manifest declares *for itself* - never by the directory it happens to sit in.
+Its `license` field is then the signal, including the legacy `licenses: [...]` array form. No new
+dependency, and it works on a workspace, which `license-checker` does not.
+
+This design started as `npm ls --all --json` and changed during implementation, for two reasons
+both verified against this tree rather than reasoned about:
+
+1. **npm aliases.** `node_modules/string-width-cjs/package.json` declares `"name": "string-width"`.
+   `npm ls` reports the alias name (`string-width-cjs`), so an index keyed on the package's own
+   declared name cannot be looked up by it, and one keyed on the alias name mislabels the package.
+   Three such aliases are installed here (`string-width-cjs`, `strip-ansi-cjs`, `wrap-ansi-cjs`).
+   Reading the manifest's own `name` sidesteps the question entirely: the identity that matters for
+   licensing is the one the package declares for itself.
+2. **Platform-specific optional dependencies.** `npm ls` lists native binaries for OS/CPU targets
+   that never install on the running machine, so every entry would have to be probed for existence
+   before its manifest could be read - and a missing one is indistinguishable from a broken install.
+   Walking the directory makes "installed" the definition rather than something to reconstruct.
+
+**The trade-off this carries, stated plainly.** `package-lock.json` holds 390 dependency entries
+(excluding the two workspace symlinks and the two workspace path entries). **60 of those are
+`os`/`cpu`-gated optional packages**, and no single run ever audits all of them: on the ubuntu CI
+runner only the `linux-x64` subset installs, and on an arm64 macOS checkout only 5 of the 60 do.
+They are the `@esbuild/*`, `@rolldown/binding-*`, `lightningcss-*`, `@bufbuild/buf-*` and `fsevents`
+families - all 60 are `dev: true`, and all 60 declare a license in `{MIT, Apache-2.0, MPL-2.0}`,
+every one of which is on the allow-list.
+
+That is acceptable **today, on that condition** - dev-scope build tooling under already-allowed
+licenses, small enough to read from the lockfile by hand. **The condition matters more than the
+conclusion.** It would *not* be acceptable for a platform-specific **runtime** dependency: such a
+package reaches users of that platform, is never installed on the ubuntu runner, and would
+therefore never be audited by this gate at all. The lockfile's `license` field is the fallback for
+that case - readable without installing anything - and a runtime `os`/`cpu`-gated dependency
+appearing in this tree is the trigger to add it.
 
 ### 6.3 Python collector
 
@@ -294,7 +346,7 @@ schedule - the same argument that puts `buf.yaml` at the repository root.
 **Steps:** checkout, `npm ci` in `typescript/`, `uv sync` in `python/`, run the checker, run its
 tests, write the license spread to the job summary.
 
-The job summary lists the spread (`239 MIT, 41 Apache-2.0, ...`) so a passing run still shows what
+The job summary lists the spread (`240 MIT, 47 Apache-2.0, ...`) so a passing run still shows what
 we depend on rather than only asserting that it is fine.
 
 ## 10. Testing

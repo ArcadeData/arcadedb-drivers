@@ -545,7 +545,11 @@ def report(violations: list[Record], spread: Counter[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # Hardcoded rather than derived from __doc__: under `-OO`, Python strips docstrings and
+    # __doc__ is None, which crashed `--help` (`.splitlines()` on None). Hardcoding also
+    # decouples this blurb from the module docstring's first line - the two serve different
+    # readers and have no reason to be forced to stay identical.
+    parser = argparse.ArgumentParser(description="Check dependency licenses against the allow-list.")
     parser.add_argument(
         "--ecosystem",
         choices=("npm", "python", "all"),

@@ -8,6 +8,7 @@ docs/superpowers/specs/2026-09-07-license-compliance-design.md section 7.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -268,3 +269,18 @@ def test_report_returns_1_and_names_the_offender(capsys: pytest.CaptureFixture[s
 def test_report_returns_0_on_a_clean_inventory(capsys: pytest.CaptureFixture[str]) -> None:
     assert cl.report([], cl.Counter({"MIT": 3})) == 0
     assert "3" in capsys.readouterr().out
+
+
+def test_help_does_not_crash_under_oo() -> None:
+    # Regression test for a real latent crash: `argparse.ArgumentParser(description=
+    # __doc__.splitlines()[0])` blows up under `-OO`, which strips docstrings and leaves
+    # __doc__ as None. Runs the script as a real subprocess because `-OO` is a Python
+    # startup flag, not something togglable from inside an already-running interpreter.
+    completed = subprocess.run(
+        [sys.executable, "-OO", str(_CHECKER), "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "AttributeError" not in completed.stderr

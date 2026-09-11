@@ -32,6 +32,9 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self.command_requests: list[pb2.ExecuteCommandRequest] = []
         self.stream_query_requests: list[pb2.StreamQueryRequest] = []
         self.rollback_requests: list[pb2.RollbackTransactionRequest] = []
+        self.vector_requests: list[pb2.VectorSearchRequest] = []
+        self.hybrid_requests: list[pb2.HybridSearchRequest] = []
+        self.fulltext_requests: list[pb2.FullTextSearchRequest] = []
         # `time_remaining()` is how a call's `timeout=` reaching the server is observed:
         # `grpc._server`'s sync `ServicerContext` returns a huge sentinel float (~9.2e18)
         # when no deadline was set and the actual remaining seconds otherwise; `grpc.aio`'s
@@ -72,6 +75,23 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self.command_metadata.append(list(context.invocation_metadata()))
         self.command_time_remaining.append(context.time_remaining())
         return pb2.ExecuteCommandResponse(success=True)
+
+    def VectorSearch(self, request: pb2.VectorSearchRequest, context: grpc.ServicerContext) -> pb2.VectorSearchResponse:
+        self._record("VectorSearch", context)
+        self.vector_requests.append(request)
+        return pb2.VectorSearchResponse(index_name=request.index_name)
+
+    def HybridSearch(self, request: pb2.HybridSearchRequest, context: grpc.ServicerContext) -> pb2.HybridSearchResponse:
+        self._record("HybridSearch", context)
+        self.hybrid_requests.append(request)
+        return pb2.HybridSearchResponse(vector_index_name=request.vector_index_name)
+
+    def FullTextSearch(
+        self, request: pb2.FullTextSearchRequest, context: grpc.ServicerContext
+    ) -> pb2.FullTextSearchResponse:
+        self._record("FullTextSearch", context)
+        self.fulltext_requests.append(request)
+        return pb2.FullTextSearchResponse(index_name=request.index_name)
 
     def InsertStream(
         self, request_iterator: Iterator[pb2.InsertChunk], context: grpc.ServicerContext

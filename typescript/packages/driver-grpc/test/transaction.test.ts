@@ -7,8 +7,11 @@ import type {
   CommitTransactionRequestSchema,
   CommitTransactionResponseSchema,
   ExecuteQueryRequestSchema,
+  FullTextSearchRequestSchema,
+  HybridSearchRequestSchema,
   RollbackTransactionRequestSchema,
   RollbackTransactionResponseSchema,
+  VectorSearchRequestSchema,
 } from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { createTransaction } from "../src/transaction.js";
 
@@ -19,6 +22,9 @@ type CommitResponse = MessageInitShape<typeof CommitTransactionResponseSchema>;
 type RollbackRequest = MessageInitShape<typeof RollbackTransactionRequestSchema>;
 type RollbackResponse = MessageInitShape<typeof RollbackTransactionResponseSchema>;
 type ExecuteQueryRequest = MessageInitShape<typeof ExecuteQueryRequestSchema>;
+type VectorSearchRequest = MessageInitShape<typeof VectorSearchRequestSchema>;
+type HybridSearchRequest = MessageInitShape<typeof HybridSearchRequestSchema>;
+type FullTextSearchRequest = MessageInitShape<typeof FullTextSearchRequestSchema>;
 
 /** Records every call made through a fake `raw` client, mimicking the subset of
  * `Client<typeof ArcadeDbService>` the transaction wrapper touches. */
@@ -45,7 +51,19 @@ function mockRaw(
     rollback: RollbackRequest[];
     executeQuery: ExecuteQueryRequest[];
     executeQueryOptions: (CallOptions | undefined)[];
-  } = { begin: [], commit: [], rollback: [], executeQuery: [], executeQueryOptions: [] };
+    vectorSearch: VectorSearchRequest[];
+    hybridSearch: HybridSearchRequest[];
+    fullTextSearch: FullTextSearchRequest[];
+  } = {
+    begin: [],
+    commit: [],
+    rollback: [],
+    executeQuery: [],
+    executeQueryOptions: [],
+    vectorSearch: [],
+    hybridSearch: [],
+    fullTextSearch: [],
+  };
 
   const raw = {
     beginTransaction: async (request: BeginRequest): Promise<BeginResponse> => {
@@ -75,6 +93,18 @@ function mockRaw(
     updateRecord: async () => ({ success: true, updated: true }),
     deleteRecord: async () => ({ success: true, deleted: true, message: "" }),
     lookupByRid: async () => ({ found: false, record: undefined }),
+    vectorSearch: async (request: VectorSearchRequest) => {
+      calls.vectorSearch.push(request);
+      return { indexName: "", sparse: false, scoring: "", candidateLimit: 0, truncated: false, count: 0, results: [] };
+    },
+    hybridSearch: async (request: HybridSearchRequest) => {
+      calls.hybridSearch.push(request);
+      return { indexName: "", vectorIndexName: "", fulltextIndexName: "", count: 0, results: [] };
+    },
+    fullTextSearch: async (request: FullTextSearchRequest) => {
+      calls.fullTextSearch.push(request);
+      return { indexName: "", similarity: "", count: 0, results: [] };
+    },
     bulkInsert: async () => ({
       received: 0n,
       inserted: 0n,
@@ -337,6 +367,64 @@ describe("transaction", () => {
 
       expect(caught).toBe(boom);
       expect((caught as Error).cause).toBe(originalCause);
+    });
+  });
+
+  describe("vector, hybrid and full-text search through the handle", () => {
+    it("binds vectorSearch: forces database/transaction and clears caller-supplied transaction flags (anti-hijack)", async () => {
+      const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+      const transaction = createTransaction(raw);
+      const request: VectorSearchRequest = {
+        database: "somewhere-else",
+        indexName: "v_idx",
+        queryVector: [0.1, 0.2],
+        transaction: {
+          transactionId: "hijacked-tx-id",
+          database: "somewhere-else",
+          rollback: true,
+          readOnly: true,
+          commit: true,
+          timeoutMs: 5n,
+        },
+      };
+
+      await transaction("mydb", async (tx) => {
+        await tx.vectorSearch(request);
+      });
+
+      const sent = calls.vectorSearch[0];
+      expect(sent?.database).toBe("mydb");
+      expect(sent?.transaction?.transactionId).toBe("tx-abc");
+      // `bindTransaction` replaces `transaction` wholesale with a fresh `{ transactionId,
+      // database }` object rather than merging into the caller's - equivalent to protobuf
+      // `CopyFrom`, not `MergeFrom` - so the caller's inline flags are simply absent here
+      // (and default to false/0 once the real client serialises this init object), never
+      // the caller's `true`/`5n`.
+      expect(sent?.transaction?.rollback).toBeFalsy();
+      expect(sent?.transaction?.readOnly).toBeFalsy();
+      expect(sent?.transaction?.commit).toBeFalsy();
+      expect(sent?.transaction?.timeoutMs ?? 0n).toBe(0n);
+      // The payload the caller actually cares about is untouched.
+      expect(sent?.indexName).toBe("v_idx");
+      expect(sent?.queryVector).toEqual([0.1, 0.2]);
+      // The caller's own object is left unmutated.
+      expect(request.database).toBe("somewhere-else");
+      expect(request.transaction?.transactionId).toBe("hijacked-tx-id");
+    });
+
+    it("binds hybridSearch and fullTextSearch: forces database/transaction the same way", async () => {
+      const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+      const transaction = createTransaction(raw);
+
+      await transaction("mydb", async (tx) => {
+        await tx.hybridSearch({ database: "elsewhere", vectorIndexName: "v_idx", queryVector: [0.1] });
+        await tx.fullTextSearch({ database: "elsewhere", queryText: "cat" });
+      });
+
+      expect(calls.hybridSearch[0]?.database).toBe("mydb");
+      expect(calls.hybridSearch[0]?.transaction?.transactionId).toBe("tx-abc");
+      expect(calls.fullTextSearch[0]?.database).toBe("mydb");
+      expect(calls.fullTextSearch[0]?.transaction?.transactionId).toBe("tx-abc");
     });
   });
 });

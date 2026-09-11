@@ -39,6 +39,9 @@ _Request = TypeVar(
     messages.DeleteRecordRequest,
     messages.LookupByRidRequest,
     messages.StreamQueryRequest,
+    messages.VectorSearchRequest,
+    messages.HybridSearchRequest,
+    messages.FullTextSearchRequest,
 )
 
 
@@ -158,6 +161,33 @@ class TransactionHandle:
         self, request: messages.StreamQueryRequest, *, timeout: float | None = None
     ) -> Iterator[messages.GrpcRecord]:
         return _stream_query(self._raw, self._bind(request), timeout=timeout)
+
+    def vector_search(
+        self,
+        request: messages.VectorSearchRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.VectorSearchResponse:
+        return self._raw.VectorSearch(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
+
+    def hybrid_search(
+        self,
+        request: messages.HybridSearchRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.HybridSearchResponse:
+        return self._raw.HybridSearch(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
+
+    def full_text_search(
+        self,
+        request: messages.FullTextSearchRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.FullTextSearchResponse:
+        return self._raw.FullTextSearch(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
 
 class Transaction:

@@ -193,7 +193,7 @@ const totalRow = await grpc.transaction("mydb", async (tx) => {
 
 `transaction` begins a server-side transaction, hands the callback a `TransactionHandle` whose
 calls (`executeQuery`, `executeCommand`, `createRecord`, `updateRecord`, `deleteRecord`,
-`lookupByRid`, `streamQuery`) all carry the transaction's id automatically, and ends the
+`lookupByRid`, `streamQuery`, `vectorSearch`, `hybridSearch`, `fullTextSearch`) all carry the transaction's id automatically, and ends the
 transaction on both the success and failure paths: the callback resolving commits, the callback
 throwing or rejecting rolls back and re-throws the callback's own error. This is the safety net
 against forgetting, dropping, or mismatching a transaction id by hand - the exact class of defect

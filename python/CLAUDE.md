@@ -108,8 +108,9 @@ envelope-normalising step to mirror `facade/data.py`, because gRPC responses nee
 unwrapping (see that package's README, "Errors: `grpc.RpcError`, not a package-specific error").
 `transaction()` itself returns a **second** wrapper, `TransactionHandle` (`transaction.py`), not a
 bare route back to `raw`: every call made through it (`execute_query`, `execute_command`,
-`create_record`, `update_record`, `delete_record`, `lookup_by_rid`, plus `stream_query` again,
-bound this time) passes through `_bind`, which forcibly overwrites `request.database` and
+`create_record`, `update_record`, `delete_record`, `lookup_by_rid`, `vector_search`,
+`hybrid_search`, `full_text_search`, plus `stream_query` again, bound this time) passes through
+`_bind`, which forcibly overwrites `request.database` and
 `request.transaction` with the handle's own values, discarding whatever the caller had set on the
 request object first. That override is the safety mechanism, not an incidental detail - it is
 what makes transaction hijack, silent data loss, and leaked transactions

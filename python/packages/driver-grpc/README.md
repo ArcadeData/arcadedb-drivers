@@ -94,7 +94,8 @@ per-call metadata. That is not a stylistic choice: the top-level client wraps on
 `stream_query`, `insert_stream`, and the three transaction RPCs (`BeginTransaction`,
 `CommitTransaction`, `RollbackTransaction`) that `transaction` manages internally. The six CRUD
 RPCs (`ExecuteQuery`, `ExecuteCommand`, `CreateRecord`, `UpdateRecord`, `DeleteRecord`,
-`LookupByRid`) get a wrapper only once a transaction is open, through `TransactionHandle` /
+`LookupByRid`) plus the three search RPCs (`VectorSearch`, `HybridSearch`, `FullTextSearch`) get a
+wrapper only once a transaction is open, through `TransactionHandle` /
 `AsyncTransactionHandle` - outside a transaction they reach the server through `raw` directly - and
 `BulkInsert`, `InsertBidirectional`, and `GraphBatchLoad` have no wrapper anywhere, ever. Attaching
 auth as per-call metadata on just the top-level wrappers would leave every one of those other calls
@@ -267,7 +268,8 @@ async with client.transaction("mydb") as tx:
 server-side transaction (`BeginTransaction`) and hands back a `TransactionHandle` /
 `AsyncTransactionHandle` - a second object, distinct from the client itself. Every call made
 through that handle (`execute_query`, `execute_command`, `create_record`, `update_record`,
-`delete_record`, `lookup_by_rid`, `stream_query`) carries the transaction's id; a call made
+`delete_record`, `lookup_by_rid`, `stream_query`, `vector_search`, `hybrid_search`,
+`full_text_search`) carries the transaction's id; a call made
 through the outer `client` while the transaction is open does **not** take part in it, the same
 distinction `arcadedb-driver`'s `Transaction` documents for its second database handle.
 

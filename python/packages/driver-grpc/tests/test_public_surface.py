@@ -8,6 +8,7 @@ EXPECTED_SURFACE = {
     "Auth",
     "InsecureChannelError",
     "InsertStreamRequest",
+    "TimeSeriesWriteStreamRequest",
     "Transaction",
     "TransactionHandle",
     "__version__",

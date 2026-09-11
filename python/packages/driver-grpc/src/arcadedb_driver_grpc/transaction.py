@@ -27,6 +27,7 @@ from typing import TypeVar
 from ._generated import arcadedb_server_pb2 as messages
 from ._generated.arcadedb_server_pb2_grpc import ArcadeDbServiceStub
 from .stream import stream_query as _stream_query
+from .stream import time_series_query as _time_series_query
 
 __all__ = ["Transaction", "TransactionHandle"]
 
@@ -42,6 +43,8 @@ _Request = TypeVar(
     messages.VectorSearchRequest,
     messages.HybridSearchRequest,
     messages.FullTextSearchRequest,
+    messages.TimeSeriesQueryRequest,
+    messages.TimeSeriesLatestRequest,
 )
 
 
@@ -188,6 +191,33 @@ class TransactionHandle:
         metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> messages.FullTextSearchResponse:
         return self._raw.FullTextSearch(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
+
+    def time_series_query(
+        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+    ) -> Iterator[messages.TimeSeriesQueryResult]:
+        """Streams a bound time-series answer message by message; see `stream.time_series_query`.
+
+        `TimeSeriesQueryRequest` carries a `transaction` field (issue #7370: a query naming
+        an open transaction runs on that transaction's own thread and observes its
+        uncommitted points), the same reason `stream_query` above is offered here.
+        """
+        return _time_series_query(self._raw, self._bind(request), timeout=timeout)
+
+    def time_series_latest(
+        self,
+        request: messages.TimeSeriesLatestRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.TimeSeriesLatestResponse:
+        """Reads the latest sample bound to this transaction.
+
+        `TimeSeriesLatestRequest` also carries a `transaction` field, for the same #7370
+        reason as `time_series_query` above - but `TimeSeriesLatest` is unary, so there is
+        no batching or flattening for a wrapper to own, and this is bound directly through
+        `self._raw.TimeSeriesLatest` rather than through a stream-shaped helper.
+        """
+        return self._raw.TimeSeriesLatest(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
 
 class Transaction:

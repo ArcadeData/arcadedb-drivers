@@ -273,6 +273,7 @@ This package was generated from `contracts/arcadedb-server-26.10.1-SNAPSHOT.prot
 | `@arcadedb/driver-grpc` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
+| 0.2.0 (unreleased) | 26.10.1-SNAPSHOT |
 
 Pointing it at a server on a materially different release may work for the RPCs both versions
 share, but is not tested or supported.

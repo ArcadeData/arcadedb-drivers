@@ -395,6 +395,7 @@ server-version = "26.10.1-SNAPSHOT"
 | `arcadedb-driver-grpc` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
+| 0.2.0 (unreleased) | 26.10.1-SNAPSHOT |
 
 This table is a historical record tied to a package version, not something derived
 automatically: `scripts/adopt-contract-version.sh` deliberately does not touch it when it retires

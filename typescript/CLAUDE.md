@@ -67,15 +67,16 @@ Their asymmetries are intentional and documented in each package's README:
 ## HTTP client structure
 
 `src/index.ts` holds `ArcadeDBServer` / `ArcadeDBDatabase` and the `db.ts` / `db.grafana` /
-`db.promql` namespaces; `src/facade/*.ts` holds the per-area request functions;
+`db.promql` / `db.vector` namespaces; `src/facade/*.ts` holds the per-area request functions;
 `src/internal/unwrap.ts` is the single bridge from openapi-fetch's `{ data, error }` to the
 throwing facade. `unwrap` lives in `internal/` rather than being re-exported from `index.ts`
 specifically to break the `index.ts` ↔ `facade/*.ts` import cycle.
 
-The three namespaces load their implementation with a **dynamic `import()`**. That is a
+All four namespaces load their implementation with a **dynamic `import()`**. That is a
 tree-shaking contract, not a style choice: `test/treeshake.test.ts` bundles a data-plane-only
-entry with esbuild `splitting` and asserts the time-series, Grafana, and PromQL route markers are
-absent. Converting one of those to a static import silently breaks that guarantee — and the test.
+entry with esbuild `splitting` and asserts all four route markers - time-series, Grafana, PromQL
+and vector-search - are absent. Converting one of those to a static import silently breaks that
+guarantee — and the test.
 
 Transactions thread a session id: `transaction()` begins one, constructs a second
 `ArcadeDBDatabase` carrying `sessionId`, and every call through *that* handle sends

@@ -91,9 +91,9 @@ facades differ only in which call style they use and both funnel through the sam
 request-building and envelope-normalising helpers in `facade/data.py`. The sync/async split does
 not line up with the module split: most sync classes live under `facade/` (`ArcadeDBDatabase` in
 `__init__.py`, `Transaction` in `facade/transaction.py`) while their `Async*` twins live in
-`aio.py`, but `facade/timeseries.py` and `facade/dashboards.py` each hold both their sync and
-async classes side by side. Don't assume "facade/" means sync-only or "aio.py" means every async
-class - check the class name, not the file it happens to be in.
+`aio.py`, but `facade/timeseries.py`, `facade/dashboards.py` and `facade/vector.py` each hold
+both their sync and async classes side by side. Don't assume "facade/" means sync-only or
+"aio.py" means every async class - check the class name, not the file it happens to be in.
 
 The duplication between the sync and async facades is mechanical and deliberate.
 [`unasync`](https://github.com/python-trio/unasync)-style single-source generation (write async,
@@ -159,8 +159,8 @@ transaction and streaming wrappers; it is not duplicated here.
   `octetsToLatin1String` or its chunking logic into `auth.py`, stop; it is solving a problem that
   does not exist in Python.
 - **The lazy-import/tree-shaking construct is deliberately absent.** `typescript`'s `db.ts` /
-  `db.grafana` / `db.promql` namespaces load their implementation with a dynamic `import()`
-  specifically so a bundler can tree-shake unused namespaces out of a browser bundle
+  `db.grafana` / `db.promql` / `db.vector` namespaces load their implementation with a dynamic
+  `import()` specifically so a bundler can tree-shake unused namespaces out of a browser bundle
   (`test/treeshake.test.ts` asserts this). Python has no bundler and no tree-shaking step - the
   construct would add indirection with no reader ever benefiting from it, so the equivalent
   namespaces here (`cached_property` on `ArcadeDBDatabase`) import and construct eagerly-on-first-
@@ -198,12 +198,25 @@ plain `dict`, and defaults `limit` (to `-1`, uncapped), `returned` (to `0`), and
 `False`) when the server's response omits them - `QueryResponse` has no `required` list in the
 contract, so all four fields are technically optional on the wire even though the current server
 always sends them. This normalisation (the `_or` helper plus `to_envelope`) is applied **only** to
-the data plane (`query`/`command`). The `ts`, `grafana`, and `promql` namespaces deliberately do
-NOT get the same `Unset`-stripping treatment: `db.promql.*` passes the generated request/response
-models through unaltered (`Unset` stays visible on optional fields, the same way `?: T | undefined`
-stays visible in the TypeScript client), and `db.ts`/`db.grafana.query` bypass generated models
-entirely for an unrelated reason (see below). Normalising the envelope is a data-plane ergonomics
-decision, not a general policy to launder `Unset` out of every response this client returns.
+the data plane (`query`/`command`). The `ts`, `grafana`, `promql` and `vector` namespaces
+deliberately do NOT get the same `Unset`-stripping treatment: `db.promql.*` passes the generated
+request/response models through unaltered (`Unset` stays visible on optional fields, the same way
+`?: T | undefined` stays visible in the TypeScript client), and `db.ts`/`db.grafana.query` bypass
+generated models entirely for an unrelated reason (see below). Normalising the envelope is a
+data-plane ergonomics decision, not a general policy to launder `Unset` out of every response this
+client returns.
+
+`db.vector` is the fourth member of that set and the only one where the passthrough was argued
+rather than inherited, so it is worth stating why: returning `VectorSearchResponse` /
+`HybridSearchResponse` / `FullTextSearchResponse` whole is what keeps `truncated`, `count` and
+`scoring` attached to the rows they describe, and dropping any of them is the `truncated` hazard
+`QueryEnvelope` exists to document, not an ergonomics win. The price is that a caller meets **two
+row shapes in one client**: `db.query()` yields `list[dict]`, because `QueryEnvelope` converts each
+row with `to_dict()`, while `db.vector.search()` yields generated `attrs` models whose fields a
+caller reads through `.to_dict()` or `additional_properties`. That is a deliberate trade, not an
+oversight to unify - `facade/vector.py`'s module docstring makes the full argument, including why
+flattening only `results` would manufacture a worse third shape. Read it before changing either
+side.
 
 ## `CommandRequest.limit`
 

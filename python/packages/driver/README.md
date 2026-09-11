@@ -187,6 +187,38 @@ This client sends whatever value it is given without checking it first, so a val
 allowed range surfaces as an `ArcadeDBError` raised from the server's response, not as a local
 exception before the request is even sent.
 
+### Reading a hit
+
+Two shapes stand between you and a field on a hit, both consequences of returning the generated
+response whole. `VectorSearchResponse` carries no `required` list in the contract, so every one of
+its fields defaults to `UNSET` and `results` is typed `list[VectorSearchResponseResultsItem] |
+Unset` - a type checker will not let you iterate it unnarrowed. And a hit's `properties` is itself
+a generated `attrs` model, `VectorSearchResponseResultsItemProperties`, not a `dict`: the record's
+own fields live in its `additional_properties` mapping, so `hit.properties.name` raises
+`AttributeError` rather than returning a value.
+
+Neither is something the facade can strip on your behalf. Flattening `results` into `list[dict]`
+the way `QueryEnvelope` flattens `query`/`command` rows would leave `truncated`, `count` and
+`scoring` describing rows that no longer travel with them, and flattening only the rows would
+manufacture a third shape - typed top-level fields above untyped rows - worse than either shape
+this client already has (`facade/vector.py`'s module docstring argues this at length). So the
+unwrapping is two lines at the call site:
+
+```python
+resp = db.vector.search(index_name="myIndex", query_vector=[0.1, 0.2, 0.3], k=5)
+
+for hit in resp.results or []:
+    props = hit.properties.to_dict() if hit.properties else {}
+    print(hit.rid, hit.distance, props.get("name"))
+```
+
+`or []` is enough to discharge the `Unset`: `Unset.__bool__` is declared to return
+`Literal[False]`, so a type checker narrows the loop's subject to the list without an `isinstance`
+call. `to_dict()` copies the additional-properties mapping into a plain `dict`; if you would rather
+not copy, `hit.properties["name"]` and `hit.properties.additional_properties["name"]` reach the
+same value directly. `hybrid` and `fulltext` hits read identically, with their own per-element
+model classes.
+
 One asymmetry with `@arcadedb/driver` is worth knowing if you work in both clients:
 `VectorSearchRequest.k`, `HybridSearchRequest.k`, and `FullTextSearchRequest.limit` all carry an
 OpenAPI `default: 10` outside their schema's `required` list, and the two generators treat that

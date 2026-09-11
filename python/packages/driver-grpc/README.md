@@ -49,14 +49,15 @@ parse and nothing to default: pass `credentials=grpc.ssl_channel_credentials()` 
 `insecure=True` to say explicitly that you want a plaintext channel.
 
 `raw` is the generated stub for `com.arcadedb.grpc.ArcadeDbService` - every RPC the `.proto`
-contract declares is reachable through it. `create_client` adds three wrappers on top for the RPCs
-the generated stub alone handles badly: `stream_query`, `insert_stream`, and `transaction`.
-Everything else - the unary CRUD calls, `VectorSearch`/`HybridSearch`/`FullTextSearch`,
-`BulkInsert`, `InsertBidirectional`, `GraphBatchLoad` - is used directly through `raw` at the top
-level, exactly as in the example above; the CRUD calls and the three search RPCs also get a
-`TransactionHandle` wrapper once a transaction is open (see "Transactions" and "Vector, hybrid and
-full-text search" below) - `BulkInsert`, `InsertBidirectional`, and `GraphBatchLoad` never do, at
-any level.
+contract declares is reachable through it. `create_client` adds five wrappers on top for the RPCs
+the generated stub alone handles badly: `stream_query`, `insert_stream`, `time_series_query`,
+`time_series_write_stream`, and `transaction`. Everything else - the unary CRUD calls,
+`VectorSearch`/`HybridSearch`/`FullTextSearch`, `BulkInsert`, `InsertBidirectional`,
+`GraphBatchLoad`, `TimeSeriesWrite`, `TimeSeriesLatest` - is used directly through `raw` at the top
+level, exactly as in the example above; the CRUD calls, the three search RPCs, and
+`TimeSeriesLatest` also get a `TransactionHandle` wrapper once a transaction is open (see
+"Transactions", "Vector, hybrid and full-text search", and "Time series" below) - `BulkInsert`,
+`InsertBidirectional`, `GraphBatchLoad`, and `TimeSeriesWrite` never do, at any level.
 
 The async facade mirrors the sync one method-for-method:
 
@@ -94,16 +95,17 @@ password_auth("root", "playwithdata", "mydb")  # x-arcade-user / x-arcade-passwo
 ```
 
 Both helpers return an `Auth` value that `create_client` turns into a **channel** interceptor, not
-per-call metadata. That is not a stylistic choice: the top-level client wraps only three things -
-`stream_query`, `insert_stream`, and the three transaction RPCs (`BeginTransaction`,
-`CommitTransaction`, `RollbackTransaction`) that `transaction` manages internally. The six CRUD
-RPCs (`ExecuteQuery`, `ExecuteCommand`, `CreateRecord`, `UpdateRecord`, `DeleteRecord`,
-`LookupByRid`) plus the three search RPCs (`VectorSearch`, `HybridSearch`, `FullTextSearch`) get a
-wrapper only once a transaction is open, through `TransactionHandle` /
-`AsyncTransactionHandle` - outside a transaction they reach the server through `raw` directly - and
-`BulkInsert`, `InsertBidirectional`, and `GraphBatchLoad` have no wrapper anywhere, ever. Attaching
-auth as per-call metadata on just the top-level wrappers would leave every one of those other calls
-silently anonymous. Attaching it to the channel instead makes that impossible -
+per-call metadata. That is not a stylistic choice: the top-level client wraps only five things -
+`stream_query`, `insert_stream`, `time_series_query`, `time_series_write_stream`, and the three
+transaction RPCs (`BeginTransaction`, `CommitTransaction`, `RollbackTransaction`) that
+`transaction` manages internally. The six CRUD RPCs (`ExecuteQuery`, `ExecuteCommand`,
+`CreateRecord`, `UpdateRecord`, `DeleteRecord`, `LookupByRid`) plus the three search RPCs
+(`VectorSearch`, `HybridSearch`, `FullTextSearch`) and `TimeSeriesLatest` get a wrapper only once a
+transaction is open, through `TransactionHandle` / `AsyncTransactionHandle` - outside a
+transaction they reach the server through `raw` directly - and `BulkInsert`,
+`InsertBidirectional`, `GraphBatchLoad`, and `TimeSeriesWrite` have no wrapper anywhere, ever.
+Attaching auth as per-call metadata on just the top-level wrappers would leave every one of those
+other calls silently anonymous. Attaching it to the channel instead makes that impossible -
 `client.raw.ExecuteCommand(...)` carries the same headers `client.stream_query(...)` does.
 
 ### The async side needs four interceptor objects, not one
@@ -337,6 +339,118 @@ commit persisting them on all three. So the restriction is now **removable** for
 version this package supports. It is kept for now because lifting it adds public surface, a
 deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
 
+## Time series: `time_series_write_stream`, `time_series_query`, `time_series_latest`, `TimeSeriesWrite`
+
+Four RPCs, four different treatments:
+
+| RPC | Reached how |
+| --- | --- |
+| `TimeSeriesWriteStream` | `client.time_series_write_stream` - a client-streaming wrapper, like `insert_stream` |
+| `TimeSeriesQuery` | `client.time_series_query` outside a transaction, `tx.time_series_query` bound to one |
+| `TimeSeriesLatest` | `tx.time_series_latest` only - no top-level alias exists |
+| `TimeSeriesWrite` (the unary write) | `client.raw.TimeSeriesWrite` only - no wrapper at any level |
+
+```python
+from arcadedb_driver_grpc import TimeSeriesWriteStreamRequest, messages
+
+
+def points() -> list[list[messages.TimeSeriesPoint]]:
+    return [
+        [messages.TimeSeriesPoint(timestamp=1000, fields={"value": messages.GrpcValue(double_value=22.5)})],
+        [messages.TimeSeriesPoint(timestamp=2000, fields={"value": messages.GrpcValue(double_value=23.1)})],
+    ]
+
+
+summary = client.time_series_write_stream(
+    TimeSeriesWriteStreamRequest(
+        database="mydb",
+        type="Temperature",
+        precision=messages.TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+        chunks=points(),
+    )
+)
+print(summary.written, summary.dropped)
+
+for result in client.time_series_query(messages.TimeSeriesQueryRequest(database="mydb", type="Temperature")):
+    print(result.rows)
+
+with client.transaction("mydb") as tx:
+    latest = tx.time_series_latest(messages.TimeSeriesLatestRequest(type="Temperature"))
+```
+
+### `precision` is required, not defaulted
+
+`TimeSeriesWriteStreamRequest.precision` has no default - every call must set it, unlike almost
+every other field this package passes straight through unchanged. `TimeSeriesPrecision`'s proto3
+zero value is `TS_PRECISION_MILLISECONDS`, so a caller who omits the field and one who explicitly
+chose milliseconds produce the **identical** wire message - the server has no way to tell "you
+didn't say" from "you said milliseconds". That collision matters more than a typical proto3
+default-value gotcha because of what ArcadeDB's other time-series ingest path does: HTTP's
+`POST /api/v1/ts/{database}/write` speaks InfluxDB Line Protocol, whose own omitted-precision
+default is **nanoseconds** - a factor of 10\*\*6 away from gRPC's default of milliseconds. A
+caller porting a working HTTP ingest pipeline to this client who drops the field would have every
+timestamp misread by a million, silently, with no error raised on either side. Making `precision`
+a required (no-default) field on the dataclass turns that into a `TypeError` at construction
+instead of a silent data-corruption bug.
+
+### `database`, `type` and `precision` repeat on every chunk, not just the first
+
+Unlike `insert_stream`'s envelope (`database` on the first chunk only, `last=True` on the final
+one), `TimeSeriesWriteChunk` declares no `session_id`, `chunk_seq` or `last` field on the wire at
+all. `time_series_write_stream` therefore simply sets `database`, `credentials`, `type` and
+`precision` on **every** chunk it builds - there is no first-chunk-only special case to get wrong,
+and `insert_stream`'s `options.database` mirroring workaround (see above) has nothing to port
+here: `TimeSeriesWriteChunk` was never shown to share `InsertChunk`'s bug
+(ArcadeData/arcadedb#6597).
+
+### An empty `chunks` sends zero wire chunks, not one - and the server accepts it
+
+`insert_stream`'s empty case sends a single chunk with zero rows and `last=True`, because
+`InsertChunk` needs that flag to ever become `True` and `database` needs to land on some chunk.
+`TimeSeriesWriteChunk` has neither field, so an empty `chunks` here sends **zero** wire chunks -
+the server is never told `database`, `type` or `precision` at all. Verified against a real server:
+this is accepted cleanly, not rejected, and comes back as a `TimeSeriesWriteSummary` with every
+count (`received`, `written`, `dropped`, and all three type lists below) at zero.
+
+### A successful write can still report `written < received`
+
+`TimeSeriesWriteStream` is not atomic: each measurement's batch commits its own shard transaction
+as it is appended, so a failure partway through leaves everything before it durable. The returned
+`TimeSeriesWriteSummary` always carries `received`, `written`, `dropped`, plus three separate
+reasons a point can be dropped:
+
+- `unknown_types` - no type with this name exists (create it first with `CREATE TIMESERIES TYPE`)
+- `non_time_series_types` - the type exists, but is not a TIMESERIES type
+- `unavailable_types` - the type is a TIMESERIES type, but its storage engine failed to load
+
+**Checking only that the call returned without raising is not checking that the data landed** - a
+call can succeed and still report `dropped > 0`. Always read the summary.
+
+### Two RPCs with no wrapper or binding - for two different reasons, with two different futures
+
+`TimeSeriesWrite` has no wrapper at any level, and `TimeSeriesLatest` has no top-level alias. Both
+look like the same shape of gap from the outside, but they are not the same kind of gap, and
+should not be described the same way:
+
+- **`TimeSeriesWrite` is `raw`-only because its message carries no `transaction` field at all** -
+  a **contract** limit. `TimeSeriesWriteRequest` simply never declares a field to bind, the same
+  way `TimeSeriesWriteChunk` (the streaming version) never does. No server release, however
+  capable, can make `client.raw.TimeSeriesWrite` transaction-aware without the `.proto` itself
+  growing a `transaction` field first - there is nothing this package could do differently today.
+- **`insert_stream`'s absence from `TransactionHandle` is a server bug, already fixed, not a
+  contract limit.** `InsertStreamRequest`/`InsertChunk` DO carry a `transaction` field on the
+  wire, and it is forwarded on every chunk (see "Streaming inserts" above). The exclusion exists
+  because, on 26.8.1 and earlier, the server's `InsertContext` construction ignored that field
+  entirely ([ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607)). That
+  bug is fixed as of 26.9.1, measured against a real server (see "`insert_stream` and
+  `bulk_insert` cannot join a `transaction()`" above) - the exclusion is now **removable with no
+  contract change**, and is kept only because lifting it adds public surface, a deliberate release
+  decision rather than a documentation fix.
+
+So `TimeSeriesWrite`'s status is not on the same follow-up list as `insert_stream`'s: one needs the
+`.proto` contract to change upstream before this package could do anything about it; the other
+needs only this package to decide to expose what the server can already do.
+
 ## Vector, hybrid and full-text search: `VectorSearch`, `HybridSearch`, `FullTextSearch`
 
 ```python
@@ -363,9 +477,9 @@ These three RPCs are reached exactly two ways, and no third: `client.raw.VectorS
 `.HybridSearch` / `.FullTextSearch` outside any transaction, and `tx.vector_search` /
 `.hybrid_search` / `.full_text_search` bound to one once it is open - the same `TransactionHandle`
 the six CRUD RPCs already go through (see "Authentication, and why `client.raw` is authenticated
-too" above for where these three sit relative to the CRUD RPCs and the three calls with no
-wrapper at any level - `BulkInsert`, `InsertBidirectional`, `GraphBatchLoad`). There is
-deliberately **no top-level `client.vector_search`** alongside
+too" above for where these three sit relative to the CRUD RPCs and the four calls with no
+wrapper at any level - `BulkInsert`, `InsertBidirectional`, `GraphBatchLoad`, `TimeSeriesWrite`).
+There is deliberately **no top-level `client.vector_search`** alongside
 `stream_query`/`insert_stream`/`transaction`: those three exist because the generated stub alone
 handles them badly - `stream_query` needs its batches flattened, `insert_stream` needs envelope
 bookkeeping, `transaction` needs begin/commit/rollback sequencing. A unary RPC the generated stub

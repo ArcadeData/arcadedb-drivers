@@ -20,7 +20,7 @@ from typing import Any, cast
 import grpc
 import pytest
 import pytest_asyncio
-from arcadedb_driver_grpc import InsertStreamRequest, messages
+from arcadedb_driver_grpc import InsertStreamRequest, TimeSeriesWriteStreamRequest, messages
 from arcadedb_driver_grpc.aio import AsyncArcadeDBGrpcClient, create_client
 from arcadedb_driver_grpc.auth import async_interceptors, password_auth
 
@@ -250,3 +250,88 @@ async def test_async_vector_hybrid_and_fulltext_search_through_raw_and_the_handl
     assert len(hybrid.results) > 0
     assert hybrid.fused is True
     assert len(fulltext.results) > 0
+
+
+async def test_async_time_series_write_stream_multi_chunk_then_query_and_latest_through_a_transaction(
+    async_client: AsyncArcadeDBGrpcClient, grpc_database: str, grpc_timeseries_type: str
+) -> None:
+    """The async twin of `test_grpc.py`'s combined time-series test, same reasoning: done
+    together in one test so none of the three assertions depends on execution order against
+    the shared session-scoped database.
+
+    1. A MULTI-CHUNK write stream (two chunks, via an async generator - the shape this
+       facade's own `time_series_write_stream` had never been run against a real server
+       through before this test) - proving the per-chunk envelope actually works end to end.
+    2. `time_series_query` returns the points just written, non-empty.
+    3. `time_series_latest`, bound to an open transaction handle, returns the most recent
+       point.
+    """
+    marker_a = messages.GrpcValue(string_value="A")
+    marker_b = messages.GrpcValue(string_value="B")
+
+    async def chunks() -> AsyncIterator[list[messages.TimeSeriesPoint]]:
+        yield [
+            messages.TimeSeriesPoint(
+                timestamp=1000, tags={"sensor": marker_a}, fields={"value": messages.GrpcValue(double_value=1.1)}
+            ),
+            messages.TimeSeriesPoint(
+                timestamp=2000, tags={"sensor": marker_a}, fields={"value": messages.GrpcValue(double_value=1.2)}
+            ),
+        ]
+        yield [
+            messages.TimeSeriesPoint(
+                timestamp=3000, tags={"sensor": marker_b}, fields={"value": messages.GrpcValue(double_value=2.1)}
+            ),
+        ]
+
+    summary = await async_client.time_series_write_stream(
+        TimeSeriesWriteStreamRequest(
+            database=grpc_database,
+            type=grpc_timeseries_type,
+            precision=messages.TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+            chunks=chunks(),
+        )
+    )
+    assert summary.received == 3
+    assert summary.written == 3
+    assert summary.dropped == 0
+
+    results = [
+        result
+        async for result in async_client.time_series_query(
+            messages.TimeSeriesQueryRequest(database=grpc_database, type=grpc_timeseries_type)
+        )
+    ]
+    rows = [row for result in results for row in result.rows]
+    assert len(rows) > 0
+
+    async with async_client.transaction(grpc_database) as tx:
+        latest = await tx.time_series_latest(messages.TimeSeriesLatestRequest(type=grpc_timeseries_type))
+
+    assert latest.found is True
+    ts_index = list(latest.columns).index("ts")
+    assert latest.latest.values[ts_index].int64_value == 3000
+
+
+async def test_async_empty_time_series_write_stream_is_accepted_with_an_all_zero_summary(
+    async_client: AsyncArcadeDBGrpcClient, grpc_database: str, grpc_timeseries_type: str
+) -> None:
+    """The async twin of `test_grpc.py`'s empty-stream test - same server behaviour, reached
+    through the async facade: an empty `chunks` sends zero wire chunks, and the server
+    accepts a stream that never named `database`/`type`/`precision` cleanly, answering with
+    every count at zero rather than raising.
+    """
+    summary = await async_client.time_series_write_stream(
+        TimeSeriesWriteStreamRequest(
+            database=grpc_database,
+            type=grpc_timeseries_type,
+            precision=messages.TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+            chunks=[],
+        )
+    )
+    assert summary.received == 0
+    assert summary.written == 0
+    assert summary.dropped == 0
+    assert list(summary.unknown_types) == []
+    assert list(summary.non_time_series_types) == []
+    assert list(summary.unavailable_types) == []

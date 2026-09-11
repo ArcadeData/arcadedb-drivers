@@ -56,13 +56,14 @@ const response = await grpc.raw.executeQuery({
 ```
 
 `raw` is the generated Connect client for `ArcadeDbService` (the data plane) - every RPC the
-`.proto` contract declares is callable through it. `createClient` adds three ergonomic wrappers
-on top for the RPCs the generated client alone handles badly: `streamQuery`, `insertStream`, and
-`transaction`. Everything else - the unary CRUD calls, `vectorSearch`/`hybridSearch`/
-`fullTextSearch`, `insertBidirectional`, `graphBatchLoad` - is used directly through `raw` at the
-top level; the CRUD calls and the three search RPCs also get a `TransactionHandle` wrapper once a
-transaction is open (see "Transactions" and "Vector, hybrid and full-text search" below) -
-`insertBidirectional` and `graphBatchLoad` never do, at any level.
+`.proto` contract declares is callable through it. `createClient` adds five ergonomic wrappers
+on top for the RPCs the generated client alone handles badly: `streamQuery`, `insertStream`,
+`timeSeriesQuery`, `timeSeriesWriteStream`, and `transaction`. Everything else - the unary CRUD
+calls, `vectorSearch`/`hybridSearch`/`fullTextSearch`, `insertBidirectional`, `graphBatchLoad`,
+`TimeSeriesWrite`, `TimeSeriesLatest` - is used directly through `raw` at the top level; the CRUD
+calls, the three search RPCs, and `TimeSeriesLatest` also get a `TransactionHandle` wrapper once a
+transaction is open (see "Transactions", "Vector, hybrid and full-text search", and "Time series"
+below) - `insertBidirectional`, `graphBatchLoad`, and `TimeSeriesWrite` never do, at any level.
 
 ## Authentication
 
@@ -237,6 +238,114 @@ the rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10
 a commit persisting them on all three. So the restriction is now **removable** for every server
 version this package supports. It is kept for now because lifting it adds public surface, which is
 a deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
+
+## Time series: `timeSeriesWriteStream`, `timeSeriesQuery`, `timeSeriesLatest`, `TimeSeriesWrite`
+
+Four RPCs, four different treatments:
+
+| RPC | Reached how |
+| --- | --- |
+| `TimeSeriesWriteStream` | `grpc.timeSeriesWriteStream` - a client-streaming wrapper, like `insertStream` |
+| `TimeSeriesQuery` | `grpc.timeSeriesQuery` outside a transaction, `tx.timeSeriesQuery` bound to one |
+| `TimeSeriesLatest` | `tx.timeSeriesLatest` only - no top-level alias exists |
+| `TimeSeriesWrite` (the unary write) | `grpc.raw.timeSeriesWrite` only - no wrapper at any level |
+
+```ts
+import { TimeSeriesPrecision } from "@arcadedb/driver-grpc";
+
+async function* chunks() {
+  yield [{ timestamp: 1_000n, fields: { value: { kind: { case: "doubleValue", value: 22.5 } } } }];
+  yield [{ timestamp: 2_000n, fields: { value: { kind: { case: "doubleValue", value: 23.1 } } } }];
+}
+
+const summary = await grpc.timeSeriesWriteStream({
+  database: "mydb",
+  type: "Temperature",
+  precision: TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+  chunks: chunks(),
+});
+console.log(summary.written, summary.dropped);
+
+for await (const result of grpc.timeSeriesQuery({ database: "mydb", type: "Temperature" })) {
+  console.log(result.rows);
+}
+
+const latest = await grpc.transaction("mydb", (tx) => tx.timeSeriesLatest({ type: "Temperature" }));
+```
+
+### `precision` is required, not defaulted
+
+`TimeSeriesWriteStreamRequest.precision` carries no `?` - every call must set it, unlike almost
+every other field this package passes straight through unchanged. `TimeSeriesPrecision`'s proto3
+zero value is `TS_PRECISION_MILLISECONDS`, so a caller who omits the field and one who explicitly
+wrote milliseconds produce the **identical** wire message - the server has no way to tell "you
+didn't say" from "you said milliseconds". That collision matters more than a typical proto3
+default-value gotcha because of what ArcadeDB's other time-series ingest path does: HTTP's
+`POST /api/v1/ts/{database}/write` speaks InfluxDB Line Protocol, whose own omitted-precision
+default is **nanoseconds** - a factor of 10^6 away from gRPC's default of milliseconds. A caller
+porting a working HTTP ingest pipeline to this client who drops the field would have every
+timestamp misread by a million, silently, with no error raised on either side. Requiring
+`precision` on `TimeSeriesWriteStreamRequest` turns that into a compile-time error instead of a
+silent data-corruption bug.
+
+### `database`, `type` and `precision` repeat on every chunk, not just the first
+
+Unlike `insertStream`'s envelope (`database` on the first chunk only, `last: true` on the final
+one), `TimeSeriesWriteChunk` declares no `session_id`, `chunk_seq` or `last` field on the wire at
+all. `timeSeriesWriteStream` therefore simply sets `database`, `credentials`, `type` and
+`precision` on **every** chunk it sends - there is no first-chunk-only special case to get wrong,
+and `insertStream`'s `InsertOptions.database` mirroring workaround (see above) has nothing to port
+here: `TimeSeriesWriteChunk` was never shown to share `InsertChunk`'s bug
+(ArcadeData/arcadedb#6597).
+
+### An empty `chunks` iterable sends zero wire chunks, not one - and the server accepts it
+
+`insertStream`'s empty case sends a single chunk with zero rows and `last: true`, because
+`InsertChunk` needs that flag to ever become `true` and `database` needs to land on some chunk.
+`TimeSeriesWriteChunk` has neither field, so an empty `chunks` here sends **zero** wire chunks -
+the server is never told `database`, `type` or `precision` at all. Verified against a real server:
+this is accepted cleanly, not rejected, and comes back as a `TimeSeriesWriteSummary` with every
+count (`received`, `written`, `dropped`, and all three type lists below) at zero.
+
+### A successful write can still report `written < received`
+
+`TimeSeriesWriteStream` is not atomic: each measurement's batch commits its own shard transaction
+as it is appended, so a failure partway through leaves everything before it durable. The returned
+`TimeSeriesWriteSummary` always carries `received`, `written`, `dropped`, plus three separate
+reasons a point can be dropped:
+
+- `unknownTypes` - no type with this name exists (create it first with `CREATE TIMESERIES TYPE`)
+- `nonTimeSeriesTypes` - the type exists, but is not a TIMESERIES type
+- `unavailableTypes` - the type is a TIMESERIES type, but its storage engine failed to load
+
+**Checking only that the call resolved without throwing is not checking that the data landed** -
+a call can succeed and still report `dropped > 0`. Always read the summary, the same way
+`streamQuery`'s callers are expected to read `truncated` rather than trust an empty catch block.
+
+### Two RPCs with no wrapper or binding - for two different reasons, with two different futures
+
+`TimeSeriesWrite` has no wrapper at any level, and `TimeSeriesLatest` has no top-level alias.
+Both look like the same shape of gap from the outside, but they are not the same kind of gap, and
+should not be described the same way:
+
+- **`TimeSeriesWrite` is `raw`-only because its message carries no `transaction` field at all** -
+  a **contract** limit. `TimeSeriesWriteRequest` simply never declares a field to bind, the same
+  way `TimeSeriesWriteChunk` (the streaming version) never does. No server release, however
+  capable, can make `grpc.raw.timeSeriesWrite` transaction-aware without the `.proto` itself
+  growing a `transaction` field first - there is nothing this package could do differently today.
+- **`insertStream`'s absence from `TransactionHandle` is a server bug, already fixed, not a
+  contract limit.** `InsertStreamRequest`/`InsertChunk` DO carry a `transaction` field on the
+  wire - it is set and forwarded on every chunk (see "Streaming inserts" above). The exclusion
+  exists because, on 26.8.1 and earlier, the server's `InsertContext` construction ignored that
+  field entirely ([ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607)).
+  That bug is fixed as of 26.9.1, measured against a real server (see "`bulkInsert` and
+  `insertStream` cannot join a `transaction()`" above) - the exclusion is now **removable with no
+  contract change**, and is kept only because lifting it adds public surface, a deliberate release
+  decision rather than a documentation fix.
+
+So `TimeSeriesWrite`'s status is not on the same follow-up list as `insertStream`'s: one needs the
+`.proto` contract to change upstream before this package could do anything about it; the other
+needs only this package to decide to expose what the server can already do.
 
 ## Vector, hybrid and full-text search: `VectorSearch`, `HybridSearch`, `FullTextSearch`
 

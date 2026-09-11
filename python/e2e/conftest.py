@@ -254,6 +254,39 @@ def vector_index(base_url: str, database: str) -> tuple[str, str]:
         return _create_vector_fixture(srv, database)
 
 
+GRPC_TS_TYPE = "GrpcTsPoint"
+
+
+@pytest.fixture(scope="session")
+def grpc_timeseries_type(grpc_server: tuple[str, str], grpc_database: str) -> str:
+    """Creates the TIMESERIES type shared by `test_grpc.py`'s and `test_grpc_aio.py`'s
+    time-series tests, and returns its name.
+
+    The exact DDL was worked out against a live container before any e2e test file was
+    touched (see task-4-report.md for the transcript): `CREATE TIMESERIES TYPE` takes an
+    inline `TIMESTAMP` column plus optional `TAGS (...)`/`FIELDS (...)` clauses in the SAME
+    statement - there is no other way to declare a type's tag/field columns. Two things that
+    look like they should work do not: a plain `CREATE PROPERTY` after the type exists adds
+    the column to the schema listing but a time-series write never populates it, and neither
+    does `ALTER PROPERTY ... CUSTOM role = "FIELD"` on top of that - both were tried against
+    this server and both silently drop the column's values rather than raising. Only naming
+    the column inside `CREATE TIMESERIES TYPE` itself makes it a real tag/field column.
+
+    There is no data-plane RPC for DDL, so - exactly like `grpc_database` and
+    `grpc_vector_index` - this goes over HTTP; only the writes and reads in the tests
+    themselves run over gRPC.
+    """
+    from arcadedb_driver import ArcadeDBServer, basic_auth
+
+    http_url, _ = grpc_server
+    with ArcadeDBServer(base_url=http_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        srv.db(grpc_database).command(
+            language="sql",
+            command=f"CREATE TIMESERIES TYPE {GRPC_TS_TYPE} TIMESTAMP ts TAGS (sensor STRING) FIELDS (value DOUBLE)",
+        )
+    return GRPC_TS_TYPE
+
+
 @pytest.fixture(scope="session")
 def grpc_vector_index(grpc_server: tuple[str, str], grpc_database: str) -> tuple[str, str]:
     """Creates the vector fixture over HTTP, in the gRPC suite's shared database.

@@ -8,7 +8,13 @@ from typing import Any
 
 import grpc
 import pytest
-from arcadedb_driver_grpc import ArcadeDBGrpcClient, InsertStreamRequest, create_client, messages
+from arcadedb_driver_grpc import (
+    ArcadeDBGrpcClient,
+    InsertStreamRequest,
+    TimeSeriesWriteStreamRequest,
+    create_client,
+    messages,
+)
 from arcadedb_driver_grpc.auth import bearer_auth, password_auth, sync_interceptors
 
 from .conftest import ROOT_PASSWORD
@@ -285,3 +291,90 @@ def test_vector_hybrid_and_fulltext_search_through_the_transaction_handle_all_re
     assert len(hybrid.results) > 0
     assert hybrid.fused is True
     assert len(fulltext.results) > 0
+
+
+def test_time_series_write_stream_multi_chunk_then_query_and_latest_through_a_transaction(
+    client: ArcadeDBGrpcClient, grpc_database: str, grpc_timeseries_type: str
+) -> None:
+    """The three things D-M6-4's e2e coverage exists to prove, done together in one test so
+    none of them depends on test execution order against the shared session-scoped database:
+
+    1. A MULTI-CHUNK write stream (two chunks) - the only thing that can prove the per-chunk
+       envelope (database/type/precision repeated on EVERY wire chunk, not just the first)
+       actually works end to end; a unit test against a fake servicer cannot prove this,
+       because the fake is not the server.
+    2. `time_series_query` returns the points just written, non-empty.
+    3. `time_series_latest`, bound to an open transaction handle (not the top-level client -
+       there is no top-level alias for it; see the README), returns the most recent point.
+    """
+    summary = client.time_series_write_stream(
+        TimeSeriesWriteStreamRequest(
+            database=grpc_database,
+            type=grpc_timeseries_type,
+            precision=messages.TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+            chunks=[
+                [
+                    messages.TimeSeriesPoint(
+                        timestamp=1000,
+                        tags={"sensor": messages.GrpcValue(string_value="A")},
+                        fields={"value": messages.GrpcValue(double_value=1.1)},
+                    ),
+                    messages.TimeSeriesPoint(
+                        timestamp=2000,
+                        tags={"sensor": messages.GrpcValue(string_value="A")},
+                        fields={"value": messages.GrpcValue(double_value=1.2)},
+                    ),
+                ],
+                [
+                    messages.TimeSeriesPoint(
+                        timestamp=3000,
+                        tags={"sensor": messages.GrpcValue(string_value="B")},
+                        fields={"value": messages.GrpcValue(double_value=2.1)},
+                    ),
+                ],
+            ],
+        )
+    )
+    assert summary.received == 3
+    assert summary.written == 3
+    assert summary.dropped == 0
+
+    results = list(
+        client.time_series_query(messages.TimeSeriesQueryRequest(database=grpc_database, type=grpc_timeseries_type))
+    )
+    rows = [row for result in results for row in result.rows]
+    assert len(rows) > 0
+
+    with client.transaction(grpc_database) as tx:
+        latest = tx.time_series_latest(messages.TimeSeriesLatestRequest(type=grpc_timeseries_type))
+
+    assert latest.found is True
+    ts_index = list(latest.columns).index("ts")
+    assert latest.latest.values[ts_index].int64_value == 3000
+
+
+def test_an_empty_time_series_write_stream_is_accepted_with_an_all_zero_summary(
+    client: ArcadeDBGrpcClient, grpc_database: str, grpc_timeseries_type: str
+) -> None:
+    """Established empirically against a real server (see task-4-report.md): an empty
+    `chunks` sends ZERO wire chunks (unlike `insert_stream`'s single-empty-chunk special
+    case - see `TimeSeriesWriteStreamRequest`'s docstring), so the server is never told
+    `database`, `type` or `precision` at all. That is accepted cleanly rather than
+    rejected: the call does not raise, and the summary comes back with every count at
+    zero. This is the answer `stream.py`'s own docstring for `time_series_write_stream`
+    left as "genuinely UNVERIFIED... a real e2e run settles it" - it does not raise.
+    """
+    summary = client.time_series_write_stream(
+        TimeSeriesWriteStreamRequest(
+            database=grpc_database,
+            type=grpc_timeseries_type,
+            precision=messages.TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+            chunks=[],
+        )
+    )
+    assert summary.received == 0
+    assert summary.written == 0
+    assert summary.dropped == 0
+    assert list(summary.unknown_types) == []
+    assert list(summary.non_time_series_types) == []
+    assert list(summary.unavailable_types) == []

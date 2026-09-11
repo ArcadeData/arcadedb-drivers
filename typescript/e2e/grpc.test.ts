@@ -14,7 +14,7 @@ import type { ArcadeDBGrpcClient, GrpcRecordSchema, GrpcValueSchema, InsertSumma
 // because this suite inherits the other's reasoning. The `.proto` and the OpenAPI spec are
 // separate artifacts published from the same server release; if they ever stop moving together,
 // these two pins move apart, and nothing here should make that awkward.
-const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.9.1";
+const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.10.1-SNAPSHOT";
 
 // `ARCADEDB_DOCKER_IMAGE` overrides the pin - same variable name `e2e-js` and the HTTP e2e suite
 // already use. The M2 smoke job in ArcadeData/arcadedb sets this to the image built from the

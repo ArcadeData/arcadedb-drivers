@@ -90,8 +90,10 @@ def sync_detailed(
      Executes administrative commands on the server (root user only). Available commands: create
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database. Both restore and import support SSE progress streaming via Accept: text/event-stream
-    header
+    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
+    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
+    implemented by the current HA implementation and always fails; use the cluster configuration to join
+    nodes
 
     Args:
         body (CommandRequest): Command request object
@@ -125,8 +127,10 @@ def sync(
      Executes administrative commands on the server (root user only). Available commands: create
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database. Both restore and import support SSE progress streaming via Accept: text/event-stream
-    header
+    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
+    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
+    implemented by the current HA implementation and always fails; use the cluster configuration to join
+    nodes
 
     Args:
         body (CommandRequest): Command request object
@@ -155,8 +159,10 @@ async def asyncio_detailed(
      Executes administrative commands on the server (root user only). Available commands: create
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database. Both restore and import support SSE progress streaming via Accept: text/event-stream
-    header
+    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
+    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
+    implemented by the current HA implementation and always fails; use the cluster configuration to join
+    nodes
 
     Args:
         body (CommandRequest): Command request object
@@ -188,8 +194,10 @@ async def asyncio(
      Executes administrative commands on the server (root user only). Available commands: create
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database. Both restore and import support SSE progress streaming via Accept: text/event-stream
-    header
+    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
+    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
+    implemented by the current HA implementation and always fails; use the cluster configuration to join
+    nodes
 
     Args:
         body (CommandRequest): Command request object

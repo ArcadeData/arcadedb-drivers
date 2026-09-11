@@ -8,6 +8,7 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.command_request import CommandRequest
 from ...models.error_response import ErrorResponse
+from ...models.execute_command_accept import ExecuteCommandAccept
 from ...models.query_response import QueryResponse
 from ...types import UNSET, Response, Unset
 
@@ -17,10 +18,14 @@ def _get_kwargs(
     *,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
     if not isinstance(arcadedb_session_id, Unset):
         headers["arcadedb-session-id"] = arcadedb_session_id
+
+    if not isinstance(accept, Unset):
+        headers["Accept"] = str(accept)
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -93,6 +98,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
     """Execute command
 
@@ -101,6 +107,7 @@ def sync_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        accept (ExecuteCommandAccept | Unset):
         body (CommandRequest): Command request object
 
     Raises:
@@ -115,6 +122,7 @@ def sync_detailed(
         database=database,
         body=body,
         arcadedb_session_id=arcadedb_session_id,
+        accept=accept,
     )
 
     response = client.get_httpx_client().request(
@@ -130,6 +138,7 @@ def sync(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
     """Execute command
 
@@ -138,6 +147,7 @@ def sync(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        accept (ExecuteCommandAccept | Unset):
         body (CommandRequest): Command request object
 
     Raises:
@@ -153,6 +163,7 @@ def sync(
         client=client,
         body=body,
         arcadedb_session_id=arcadedb_session_id,
+        accept=accept,
     ).parsed
 
 
@@ -162,6 +173,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
     """Execute command
 
@@ -170,6 +182,7 @@ async def asyncio_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        accept (ExecuteCommandAccept | Unset):
         body (CommandRequest): Command request object
 
     Raises:
@@ -184,6 +197,7 @@ async def asyncio_detailed(
         database=database,
         body=body,
         arcadedb_session_id=arcadedb_session_id,
+        accept=accept,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -197,6 +211,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
     """Execute command
 
@@ -205,6 +220,7 @@ async def asyncio(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        accept (ExecuteCommandAccept | Unset):
         body (CommandRequest): Command request object
 
     Raises:
@@ -221,5 +237,6 @@ async def asyncio(
             client=client,
             body=body,
             arcadedb_session_id=arcadedb_session_id,
+            accept=accept,
         )
     ).parsed

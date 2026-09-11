@@ -42,7 +42,7 @@ class InsertStreamRequest:
     not decide how rows are batched, which is the caller's call.
 
     `transaction` IS FORWARDED BUT NOT HONOURED. It is set on every chunk, exactly as the
-    caller gave it, because the `.proto` declares the field - but on 26.9.1 and earlier the
+    caller gave it, because the `.proto` declares the field - but on 26.10.1-SNAPSHOT and earlier the
     server ignores `TransactionContext` for `InsertStream` entirely
     (ArcadeData/arcadedb#6607), so setting it buys no transactional guarantee. That is the
     same reason `insert_stream` is not offered on `TransactionHandle` at all: there the
@@ -60,7 +60,7 @@ class InsertStreamRequest:
 def _first_chunk_options(request: InsertStreamRequest) -> messages.InsertOptions:
     """The caller's options with `database` forced onto them.
 
-    Empirically established during M1b against a real server: on 26.9.1 and every
+    Empirically established during M1b against a real server: on 26.10.1-SNAPSHOT and every
     earlier release the server builds its `InsertContext` from `InsertOptions.database`
     ALONE and never reads `InsertChunk.database` at all, despite the .proto documenting
     the latter as REQUIRED on the first chunk. Without this mirror every stream against

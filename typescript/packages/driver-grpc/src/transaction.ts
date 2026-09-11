@@ -1,7 +1,7 @@
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import type { ArcadeDbService } from "./gen/arcadedb-server-26.9.1_pb.js";
-import { TransactionContextSchema } from "./gen/arcadedb-server-26.9.1_pb.js";
+import type { ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+import { TransactionContextSchema } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { createStreamQuery } from "./stream.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */

@@ -18,7 +18,8 @@ class TimeSeriesQueryRequestAggregationRequestsItem:
     Attributes:
         alias (str | Unset): Output name. Defaults to the field name suffixed with the lower-cased aggregation type.
         field (str | Unset): Field name to aggregate
-        type_ (str | Unset): Aggregation function, for example AVG, SUM, MIN, MAX, COUNT
+        type_ (str | Unset): Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-
+            insensitively.
     """
 
     alias: str | Unset = UNSET

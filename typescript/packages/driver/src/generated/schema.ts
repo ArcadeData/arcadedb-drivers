@@ -172,6 +172,10 @@ export interface paths {
          *     A batch is NOT atomic: GraphBatch commits every 'commitEvery' records, so a failure mid-stream leaves earlier chunks durably committed. A client-input failure answers 400 with 'verticesCreated', 'edgesCreated', and a 'partialCommit' flag; those counts are the records attempted before the failure and are an upper bound on what is durable. Because temporary ids are not keys, retrying the whole payload duplicates already-committed vertices.
          *
          *     A body that ends before its announced length answers 408 with the same partial-commit counts, never a 200 with a truncated count. Compare the returned 'bytesRead' against the bytes sent to verify a chunked upload arrived whole.
+         *
+         *     Send 'Accept: application/x-ndjson' to be acknowledged while you are still uploading. The answer is then a newline-delimited stream: a 'progress' line at every vertex commit and every 'commitEvery' edges, then exactly one 'summary' or 'error' line carrying the same object this endpoint would otherwise have returned. That is the HTTP counterpart of the per-chunk acknowledgement of the gRPC InsertBidirectional RPC. A progress line counts records attempted, the same upper bound the partial-commit counters carry. Anything else in Accept, including an absent header, returns the buffered object unchanged.
+         *
+         *     A load that fails before it has acknowledged anything still answers with its real status code and the buffered error body, because the status line has not been sent yet: the 400 and 408 below apply to a streaming request too. Only a failure raised after the first progress line is reported in band under a 200.
          */
         post: operations["executeBatch"];
         delete?: never;
@@ -222,6 +226,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cluster/auth-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm or revoke an authentication session on the node that issued it
+         * @description Cluster-internal. A session token is held by the node that answered /api/v1/login and names that node ('AU-<server name>-<uuid>'). A peer that receives the token asks the issuer through this route whether the session is still valid ('validate', which also counts as activity on the issuer), and a logout tells every peer to drop its copy ('revoke'). Peers authenticate with the cluster token; a request that carries user credentials instead is refused with 403 (issue #7424).
+         */
+        post: operations["resolveClusterAuthSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cluster/bootstrap-state": {
         parameters: {
             query?: never;
@@ -244,6 +268,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cluster/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report the wire-format capabilities of this peer
+         * @description Reports the optional replication wire-format sections this node can DECODE, as short stable tokens. The leader polls it on every peer of its Raft configuration and writes an optional section only when every peer has advertised it, so a rolling upgrade needs no ordering by hand (issue #7219).
+         *
+         *     A node running a release without this route answers 404, and the caller reads that as 'this peer can decode nothing optional' - which is why the route is safe to add and why no version comparison takes part in the decision.
+         *
+         *     Restricted to the root user; peers satisfy this by forwarding as root with the cluster token.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         */
+        post: operations["getClusterPeerCapabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cluster/leader": {
         parameters: {
             query?: never;
@@ -255,7 +303,7 @@ export interface paths {
         put?: never;
         /**
          * Transfer leadership
-         * @description Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         * @description Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership: a server that is not the leader answers 409 naming the leader to reissue against, rather than routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["transferClusterLeadership"];
         delete?: never;
@@ -355,7 +403,7 @@ export interface paths {
         put?: never;
         /**
          * Step down from leadership
-         * @description Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         * @description Asks this server to give up leadership, triggering an election. Answers 409 when this server is not the leader - it has nothing to step down from, and the request must be reissued against the leader the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["stepDownClusterLeader"];
         delete?: never;
@@ -733,7 +781,7 @@ export interface paths {
         put?: never;
         /**
          * Execute server command
-         * @description Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database. Both restore and import support SSE progress streaming via Accept: text/event-stream header
+         * @description Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not implemented by the current HA implementation and always fails; use the cluster configuration to join nodes
          */
         post: operations["executeServerCommand"];
         delete?: never;
@@ -919,7 +967,7 @@ export interface paths {
         };
         /**
          * Read the most recent sample of a series
-         * @description Returns the most recent sample of a time-series type, optionally narrowed to one series by tag. 'latest' is null when the type or the selected series holds no sample.
+         * @description Returns the most recent sample of a time-series type, optionally narrowed to one series by tag. Repeat 'tag' once per tag column to name a single series on a type that carries several. 'latest' is null when the type or the selected series holds no sample.
          */
         get: operations["getTimeSeriesLatest"];
         put?: never;
@@ -1108,6 +1156,72 @@ export interface paths {
          *     The body may be gzip-compressed by sending Content-Encoding: gzip. A fully accepted request answers 204 with no body; a request whose samples could not all be applied answers 400 with the counts of what was written and dropped, so a client can tell a total rejection from a partial one.
          */
         post: operations["writeTimeSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector/{database}/fulltext": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Full-text search over a FULL_TEXT index
+         * @description Runs a Lucene-syntax query against an ArcadeDB FULL_TEXT index and returns the matching documents ranked by score, highest first.
+         *
+         *     Address the index either by 'indexName', or by 'typeName' with optional 'properties'; 'indexName' wins when both are supplied. Because the limit is pushed down per bucket, a hit deleted between the index scan and the record load is skipped rather than back-filled, so a search can legitimately return fewer than 'limit' results.
+         */
+        post: operations["fullTextSearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector/{database}/hybrid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Fused vector, full-text and graph-expansion search
+         * @description Fuses a vector retrieval leg, an optional full-text retrieval leg and an optional depth-limited graph expansion leg into one ranked list, using the engine's own vector.fuse rather than a re-implementation.
+         *
+         *     Fusion needs at least two sources. A request naming only the vector leg reports 'fused': false and returns that leg's native distance or score rather than a fabricated fused one. The expansion leg is ranked by traversal order and carries no score, so it can only be fused with the RRF strategy.
+         */
+        post: operations["hybridSearch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vector/{database}/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * kNN search over a vector index
+         * @description Returns the nearest neighbors of a pre-computed query vector in a dense LSM_VECTOR or sparse LSM_SPARSE_VECTOR index. ArcadeDB does not generate embeddings: the caller supplies the vector.
+         *
+         *     Dense results expose a 'distance' (lower is better); sparse results expose a 'score' (higher is better), and 'scoring' names which of the two the response carries. A filtered search inspects a bounded candidate window whose size is reported as 'candidateLimit', so 'truncated' means the window was filled and more matches may exist - raise 'k' to see them.
+         */
+        post: operations["vectorSearch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1322,10 +1436,26 @@ export interface components {
             /** @description Human-readable outcome */
             result?: string;
         };
+        /** @description A session token and the action to apply to it */
+        ClusterAuthSessionRequest: {
+            /** @description 'validate' (default) or 'revoke' */
+            action?: string;
+            /** @description The session token, 'AU-<server name>-<uuid>' */
+            token: string;
+        };
+        /** @description The session as held by the node that issued it */
+        ClusterAuthSessionResponse: {
+            /** @description Creation time, epoch milliseconds */
+            createdAt?: number;
+            /** @description The principal the session belongs to */
+            user?: string;
+        };
         /** @description Cluster and replication status */
         ClusterStatus: {
             /** @description Conditions worth an operator's attention */
             alerts?: Record<string, never>[];
+            /** @description Optional wire-format sections THIS node can decode, sorted (issue #7219) */
+            capabilities?: string[];
             /** @description Configured cluster name */
             clusterName?: string;
             /** @description Which peer holds which database. Present only when this server is the leader and the request set '?presence=true'. */
@@ -1365,6 +1495,8 @@ export interface components {
             peers?: {
                 /** @description Peer address */
                 address?: string;
+                /** @description Optional wire-format sections this peer can decode, as last observed by the leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'. */
+                capabilities?: string[];
                 /** @description Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved. */
                 httpAddress?: string;
                 /** @description True when the HTTP endpoint above does not identify this peer alone: two or more peers resolve to it, which is what happens when 'http' ports are not declared in arcadedb.ha.serverList and the nodes differ by port rather than by host. Peer-to-peer operations (snapshot resync, cluster verify) refuse to dial such a peer. Absent when the address is unambiguous. */
@@ -1391,6 +1523,8 @@ export interface components {
                 replicationRttP99Ms?: number;
                 /** @description LEADER or FOLLOWER */
                 role?: string;
+                /** @description Server version this peer reported alongside its capabilities. Absent when the leader has no fresh answer from it. */
+                version?: string;
             }[];
             /** @description Raft lifecycle state */
             raftState?: string;
@@ -1436,6 +1570,42 @@ export interface components {
             exceptionArgs?: string;
             /** @description Help information */
             help?: string;
+        };
+        /** @description Full-text search over a FULL_TEXT index */
+        FullTextSearchRequest: {
+            /** @description Full-text index to search; wins over 'typeName' when both are given */
+            indexName?: string;
+            /**
+             * @description Maximum number of results to return
+             * @default 10
+             */
+            limit: number;
+            /** @description Indexed properties, to pick between several full-text indexes on the same type */
+            properties?: string[];
+            /** @description Lucene-syntax query, e.g. 'java' or '+java -python'. Must not be blank */
+            queryText: string;
+            /** @description Type whose full-text index to search. Usable alone only when the type carries exactly one */
+            typeName?: string;
+        };
+        /** @description Documents matching the full-text query */
+        FullTextSearchResponse: {
+            /** @description Number of results returned */
+            count?: number;
+            /** @description Index that was searched */
+            indexName?: string;
+            /** @description Hits, highest score first */
+            results?: {
+                /** @description Dense vector distance, lower is better. Absent on a scored hit */
+                distance?: number;
+                /** @description The record's properties */
+                properties?: Record<string, never>;
+                /** @description Record id of the hit */
+                rid?: string;
+                /** @description Sparse or full-text score, higher is better. Absent on a distance hit */
+                score?: number;
+            }[];
+            /** @description Similarity function the index scores with, e.g. BM25 */
+            similarity?: string;
         };
         /** @description Data source health */
         GrafanaHealth: {
@@ -1486,7 +1656,7 @@ export interface components {
                         alias?: string;
                         /** @description Field name to aggregate */
                         field?: string;
-                        /** @description Aggregation function */
+                        /** @description Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively. A value that matches none is reported as an error frame on this target, leaving the other targets served. */
                         type?: string;
                     }[];
                 };
@@ -1529,6 +1699,86 @@ export interface components {
                     }[];
                 };
             };
+        };
+        /** @description Fused vector, full-text and graph-expansion search */
+        HybridSearchRequest: {
+            /** @description Dense-index search beam width */
+            efSearch?: number;
+            /** @description Optional graph expansion leg, seeded from the union of the retrieval legs and ranked by breadth-first discovery order. */
+            expand?: {
+                /** @description out, in, or both */
+                direction?: string;
+                /** @description Edge types to walk */
+                edgeTypes?: string[];
+                /**
+                 * @description Hops to walk from a seed
+                 * @default 1
+                 */
+                maxDepth: number;
+            };
+            /** @description Optional read-only SQL WHERE predicate applied to the vector leg's candidate window */
+            filter?: string;
+            /** @description Full-text index the full-text leg searches. Required whenever 'fulltextQuery' is given, and refused without it */
+            fulltextIndexName?: string;
+            /** @description Lucene-syntax query for the full-text leg. Goes together with 'fulltextIndexName': half a leg is refused rather than silently dropped. Omit both to search without a full-text leg. */
+            fulltextQuery?: string;
+            /** @description How the legs are combined. Only RRF can consume the graph expansion leg, which is ranked by traversal order */
+            fusionStrategy?: string;
+            /**
+             * @description Maximum number of fused results to return
+             * @default 10
+             */
+            k: number;
+            /** @description Sparse dimension ids matching the 'queryVector' weights. Requires sparse=true */
+            queryIndices?: number[];
+            /** @description Query vector for the vector leg */
+            queryVector: number[];
+            /** @description Use the sparse vector path */
+            sparse?: boolean;
+            /** @description Name of an LSM_VECTOR or LSM_SPARSE_VECTOR index */
+            vectorIndexName: string;
+            /** @description Per-leg weight applied to every rank contribution. The only accepted keys are 'vector', 'fulltext' and 'expand', and a weight for a leg the request does not ask for is refused rather than ignored. */
+            weights?: Record<string, never>;
+        };
+        /** @description Fused results and per-leg accounting */
+        HybridSearchResponse: {
+            /** @description Number of results returned */
+            count?: number;
+            /** @description Full-text index that was searched, present whenever the full-text leg ran - including when it matched nothing */
+            fulltextIndexName?: string;
+            /** @description False when only one leg produced rows: fusion needs at least two sources, so the response carries that leg's native distance or score instead of a fused one. */
+            fused?: boolean;
+            /** @description Strategy actually applied; absent when 'fused' is false */
+            fusionStrategy?: string;
+            /** @description Per-leg accounting: how many rows each leg contributed, and whether the expansion hit its seed or fan-out cap */
+            legs?: Record<string, never>;
+            /** @description Fused hits, best first */
+            results?: {
+                /** @description Hops from the seed, for a hit the expansion leg contributed */
+                depth?: number;
+                /** @description Vector distance, present instead of 'fusedScore' on an unfused dense response */
+                distance?: number;
+                /** @description Fused score, higher is better. Present when 'fused' is true */
+                fusedScore?: number;
+                /** @description Record ids from the seed to this hit, seed included */
+                path?: string[];
+                /** @description The record's properties */
+                properties?: Record<string, never>;
+                /** @description Record id of the hit */
+                rid?: string;
+                /** @description Sparse or full-text score, present instead of 'fusedScore' on an unfused sparse or full-text response */
+                score?: number;
+                /** @description Which legs contributed this hit: vector, fulltext, expand */
+                sources?: string[];
+            }[];
+            /** @description Scoring direction of the vector leg */
+            scoring?: string;
+            /** @description Whether the vector leg took the sparse path */
+            sparse?: boolean;
+            /** @description True when the result window was filled */
+            truncated?: boolean;
+            /** @description Vector index that was searched */
+            vectorIndexName?: string;
         };
         /** @description Newly created session */
         LoginResponse: {
@@ -1584,6 +1834,74 @@ export interface components {
             allowUpdate?: boolean;
             /** @description Users permitted on this database, intersected with the global 'allowedUsers' */
             allowedUsers?: string[];
+        };
+        /** @description One line of a streamed bulk load. Exactly one of 'progress', 'summary' or 'error' is present. */
+        NdJsonBatchEvent: {
+            /** @description Terminal line of a failed load: the same object the buffered encoding carries, plus the 'status' it would have been sent under. The status line cannot be taken back once the stream has started, so the status travels in band. */
+            error?: {
+                /** @description Last applied Raft index, present on a replicated database. On a failed load it bookmarks the chunks that were committed before the failure */
+                commitIndex?: number;
+                /** @description HTTP status the buffered encoding would have used: 400, 408 or 500 */
+                status?: number;
+                /** @description Present and false when 'status' is the unclassified 500 fallback rather than the status the buffered encoding would have chosen - the case of an engine failure raised after the stream had already started. Key on 'exception' there, not on 'status'. Absent whenever 'status' is exact. */
+                statusMapped?: boolean;
+            };
+            /** @description A chunk acknowledgement, written while the request body is still being read. Emitted at every vertex commit and every 'commitEvery' edges. The counters are records ATTEMPTED, the same upper bound on what is durable that the partial-commit counters carry: vertices are committed at each flush, while edges are buffered and written when the load ends. */
+            progress?: {
+                /** @description Bytes of the upload the server consumed, so a client can verify its whole file arrived - and, on a truncated load, how far the server got. Never more than the client sent. */
+                bytesRead?: number;
+                /** @description Edges attempted so far */
+                edgesCreated?: number;
+                /** @description Temporary id to RID mapping of the vertices this chunk resolved, and only of those: the mapping is handed back one committed chunk at a time so neither end ever holds the whole load's worth of it (issue #7353). Concatenate the 'idMapping' of every line, in order, to obtain what the buffered encoding returns in one object, and check the total against 'idMappingSize' on the terminal line. Absent on an edge-phase acknowledgement, on a chunk whose vertices declared no @id under refMode=tempId, and when the request sent idMapping=false. */
+                idMapping?: Record<string, never>;
+                /** @description Lines the parser read, so 'linesRead' minus 'linesSkipped' can be checked against the records created */
+                linesRead?: number;
+                /** @description Lines that carried no record: blank lines, plus CSV headers and '---' separators */
+                linesSkipped?: number;
+                /** @description 'vertices' or 'edges' */
+                phase?: string;
+                /** @description Vertices attempted so far */
+                verticesCreated?: number;
+                /** @description Vertices created without an '@id' under refMode=id. They are loaded and durable, but no edge can reference them. Absent when zero. */
+                verticesWithoutId?: number;
+            };
+            /** @description Terminal line of a successful load: the same object the buffered application/json response carries, plus 'commitIndex' on a replicated database - the read-your-writes bookmark, which cannot be a response header here because the response has already started when its value becomes known. */
+            summary?: {
+                /** @description Last applied Raft index, the value the X-ArcadeDB-Commit-Index header carries on the buffered encoding */
+                commitIndex?: number;
+                /** @description Total number of temporary ids the load resolved. Check the number of mapping entries received across all the lines against it: a mapping that arrives in pieces can lose one to a truncated response without any single piece looking wrong. */
+                idMappingSize?: number;
+                /** @description Always true on this encoding when the load resolved any temporary id: the mapping travelled in the 'idMapping' of the progress lines rather than in this object, so 'idMapping' here is only whatever the last chunk resolved after the final acknowledgement - usually nothing. 'idMappingOmitted' is never sent on this encoding: the size cap it reports exists because the buffered encoding has to build the whole mapping before it can send anything, which streaming removes (issue #7353). */
+                idMappingStreamed?: boolean;
+            };
+        };
+        /** @description One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present. */
+        NdJsonQueryEvent: {
+            /** @description A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows. */
+            error?: {
+                /** @description Why the stream failed */
+                message?: string;
+            };
+            /** @description One result row, identical to an element of the 'result' array of the buffered application/json response. */
+            record?: Record<string, never>;
+            /** @description Trailer, always the last line of a complete stream. Carries the same three numbers the buffered response reports at top level. */
+            stats?: {
+                /** @description Effective row cap applied while streaming, -1 when uncapped */
+                limit?: number;
+                /** @description Number of rows that reached the client */
+                returned?: number;
+                /** @description True when the cap stopped the stream with rows still pending, so the result is incomplete */
+                truncated?: boolean;
+            };
+        };
+        /** @description The wire-format sections one peer can decode */
+        PeerCapabilitiesResponse: {
+            /** @description Capability tokens this peer can decode, sorted */
+            capabilities?: string[];
+            /** @description Peer that answered. A caller must check this against the peer it meant to ask: on a cluster that declares no explicit 'http' ports several peers can resolve to one address. */
+            peerId?: string;
+            /** @description Server version of the answering peer, for operators; nothing decides on it */
+            version?: string;
         };
         /** @description In-progress maintenance operations */
         ProgressResponse: {
@@ -1723,6 +2041,8 @@ export interface components {
                 createdAt?: number;
                 /** @description Milliseconds since last use */
                 elapsedMs?: number;
+                /** @description Name of the cluster node that issued the session, when this node holds a copy of it; absent for a session this node issued */
+                issuer?: string;
                 /** @description Last use as epoch milliseconds */
                 lastUpdate?: number;
                 /** @description Client address */
@@ -1772,7 +2092,7 @@ export interface components {
                     alias?: string;
                     /** @description Field name to aggregate */
                     field?: string;
-                    /** @description Aggregation function, for example AVG, SUM, MIN, MAX, COUNT */
+                    /** @description Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively. */
                     type?: string;
                 }[];
             };
@@ -1823,6 +2143,52 @@ export interface components {
             peerId?: string;
             /** @description How long to wait for the transfer to complete, in milliseconds. Defaults to 30000. */
             timeoutMs?: number;
+        };
+        /** @description kNN search over a dense or sparse vector index */
+        VectorSearchRequest: {
+            /** @description Dense-index search beam width: higher values improve recall at higher cost. Rejected for a sparse index */
+            efSearch?: number;
+            /** @description Optional read-only SQL WHERE predicate applied to a bounded candidate set. Evaluated against each expanded neighbor row, where record properties are flattened and @rid, @type, record, plus distance (dense) or score (sparse) are available. At most4096 characters. */
+            filter?: string;
+            /** @description Name of an LSM_VECTOR or LSM_SPARSE_VECTOR index */
+            indexName: string;
+            /**
+             * @description Maximum number of results to return
+             * @default 10
+             */
+            k: number;
+            /** @description Sparse dimension ids matching the 'queryVector' weights; omit to use the vector's own positions. Requires sparse=true */
+            queryIndices?: number[];
+            /** @description Dense query vector, or the sparse weights matching 'queryIndices' when sparse is true */
+            queryVector: number[];
+            /** @description Search an LSM_SPARSE_VECTOR index instead of a dense one */
+            sparse?: boolean;
+        };
+        /** @description Ranked neighbors of the query vector */
+        VectorSearchResponse: {
+            /** @description Size of the candidate window the search inspected, which a filter over-fetches into */
+            candidateLimit?: number;
+            /** @description Number of results returned */
+            count?: number;
+            /** @description Index that was searched */
+            indexName?: string;
+            /** @description Hits, nearest or highest-scoring first */
+            results?: {
+                /** @description Dense vector distance, lower is better. Absent on a scored hit */
+                distance?: number;
+                /** @description The record's properties */
+                properties?: Record<string, never>;
+                /** @description Record id of the hit */
+                rid?: string;
+                /** @description Sparse or full-text score, higher is better. Absent on a distance hit */
+                score?: number;
+            }[];
+            /** @description Which direction is better and how it was computed, e.g. 'distance_lower_is_better:COSINE' or 'score_higher_is_better:dot_product'. Read it rather than assuming, because the two paths rank in opposite directions. */
+            scoring?: string;
+            /** @description Whether the sparse path was taken */
+            sparse?: boolean;
+            /** @description True when the result window was filled, so further matches may exist. False for a short result: the search already returned every match it could find within 'candidateLimit'. */
+            truncated?: boolean;
         };
         /** @description Per-file checksums of one database. A follower response carries only its own 'localChecksums', 'files' and 'localServer'; the leader instead returns only 'result', nesting a cluster-wide comparison against every other peer. */
         VerifyDatabaseResponse: {
@@ -2645,7 +3011,10 @@ export interface operations {
                 /** @description How edges name the vertices they connect. 'id' resolves @from and @to against the @id each vertex declared, costing the id plus a hash slot per vertex. 'ordinal' resolves them against the 0-based position of the vertex in the payload, storing no id at all. */
                 refMode?: "id" | "ordinal";
             };
-            header?: never;
+            header?: {
+                /** @description Send 'application/x-ndjson' to receive per-chunk acknowledgements while the request body is still being uploaded, instead of one object after the whole load. Anything else - including an absent header - returns the buffered application/json body unchanged. */
+                Accept?: "application/json" | "application/x-ndjson";
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -2669,6 +3038,7 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchResponse"];
+                    "application/x-ndjson": components["schemas"]["NdJsonBatchEvent"];
                 };
             };
             /** @description Client-input failure, with the counts attempted before it */
@@ -2904,6 +3274,90 @@ export interface operations {
             };
         };
     };
+    resolveClusterAuthSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The token and what to do with it */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClusterAuthSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description The session, as the issuer holds it */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterAuthSessionResponse"];
+                };
+            };
+            /** @description Copy dropped */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Missing token or unknown action */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not a cluster peer */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issuer does not hold this session */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getClusterBootstrapState: {
         parameters: {
             query?: never;
@@ -2921,6 +3375,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BootstrapStateResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getClusterPeerCapabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Peer capabilities */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeerCapabilitiesResponse"];
                 };
             };
             /** @description Bad request */
@@ -3011,6 +3526,16 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -3371,6 +3896,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -3463,6 +3998,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it on every call that must run inside that transaction, and on the commit or rollback that ends it. Omit it to run outside a transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
+                Accept?: "application/json" | "application/x-ndjson";
             };
             path: {
                 /** @description Database name */
@@ -3480,16 +4017,21 @@ export interface operations {
             /** @description Command executed successfully */
             200: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["QueryResponse"];
+                    "application/x-ndjson": components["schemas"]["NdJsonQueryEvent"];
                 };
             };
             /** @description Bad request */
             400: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -3520,6 +4062,8 @@ export interface operations {
             /** @description The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the command */
             413: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -3530,6 +4074,8 @@ export interface operations {
             /** @description Internal server error */
             500: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4267,6 +4813,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it on every call that must run inside that transaction, and on the commit or rollback that ends it. Omit it to run outside a transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
+                Accept?: "application/json" | "application/x-ndjson";
             };
             path: {
                 /** @description Database name */
@@ -4284,16 +4832,21 @@ export interface operations {
             /** @description Query executed successfully */
             200: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["QueryResponse"];
+                    "application/x-ndjson": components["schemas"]["NdJsonQueryEvent"];
                 };
             };
             /** @description Bad request */
             400: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4324,6 +4877,8 @@ export interface operations {
             /** @description The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the query */
             413: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4334,6 +4889,8 @@ export interface operations {
             /** @description Internal server error */
             500: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4349,6 +4906,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it on every call that must run inside that transaction, and on the commit or rollback that ends it. Omit it to run outside a transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
+                Accept?: "application/json" | "application/x-ndjson";
             };
             path: {
                 /** @description Database name */
@@ -4365,16 +4924,21 @@ export interface operations {
             /** @description Query executed successfully */
             200: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["QueryResponse"];
+                    "application/x-ndjson": components["schemas"]["NdJsonQueryEvent"];
                 };
             };
             /** @description Bad request */
             400: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4405,6 +4969,8 @@ export interface operations {
             /** @description The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the query */
             413: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4415,6 +4981,8 @@ export interface operations {
             /** @description Internal server error */
             500: {
                 headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -5560,8 +6128,8 @@ export interface operations {
             query: {
                 /** @description Time-series type name */
                 type: string;
-                /** @description Tag filter in name:value form. Only the first occurrence is honored if the parameter repeats. */
-                tag?: string;
+                /** @description Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match. */
+                tag?: string[];
             };
             header?: never;
             path: {
@@ -6335,6 +6903,243 @@ export interface operations {
                 };
             };
             /** @description Database not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    fullTextSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Database name */
+                database: string;
+            };
+            cookie?: never;
+        };
+        /** @description Full-text search request */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FullTextSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Matching documents, highest score first */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullTextSearchResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    hybridSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Database name */
+                database: string;
+            };
+            cookie?: never;
+        };
+        /** @description Hybrid search request */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HybridSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Fused results, best first, each naming the legs it came from */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HybridSearchResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    vectorSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Database name */
+                database: string;
+            };
+            cookie?: never;
+        };
+        /** @description Vector search request */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VectorSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Ranked neighbors, nearest first */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorSearchResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];

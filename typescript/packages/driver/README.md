@@ -159,13 +159,13 @@ absent; it only means "not visible to this caller right now."
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.9.1.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json`, recorded in
 `package.json` as `arcadedb.serverVersion`:
 
 ```json
 {
   "arcadedb": {
-    "serverVersion": "26.9.1"
+    "serverVersion": "26.10.1-SNAPSHOT"
   }
 }
 ```

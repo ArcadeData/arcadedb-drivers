@@ -43,6 +43,11 @@ def _parse_response(
 
         return response_403
 
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
 
@@ -71,8 +76,10 @@ def sync_detailed(
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Step down from leadership
 
-     Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+     Asks this server to give up leadership, triggering an election. Answers 409 when this server is not
+    the leader - it has nothing to step down from, and the request must be reissued against the leader
+    the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
+    every server, but answers only where high availability is configured.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -97,8 +104,10 @@ def sync(
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Step down from leadership
 
-     Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+     Asks this server to give up leadership, triggering an election. Answers 409 when this server is not
+    the leader - it has nothing to step down from, and the request must be reissued against the leader
+    the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
+    every server, but answers only where high availability is configured.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -119,8 +128,10 @@ async def asyncio_detailed(
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Step down from leadership
 
-     Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+     Asks this server to give up leadership, triggering an election. Answers 409 when this server is not
+    the leader - it has nothing to step down from, and the request must be reissued against the leader
+    the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
+    every server, but answers only where high availability is configured.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -143,8 +154,10 @@ async def asyncio(
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Step down from leadership
 
-     Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+     Asks this server to give up leadership, triggering an election. Answers 409 when this server is not
+    the leader - it has nothing to step down from, and the request must be reissued against the leader
+    the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
+    every server, but answers only where high availability is configured.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

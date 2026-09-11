@@ -98,6 +98,43 @@ itself also fails, that failure is attached as `err.cause` rather than replacing
 commit itself fails, `transaction` issues a best-effort rollback (to release the server-side
 session) before re-throwing the commit's error.
 
+## Vector, hybrid and full-text search: `db.vector`
+
+```ts
+const nearest = await db.vector.search({ indexName: "myIndex", queryVector: [0.1, 0.2, 0.3], k: 5 });
+const fused = await db.vector.hybrid({
+  vectorIndexName: "myIndex",
+  queryVector: [0.1, 0.2, 0.3],
+  fulltextIndexName: "myTextIndex",
+  fulltextQuery: "cat",
+});
+const matches = await db.vector.fulltext({ queryText: "cat" });
+```
+
+`search` runs a kNN query over a dense `LSM_VECTOR` or sparse `LSM_SPARSE_VECTOR` index; `hybrid`
+fuses a vector leg with an optional full-text leg and an optional graph-expansion leg into one
+ranked list; `fulltext` runs a Lucene-syntax query over a `FULL_TEXT` index. As with `query` and
+`command`, none of the three unwraps to bare rows - each returns the whole response object the
+server sent, `results` alongside `count`, `truncated` (search and hybrid only, see below),
+`scoring`, and the rest.
+
+That matters most for `truncated`. `search` and `hybrid` both inspect a bounded candidate window
+before ranking, and `truncated` is `true` when that window was filled - meaning more matches may
+exist beyond what `results` shows, exactly the hazard the result envelope's `truncated` documents
+above. A caller who reads `result.results` off a vector search and ignores `truncated` works off a
+partial answer without being told; raise `k` and search again if you need to see further.
+
+`fulltext`'s response, `FullTextSearchResponse`, has **no `truncated` field at all** - not `false`,
+absent. That is the contract's shape, not a field the server forgot to send: full-text search has
+no candidate-window concept to overflow the way a vector search does, so there is nothing for a
+`truncated` flag to report either way.
+
+`efSearch` (the dense-index search beam width) and each method's result-limit field (`k` for
+`search`/`hybrid`, `limit` for `fulltext`) are bounded, but the bound is enforced **server-side**.
+This client sends whatever value it is given without checking it first, so a value outside the
+allowed range surfaces as an `ArcadeDBError` thrown from the server's response, not as a local
+`throw` before the request is even sent.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `listDatabases`, `exists`, `serverInfo`,
@@ -203,17 +240,17 @@ supported.
 
 ## Bundling and tree-shaking
 
-`db.ts`, `db.grafana`, and `db.promql` each load their implementation with a dynamic `import()`
-rather than a static one. On a bundler that supports code splitting - Vite, webpack, Rollup, or
-esbuild run with `--splitting` - code that only calls `query`, `command`, and `transaction` gets a
-chunk that excludes the time-series, Grafana, and PromQL modules; they load only if and when
-`db.ts`, `db.grafana`, or `db.promql` is actually reached. Without code splitting, a bundler
-inlines those dynamic imports into the single output file, and all three modules ship regardless
-of whether they're used. This is verified by `test/treeshake.test.ts`, which bundles a
-data-plane-only entry point with esbuild's `splitting` option on and asserts the PromQL, Grafana,
-and time-series route markers are all absent from the chunk reachable via static imports alone -
-it does not claim, and this README does not claim, that the package sheds unused code under every
-bundler configuration.
+`db.ts`, `db.grafana`, `db.promql`, and `db.vector` each load their implementation with a dynamic
+`import()` rather than a static one. On a bundler that supports code splitting - Vite, webpack,
+Rollup, or esbuild run with `--splitting` - code that only calls `query`, `command`, and
+`transaction` gets a chunk that excludes the time-series, Grafana, PromQL, and vector-search
+modules; they load only if and when `db.ts`, `db.grafana`, `db.promql`, or `db.vector` is actually
+reached. Without code splitting, a bundler inlines those dynamic imports into the single output
+file, and all four modules ship regardless of whether they're used. This is verified by
+`test/treeshake.test.ts`, which bundles a data-plane-only entry point with esbuild's `splitting`
+option on and asserts the PromQL, Grafana, time-series, and vector route markers are all absent
+from the chunk reachable via static imports alone - it does not claim, and this README does not
+claim, that the package sheds unused code under every bundler configuration.
 
 ## License
 

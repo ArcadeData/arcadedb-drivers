@@ -148,3 +148,93 @@ describe("end-to-end against a real ArcadeDB server", () => {
     await expect(rootServer.listDatabases()).resolves.toContain(DB_NAME);
   });
 });
+
+// The exact DDL below was worked out against a live container before this file was touched, not
+// guessed - see task-4-report.md for the transcript. Two facts that cost the time: `embedding`
+// must be declared `ARRAY_OF_FLOATS` (a property typed as the generic array the vector value
+// arrives as), and `CREATE INDEX ... LSM_VECTOR` refuses to run without a `METADATA` clause naming
+// `dimensions` - the server says so in its own `CommandSQLParsingException` message, which is
+// where `METADATA {"dimensions": 4}` below comes from.
+const VECTOR_TYPE = "VectorItem";
+const VECTOR_INDEX = "VectorItem[embedding]";
+const FULLTEXT_INDEX = "VectorItem[description]";
+
+describe("db.vector: search, hybrid and full-text search against a real index", () => {
+  beforeAll(async () => {
+    const db = rootServer.db(DB_NAME);
+    await db.command({ language: "sql", command: `CREATE DOCUMENT TYPE ${VECTOR_TYPE} IF NOT EXISTS` });
+    await db.command({ language: "sql", command: `CREATE PROPERTY ${VECTOR_TYPE}.name STRING` });
+    await db.command({ language: "sql", command: `CREATE PROPERTY ${VECTOR_TYPE}.embedding ARRAY_OF_FLOATS` });
+    await db.command({ language: "sql", command: `CREATE PROPERTY ${VECTOR_TYPE}.description STRING` });
+    await db.command({
+      language: "sql",
+      command: `CREATE INDEX ON ${VECTOR_TYPE} (embedding) LSM_VECTOR METADATA {"dimensions": 4}`,
+    });
+    // Three real, small embeddings - not zero rows. `red-apple`'s embedding is the exact query
+    // vector every test below searches for, so it is always the nearest neighbor (distance 0) and
+    // the only row a "known term" full-text query can be checked against unambiguously.
+    await db.command({
+      language: "sql",
+      command: `INSERT INTO ${VECTOR_TYPE} SET name = 'red-apple', embedding = [1,0,0,0], description = 'a bright red apple'`,
+    });
+    await db.command({
+      language: "sql",
+      command: `INSERT INTO ${VECTOR_TYPE} SET name = 'green-apple', embedding = [0.9,0.1,0,0], description = 'a crisp green apple'`,
+    });
+    await db.command({
+      language: "sql",
+      command: `INSERT INTO ${VECTOR_TYPE} SET name = 'blue-car', embedding = [0,0,1,0], description = 'a fast blue car engine'`,
+    });
+    await db.command({ language: "sql", command: `CREATE INDEX ON ${VECTOR_TYPE} (description) FULL_TEXT` });
+  }, 30_000);
+
+  it("search returns a non-empty, nearest-first result, with count and truncated readable off the whole response", async () => {
+    const result = await rootServer.db(DB_NAME).vector.search({ indexName: VECTOR_INDEX, queryVector: [1, 0, 0, 0], k: 10 });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.count).toBe(3);
+    // k (10) exceeds the row count (3): the candidate window was never filled, so this is a
+    // complete answer, not a partial one that happens to look complete.
+    expect(result.truncated).toBe(false);
+    // Nearest first: `red-apple`'s embedding IS the query vector, so its distance is exactly 0
+    // and every later hit's distance is not smaller.
+    expect(result.results[0]?.distance).toBe(0);
+    const distances = result.results.map((r) => r.distance ?? Number.POSITIVE_INFINITY);
+    expect(distances).toEqual([...distances].sort((a, b) => a - b));
+  });
+
+  it("a smaller k fills the candidate window, and truncated says so instead of silently returning a partial answer", async () => {
+    const result = await rootServer.db(DB_NAME).vector.search({ indexName: VECTOR_INDEX, queryVector: [1, 0, 0, 0], k: 2 });
+
+    expect(result.count).toBe(2);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("hybrid fuses the vector and full-text legs into one non-empty, nearest-first ranking", async () => {
+    const result = await rootServer.db(DB_NAME).vector.hybrid({
+      vectorIndexName: VECTOR_INDEX,
+      queryVector: [1, 0, 0, 0],
+      fulltextIndexName: FULLTEXT_INDEX,
+      fulltextQuery: "apple",
+      k: 10,
+    });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.count).toBe(3);
+    expect(result.truncated).toBe(false);
+    expect(result.fused).toBe(true);
+    // `red-apple` is the exact vector match AND matches the full-text query, so it wins both legs
+    // and is fused first.
+    expect(result.results[0]?.sources).toEqual(expect.arrayContaining(["vector", "fulltext"]));
+  });
+
+  it("fulltext matches a known term, and the response carries no truncated field at all (D-M5-2)", async () => {
+    const result = await rootServer.db(DB_NAME).vector.fulltext({ queryText: "apple", indexName: FULLTEXT_INDEX });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.count).toBe(2);
+    // Not `false` - ABSENT. FullTextSearchResponse has no `truncated` field in the contract at
+    // all, unlike VectorSearchResponse and HybridSearchResponse above.
+    expect("truncated" in result).toBe(false);
+  });
+});

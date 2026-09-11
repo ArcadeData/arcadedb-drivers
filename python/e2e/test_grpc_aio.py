@@ -205,3 +205,48 @@ async def test_async_transaction_rolls_back(
     # Belt and suspenders, and the brief's explicit requirement: the row must also be
     # ABSENT, not merely that the exception propagated and RollbackTransaction fired.
     assert await _names(async_client, grpc_database, marker) == []
+
+
+async def test_async_vector_hybrid_and_fulltext_search_through_raw_and_the_handle(
+    async_client: AsyncArcadeDBGrpcClient, grpc_database: str, grpc_vector_index: tuple[str, str]
+) -> None:
+    # Covers both reachability paths D-M5-1 describes, on the async facade: raw outside any
+    # transaction, and bound to an open one through `AsyncTransactionHandle`. No top-level
+    # `async_client.vector_search` alias exists either.
+    vector_index_name, fulltext_index_name = grpc_vector_index
+
+    raw_search = await async_client.raw.VectorSearch(
+        messages.VectorSearchRequest(
+            database=grpc_database, index_name=vector_index_name, query_vector=[1, 0, 0, 0], k=10
+        )
+    )
+    assert len(raw_search.results) > 0
+    assert raw_search.count == 3
+    assert raw_search.truncated is False
+    # Nearest first: the query vector IS `red-apple`'s embedding, so its distance is exactly 0.
+    assert raw_search.results[0].distance == 0
+    distances = [hit.distance for hit in raw_search.results]
+    assert distances == sorted(distances)
+
+    async with async_client.transaction(grpc_database) as tx:
+        search = await tx.vector_search(
+            messages.VectorSearchRequest(index_name=vector_index_name, query_vector=[1, 0, 0, 0], k=10)
+        )
+        hybrid = await tx.hybrid_search(
+            messages.HybridSearchRequest(
+                vector_index_name=vector_index_name,
+                query_vector=[1, 0, 0, 0],
+                fulltext_index_name=fulltext_index_name,
+                fulltext_query="apple",
+                k=10,
+            )
+        )
+        fulltext = await tx.full_text_search(
+            messages.FullTextSearchRequest(query_text="apple", index_name=fulltext_index_name)
+        )
+
+    assert len(search.results) > 0
+    assert search.truncated is False
+    assert len(hybrid.results) > 0
+    assert hybrid.fused is True
+    assert len(fulltext.results) > 0

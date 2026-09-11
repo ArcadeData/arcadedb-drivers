@@ -51,8 +51,12 @@ parse and nothing to default: pass `credentials=grpc.ssl_channel_credentials()` 
 `raw` is the generated stub for `com.arcadedb.grpc.ArcadeDbService` - every RPC the `.proto`
 contract declares is reachable through it. `create_client` adds three wrappers on top for the RPCs
 the generated stub alone handles badly: `stream_query`, `insert_stream`, and `transaction`.
-Everything else - the unary CRUD calls, `BulkInsert`, `InsertBidirectional`, `GraphBatchLoad` - is
-used directly through `raw`, exactly as in the example above.
+Everything else - the unary CRUD calls, `VectorSearch`/`HybridSearch`/`FullTextSearch`,
+`BulkInsert`, `InsertBidirectional`, `GraphBatchLoad` - is used directly through `raw` at the top
+level, exactly as in the example above; the CRUD calls and the three search RPCs also get a
+`TransactionHandle` wrapper once a transaction is open (see "Transactions" and "Vector, hybrid and
+full-text search" below) - `BulkInsert`, `InsertBidirectional`, and `GraphBatchLoad` never do, at
+any level.
 
 The async facade mirrors the sync one method-for-method:
 
@@ -332,6 +336,56 @@ rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10.1-S
 commit persisting them on all three. So the restriction is now **removable** for every server
 version this package supports. It is kept for now because lifting it adds public surface, a
 deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
+
+## Vector, hybrid and full-text search: `VectorSearch`, `HybridSearch`, `FullTextSearch`
+
+```python
+# Outside a transaction: through raw, like any other unary RPC.
+nearest = client.raw.VectorSearch(
+    messages.VectorSearchRequest(database="mydb", index_name="myIndex", query_vector=[0.1, 0.2, 0.3], k=5)
+)
+
+# Inside one: through the handle, which forces `database` and `transaction` the same way every
+# other bound call does (see "The binding override" above).
+with client.transaction("mydb") as tx:
+    fused = tx.hybrid_search(
+        messages.HybridSearchRequest(
+            vector_index_name="myIndex",
+            query_vector=[0.1, 0.2, 0.3],
+            fulltext_index_name="myTextIndex",
+            fulltext_query="cat",
+        )
+    )
+    matches = tx.full_text_search(messages.FullTextSearchRequest(query_text="cat"))
+```
+
+These three RPCs are reached exactly two ways, and no third: `client.raw.VectorSearch` /
+`.HybridSearch` / `.FullTextSearch` outside any transaction, and `tx.vector_search` /
+`.hybrid_search` / `.full_text_search` bound to one once it is open - the same `TransactionHandle`
+the six CRUD RPCs already go through (see "Authentication, and why `client.raw` is authenticated
+too" above for where these three sit relative to the CRUD RPCs and the three calls with no
+wrapper at any level - `BulkInsert`, `InsertBidirectional`, `GraphBatchLoad`). There is
+deliberately **no top-level `client.vector_search`** alongside
+`stream_query`/`insert_stream`/`transaction`: those three exist because the generated stub alone
+handles them badly - `stream_query` needs its batches flattened, `insert_stream` needs envelope
+bookkeeping, `transaction` needs begin/commit/rollback sequencing. A unary RPC the generated stub
+already calls directly and correctly gains nothing from a same-shaped top-level alias; the only
+thing worth hand-writing for `VectorSearch`/`HybridSearch`/`FullTextSearch` was the transaction
+binding, which is exactly what `_bind` already provides for the CRUD RPCs.
+
+Each call returns the whole generated response message, never unwrapped to `results` alone:
+`VectorSearchResponse` and `HybridSearchResponse` carry `truncated` alongside `results`, `count`,
+and `scoring`. `truncated` is `True` when the search's bounded candidate window was filled, meaning
+more matches may exist beyond what `results` holds - a caller who reads `.results` and never checks
+`.truncated` works off a partial answer without being told. `FullTextSearchResponse` carries **no**
+`truncated` field at all in the `.proto` contract - not `False`, simply absent from the message -
+because full-text search has no candidate-window concept to overflow the way a vector search does.
+
+`ef_search` (the dense-index search beam width) and each RPC's result-limit field (`k` for
+`VectorSearchRequest`/`HybridSearchRequest`, `limit` for `FullTextSearchRequest`) are bounded, but
+the bound is enforced **server-side**. Neither `raw` nor the handle validates them locally, so an
+out-of-range value surfaces as a `grpc.RpcError` from the server's response, not as a client-side
+exception before the request is ever sent.
 
 ## Errors: `grpc.RpcError`, not a package-specific error
 

@@ -201,3 +201,87 @@ def test_transaction_rolls_back(grpc_server: tuple[str, str], grpc_database: str
     # Belt and suspenders, and the brief's explicit requirement: the row must also be
     # ABSENT, not merely that the exception propagated and RollbackTransaction fired.
     assert _names(client, grpc_database, marker) == []
+
+
+def test_vector_search_through_raw_outside_a_transaction_returns_a_non_empty_nearest_first_result(
+    client: ArcadeDBGrpcClient, grpc_database: str, grpc_vector_index: tuple[str, str]
+) -> None:
+    vector_index_name, _ = grpc_vector_index
+    response = client.raw.VectorSearch(
+        messages.VectorSearchRequest(
+            database=grpc_database, index_name=vector_index_name, query_vector=[1, 0, 0, 0], k=10
+        )
+    )
+
+    assert len(response.results) > 0
+    assert response.count == 3
+    # k (10) exceeds the row count (3): the window was never filled, so this IS a complete
+    # answer, not a partial one that happens to look complete.
+    assert response.truncated is False
+    # Nearest first: the query vector IS `red-apple`'s embedding, so its distance is exactly 0.
+    assert response.results[0].distance == 0
+    distances = [hit.distance for hit in response.results]
+    assert distances == sorted(distances)
+
+
+def test_hybrid_search_through_raw_outside_a_transaction_fuses_both_legs(
+    client: ArcadeDBGrpcClient, grpc_database: str, grpc_vector_index: tuple[str, str]
+) -> None:
+    vector_index_name, fulltext_index_name = grpc_vector_index
+    response = client.raw.HybridSearch(
+        messages.HybridSearchRequest(
+            database=grpc_database,
+            vector_index_name=vector_index_name,
+            query_vector=[1, 0, 0, 0],
+            fulltext_index_name=fulltext_index_name,
+            fulltext_query="apple",
+            k=10,
+        )
+    )
+
+    assert len(response.results) > 0
+    assert response.count == 3
+    assert response.fused is True
+
+
+def test_fulltext_search_through_raw_outside_a_transaction_matches_a_known_term(
+    client: ArcadeDBGrpcClient, grpc_database: str, grpc_vector_index: tuple[str, str]
+) -> None:
+    _, fulltext_index_name = grpc_vector_index
+    response = client.raw.FullTextSearch(
+        messages.FullTextSearchRequest(database=grpc_database, index_name=fulltext_index_name, query_text="apple")
+    )
+
+    assert len(response.results) > 0
+    assert response.count == 2
+
+
+def test_vector_hybrid_and_fulltext_search_through_the_transaction_handle_all_return_non_empty_results(
+    client: ArcadeDBGrpcClient, grpc_database: str, grpc_vector_index: tuple[str, str]
+) -> None:
+    # D-M5-1 proven end to end against a real server: the same three RPCs reached two ways - raw
+    # above (outside a transaction) and, here, bound to an open one through `TransactionHandle`.
+    # There is no top-level `client.vector_search` alias; see the README for why.
+    vector_index_name, fulltext_index_name = grpc_vector_index
+    with client.transaction(grpc_database) as tx:
+        search = tx.vector_search(
+            messages.VectorSearchRequest(index_name=vector_index_name, query_vector=[1, 0, 0, 0], k=10)
+        )
+        hybrid = tx.hybrid_search(
+            messages.HybridSearchRequest(
+                vector_index_name=vector_index_name,
+                query_vector=[1, 0, 0, 0],
+                fulltext_index_name=fulltext_index_name,
+                fulltext_query="apple",
+                k=10,
+            )
+        )
+        fulltext = tx.full_text_search(
+            messages.FullTextSearchRequest(query_text="apple", index_name=fulltext_index_name)
+        )
+
+    assert len(search.results) > 0
+    assert search.truncated is False
+    assert len(hybrid.results) > 0
+    assert hybrid.fused is True
+    assert len(fulltext.results) > 0

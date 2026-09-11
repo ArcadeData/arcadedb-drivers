@@ -149,6 +149,56 @@ The commit/rollback contract has three clauses:
   the server-side session is not left open until `arcadedb.server.httpTxExpireTimeout` reaps it,
   and then the commit's error is re-raised.
 
+## Vector, hybrid and full-text search: `db.vector`
+
+```python
+nearest = db.vector.search(index_name="myIndex", query_vector=[0.1, 0.2, 0.3], k=5)
+fused = db.vector.hybrid(
+    vector_index_name="myIndex",
+    query_vector=[0.1, 0.2, 0.3],
+    fulltext_index_name="myTextIndex",
+    fulltext_query="cat",
+)
+matches = db.vector.fulltext(query_text="cat")
+```
+
+`search` runs a kNN query over a dense `LSM_VECTOR` or sparse `LSM_SPARSE_VECTOR` index; `hybrid`
+fuses a vector leg with an optional full-text leg and an optional graph-expansion leg into one
+ranked list; `fulltext` runs a Lucene-syntax query over a `FULL_TEXT` index. Each returns the whole
+generated response model - `VectorSearchResponse`, `HybridSearchResponse`, `FullTextSearchResponse`
+- never unwrapped to bare rows the way `QueryEnvelope` unwraps `query`/`command`. `results` sits
+alongside `count`, `truncated` (search and hybrid only, see below), `scoring`, and the rest, all
+still reachable on the object `db.vector.search(...)` hands back.
+
+That matters most for `truncated`. `search` and `hybrid` both inspect a bounded candidate window
+before ranking, and `truncated` is `True` when that window was filled - meaning more matches may
+exist beyond what `results` shows, the same hazard the result envelope's `truncated` documents
+above for `query`. A caller who reads `.results` off a vector search and ignores `.truncated` works
+off a partial answer without being told; raise `k` and search again if you need to see further.
+
+`fulltext`'s response, `FullTextSearchResponse`, has **no `truncated` attribute at all** - not
+`False`, absent (`hasattr(resp, "truncated")` is `False`). That is the contract's shape, not a
+field the server forgot to send: full-text search has no candidate-window concept to overflow the
+way a vector search does, so there is nothing for a `truncated` flag to report either way.
+
+`ef_search` (the dense-index search beam width) and each method's result-limit parameter (`k` for
+`search`/`hybrid`, `limit` for `fulltext`) are bounded, but the bound is enforced **server-side**.
+This client sends whatever value it is given without checking it first, so a value outside the
+allowed range surfaces as an `ArcadeDBError` raised from the server's response, not as a local
+exception before the request is even sent.
+
+One asymmetry with `@arcadedb/driver` is worth knowing if you work in both clients:
+`VectorSearchRequest.k`, `HybridSearchRequest.k`, and `FullTextSearchRequest.limit` all carry an
+OpenAPI `default: 10` outside their schema's `required` list, and the two generators treat that
+differently. `openapi-python-client` bakes the default straight into the generated model's own
+constructor - `k: int | Unset = 10` is `VectorSearchRequest`'s actual field default here, so
+`db.vector.search()`'s `k`/`limit` parameters stay optional with no extra work, and this facade
+passes `UNSET` through rather than re-asserting `10` itself (see `facade/vector.py`'s module
+docstring). `openapi-typescript` does the opposite: it emits a property carrying a `default` as
+**required** on the generated TypeScript type, so `@arcadedb/driver`'s equivalent option types need
+a hand-written widening back to optional (`WithOptionalDefaults` in `facade/vector.ts`) that this
+client never needed.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `list_databases`, `exists`, `server_info`,

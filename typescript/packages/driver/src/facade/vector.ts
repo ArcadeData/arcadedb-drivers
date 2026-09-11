@@ -28,12 +28,46 @@ type WithOptionalDefaults<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K
  * and the server applies that default.
  */
 export type VectorSearchOptions = WithOptionalDefaults<components["schemas"]["VectorSearchRequest"], "k">;
+
+/**
+ * The graph-expansion leg of `db.vector.hybrid()` - `HybridSearchRequest.expand` widened the same
+ * way {@link WithOptionalDefaults} widens a top-level field, except `maxDepth` sits one level
+ * inside `expand`, so applying {@link WithOptionalDefaults} to `HybridSearchRequest` itself (as
+ * {@link HybridSearchOptions} does for `k`) does not reach it - that application only widens
+ * `HybridSearchRequest`'s own top-level properties, and `expand` is one of those properties, not a
+ * property of it. Applying {@link WithOptionalDefaults} again, to the `expand` object type itself,
+ * is what reaches `maxDepth`.
+ */
+type HybridSearchExpand = WithOptionalDefaults<NonNullable<components["schemas"]["HybridSearchRequest"]["expand"]>, "maxDepth">;
+
 /**
  * Body accepted by `db.vector.hybrid()`. `vectorIndexName` and `queryVector` are the contract's
  * only required fields. `k` is optional here for the same reason as {@link VectorSearchOptions}'s
- * `k` - the server defaults it to 10 when omitted.
+ * `k` - the server defaults it to 10 when omitted. `expand.maxDepth` is optional for the same
+ * reason, one level down; see {@link HybridSearchExpand}.
+ *
+ * `weights` is widened from the generated `Record<string, never>`: the contract declares it as a
+ * bare `{"type": "object"}` with no properties, which openapi-typescript renders as "no property
+ * may ever hold a value" - a caller cannot populate the field at all. `Record<string, number>` is
+ * the real constraint the generated emptiness could not carry - the contract's own description
+ * says the values are numbers, that only `vector`, `fulltext` and `expand` are accepted as keys,
+ * and that a weight for a leg the request does not otherwise ask for is refused rather than
+ * ignored. That last part is server-validated, not local: this type does not narrow the key set to
+ * those three, both because the contract does not declare them as named properties and because
+ * this facade does not invent a shape the contract has not committed to (the same reasoning
+ * `buildCommandBody` in `facade/data.ts` documents for its own `Record<string, never>` widening).
+ *
+ * With `k`, `expand.maxDepth` and `weights` handled, every `default`-forced-required property and
+ * every untyped-object property across `VectorSearchRequest`, `HybridSearchRequest` and
+ * `FullTextSearchRequest` is accounted for - this is the last one. A future contract change that
+ * adds another `default` or another bare `{"type": "object"}` to one of these three schemas will
+ * need the same treatment; nothing here detects that automatically.
  */
-export type HybridSearchOptions = WithOptionalDefaults<components["schemas"]["HybridSearchRequest"], "k">;
+export type HybridSearchOptions = Omit<WithOptionalDefaults<components["schemas"]["HybridSearchRequest"], "k">, "weights" | "expand"> & {
+  weights?: Record<string, number>;
+  expand?: HybridSearchExpand;
+};
+
 /**
  * Body accepted by `db.vector.fulltext()`. `queryText` is the contract's only required field.
  * `limit` is optional here for the same reason as {@link VectorSearchOptions}'s `k` - the server
@@ -84,8 +118,14 @@ export async function vectorSearch(client: RawClient, database: string, opts: Ve
 
 /**
  * Executes `POST /api/v1/vector/{database}/hybrid` - combined vector and full-text retrieval.
- * Bounds are server-validated; see {@link vectorSearch}. `body` is cast for the same reason as
- * {@link vectorSearch}'s: `opts` widens `k` back to optional.
+ * Bounds are server-validated; see {@link vectorSearch}. `body` is cast because `opts`
+ * (`HybridSearchOptions`) widens the generated `HybridSearchRequest` in three places that no
+ * longer structurally match it: `k` back to optional, same as {@link vectorSearch}'s cast;
+ * `expand.maxDepth` back to optional, one level down (see {@link HybridSearchExpand}); and
+ * `weights` from the uninhabitable generated `Record<string, never>` to `Record<string, number>`.
+ * As with {@link vectorSearch}, the cast only undoes those three codegen artifacts - it does not
+ * touch `vectorIndexName` or `queryVector`, so removing either from the contract still fails `tsc`
+ * here rather than only failing on the wire.
  */
 export async function hybridSearch(client: RawClient, database: string, opts: HybridSearchOptions): Promise<HybridSearchResult> {
   return unwrap(

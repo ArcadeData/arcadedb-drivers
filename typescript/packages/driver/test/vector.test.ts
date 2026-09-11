@@ -67,6 +67,50 @@ describe("db.vector.hybrid", () => {
     expect(new URL(captured!.url).pathname).toBe("/api/v1/vector/mydb/hybrid");
     expect(result).toEqual(body);
   });
+
+  it("sends a caller-supplied weights object unaltered on the wire", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return jsonResponse({ results: [], count: 0, truncated: false }, 200);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await server.db("mydb").vector.hybrid({
+      vectorIndexName: "v_idx",
+      queryVector: [0.1, 0.2],
+      fulltextQuery: "cat",
+      weights: { vector: 1.0, fulltext: 0.5 },
+    });
+
+    await expect(captured!.clone().json()).resolves.toEqual({
+      vectorIndexName: "v_idx",
+      queryVector: [0.1, 0.2],
+      fulltextQuery: "cat",
+      weights: { vector: 1.0, fulltext: 0.5 },
+    });
+  });
+
+  it("sends an expand leg with no maxDepth unaltered - no client-side default is injected", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return jsonResponse({ results: [], count: 0, truncated: false }, 200);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await server.db("mydb").vector.hybrid({
+      vectorIndexName: "v_idx",
+      queryVector: [0.1, 0.2],
+      expand: { direction: "out" },
+    });
+
+    await expect(captured!.clone().json()).resolves.toEqual({
+      vectorIndexName: "v_idx",
+      queryVector: [0.1, 0.2],
+      expand: { direction: "out" },
+    });
+  });
 });
 
 describe("db.vector.fulltext", () => {

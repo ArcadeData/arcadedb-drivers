@@ -29,6 +29,17 @@ default of `10` rather than `UNSET`, so they are optional on `VectorSearchReques
 `HybridSearchRequest` / `FullTextSearchRequest` directly. No workaround was needed here; that
 asymmetry between the two generators is worth recording precisely because Task 1 had to work
 around it and this task did not.
+
+Returning the generated response whole means `results` stays a list of generated per-element
+models (`VectorSearchResponseResultsItem` and friends), not the `list[dict[str, Any]]`
+`facade/data.py`'s `QueryEnvelope` produces for `query`/`command` - so a caller writes
+`env.result[0]["name"]` after a query but `resp.results[0].to_dict()["score"]` after a vector
+search. That is a real difference in row shape, not an oversight to unify: `QueryEnvelope` is a
+hand-written dataclass built specifically to normalise `query`/`command` into one safe shape,
+while the whole point of returning the generated response unaltered here is to keep
+`truncated`, `count` and `scoring` attached to their rows rather than stripped away. Flattening
+only the `results` items would manufacture a third, hybrid shape - typed top-level fields next
+to untyped rows - worse than either of the two shapes this client already has.
 """
 
 from __future__ import annotations
@@ -172,7 +183,13 @@ class AsyncVectorNamespace:
         query_indices: list[int] | Unset = UNSET,
         sparse: bool | Unset = UNSET,
     ) -> VectorSearchResponse:
-        """kNN search over a dense (`LSM_VECTOR`) or sparse (`LSM_SPARSE_VECTOR`) index."""
+        """kNN search over a dense (`LSM_VECTOR`) or sparse (`LSM_SPARSE_VECTOR`) index.
+
+        Dense results carry `distance` (lower is better); sparse results carry `score`
+        (higher is better) - `scoring` on the response names which. A filtered search
+        inspects a bounded candidate window reported as `candidateLimit`, so `truncated`
+        means the window was filled and more matches may exist - raise `k` to see them.
+        """
         body = VectorSearchRequest(
             index_name=index_name,
             query_vector=query_vector,
@@ -202,7 +219,13 @@ class AsyncVectorNamespace:
         expand: HybridSearchRequestExpand | Unset = UNSET,
         weights: HybridSearchRequestWeights | Unset = UNSET,
     ) -> HybridSearchResponse:
-        """Fused vector, full-text and graph-expansion search."""
+        """Fused vector, full-text and graph-expansion search.
+
+        `fulltext_query` and `fulltext_index_name` go together: half a leg is refused by
+        the server rather than silently dropped. `fused` on the response is `False` when
+        only one leg produced rows - fusion needs at least two sources - in which case the
+        response carries that leg's native distance or score instead of a fused one.
+        """
         body = HybridSearchRequest(
             query_vector=query_vector,
             vector_index_name=vector_index_name,
@@ -230,7 +253,13 @@ class AsyncVectorNamespace:
         limit: int | Unset = UNSET,
         properties: list[str] | Unset = UNSET,
     ) -> FullTextSearchResponse:
-        """Full-text search over a `FULL_TEXT` index."""
+        """Full-text search over a `FULL_TEXT` index.
+
+        `index_name` wins over `type_name` when both are given; `type_name` alone is only
+        usable when that type carries exactly one full-text index. Unlike `search` and
+        `hybrid`, the response carries no `truncated` - full-text search has no bounded
+        candidate window to overflow, so there is nothing for that field to report.
+        """
         body = FullTextSearchRequest(
             query_text=query_text,
             index_name=index_name,

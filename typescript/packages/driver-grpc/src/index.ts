@@ -3,12 +3,17 @@ import type { Client, Interceptor } from "@connectrpc/connect";
 import { createGrpcTransport } from "@connectrpc/connect-node";
 import { ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { sendsPlaintextPassword } from "./auth.js";
-import { createInsertStream, createStreamQuery } from "./stream.js";
+import { createInsertStream, createStreamQuery, createTimeSeriesQuery, createTimeSeriesWriteStream } from "./stream.js";
 import { createTransaction } from "./transaction.js";
 
 export { bearerAuth, passwordAuth } from "./auth.js";
 export type { Interceptor } from "@connectrpc/connect";
-export type { InsertStreamRequest, StreamQueryRequestInit } from "./stream.js";
+export type {
+  InsertStreamRequest,
+  StreamQueryRequestInit,
+  TimeSeriesQueryRequestInit,
+  TimeSeriesWriteStreamRequest,
+} from "./stream.js";
 export type { TransactionHandle } from "./transaction.js";
 // Re-exports every data-plane message type and enum the generated client uses (`GrpcRecord`,
 // `QueryResult`, `StreamQueryRequest_RetrievalMode`, etc.) under this package's own entry point.
@@ -59,6 +64,22 @@ export interface ArcadeDBGrpcClient {
    */
   insertStream: ReturnType<typeof createInsertStream>;
   /**
+   * Streams a time-series answer message by message - see {@link createTimeSeriesQuery}. Also
+   * reachable, bound to an open transaction, as `TransactionHandle.timeSeriesQuery` (see
+   * `transaction.ts`), since `TimeSeriesQueryRequest` carries a `transaction` field.
+   */
+  timeSeriesQuery: ReturnType<typeof createTimeSeriesQuery>;
+  /**
+   * Streams points to `ArcadeDbService.TimeSeriesWriteStream`, one wire chunk per input batch -
+   * see {@link TimeSeriesWriteStreamRequest} and {@link createTimeSeriesWriteStream}.
+   * `TimeSeriesWrite` (the unary write) and `TimeSeriesLatest` carry no top-level wrapper of their
+   * own: `TimeSeriesWrite`'s request has no `transaction` field, so `raw.timeSeriesWrite` already
+   * works unassisted, and `TimeSeriesLatest` is reachable only bound to a transaction, as
+   * `TransactionHandle.timeSeriesLatest` - a bare stub drives both of those fine, so wrapping
+   * either would be a named passthrough adding nothing.
+   */
+  timeSeriesWriteStream: ReturnType<typeof createTimeSeriesWriteStream>;
+  /**
    * Runs `fn` inside a server-side transaction: begins it, hands `fn` a {@link TransactionHandle}
    * whose calls all carry the transaction's id automatically, and ends the transaction on both
    * the success and failure paths - see `transaction.ts` for the full commit/rollback contract.
@@ -95,6 +116,8 @@ export function createClient(opts: CreateClientOptions): ArcadeDBGrpcClient {
     raw,
     streamQuery: createStreamQuery(raw),
     insertStream: createInsertStream(raw),
+    timeSeriesQuery: createTimeSeriesQuery(raw),
+    timeSeriesWriteStream: createTimeSeriesWriteStream(raw),
     transaction: createTransaction(raw),
   };
 }

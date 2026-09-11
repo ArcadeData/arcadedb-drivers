@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape, MessageShape } from "@bufbuild/protobuf";
-import type { ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+import type { ArcadeDbService, TimeSeriesPoint, TimeSeriesPrecision } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import {
   DatabaseCredentialsSchema,
   GrpcRecordSchema,
@@ -10,6 +10,10 @@ import {
   InsertSummarySchema,
   QueryResultSchema,
   StreamQueryRequestSchema,
+  TimeSeriesQueryRequestSchema,
+  TimeSeriesQueryResultSchema,
+  TimeSeriesWriteChunkSchema,
+  TimeSeriesWriteSummarySchema,
   TransactionContextSchema,
 } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 
@@ -20,6 +24,9 @@ type GrpcRecordInit = MessageInitShape<typeof GrpcRecordSchema>;
 type QueryResult = MessageShape<typeof QueryResultSchema>;
 type InsertSummary = MessageShape<typeof InsertSummarySchema>;
 type InsertChunkInit = MessageInitShape<typeof InsertChunkSchema>;
+type TimeSeriesWriteChunkInit = MessageInitShape<typeof TimeSeriesWriteChunkSchema>;
+type TimeSeriesWriteSummary = MessageShape<typeof TimeSeriesWriteSummarySchema>;
+type TimeSeriesQueryResult = MessageShape<typeof TimeSeriesQueryResultSchema>;
 
 /**
  * `StreamQuery` request. `retrievalMode` (CURSOR / MATERIALIZE_ALL / PAGED) and `batchSize`
@@ -43,6 +50,31 @@ export function createStreamQuery(raw: Pick<RawClient, "streamQuery">) {
     for await (const result of raw.streamQuery(request, options)) {
       yield* result.records;
     }
+  };
+}
+
+/**
+ * `TimeSeriesQuery` request. Unlike {@link StreamQueryRequestInit}, no field is defaulted or
+ * reshaped here either - `limit`, `batchSize`, `aggregation` and the rest pass straight through.
+ */
+export type TimeSeriesQueryRequestInit = MessageInitShape<typeof TimeSeriesQueryRequestSchema>;
+
+/**
+ * Wraps `ArcadeDbService.TimeSeriesQuery` (server-streaming): yields each `TimeSeriesQueryResult`
+ * message the server sends, in order, unflattened. This is deliberately thinner than
+ * {@link createStreamQuery}, which flattens `QueryResult` batches into individual rows -
+ * `TimeSeriesQueryResult` cannot be flattened the same way, because `truncated` and `last` are
+ * carried per-message (only meaningful on the message where `last` is true) and a raw answer's
+ * `rows` versus an aggregated answer's `buckets` are shaped differently. Flattening either away
+ * would throw away information a caller needs to tell "the stream ended" from "the stream ended
+ * early because of `limit`".
+ */
+export function createTimeSeriesQuery(raw: Pick<RawClient, "timeSeriesQuery">) {
+  return async function* timeSeriesQuery(
+    request: TimeSeriesQueryRequestInit,
+    options?: CallOptions,
+  ): AsyncGenerator<TimeSeriesQueryResult, void, undefined> {
+    yield* raw.timeSeriesQuery(request, options);
   };
 }
 
@@ -168,5 +200,81 @@ async function* envelopeChunks(request: InsertStreamRequest, sessionId: string):
     }
   } finally {
     await iterator.return?.();
+  }
+}
+
+/**
+ * `TimeSeriesWriteStream` request. `chunks` is the sequence of point batches the caller wants to
+ * send - each element becomes exactly one wire `TimeSeriesWriteChunk`. Unlike
+ * {@link InsertStreamRequest}, there is no session/sequence/last envelope for this wrapper to own:
+ * `TimeSeriesWriteChunk` declares only `database`, `credentials`, `type` and `precision` alongside
+ * its `points`, with no `session_id`, `chunk_seq` or `last` field on the message at all, so those
+ * four are simply repeated on every chunk (see {@link createTimeSeriesWriteStream}).
+ *
+ * `precision` is REQUIRED here, deliberately - the one place this wrapper diverges from "pass
+ * everything through unchanged". `TimeSeriesPrecision`'s proto3 zero value is
+ * `TS_PRECISION_MILLISECONDS` (0), and the wire cannot distinguish "the caller omitted precision"
+ * from "the caller explicitly chose milliseconds". The HTTP `/ts/{database}/write` endpoint speaks
+ * InfluxDB Line Protocol, whose omitted-precision default is NANOSECONDS - a factor of 10^6 away.
+ * A caller porting a working HTTP ingest to gRPC who drops this field would have every timestamp
+ * misread by that factor, silently, with no error on either side. Requiring the field on this
+ * wrapper's TypeScript type removes that failure mode by construction rather than documenting
+ * around it.
+ */
+export interface TimeSeriesWriteStreamRequest {
+  database: string;
+  credentials?: MessageInitShape<typeof DatabaseCredentialsSchema>;
+  /** Default measurement for points in a chunk that do not name one. */
+  type: string;
+  /** REQUIRED - see the interface doc comment above for why. */
+  precision: TimeSeriesPrecision;
+  /** One element per wire chunk. */
+  chunks: AsyncIterable<TimeSeriesPoint[]>;
+}
+
+/**
+ * Wraps `ArcadeDbService.TimeSeriesWriteStream` (client-streaming): turns `request.chunks` into
+ * the `AsyncIterable<TimeSeriesWriteChunk>` the generated client expects, setting `database`,
+ * `credentials`, `type` and `precision` on EVERY chunk rather than mirroring them onto the first
+ * one the way {@link envelopeChunks} mirrors `database` into `options.database` for `InsertStream`
+ * (D-M6-4). That mirror exists to work around
+ * [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597), a bug confirmed
+ * specific to `InsertStream`/`InsertContext` (closed, fixed in 26.9.1); `TimeSeriesWriteChunk`
+ * carries none of `InsertChunk`'s session/sequence/last fields and was never shown to share that
+ * bug, so copying the workaround here would be cargo-culting a fix onto an RPC that never needed
+ * one - setting all four fields on every chunk is simply the contract-faithful reading of the
+ * `.proto` (see the field comments on `TimeSeriesWriteChunk`).
+ *
+ * An empty `request.chunks` sends zero wire chunks and awaits whatever `TimeSeriesWriteSummary` the
+ * server returns for a stream that carried none, rather than throwing - the same "an empty input is
+ * a legitimate outcome" principle {@link createInsertStream} documents for `InsertStream`, without
+ * that wrapper's single-empty-chunk special case: there is no first-chunk-only field here (no
+ * `database`-on-chunk-1-only rule) that would otherwise go unset on an all-empty stream.
+ *
+ * Returns the server's `TimeSeriesWriteSummary` whole (D-M6-3): `received`, `written`, `dropped`,
+ * `unknownTypes`, `nonTimeSeriesTypes`, `unavailableTypes` and `executionTimeMs` all survive
+ * unchanged. A write is NOT atomic - each measurement's batch commits its own shard transaction as
+ * it is appended - so a SUCCESSFUL call can still report `written < received`. A caller who checks
+ * only that the returned promise resolved has not checked that its data landed; this wrapper never
+ * reduces the summary to a boolean or a count.
+ */
+export function createTimeSeriesWriteStream(raw: Pick<RawClient, "timeSeriesWriteStream">) {
+  return function timeSeriesWriteStream(
+    request: TimeSeriesWriteStreamRequest,
+    options?: CallOptions,
+  ): Promise<TimeSeriesWriteSummary> {
+    return raw.timeSeriesWriteStream(timeSeriesWriteChunks(request), options);
+  };
+}
+
+async function* timeSeriesWriteChunks(request: TimeSeriesWriteStreamRequest): AsyncGenerator<TimeSeriesWriteChunkInit> {
+  for await (const points of request.chunks) {
+    yield {
+      database: request.database,
+      credentials: request.credentials,
+      type: request.type,
+      precision: request.precision,
+      points,
+    };
   }
 }

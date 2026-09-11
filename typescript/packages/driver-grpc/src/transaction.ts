@@ -40,6 +40,9 @@ export interface TransactionHandle {
   updateRecord: RawClient["updateRecord"];
   deleteRecord: RawClient["deleteRecord"];
   lookupByRid: RawClient["lookupByRid"];
+  vectorSearch: RawClient["vectorSearch"];
+  hybridSearch: RawClient["hybridSearch"];
+  fullTextSearch: RawClient["fullTextSearch"];
   /** See {@link createStreamQuery}; bound to this transaction. */
   streamQuery: ReturnType<typeof createStreamQuery>;
 }
@@ -76,6 +79,9 @@ function createHandle(raw: RawClient, database: string, transactionId: string): 
     updateRecord: bound(raw.updateRecord),
     deleteRecord: bound(raw.deleteRecord),
     lookupByRid: bound(raw.lookupByRid),
+    vectorSearch: bound(raw.vectorSearch),
+    hybridSearch: bound(raw.hybridSearch),
+    fullTextSearch: bound(raw.fullTextSearch),
     streamQuery: createStreamQuery(streamRaw),
   };
 }

@@ -49,6 +49,9 @@ _Request = TypeVar(
     messages.DeleteRecordRequest,
     messages.LookupByRidRequest,
     messages.StreamQueryRequest,
+    messages.VectorSearchRequest,
+    messages.HybridSearchRequest,
+    messages.FullTextSearchRequest,
 )
 
 
@@ -300,6 +303,33 @@ class AsyncTransactionHandle:
         object either way, and this spelling keeps the flattening in exactly one place.
         """
         return _stream_query(self._raw, self._bind(request), timeout=timeout)
+
+    async def vector_search(
+        self,
+        request: messages.VectorSearchRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.VectorSearchResponse:
+        return await self._raw.VectorSearch(self._bind(request), timeout=timeout, metadata=metadata)
+
+    async def hybrid_search(
+        self,
+        request: messages.HybridSearchRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.HybridSearchResponse:
+        return await self._raw.HybridSearch(self._bind(request), timeout=timeout, metadata=metadata)
+
+    async def full_text_search(
+        self,
+        request: messages.FullTextSearchRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.FullTextSearchResponse:
+        return await self._raw.FullTextSearch(self._bind(request), timeout=timeout, metadata=metadata)
 
 
 class AsyncTransaction:

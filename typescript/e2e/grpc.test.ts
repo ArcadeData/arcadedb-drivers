@@ -306,3 +306,107 @@ describe("end-to-end against a real ArcadeDB gRPC server", () => {
     await expect(httpRoot.listDatabases()).resolves.toContain(DB_NAME);
   });
 });
+
+// The exact DDL was worked out against a live container before any test file was touched - see
+// task-4-report.md for the transcript. `embedding` must be declared `ARRAY_OF_FLOATS`, and
+// `CREATE INDEX ... LSM_VECTOR` refuses to run without a `METADATA` clause naming `dimensions`;
+// the server names both requirements in its own error message. There is no data-plane RPC for
+// DDL, so - exactly like `Person`/`BatchPerson` above - the type, properties, index and rows are
+// all created over HTTP; only the searches themselves run over gRPC.
+const VECTOR_TYPE = "VectorItem";
+const VECTOR_INDEX = "VectorItem[embedding]";
+const FULLTEXT_INDEX = "VectorItem[description]";
+
+describe("VectorSearch, HybridSearch and FullTextSearch: through raw outside a transaction, through the handle inside one", () => {
+  beforeAll(async () => {
+    const httpDb = httpRoot.db(DB_NAME);
+    await httpDb.command({ language: "sql", command: `CREATE DOCUMENT TYPE ${VECTOR_TYPE} IF NOT EXISTS` });
+    await httpDb.command({ language: "sql", command: `CREATE PROPERTY ${VECTOR_TYPE}.name STRING` });
+    await httpDb.command({ language: "sql", command: `CREATE PROPERTY ${VECTOR_TYPE}.embedding ARRAY_OF_FLOATS` });
+    await httpDb.command({ language: "sql", command: `CREATE PROPERTY ${VECTOR_TYPE}.description STRING` });
+    await httpDb.command({
+      language: "sql",
+      command: `CREATE INDEX ON ${VECTOR_TYPE} (embedding) LSM_VECTOR METADATA {"dimensions": 4}`,
+    });
+    // `red-apple`'s embedding is the exact query vector every test below searches for, so it is
+    // always the nearest neighbor (distance 0) and the only unambiguous "known term" full-text hit.
+    await httpDb.command({
+      language: "sql",
+      command: `INSERT INTO ${VECTOR_TYPE} SET name = 'red-apple', embedding = [1,0,0,0], description = 'a bright red apple'`,
+    });
+    await httpDb.command({
+      language: "sql",
+      command: `INSERT INTO ${VECTOR_TYPE} SET name = 'green-apple', embedding = [0.9,0.1,0,0], description = 'a crisp green apple'`,
+    });
+    await httpDb.command({
+      language: "sql",
+      command: `INSERT INTO ${VECTOR_TYPE} SET name = 'blue-car', embedding = [0,0,1,0], description = 'a fast blue car engine'`,
+    });
+    await httpDb.command({ language: "sql", command: `CREATE INDEX ON ${VECTOR_TYPE} (description) FULL_TEXT` });
+  }, 30_000);
+
+  it("raw.vectorSearch, outside any transaction, returns a non-empty, nearest-first result", async () => {
+    const result = await rootGrpc.raw.vectorSearch({
+      database: DB_NAME,
+      indexName: VECTOR_INDEX,
+      queryVector: [1, 0, 0, 0],
+      k: 10,
+    });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.count).toBe(3);
+    expect(result.truncated).toBe(false);
+    expect(result.results[0]?.distance).toBe(0);
+    const distances = result.results.map((r) => r.distance ?? Number.POSITIVE_INFINITY);
+    expect(distances).toEqual([...distances].sort((a, b) => a - b));
+  });
+
+  it("raw.hybridSearch, outside any transaction, fuses both legs into a non-empty result", async () => {
+    const result = await rootGrpc.raw.hybridSearch({
+      database: DB_NAME,
+      vectorIndexName: VECTOR_INDEX,
+      queryVector: [1, 0, 0, 0],
+      fulltextIndexName: FULLTEXT_INDEX,
+      fulltextQuery: "apple",
+      k: 10,
+    });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.count).toBe(3);
+    expect(result.fused).toBe(true);
+  });
+
+  it("raw.fullTextSearch, outside any transaction, matches a known term", async () => {
+    const result = await rootGrpc.raw.fullTextSearch({ database: DB_NAME, indexName: FULLTEXT_INDEX, queryText: "apple" });
+
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.count).toBe(2);
+  });
+
+  it("tx.vectorSearch, tx.hybridSearch and tx.fullTextSearch, bound to an open transaction, all return non-empty results (D-M5-1)", async () => {
+    // No top-level `grpc.vectorSearch` alias exists - D-M5-1's point proven end to end: the same
+    // RPC reached two ways, raw above and bound-to-a-transaction here, both against a real server.
+    const [search, hybrid, fulltext] = await rootGrpc.transaction(DB_NAME, async (tx) => {
+      const searchResult = await tx.vectorSearch({ indexName: VECTOR_INDEX, queryVector: [1, 0, 0, 0], k: 10 });
+      const hybridResult = await tx.hybridSearch({
+        vectorIndexName: VECTOR_INDEX,
+        queryVector: [1, 0, 0, 0],
+        fulltextIndexName: FULLTEXT_INDEX,
+        fulltextQuery: "apple",
+        k: 10,
+      });
+      const fulltextResult = await tx.fullTextSearch({ indexName: FULLTEXT_INDEX, queryText: "apple" });
+      return [searchResult, hybridResult, fulltextResult] as const;
+    });
+
+    expect(search.results.length).toBeGreaterThan(0);
+    expect(search.count).toBe(3);
+    expect(search.truncated).toBe(false);
+
+    expect(hybrid.results.length).toBeGreaterThan(0);
+    expect(hybrid.fused).toBe(true);
+
+    expect(fulltext.results.length).toBeGreaterThan(0);
+    expect(fulltext.count).toBe(2);
+  });
+});

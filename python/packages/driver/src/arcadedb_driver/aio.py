@@ -42,6 +42,7 @@ from .facade.data import (
     to_envelope,
 )
 from .facade.timeseries import AsyncTimeSeriesNamespace
+from .facade.vector import AsyncVectorNamespace
 
 __all__ = ["AsyncArcadeDBDatabase", "AsyncArcadeDBServer", "AsyncTransaction"]
 
@@ -190,6 +191,11 @@ class AsyncArcadeDBDatabase:
     def promql(self) -> AsyncPromQLNamespace:
         """A Prometheus-compatible query surface over a time-series type."""
         return AsyncPromQLNamespace(self._client, self.name)
+
+    @cached_property
+    def vector(self) -> AsyncVectorNamespace:
+        """kNN vector search, fused hybrid search, and full-text search."""
+        return AsyncVectorNamespace(self._client, self.name)
 
 
 class AsyncArcadeDBServer:

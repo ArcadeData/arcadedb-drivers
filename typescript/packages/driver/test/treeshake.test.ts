@@ -5,25 +5,26 @@ import { basename } from "node:path";
 
 /**
  * The fixture only imports `createClient` and calls `db.query()` - the data plane. It must never
- * gain a static import of `facade/dashboards.ts` (Grafana/PromQL) or `facade/timeseries.ts` - see
- * `test/fixtures/data-plane-entry.ts`.
+ * gain a static import of `facade/dashboards.ts` (Grafana/PromQL), `facade/timeseries.ts`, or
+ * `facade/vector.ts` - see `test/fixtures/data-plane-entry.ts`.
  */
 const FIXTURE = fileURLToPath(new URL("./fixtures/data-plane-entry.ts", import.meta.url));
 
 /**
  * Markers unique to each lazily-loaded module, chosen to survive minification. Each is a string
  * literal passed as a URL path to `client.GET`/`client.POST` (see `queryGrafana`, `queryPromQL`,
- * `queryRangePromQL`, `labelsPromQL`, `seriesPromQL` in `src/facade/dashboards.ts`, and
- * `writeTimeSeries`/`queryTimeSeries` in `src/facade/timeseries.ts`) - not identifiers. A
- * minifier renames local identifiers (classes, functions, variables) to short names like `a`/`o`,
- * but never rewrites the contents of a string literal, so these survive where an exported class or
- * function NAME would not. None of the three substrings occurs in any data-plane route
- * (`/api/v1/query`, `/api/v1/command`, `/api/v1/begin`, `/api/v1/commit`, `/api/v1/rollback`) or
- * anywhere in the openapi-fetch runtime.
+ * `queryRangePromQL`, `labelsPromQL`, `seriesPromQL` in `src/facade/dashboards.ts`,
+ * `writeTimeSeries`/`queryTimeSeries` in `src/facade/timeseries.ts`, and `vectorSearch` in
+ * `src/facade/vector.ts`) - not identifiers. A minifier renames local identifiers (classes,
+ * functions, variables) to short names like `a`/`o`, but never rewrites the contents of a string
+ * literal, so these survive where an exported class or function NAME would not. None of the four
+ * substrings occurs in any data-plane route (`/api/v1/query`, `/api/v1/command`, `/api/v1/begin`,
+ * `/api/v1/commit`, `/api/v1/rollback`) or anywhere in the openapi-fetch runtime.
  */
 const GRAFANA_MARKER = "grafana/query";
 const PROMQL_MARKER = "prom/api/v1";
 const TIMESERIES_MARKER = "/api/v1/ts/{database}/write";
+const VECTOR_MARKER = "/api/v1/vector/{database}/search";
 
 /**
  * The fixture's whole eagerly-loaded chunk set, openapi-fetch runtime included, is ~11KB
@@ -105,13 +106,14 @@ async function bundleDataPlaneEntryEagerChunks(): Promise<EagerBundle> {
   return { text, bytes };
 }
 
-describe("tree-shaking: the data plane excludes the dashboard and time-series modules", () => {
-  it("does not statically pull PromQL, Grafana, or time-series routes into the eagerly-loaded chunk", async () => {
+describe("tree-shaking: the data plane excludes the dashboard, time-series, and vector modules", () => {
+  it("does not statically pull PromQL, Grafana, time-series, or vector routes into the eagerly-loaded chunk", async () => {
     const { text, bytes } = await bundleDataPlaneEntryEagerChunks();
 
     expect(text).not.toContain(PROMQL_MARKER);
     expect(text).not.toContain(GRAFANA_MARKER);
     expect(text).not.toContain(TIMESERIES_MARKER);
+    expect(text).not.toContain(VECTOR_MARKER);
     expect(bytes).toBeLessThan(SIZE_CEILING_BYTES);
   });
 });

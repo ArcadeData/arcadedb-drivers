@@ -16,6 +16,14 @@ import type {
   PromQLSeriesResponse,
 } from "./facade/dashboards.js";
 import type { TimeSeriesQueryOptions, TimeSeriesQueryResult, TimeSeriesWriteOptions } from "./facade/timeseries.js";
+import type {
+  FullTextSearchOptions,
+  FullTextSearchResult,
+  HybridSearchOptions,
+  HybridSearchResult,
+  VectorSearchOptions,
+  VectorSearchResult,
+} from "./facade/vector.js";
 
 export { ArcadeDBError } from "./errors.js";
 export { basicAuth, bearerAuth } from "./auth.js";
@@ -35,11 +43,13 @@ export type {
   PromQLVectorSample,
 } from "./facade/dashboards.js";
 export type { TimeSeriesQueryOptions, TimeSeriesQueryResult, TimeSeriesWriteOptions } from "./facade/timeseries.js";
-// Type-only: these classes are constructed exclusively through ArcadeDBDatabase.ts/.grafana/.promql,
+export type { VectorSearchOptions, VectorSearchResult, HybridSearchOptions, HybridSearchResult, FullTextSearchOptions, FullTextSearchResult } from "./facade/vector.js";
+// Type-only: these classes are constructed exclusively through ArcadeDBDatabase.ts/.grafana/.promql/.vector,
 // which is what threads them the RawClient they need. Exporting the type (not the class as a
 // constructible value) lets a consumer name `db.grafana`'s type in their own code without being
 // able to `new` one directly, bypassing that plumbing.
 export type { TimeSeriesNamespace, GrafanaNamespace, PromQLNamespace };
+export type { VectorNamespace };
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
 type RawClient = Client<paths>;
@@ -129,6 +139,47 @@ class PromQLNamespace {
 }
 
 /**
+ * Vector, hybrid and full-text retrieval - the `db.vector` namespace.
+ *
+ * Each method dynamically imports `facade/vector.js` on first call, for the reason
+ * `TimeSeriesNamespace`'s doc comment gives: `db.vector` stays a synchronous property access, only
+ * the first call pays the import cost, and a code-splitting bundler can keep `facade/vector.js` out
+ * of a chunk that only reaches the data plane. `test/treeshake.test.ts` is what holds that.
+ */
+class VectorNamespace {
+  constructor(
+    private readonly client: RawClient,
+    private readonly database: string,
+  ) {}
+
+  /**
+   * kNN over a named vector index.
+   *
+   * `T`, a hit's `properties` type, defaults to `Record<string, unknown>` and is forwarded
+   * straight to {@link VectorSearchResult} - see that type's doc comment, and
+   * `WithTypedProperties` in `facade/vector.ts`, for why the default is what stops an unchecked
+   * `hit.properties.someField` read from compiling, and how to pass a real row type instead:
+   * `db.vector.search<{ name: string }>(...)`.
+   */
+  async search<T = Record<string, unknown>>(opts: VectorSearchOptions): Promise<VectorSearchResult<T>> {
+    const { vectorSearch } = await import("./facade/vector.js");
+    return vectorSearch<T>(this.client, this.database, opts);
+  }
+
+  /** Combined vector and full-text retrieval, fused server-side. `T` is as {@link VectorNamespace.search}'s. */
+  async hybrid<T = Record<string, unknown>>(opts: HybridSearchOptions): Promise<HybridSearchResult<T>> {
+    const { hybridSearch } = await import("./facade/vector.js");
+    return hybridSearch<T>(this.client, this.database, opts);
+  }
+
+  /** Full-text search over a named index or type. `T` is as {@link VectorNamespace.search}'s. */
+  async fulltext<T = Record<string, unknown>>(opts: FullTextSearchOptions): Promise<FullTextSearchResult<T>> {
+    const { fullTextSearch } = await import("./facade/vector.js");
+    return fullTextSearch<T>(this.client, this.database, opts);
+  }
+}
+
+/**
  * A single database reached through an `ArcadeDBServer`. Constructed by
  * `ArcadeDBServer.db()`.
  *
@@ -141,6 +192,7 @@ export class ArcadeDBDatabase {
   private _ts: TimeSeriesNamespace | undefined;
   private _grafana: GrafanaNamespace | undefined;
   private _promql: PromQLNamespace | undefined;
+  private _vector: VectorNamespace | undefined;
 
   constructor(
     private readonly client: RawClient,
@@ -161,6 +213,11 @@ export class ArcadeDBDatabase {
   /** A Prometheus-compatible query surface over a time-series type. Loaded on first use; see `PromQLNamespace`. */
   get promql(): PromQLNamespace {
     return (this._promql ??= new PromQLNamespace(this.client, this.name));
+  }
+
+  /** Vector, hybrid and full-text retrieval. Loaded on first use; see `VectorNamespace`. */
+  get vector(): VectorNamespace {
+    return (this._vector ??= new VectorNamespace(this.client, this.name));
   }
 
   /** Executes a read-or-write query and returns the whole result envelope - not just `result`. */

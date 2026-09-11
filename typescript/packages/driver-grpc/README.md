@@ -58,8 +58,11 @@ const response = await grpc.raw.executeQuery({
 `raw` is the generated Connect client for `ArcadeDbService` (the data plane) - every RPC the
 `.proto` contract declares is callable through it. `createClient` adds three ergonomic wrappers
 on top for the RPCs the generated client alone handles badly: `streamQuery`, `insertStream`, and
-`transaction`. Everything else - the unary CRUD calls, `insertBidirectional`, `graphBatchLoad` -
-is used directly through `raw`.
+`transaction`. Everything else - the unary CRUD calls, `vectorSearch`/`hybridSearch`/
+`fullTextSearch`, `insertBidirectional`, `graphBatchLoad` - is used directly through `raw` at the
+top level; the CRUD calls and the three search RPCs also get a `TransactionHandle` wrapper once a
+transaction is open (see "Transactions" and "Vector, hybrid and full-text search" below) -
+`insertBidirectional` and `graphBatchLoad` never do, at any level.
 
 ## Authentication
 
@@ -193,7 +196,7 @@ const totalRow = await grpc.transaction("mydb", async (tx) => {
 
 `transaction` begins a server-side transaction, hands the callback a `TransactionHandle` whose
 calls (`executeQuery`, `executeCommand`, `createRecord`, `updateRecord`, `deleteRecord`,
-`lookupByRid`, `streamQuery`) all carry the transaction's id automatically, and ends the
+`lookupByRid`, `streamQuery`, `vectorSearch`, `hybridSearch`, `fullTextSearch`) all carry the transaction's id automatically, and ends the
 transaction on both the success and failure paths: the callback resolving commits, the callback
 throwing or rejecting rolls back and re-throws the callback's own error. This is the safety net
 against forgetting, dropping, or mismatching a transaction id by hand - the exact class of defect
@@ -234,6 +237,45 @@ the rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10
 a commit persisting them on all three. So the restriction is now **removable** for every server
 version this package supports. It is kept for now because lifting it adds public surface, which is
 a deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
+
+## Vector, hybrid and full-text search: `VectorSearch`, `HybridSearch`, `FullTextSearch`
+
+```ts
+// Outside a transaction: through raw, like any other unary RPC.
+const nearest = await grpc.raw.vectorSearch({ database: "mydb", indexName: "myIndex", queryVector: [0.1, 0.2, 0.3], k: 5 });
+
+// Inside one: through the handle, which forces `database` and `transaction` the same way every
+// other bound call does.
+await grpc.transaction("mydb", async (tx) => {
+  const fused = await tx.hybridSearch({ vectorIndexName: "myIndex", queryVector: [0.1, 0.2, 0.3], fulltextIndexName: "myTextIndex", fulltextQuery: "cat" });
+  const matches = await tx.fullTextSearch({ queryText: "cat" });
+});
+```
+
+These three RPCs are reached exactly two ways, and no third: `raw.vectorSearch` / `raw.hybridSearch`
+/ `raw.fullTextSearch` outside any transaction, and `tx.vectorSearch` / `tx.hybridSearch` /
+`tx.fullTextSearch` bound to one once it is open (see "Transactions" above for the full list of
+what `tx` carries). There is deliberately **no top-level `grpc.vectorSearch`** alongside
+`streamQuery`/`insertStream`/`transaction`: those three exist because the generated client alone
+handles them badly - `streamQuery` needs its batches flattened, `insertStream` needs envelope
+bookkeeping, `transaction` needs begin/commit/rollback sequencing. A unary RPC the generated stub
+already calls directly and correctly gains nothing from a same-shaped top-level alias; the only
+thing worth hand-writing for `VectorSearch`/`HybridSearch`/`FullTextSearch` was the transaction
+binding, which is exactly what the handle provides.
+
+Each call returns the whole generated response message, never unwrapped to `results` alone:
+`VectorSearchResponse` and `HybridSearchResponse` carry `truncated` alongside `results`, `count`,
+and `scoring`. `truncated` is `true` when the search's bounded candidate window was filled, meaning
+more matches may exist beyond what `results` holds - a caller who reads `results` and never checks
+`truncated` works off a partial answer without being told. `FullTextSearchResponse` carries **no**
+`truncated` field at all in the `.proto` contract - not `false`, simply absent from the message -
+because full-text search has no candidate-window concept to overflow the way a vector search does.
+
+`efSearch` (the dense-index search beam width) and each RPC's result-limit field (`k` for
+`VectorSearchRequest`/`HybridSearchRequest`, `limit` for `FullTextSearchRequest`) are bounded, but
+the bound is enforced **server-side**. Neither `raw` nor the handle validates them locally, so an
+out-of-range value surfaces as a `ConnectError` from the server's response, not as a client-side
+`throw` before the request is ever sent.
 
 ## The admin service is not a supported path
 

@@ -444,6 +444,72 @@ async def test_the_callers_request_object_is_left_unchanged(
     assert request.transaction.transaction_id == ""
 
 
+async def test_vector_search_through_the_handle_is_bound(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The async twin of the sync suite's `test_vector_search_through_the_handle_is_bound`.
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    async with create_client(target) as client, client.transaction("db") as tx:
+        await tx.vector_search(
+            messages.VectorSearchRequest(
+                database="somewhere-else",
+                index_name="v_idx",
+                query_vector=[0.1, 0.2],
+                transaction=messages.TransactionContext(
+                    transaction_id="tx-forged",
+                    rollback=True,
+                    read_only=True,
+                    commit=True,
+                    timeout_ms=5,
+                ),
+            )
+        )
+
+    sent = servicer.vector_requests[0]
+    assert sent.database == "db"
+    assert sent.transaction.transaction_id == "tx-42"
+    # CopyFrom, not MergeFrom: the caller's inline flags must NOT ride through.
+    assert sent.transaction.rollback is False
+    assert sent.transaction.read_only is False
+    assert sent.transaction.commit is False
+    assert sent.transaction.timeout_ms == 0
+    # The payload the caller actually cares about is untouched.
+    assert sent.index_name == "v_idx"
+    assert list(sent.query_vector) == pytest.approx([0.1, 0.2])
+
+
+async def test_the_callers_vector_request_object_is_left_unchanged(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    request = messages.VectorSearchRequest(index_name="v_idx", query_vector=[0.1])
+    async with create_client(target) as client, client.transaction("db") as tx:
+        await tx.vector_search(request)
+
+    assert servicer.vector_requests[0].database == "db"
+    assert request.database == ""
+    assert request.transaction.transaction_id == ""
+
+
+async def test_hybrid_and_fulltext_through_the_handle_are_bound(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    async with create_client(target) as client, client.transaction("db") as tx:
+        await tx.hybrid_search(
+            messages.HybridSearchRequest(database="elsewhere", vector_index_name="v_idx", query_vector=[0.1])
+        )
+        await tx.full_text_search(messages.FullTextSearchRequest(database="elsewhere", query_text="cat"))
+
+    assert servicer.hybrid_requests[0].database == "db"
+    assert servicer.hybrid_requests[0].transaction.transaction_id == "tx-42"
+    assert servicer.fulltext_requests[0].database == "db"
+    assert servicer.fulltext_requests[0].transaction.transaction_id == "tx-42"
+
+
 async def test_cancelling_the_body_still_rolls_back(
     async_fake_server: tuple[str, RecordingServicer],
 ) -> None:

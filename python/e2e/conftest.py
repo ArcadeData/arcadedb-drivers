@@ -5,11 +5,15 @@ from __future__ import annotations
 import os
 import time
 from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import LogMessageWaitStrategy
+
+if TYPE_CHECKING:
+    from arcadedb_driver import ArcadeDBServer
 
 # Image pin: arcadedata/arcadedb:26.10.1-SNAPSHOT is the release the committed OpenAPI
 # contract was generated from, so the client under test and the server it runs
@@ -179,3 +183,88 @@ def grpc_database(grpc_server: tuple[str, str]) -> str:
         assert response.is_success, response.text
         srv.db(GRPC_DB_NAME).command(language="sql", command="CREATE VERTEX TYPE Person IF NOT EXISTS")
     return GRPC_DB_NAME
+
+
+VECTOR_TYPE = "VectorItem"
+
+
+def _create_vector_fixture(srv: ArcadeDBServer, db_name: str) -> tuple[str, str]:
+    """Creates `VectorItem` with a real `LSM_VECTOR` index, a real `FULL_TEXT` index, and three
+    rows of real (small) embeddings - not zero rows.
+
+    The exact DDL was worked out against a live container before any e2e test file was touched,
+    with a scratch script, not guessed - see task-4-report.md for the transcript. Two facts cost
+    the time: `embedding` must be declared `ARRAY_OF_FLOATS` (the property type an `LSM_VECTOR`
+    index accepts), and `CREATE INDEX ... LSM_VECTOR` refuses to run without a `METADATA` clause
+    naming `dimensions` - the server names both requirements in its own
+    `CommandSQLParsingException` message, which is where `METADATA {"dimensions": 4}` below
+    comes from.
+
+    `red-apple`'s embedding is the exact query vector every vector test below searches for, so
+    it is always the nearest neighbor (distance 0) and the only row a "known term" full-text
+    query can be checked against unambiguously.
+
+    Returns `(vector_index_name, fulltext_index_name)` - `"VectorItem[embedding]"` and
+    `"VectorItem[description]"`, ArcadeDB's `Type[property]` naming for an unnamed index.
+    """
+    db = srv.db(db_name)
+    db.command(language="sql", command=f"CREATE DOCUMENT TYPE {VECTOR_TYPE} IF NOT EXISTS")
+    db.command(language="sql", command=f"CREATE PROPERTY {VECTOR_TYPE}.name STRING")
+    db.command(language="sql", command=f"CREATE PROPERTY {VECTOR_TYPE}.embedding ARRAY_OF_FLOATS")
+    db.command(language="sql", command=f"CREATE PROPERTY {VECTOR_TYPE}.description STRING")
+    db.command(
+        language="sql",
+        command=f'CREATE INDEX ON {VECTOR_TYPE} (embedding) LSM_VECTOR METADATA {{"dimensions": 4}}',
+    )
+    db.command(
+        language="sql",
+        command=(
+            f"INSERT INTO {VECTOR_TYPE} SET name = 'red-apple', embedding = [1,0,0,0], "
+            "description = 'a bright red apple'"
+        ),
+    )
+    db.command(
+        language="sql",
+        command=(
+            f"INSERT INTO {VECTOR_TYPE} SET name = 'green-apple', embedding = [0.9,0.1,0,0], "
+            "description = 'a crisp green apple'"
+        ),
+    )
+    db.command(
+        language="sql",
+        command=(
+            f"INSERT INTO {VECTOR_TYPE} SET name = 'blue-car', embedding = [0,0,1,0], "
+            "description = 'a fast blue car engine'"
+        ),
+    )
+    db.command(language="sql", command=f"CREATE INDEX ON {VECTOR_TYPE} (description) FULL_TEXT")
+    return f"{VECTOR_TYPE}[embedding]", f"{VECTOR_TYPE}[description]"
+
+
+@pytest.fixture(scope="session")
+def vector_index(base_url: str, database: str) -> tuple[str, str]:
+    """Creates the vector fixture in the HTTP suite's shared database.
+
+    Session-scoped like `database` itself, so the DDL runs once no matter how many tests in
+    `test_data_plane.py` use it. Returns `(vector_index_name, fulltext_index_name)`.
+    """
+    from arcadedb_driver import ArcadeDBServer, basic_auth
+
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        return _create_vector_fixture(srv, database)
+
+
+@pytest.fixture(scope="session")
+def grpc_vector_index(grpc_server: tuple[str, str], grpc_database: str) -> tuple[str, str]:
+    """Creates the vector fixture over HTTP, in the gRPC suite's shared database.
+
+    There is no data-plane RPC for DDL, so setup goes over HTTP - exactly as `grpc_database`
+    already does for `Person`/`BatchPerson` - and only the searches themselves, in
+    `test_grpc.py` and `test_grpc_aio.py`, run over gRPC. Returns
+    `(vector_index_name, fulltext_index_name)`.
+    """
+    from arcadedb_driver import ArcadeDBServer, basic_auth
+
+    http_url, _ = grpc_server
+    with ArcadeDBServer(base_url=http_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        return _create_vector_fixture(srv, grpc_database)

@@ -33,6 +33,11 @@ if sys.version_info >= (3, 11):
 else:
     from typing_extensions import TypeAlias as _TypeAlias, Never as _Never
 
+if sys.version_info >= (3, 13):
+    from warnings import deprecated as _deprecated
+else:
+    from typing_extensions import deprecated as _deprecated
+
 DESCRIPTOR: _descriptor.FileDescriptor
 
 class _TransactionIsolation:
@@ -53,6 +58,59 @@ READ_COMMITTED: TransactionIsolation.ValueType  # 1
 REPEATABLE_READ: TransactionIsolation.ValueType  # 2
 SERIALIZABLE: TransactionIsolation.ValueType  # 3
 Global___TransactionIsolation: _TypeAlias = TransactionIsolation  # noqa: Y015
+
+class _TimeSeriesPrecision:
+    ValueType = _typing.NewType("ValueType", _builtins.int)
+    V: _TypeAlias = ValueType  # noqa: Y015
+
+class _TimeSeriesPrecisionEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_TimeSeriesPrecision.ValueType], _builtins.type):
+    DESCRIPTOR: _descriptor.EnumDescriptor
+    TS_PRECISION_MILLISECONDS: _TimeSeriesPrecision.ValueType  # 0
+    TS_PRECISION_NANOSECONDS: _TimeSeriesPrecision.ValueType  # 1
+    TS_PRECISION_MICROSECONDS: _TimeSeriesPrecision.ValueType  # 2
+    TS_PRECISION_SECONDS: _TimeSeriesPrecision.ValueType  # 3
+
+class TimeSeriesPrecision(_TimeSeriesPrecision, metaclass=_TimeSeriesPrecisionEnumTypeWrapper):
+    """-----------------------------------------------------------------------------
+    Time series API (issue #7305)
+    -----------------------------------------------------------------------------
+
+    Unit of TimeSeriesPoint.timestamp. Unlike the HTTP /ts/{database}/write endpoint - which speaks InfluxDB
+    Line Protocol and therefore defaults to that protocol's nanoseconds - this API is typed and its zero value
+    is MILLISECONDS, the unit the engine actually stores. The common case needs no conversion and no field set.
+    """
+
+TS_PRECISION_MILLISECONDS: TimeSeriesPrecision.ValueType  # 0
+TS_PRECISION_NANOSECONDS: TimeSeriesPrecision.ValueType  # 1
+TS_PRECISION_MICROSECONDS: TimeSeriesPrecision.ValueType  # 2
+TS_PRECISION_SECONDS: TimeSeriesPrecision.ValueType  # 3
+Global___TimeSeriesPrecision: _TypeAlias = TimeSeriesPrecision  # noqa: Y015
+
+class _TimeSeriesAggregationType:
+    ValueType = _typing.NewType("ValueType", _builtins.int)
+    V: _TypeAlias = ValueType  # noqa: Y015
+
+class _TimeSeriesAggregationTypeEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_TimeSeriesAggregationType.ValueType], _builtins.type):
+    DESCRIPTOR: _descriptor.EnumDescriptor
+    TS_AGG_UNSPECIFIED: _TimeSeriesAggregationType.ValueType  # 0
+    TS_AGG_SUM: _TimeSeriesAggregationType.ValueType  # 1
+    TS_AGG_AVG: _TimeSeriesAggregationType.ValueType  # 2
+    TS_AGG_MIN: _TimeSeriesAggregationType.ValueType  # 3
+    TS_AGG_MAX: _TimeSeriesAggregationType.ValueType  # 4
+    TS_AGG_COUNT: _TimeSeriesAggregationType.ValueType  # 5
+
+class TimeSeriesAggregationType(_TimeSeriesAggregationType, metaclass=_TimeSeriesAggregationTypeEnumTypeWrapper):
+    """Mirrors com.arcadedb.engine.timeseries.AggregationType. UNSPECIFIED is the proto3 zero value and is
+    rejected rather than silently defaulted, so a client that forgets the field is told so.
+    """
+
+TS_AGG_UNSPECIFIED: TimeSeriesAggregationType.ValueType  # 0
+TS_AGG_SUM: TimeSeriesAggregationType.ValueType  # 1
+TS_AGG_AVG: TimeSeriesAggregationType.ValueType  # 2
+TS_AGG_MIN: TimeSeriesAggregationType.ValueType  # 3
+TS_AGG_MAX: TimeSeriesAggregationType.ValueType  # 4
+TS_AGG_COUNT: TimeSeriesAggregationType.ValueType  # 5
+Global___TimeSeriesAggregationType: _TypeAlias = TimeSeriesAggregationType  # noqa: Y015
 
 @_typing.final
 class DatabaseCredentials(_message.Message):
@@ -628,6 +686,484 @@ class QueryResult(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___QueryResult: _TypeAlias = QueryResult  # noqa: Y015
+
+@_typing.final
+class VectorSearchRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Vector, hybrid and full-text retrieval (issue #7306)
+    -----------------------------------------------------------------------------
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    INDEX_NAME_FIELD_NUMBER: _builtins.int
+    QUERY_VECTOR_FIELD_NUMBER: _builtins.int
+    QUERY_INDICES_FIELD_NUMBER: _builtins.int
+    K_FIELD_NUMBER: _builtins.int
+    EF_SEARCH_FIELD_NUMBER: _builtins.int
+    FILTER_FIELD_NUMBER: _builtins.int
+    SPARSE_FIELD_NUMBER: _builtins.int
+    TRANSACTION_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    index_name: _builtins.str
+    """Name of an LSM_VECTOR index, or of an LSM_SPARSE_VECTOR index when `sparse` is set."""
+    k: _builtins.int
+    """Maximum number of results. Bounded server-side; 0 means "use the server default"."""
+    ef_search: _builtins.int
+    """Dense-index search beam width. Optional because 0 is a legal-looking value that is not a legal beam width,
+    so "unset" has to be distinguishable from "zero". Rejected for a sparse index.
+    """
+    filter: _builtins.str
+    """Optional read-only SQL WHERE predicate applied to a bounded candidate window."""
+    sparse: _builtins.bool
+    """Search an LSM_SPARSE_VECTOR index instead of a dense one."""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def query_vector(self) -> _containers.RepeatedScalarFieldContainer[_builtins.float]:
+        """Dense query vector, or the sparse weights matching `query_indices`. ArcadeDB does not generate embeddings."""
+
+    @_builtins.property
+    def query_indices(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]:
+        """Sparse dimension ids matching the `query_vector` weights; leave empty to use the vector's own positions.
+        Only meaningful when `sparse` is set.
+        """
+
+    @_builtins.property
+    def transaction(self) -> Global___TransactionContext:
+        """Optional externally-managed transaction (issue #7326). When it names a live transaction the search runs on
+        that transaction's own thread, so it reads exactly what the transaction reads - matching the HTTP routes,
+        which run inside the session's transaction whenever the request carries `arcadedb-session-id`. A non-blank
+        id the server no longer knows is refused with FAILED_PRECONDITION rather than silently read outside it.
+        """
+
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        credentials: Global___DatabaseCredentials | None = ...,
+        index_name: _builtins.str = ...,
+        query_vector: _abc.Iterable[_builtins.float] | None = ...,
+        query_indices: _abc.Iterable[_builtins.int] | None = ...,
+        k: _builtins.int = ...,
+        ef_search: _builtins.int | None = ...,
+        filter: _builtins.str = ...,
+        sparse: _builtins.bool = ...,
+        transaction: Global___TransactionContext | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_ef_search", b"_ef_search", "credentials", b"credentials", "ef_search", b"ef_search", "transaction", b"transaction"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_ef_search", b"_ef_search", "credentials", b"credentials", "database", b"database", "ef_search", b"ef_search", "filter", b"filter", "index_name", b"index_name", "k", b"k", "query_indices", b"query_indices", "query_vector", b"query_vector", "sparse", b"sparse", "transaction", b"transaction"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__ef_search: _TypeAlias = _typing.Literal["ef_search"]  # noqa: Y015
+    _WhichOneofArgType__ef_search: _TypeAlias = _typing.Literal["_ef_search", b"_ef_search"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__ef_search) -> _WhichOneofReturnType__ef_search | None: ...
+
+Global___VectorSearchRequest: _TypeAlias = VectorSearchRequest  # noqa: Y015
+
+@_typing.final
+class SearchHit(_message.Message):
+    """One hit of any of the three searches. `distance` and `score` rank in opposite directions, so which of them is
+    populated is decided by the index that was searched and reported by the response's `scoring` field; a client
+    reads that rather than assuming. `sources`, `depth` and `path` are populated by HybridSearch only.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RID_FIELD_NUMBER: _builtins.int
+    RECORD_FIELD_NUMBER: _builtins.int
+    DISTANCE_FIELD_NUMBER: _builtins.int
+    SCORE_FIELD_NUMBER: _builtins.int
+    SOURCES_FIELD_NUMBER: _builtins.int
+    DEPTH_FIELD_NUMBER: _builtins.int
+    PATH_FIELD_NUMBER: _builtins.int
+    rid: _builtins.str
+    distance: _builtins.float
+    """Dense vector distance, lower is better. Unset (0 with has_distance false) on a scored hit."""
+    score: _builtins.float
+    """Sparse, full-text or fused score, higher is better. Unset on a distance hit."""
+    depth: _builtins.int
+    """Hops from the seed, for a hit the graph expansion leg contributed."""
+    @_builtins.property
+    def record(self) -> Global___GrpcRecord: ...
+    @_builtins.property
+    def sources(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Which retrieval legs contributed this hit: "vector", "fulltext", "expand"."""
+
+    @_builtins.property
+    def path(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Record ids from the seed to this hit, the seed included."""
+
+    def __init__(
+        self,
+        *,
+        rid: _builtins.str = ...,
+        record: Global___GrpcRecord | None = ...,
+        distance: _builtins.float | None = ...,
+        score: _builtins.float | None = ...,
+        sources: _abc.Iterable[_builtins.str] | None = ...,
+        depth: _builtins.int | None = ...,
+        path: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_depth", b"_depth", "_distance", b"_distance", "_score", b"_score", "depth", b"depth", "distance", b"distance", "record", b"record", "score", b"score"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_depth", b"_depth", "_distance", b"_distance", "_score", b"_score", "depth", b"depth", "distance", b"distance", "path", b"path", "record", b"record", "rid", b"rid", "score", b"score", "sources", b"sources"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__depth: _TypeAlias = _typing.Literal["depth"]  # noqa: Y015
+    _WhichOneofArgType__depth: _TypeAlias = _typing.Literal["_depth", b"_depth"]  # noqa: Y015
+    _WhichOneofReturnType__distance: _TypeAlias = _typing.Literal["distance"]  # noqa: Y015
+    _WhichOneofArgType__distance: _TypeAlias = _typing.Literal["_distance", b"_distance"]  # noqa: Y015
+    _WhichOneofReturnType__score: _TypeAlias = _typing.Literal["score"]  # noqa: Y015
+    _WhichOneofArgType__score: _TypeAlias = _typing.Literal["_score", b"_score"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__depth) -> _WhichOneofReturnType__depth | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__distance) -> _WhichOneofReturnType__distance | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__score) -> _WhichOneofReturnType__score | None: ...
+
+Global___SearchHit: _TypeAlias = SearchHit  # noqa: Y015
+
+@_typing.final
+class VectorSearchResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    INDEX_NAME_FIELD_NUMBER: _builtins.int
+    SPARSE_FIELD_NUMBER: _builtins.int
+    SCORING_FIELD_NUMBER: _builtins.int
+    CANDIDATE_LIMIT_FIELD_NUMBER: _builtins.int
+    TRUNCATED_FIELD_NUMBER: _builtins.int
+    COUNT_FIELD_NUMBER: _builtins.int
+    RESULTS_FIELD_NUMBER: _builtins.int
+    index_name: _builtins.str
+    sparse: _builtins.bool
+    scoring: _builtins.str
+    """How the index ranks, e.g. "distance_lower_is_better:COSINE" or "score_higher_is_better:dot_product"."""
+    candidate_limit: _builtins.int
+    """Size of the candidate window the search inspected, which a filtered search over-fetches into."""
+    truncated: _builtins.bool
+    """True when the result window was filled, so further matches may exist: raise k to see them. False for a
+    short result, which means the search already returned every match within `candidate_limit`.
+    """
+    count: _builtins.int
+    @_builtins.property
+    def results(self) -> _containers.RepeatedCompositeFieldContainer[Global___SearchHit]: ...
+    def __init__(
+        self,
+        *,
+        index_name: _builtins.str = ...,
+        sparse: _builtins.bool = ...,
+        scoring: _builtins.str = ...,
+        candidate_limit: _builtins.int = ...,
+        truncated: _builtins.bool = ...,
+        count: _builtins.int = ...,
+        results: _abc.Iterable[Global___SearchHit] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["candidate_limit", b"candidate_limit", "count", b"count", "index_name", b"index_name", "results", b"results", "scoring", b"scoring", "sparse", b"sparse", "truncated", b"truncated"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___VectorSearchResponse: _TypeAlias = VectorSearchResponse  # noqa: Y015
+
+@_typing.final
+class HybridExpand(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    EDGE_TYPES_FIELD_NUMBER: _builtins.int
+    DIRECTION_FIELD_NUMBER: _builtins.int
+    MAX_DEPTH_FIELD_NUMBER: _builtins.int
+    direction: _builtins.str
+    """"out", "in" or "both" """
+    max_depth: _builtins.int
+    @_builtins.property
+    def edge_types(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        edge_types: _abc.Iterable[_builtins.str] | None = ...,
+        direction: _builtins.str = ...,
+        max_depth: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["direction", b"direction", "edge_types", b"edge_types", "max_depth", b"max_depth"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___HybridExpand: _TypeAlias = HybridExpand  # noqa: Y015
+
+@_typing.final
+class HybridSearchRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class WeightsEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        value: _builtins.float
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: _builtins.float = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    VECTOR_INDEX_NAME_FIELD_NUMBER: _builtins.int
+    QUERY_VECTOR_FIELD_NUMBER: _builtins.int
+    QUERY_INDICES_FIELD_NUMBER: _builtins.int
+    K_FIELD_NUMBER: _builtins.int
+    EF_SEARCH_FIELD_NUMBER: _builtins.int
+    SPARSE_FIELD_NUMBER: _builtins.int
+    FILTER_FIELD_NUMBER: _builtins.int
+    FULLTEXT_QUERY_FIELD_NUMBER: _builtins.int
+    FULLTEXT_INDEX_NAME_FIELD_NUMBER: _builtins.int
+    FUSION_STRATEGY_FIELD_NUMBER: _builtins.int
+    WEIGHTS_FIELD_NUMBER: _builtins.int
+    EXPAND_FIELD_NUMBER: _builtins.int
+    TRANSACTION_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    vector_index_name: _builtins.str
+    k: _builtins.int
+    ef_search: _builtins.int
+    sparse: _builtins.bool
+    filter: _builtins.str
+    """Optional read-only SQL WHERE predicate applied to the vector leg's candidate window."""
+    fulltext_query: _builtins.str
+    """Full-text leg. Both fields go together: half a leg is a mistake, and the server refuses it rather than
+    silently returning a result that ignored what the caller asked for. Leave both empty to search without one.
+    """
+    fulltext_index_name: _builtins.str
+    fusion_strategy: _builtins.str
+    """How the legs are combined. Only RRF can consume the graph expansion leg, which is ranked by traversal order
+    and carries no score.
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def query_vector(self) -> _containers.RepeatedScalarFieldContainer[_builtins.float]: ...
+    @_builtins.property
+    def query_indices(self) -> _containers.RepeatedScalarFieldContainer[_builtins.int]: ...
+    @_builtins.property
+    def weights(self) -> _containers.ScalarMap[_builtins.str, _builtins.float]:
+        """Per-leg weight applied to every rank contribution. The only accepted keys are "vector", "fulltext" and
+        "expand", and a weight for a leg the request does not ask for is refused rather than ignored.
+        """
+
+    @_builtins.property
+    def expand(self) -> Global___HybridExpand:
+        """Optional graph expansion leg, seeded from the union of the retrieval legs."""
+
+    @_builtins.property
+    def transaction(self) -> Global___TransactionContext:
+        """Optional externally-managed transaction (issue #7326). When it names a live transaction the search runs on
+        that transaction's own thread, so it reads exactly what the transaction reads - matching the HTTP routes,
+        which run inside the session's transaction whenever the request carries `arcadedb-session-id`. A non-blank
+        id the server no longer knows is refused with FAILED_PRECONDITION rather than silently read outside it.
+        """
+
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        credentials: Global___DatabaseCredentials | None = ...,
+        vector_index_name: _builtins.str = ...,
+        query_vector: _abc.Iterable[_builtins.float] | None = ...,
+        query_indices: _abc.Iterable[_builtins.int] | None = ...,
+        k: _builtins.int = ...,
+        ef_search: _builtins.int | None = ...,
+        sparse: _builtins.bool = ...,
+        filter: _builtins.str = ...,
+        fulltext_query: _builtins.str = ...,
+        fulltext_index_name: _builtins.str = ...,
+        fusion_strategy: _builtins.str = ...,
+        weights: _abc.Mapping[_builtins.str, _builtins.float] | None = ...,
+        expand: Global___HybridExpand | None = ...,
+        transaction: Global___TransactionContext | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_ef_search", b"_ef_search", "credentials", b"credentials", "ef_search", b"ef_search", "expand", b"expand", "transaction", b"transaction"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_ef_search", b"_ef_search", "credentials", b"credentials", "database", b"database", "ef_search", b"ef_search", "expand", b"expand", "filter", b"filter", "fulltext_index_name", b"fulltext_index_name", "fulltext_query", b"fulltext_query", "fusion_strategy", b"fusion_strategy", "k", b"k", "query_indices", b"query_indices", "query_vector", b"query_vector", "sparse", b"sparse", "transaction", b"transaction", "vector_index_name", b"vector_index_name", "weights", b"weights"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__ef_search: _TypeAlias = _typing.Literal["ef_search"]  # noqa: Y015
+    _WhichOneofArgType__ef_search: _TypeAlias = _typing.Literal["_ef_search", b"_ef_search"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__ef_search) -> _WhichOneofReturnType__ef_search | None: ...
+
+Global___HybridSearchRequest: _TypeAlias = HybridSearchRequest  # noqa: Y015
+
+@_typing.final
+class HybridSearchResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class LegsEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___GrpcValue: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___GrpcValue | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    VECTOR_INDEX_NAME_FIELD_NUMBER: _builtins.int
+    FULLTEXT_INDEX_NAME_FIELD_NUMBER: _builtins.int
+    SPARSE_FIELD_NUMBER: _builtins.int
+    SCORING_FIELD_NUMBER: _builtins.int
+    FUSED_FIELD_NUMBER: _builtins.int
+    FUSION_STRATEGY_FIELD_NUMBER: _builtins.int
+    TRUNCATED_FIELD_NUMBER: _builtins.int
+    COUNT_FIELD_NUMBER: _builtins.int
+    RESULTS_FIELD_NUMBER: _builtins.int
+    LEGS_FIELD_NUMBER: _builtins.int
+    vector_index_name: _builtins.str
+    fulltext_index_name: _builtins.str
+    """Present whenever the full-text leg ran, including when it matched nothing and so could not become a fusion
+    source.
+    """
+    sparse: _builtins.bool
+    scoring: _builtins.str
+    fused: _builtins.bool
+    """False when only one leg produced rows: fusion needs at least two sources, so the results carry that leg's
+    native distance or score instead of a fabricated fused one.
+    """
+    fusion_strategy: _builtins.str
+    truncated: _builtins.bool
+    count: _builtins.int
+    @_builtins.property
+    def results(self) -> _containers.RepeatedCompositeFieldContainer[Global___SearchHit]: ...
+    @_builtins.property
+    def legs(self) -> _containers.MessageMap[_builtins.str, Global___GrpcValue]:
+        """Per-leg accounting, the same structure the HTTP response reports under "legs"."""
+
+    def __init__(
+        self,
+        *,
+        vector_index_name: _builtins.str = ...,
+        fulltext_index_name: _builtins.str = ...,
+        sparse: _builtins.bool = ...,
+        scoring: _builtins.str = ...,
+        fused: _builtins.bool = ...,
+        fusion_strategy: _builtins.str = ...,
+        truncated: _builtins.bool = ...,
+        count: _builtins.int = ...,
+        results: _abc.Iterable[Global___SearchHit] | None = ...,
+        legs: _abc.Mapping[_builtins.str, Global___GrpcValue] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["count", b"count", "fulltext_index_name", b"fulltext_index_name", "fused", b"fused", "fusion_strategy", b"fusion_strategy", "legs", b"legs", "results", b"results", "scoring", b"scoring", "sparse", b"sparse", "truncated", b"truncated", "vector_index_name", b"vector_index_name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___HybridSearchResponse: _TypeAlias = HybridSearchResponse  # noqa: Y015
+
+@_typing.final
+class FullTextSearchRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    QUERY_TEXT_FIELD_NUMBER: _builtins.int
+    INDEX_NAME_FIELD_NUMBER: _builtins.int
+    TYPE_NAME_FIELD_NUMBER: _builtins.int
+    PROPERTIES_FIELD_NUMBER: _builtins.int
+    LIMIT_FIELD_NUMBER: _builtins.int
+    TRANSACTION_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    query_text: _builtins.str
+    """Lucene-syntax query, e.g. "java" or "+java -python". Must not be blank."""
+    index_name: _builtins.str
+    """Address the index either by `index_name`, or by `type_name` with optional `properties`. `index_name` wins
+    when both are supplied.
+    """
+    type_name: _builtins.str
+    limit: _builtins.int
+    """Maximum number of results. Bounded server-side; 0 means "use the server default"."""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def properties(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    @_builtins.property
+    def transaction(self) -> Global___TransactionContext:
+        """Optional externally-managed transaction (issue #7326). When it names a live transaction the search runs on
+        that transaction's own thread, so it reads exactly what the transaction reads - matching the HTTP routes,
+        which run inside the session's transaction whenever the request carries `arcadedb-session-id`. A non-blank
+        id the server no longer knows is refused with FAILED_PRECONDITION rather than silently read outside it.
+        """
+
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        credentials: Global___DatabaseCredentials | None = ...,
+        query_text: _builtins.str = ...,
+        index_name: _builtins.str = ...,
+        type_name: _builtins.str = ...,
+        properties: _abc.Iterable[_builtins.str] | None = ...,
+        limit: _builtins.int = ...,
+        transaction: Global___TransactionContext | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "transaction", b"transaction"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "index_name", b"index_name", "limit", b"limit", "properties", b"properties", "query_text", b"query_text", "transaction", b"transaction", "type_name", b"type_name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___FullTextSearchRequest: _TypeAlias = FullTextSearchRequest  # noqa: Y015
+
+@_typing.final
+class FullTextSearchResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    INDEX_NAME_FIELD_NUMBER: _builtins.int
+    SIMILARITY_FIELD_NUMBER: _builtins.int
+    COUNT_FIELD_NUMBER: _builtins.int
+    RESULTS_FIELD_NUMBER: _builtins.int
+    index_name: _builtins.str
+    similarity: _builtins.str
+    """similarity function the index scores with, e.g. BM25"""
+    count: _builtins.int
+    @_builtins.property
+    def results(self) -> _containers.RepeatedCompositeFieldContainer[Global___SearchHit]: ...
+    def __init__(
+        self,
+        *,
+        index_name: _builtins.str = ...,
+        similarity: _builtins.str = ...,
+        count: _builtins.int = ...,
+        results: _abc.Iterable[Global___SearchHit] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["count", b"count", "index_name", b"index_name", "results", b"results", "similarity", b"similarity"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___FullTextSearchResponse: _TypeAlias = FullTextSearchResponse  # noqa: Y015
 
 @_typing.final
 class BeginTransactionRequest(_message.Message):
@@ -2148,6 +2684,555 @@ class GraphBatchResult(_message.Message):
 Global___GraphBatchResult: _TypeAlias = GraphBatchResult  # noqa: Y015
 
 @_typing.final
+class TimeSeriesPoint(_message.Message):
+    """One sample. Values reuse GrpcValue rather than a parallel scalar encoding, so the type-fidelity fixes made
+    there (#4149 temporal precision, #5046 byte/short widths, decimal) apply to time series too. A tag or field
+    the type does not declare is ignored, exactly as an unknown line-protocol tag is; a declared column with no
+    entry here is stored as absent, which reads back as null.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class TagsEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___GrpcValue: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___GrpcValue | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    @_typing.final
+    class FieldsEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___GrpcValue: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___GrpcValue | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    TYPE_FIELD_NUMBER: _builtins.int
+    TIMESTAMP_FIELD_NUMBER: _builtins.int
+    TAGS_FIELD_NUMBER: _builtins.int
+    FIELDS_FIELD_NUMBER: _builtins.int
+    type: _builtins.str
+    """The measurement, i.e. the TIMESERIES type name. Empty means the request- or chunk-level default, which is
+    how a single-measurement stream avoids repeating the name on every point.
+    """
+    timestamp: _builtins.int
+    @_builtins.property
+    def tags(self) -> _containers.MessageMap[_builtins.str, Global___GrpcValue]: ...
+    @_builtins.property
+    def fields(self) -> _containers.MessageMap[_builtins.str, Global___GrpcValue]: ...
+    def __init__(
+        self,
+        *,
+        type: _builtins.str = ...,
+        timestamp: _builtins.int = ...,
+        tags: _abc.Mapping[_builtins.str, Global___GrpcValue] | None = ...,
+        fields: _abc.Mapping[_builtins.str, Global___GrpcValue] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["fields", b"fields", "tags", b"tags", "timestamp", b"timestamp", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesPoint: _TypeAlias = TimeSeriesPoint  # noqa: Y015
+
+@_typing.final
+class TimeSeriesWriteRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    TYPE_FIELD_NUMBER: _builtins.int
+    PRECISION_FIELD_NUMBER: _builtins.int
+    POINTS_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    type: _builtins.str
+    """Default measurement for points that do not name one."""
+    precision: Global___TimeSeriesPrecision.ValueType
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def points(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesPoint]: ...
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        credentials: Global___DatabaseCredentials | None = ...,
+        type: _builtins.str = ...,
+        precision: Global___TimeSeriesPrecision.ValueType = ...,
+        points: _abc.Iterable[Global___TimeSeriesPoint] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "points", b"points", "precision", b"precision", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesWriteRequest: _TypeAlias = TimeSeriesWriteRequest  # noqa: Y015
+
+@_typing.final
+class TimeSeriesWriteChunk(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    TYPE_FIELD_NUMBER: _builtins.int
+    PRECISION_FIELD_NUMBER: _builtins.int
+    POINTS_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    """REQUIRED on the first chunk; ignored on later ones (the server caches the first chunk's database)."""
+    type: _builtins.str
+    """Default measurement for points in THIS chunk that do not name one, so a stream can switch measurement
+    between chunks without naming it on every point.
+    """
+    precision: Global___TimeSeriesPrecision.ValueType
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def points(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesPoint]: ...
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        credentials: Global___DatabaseCredentials | None = ...,
+        type: _builtins.str = ...,
+        precision: Global___TimeSeriesPrecision.ValueType = ...,
+        points: _abc.Iterable[Global___TimeSeriesPoint] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "points", b"points", "precision", b"precision", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesWriteChunk: _TypeAlias = TimeSeriesWriteChunk  # noqa: Y015
+
+@_typing.final
+class TimeSeriesWriteSummary(_message.Message):
+    """A write is NOT atomic: each measurement's batch commits its own shard transaction as it is appended, so a
+    failure part-way leaves the measurements before it durable. `dropped` is therefore a partial-write signal,
+    not a rollback - the same contract the HTTP endpoint reports with its 400. Every point is either written or
+    counted in exactly one of the three type lists, so written + dropped == received.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RECEIVED_FIELD_NUMBER: _builtins.int
+    WRITTEN_FIELD_NUMBER: _builtins.int
+    DROPPED_FIELD_NUMBER: _builtins.int
+    UNKNOWN_TYPES_FIELD_NUMBER: _builtins.int
+    NON_TIME_SERIES_TYPES_FIELD_NUMBER: _builtins.int
+    UNAVAILABLE_TYPES_FIELD_NUMBER: _builtins.int
+    EXECUTION_TIME_MS_FIELD_NUMBER: _builtins.int
+    received: _builtins.int
+    written: _builtins.int
+    dropped: _builtins.int
+    execution_time_ms: _builtins.int
+    @_builtins.property
+    def unknown_types(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """No type with this name exists: create it first with CREATE TIMESERIES TYPE."""
+
+    @_builtins.property
+    def non_time_series_types(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """The type exists but is not a TIMESERIES type."""
+
+    @_builtins.property
+    def unavailable_types(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """The type IS a TIMESERIES type; its storage engine failed to load (see the server log for why)."""
+
+    def __init__(
+        self,
+        *,
+        received: _builtins.int = ...,
+        written: _builtins.int = ...,
+        dropped: _builtins.int = ...,
+        unknown_types: _abc.Iterable[_builtins.str] | None = ...,
+        non_time_series_types: _abc.Iterable[_builtins.str] | None = ...,
+        unavailable_types: _abc.Iterable[_builtins.str] | None = ...,
+        execution_time_ms: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["dropped", b"dropped", "execution_time_ms", b"execution_time_ms", "non_time_series_types", b"non_time_series_types", "received", b"received", "unavailable_types", b"unavailable_types", "unknown_types", b"unknown_types", "written", b"written"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesWriteSummary: _TypeAlias = TimeSeriesWriteSummary  # noqa: Y015
+
+@_typing.final
+class TimeSeriesTagFilter(_message.Message):
+    """Conjunction of tag equality predicates. Values are coerced to the tag column's declared type, so a tag
+    declared INTEGER matches whether the client sent int32_value or string_value. A name that is not a TAG
+    column of the type contributes no predicate.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class EqualsEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___GrpcValue: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___GrpcValue | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    EQUALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def equals(self) -> _containers.MessageMap[_builtins.str, Global___GrpcValue]: ...
+    def __init__(
+        self,
+        *,
+        equals: _abc.Mapping[_builtins.str, Global___GrpcValue] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["equals", b"equals"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesTagFilter: _TypeAlias = TimeSeriesTagFilter  # noqa: Y015
+
+@_typing.final
+class TimeSeriesAggregationRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    FIELD_FIELD_NUMBER: _builtins.int
+    TYPE_FIELD_NUMBER: _builtins.int
+    ALIAS_FIELD_NUMBER: _builtins.int
+    field: _builtins.str
+    type: Global___TimeSeriesAggregationType.ValueType
+    alias: _builtins.str
+    """Output name. Empty defaults to "<field>_<type>" lowercased, matching the HTTP endpoint."""
+    def __init__(
+        self,
+        *,
+        field: _builtins.str = ...,
+        type: Global___TimeSeriesAggregationType.ValueType = ...,
+        alias: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["alias", b"alias", "field", b"field", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesAggregationRequest: _TypeAlias = TimeSeriesAggregationRequest  # noqa: Y015
+
+@_typing.final
+class TimeSeriesAggregation(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    BUCKET_INTERVAL_MS_FIELD_NUMBER: _builtins.int
+    REQUESTS_FIELD_NUMBER: _builtins.int
+    bucket_interval_ms: _builtins.int
+    @_builtins.property
+    def requests(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesAggregationRequest]: ...
+    def __init__(
+        self,
+        *,
+        bucket_interval_ms: _builtins.int = ...,
+        requests: _abc.Iterable[Global___TimeSeriesAggregationRequest] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["bucket_interval_ms", b"bucket_interval_ms", "requests", b"requests"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesAggregation: _TypeAlias = TimeSeriesAggregation  # noqa: Y015
+
+@_typing.final
+class TimeSeriesQueryRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    TYPE_FIELD_NUMBER: _builtins.int
+    FROM_TIMESTAMP_FIELD_NUMBER: _builtins.int
+    TO_TIMESTAMP_FIELD_NUMBER: _builtins.int
+    FIELDS_FIELD_NUMBER: _builtins.int
+    TAGS_FIELD_NUMBER: _builtins.int
+    LIMIT_FIELD_NUMBER: _builtins.int
+    BATCH_SIZE_FIELD_NUMBER: _builtins.int
+    AGGREGATION_FIELD_NUMBER: _builtins.int
+    TRANSACTION_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    type: _builtins.str
+    from_timestamp: _builtins.int
+    """Inclusive bounds. Optional because 0 is a real epoch timestamp and not the same thing as "no bound":
+    unset means unbounded in that direction.
+    """
+    to_timestamp: _builtins.int
+    limit: _builtins.int
+    """Maximum rows returned across the whole stream. Non-positive means the server default; the server-side
+    hard ceiling (arcadedb.server.httpQueryMaxResultRows) still applies and cannot be widened from here.
+    """
+    batch_size: _builtins.int
+    """Rows (or buckets) per streamed message. 0 lets the server choose."""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def fields(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Column projection; empty means every column. The timestamp column is always included and always first."""
+
+    @_builtins.property
+    def tags(self) -> Global___TimeSeriesTagFilter: ...
+    @_builtins.property
+    def aggregation(self) -> Global___TimeSeriesAggregation:
+        """When set, the answer carries buckets instead of rows."""
+
+    @_builtins.property
+    def transaction(self) -> Global___TransactionContext:
+        """The client's open transaction, when it has one (issue #7370). An ArcadeDB transaction is thread-bound, so
+        a query that names one is streamed on that transaction's own thread and therefore observes its uncommitted
+        points; without it the read runs on a gRPC worker and sees only committed data. A non-blank id the server
+        no longer knows is refused rather than read outside the transaction the caller believes it is inside.
+        """
+
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        credentials: Global___DatabaseCredentials | None = ...,
+        type: _builtins.str = ...,
+        from_timestamp: _builtins.int | None = ...,
+        to_timestamp: _builtins.int | None = ...,
+        fields: _abc.Iterable[_builtins.str] | None = ...,
+        tags: Global___TimeSeriesTagFilter | None = ...,
+        limit: _builtins.int = ...,
+        batch_size: _builtins.int = ...,
+        aggregation: Global___TimeSeriesAggregation | None = ...,
+        transaction: Global___TransactionContext | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_from_timestamp", b"_from_timestamp", "_to_timestamp", b"_to_timestamp", "aggregation", b"aggregation", "credentials", b"credentials", "from_timestamp", b"from_timestamp", "tags", b"tags", "to_timestamp", b"to_timestamp", "transaction", b"transaction"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_from_timestamp", b"_from_timestamp", "_to_timestamp", b"_to_timestamp", "aggregation", b"aggregation", "batch_size", b"batch_size", "credentials", b"credentials", "database", b"database", "fields", b"fields", "from_timestamp", b"from_timestamp", "limit", b"limit", "tags", b"tags", "to_timestamp", b"to_timestamp", "transaction", b"transaction", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__from_timestamp: _TypeAlias = _typing.Literal["from_timestamp"]  # noqa: Y015
+    _WhichOneofArgType__from_timestamp: _TypeAlias = _typing.Literal["_from_timestamp", b"_from_timestamp"]  # noqa: Y015
+    _WhichOneofReturnType__to_timestamp: _TypeAlias = _typing.Literal["to_timestamp"]  # noqa: Y015
+    _WhichOneofArgType__to_timestamp: _TypeAlias = _typing.Literal["_to_timestamp", b"_to_timestamp"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__from_timestamp) -> _WhichOneofReturnType__from_timestamp | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__to_timestamp) -> _WhichOneofReturnType__to_timestamp | None: ...
+
+Global___TimeSeriesQueryRequest: _TypeAlias = TimeSeriesQueryRequest  # noqa: Y015
+
+@_typing.final
+class TimeSeriesRow(_message.Message):
+    """A row of a raw query, or the values of one aggregation bucket. A value that stands for "no measurement" -
+    an absent MIN/MAX, a non-finite sample - is sent with no kind set, which decodes to null; it is NOT sent as
+    double_value NaN, which a client would read as a number.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def values(self) -> _containers.RepeatedCompositeFieldContainer[Global___GrpcValue]: ...
+    def __init__(
+        self,
+        *,
+        values: _abc.Iterable[Global___GrpcValue] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesRow: _TypeAlias = TimeSeriesRow  # noqa: Y015
+
+@_typing.final
+class TimeSeriesBucket(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TIMESTAMP_FIELD_NUMBER: _builtins.int
+    VALUES_FIELD_NUMBER: _builtins.int
+    timestamp: _builtins.int
+    @_builtins.property
+    def values(self) -> _containers.RepeatedCompositeFieldContainer[Global___GrpcValue]: ...
+    def __init__(
+        self,
+        *,
+        timestamp: _builtins.int = ...,
+        values: _abc.Iterable[Global___GrpcValue] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["timestamp", b"timestamp", "values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesBucket: _TypeAlias = TimeSeriesBucket  # noqa: Y015
+
+@_typing.final
+class TimeSeriesQueryResult(_message.Message):
+    """Streamed answer. `columns` and `aggregations` are carried on every message so a consumer that starts
+    reading mid-stream (or drops the first message on a retry) is never left without the header.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TYPE_FIELD_NUMBER: _builtins.int
+    COLUMNS_FIELD_NUMBER: _builtins.int
+    AGGREGATIONS_FIELD_NUMBER: _builtins.int
+    ROWS_FIELD_NUMBER: _builtins.int
+    BUCKETS_FIELD_NUMBER: _builtins.int
+    RUNNING_TOTAL_EMITTED_FIELD_NUMBER: _builtins.int
+    LAST_FIELD_NUMBER: _builtins.int
+    TRUNCATED_FIELD_NUMBER: _builtins.int
+    type: _builtins.str
+    running_total_emitted: _builtins.int
+    last: _builtins.bool
+    truncated: _builtins.bool
+    """The limit cut the answer short: what follows this stream is not the end of the data. Only meaningful on
+    the message whose `last` is true.
+    """
+    @_builtins.property
+    def columns(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Names of the values in each `rows` entry, in order. Empty for an aggregated answer."""
+
+    @_builtins.property
+    def aggregations(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Aliases of the values in each `buckets` entry, in order. Empty for a raw answer."""
+
+    @_builtins.property
+    def rows(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesRow]: ...
+    @_builtins.property
+    def buckets(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesBucket]: ...
+    def __init__(
+        self,
+        *,
+        type: _builtins.str = ...,
+        columns: _abc.Iterable[_builtins.str] | None = ...,
+        aggregations: _abc.Iterable[_builtins.str] | None = ...,
+        rows: _abc.Iterable[Global___TimeSeriesRow] | None = ...,
+        buckets: _abc.Iterable[Global___TimeSeriesBucket] | None = ...,
+        running_total_emitted: _builtins.int = ...,
+        last: _builtins.bool = ...,
+        truncated: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["aggregations", b"aggregations", "buckets", b"buckets", "columns", b"columns", "last", b"last", "rows", b"rows", "running_total_emitted", b"running_total_emitted", "truncated", b"truncated", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesQueryResult: _TypeAlias = TimeSeriesQueryResult  # noqa: Y015
+
+@_typing.final
+class TimeSeriesLatestRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    TYPE_FIELD_NUMBER: _builtins.int
+    TAGS_FIELD_NUMBER: _builtins.int
+    TRANSACTION_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    type: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def tags(self) -> Global___TimeSeriesTagFilter: ...
+    @_builtins.property
+    def transaction(self) -> Global___TransactionContext:
+        """The client's open transaction, when it has one (issue #7370). Same contract as
+        TimeSeriesQueryRequest.transaction.
+        """
+
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        credentials: Global___DatabaseCredentials | None = ...,
+        type: _builtins.str = ...,
+        tags: Global___TimeSeriesTagFilter | None = ...,
+        transaction: Global___TransactionContext | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "tags", b"tags", "transaction", b"transaction"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "tags", b"tags", "transaction", b"transaction", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesLatestRequest: _TypeAlias = TimeSeriesLatestRequest  # noqa: Y015
+
+@_typing.final
+class TimeSeriesLatestResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TYPE_FIELD_NUMBER: _builtins.int
+    COLUMNS_FIELD_NUMBER: _builtins.int
+    FOUND_FIELD_NUMBER: _builtins.int
+    LATEST_FIELD_NUMBER: _builtins.int
+    type: _builtins.str
+    found: _builtins.bool
+    """False when the type (or the tag selection) holds no sample at all; `latest` is then unset."""
+    @_builtins.property
+    def columns(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    @_builtins.property
+    def latest(self) -> Global___TimeSeriesRow: ...
+    def __init__(
+        self,
+        *,
+        type: _builtins.str = ...,
+        columns: _abc.Iterable[_builtins.str] | None = ...,
+        found: _builtins.bool = ...,
+        latest: Global___TimeSeriesRow | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["latest", b"latest"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["columns", b"columns", "found", b"found", "latest", b"latest", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TimeSeriesLatestResponse: _TypeAlias = TimeSeriesLatestResponse  # noqa: Y015
+
+@_typing.final
 class PingRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
@@ -2372,10 +3457,16 @@ class CreateDatabaseRequest(_message.Message):
     CREDENTIALS_FIELD_NUMBER: _builtins.int
     NAME_FIELD_NUMBER: _builtins.int
     TYPE_FIELD_NUMBER: _builtins.int
+    IF_NOT_EXISTS_FIELD_NUMBER: _builtins.int
     name: _builtins.str
     """database name"""
     type: _builtins.str
     """"graph" or "document" (logical)"""
+    if_not_exists: _builtins.bool
+    """When false (the default) a name already taken is answered ALREADY_EXISTS, as the HTTP `create database`
+    command answers it. When true the call is idempotent: an existing database of that name is left as it
+    is and the response says so with created = false. Names are exact, never case-folded.
+    """
     @_builtins.property
     def credentials(self) -> Global___DatabaseCredentials: ...
     def __init__(
@@ -2384,10 +3475,11 @@ class CreateDatabaseRequest(_message.Message):
         credentials: Global___DatabaseCredentials | None = ...,
         name: _builtins.str = ...,
         type: _builtins.str = ...,
+        if_not_exists: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "name", b"name", "type", b"type"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "if_not_exists", b"if_not_exists", "name", b"name", "type", b"type"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -2397,12 +3489,17 @@ Global___CreateDatabaseRequest: _TypeAlias = CreateDatabaseRequest  # noqa: Y015
 class CreateDatabaseResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
+    CREATED_FIELD_NUMBER: _builtins.int
+    created: _builtins.bool
+    """true when this call created the database, false when if_not_exists found it already there"""
     def __init__(
         self,
+        *,
+        created: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["created", b"created"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -2414,8 +3511,13 @@ class DropDatabaseRequest(_message.Message):
 
     CREDENTIALS_FIELD_NUMBER: _builtins.int
     NAME_FIELD_NUMBER: _builtins.int
+    IF_EXISTS_FIELD_NUMBER: _builtins.int
     name: _builtins.str
     """database name"""
+    if_exists: _builtins.bool
+    """When false (the default) a name that does not exist is answered NOT_FOUND, as the HTTP `drop database`
+    command answers it. When true the call is idempotent and the response says which with dropped = false.
+    """
     @_builtins.property
     def credentials(self) -> Global___DatabaseCredentials: ...
     def __init__(
@@ -2423,10 +3525,11 @@ class DropDatabaseRequest(_message.Message):
         *,
         credentials: Global___DatabaseCredentials | None = ...,
         name: _builtins.str = ...,
+        if_exists: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "name", b"name"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "if_exists", b"if_exists", "name", b"name"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -2436,12 +3539,17 @@ Global___DropDatabaseRequest: _TypeAlias = DropDatabaseRequest  # noqa: Y015
 class DropDatabaseResponse(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
+    DROPPED_FIELD_NUMBER: _builtins.int
+    dropped: _builtins.bool
+    """true when this call dropped the database, false when if_exists found nothing to drop"""
     def __init__(
         self,
+        *,
+        dropped: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["dropped", b"dropped"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -2537,17 +3645,60 @@ Global___GetDatabaseInfoResponse: _TypeAlias = GetDatabaseInfoResponse  # noqa: 
 class CreateUserRequest(_message.Message):
     DESCRIPTOR: _descriptor.Descriptor
 
+    @_typing.final
+    class DatabasesEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___UserGroups: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___UserGroups | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
     CREDENTIALS_FIELD_NUMBER: _builtins.int
     USER_FIELD_NUMBER: _builtins.int
     PASSWORD_FIELD_NUMBER: _builtins.int
     ROLE_FIELD_NUMBER: _builtins.int
+    DATABASES_FIELD_NUMBER: _builtins.int
     user: _builtins.str
     password: _builtins.str
-    role: _builtins.str
-    """optional, depending on your model"""
+    @_builtins.property
+    @_deprecated("""This field has been marked as deprecated using proto field options.""")
+    def role(self) -> _builtins.str:
+        """Deprecated and ignored: the server's security model grants authority through per-database groups
+        (the 'databases' map below), not through a single server-wide role. Kept so the field number is
+        not reused.
+        """
+
+    @role.setter
+    @_deprecated("""This field has been marked as deprecated using proto field options.""")
+    def role(self, value: _builtins.str) -> None:
+        """Deprecated and ignored: the server's security model grants authority through per-database groups
+        (the 'databases' map below), not through a single server-wide role. Kept so the field number is
+        not reused.
+        """
+
     @_builtins.property
     def credentials(self) -> Global___DatabaseCredentials:
         """admin creds"""
+
+    @_builtins.property
+    def databases(self) -> _containers.MessageMap[_builtins.str, Global___UserGroups]:
+        """The groups the new user holds per database, the same map the HTTP "create user" document carries
+        under "databases". Absent means no grants beyond the server default. The key "*" applies to every
+        database, as it does over HTTP.
+        """
 
     def __init__(
         self,
@@ -2556,10 +3707,11 @@ class CreateUserRequest(_message.Message):
         user: _builtins.str = ...,
         password: _builtins.str = ...,
         role: _builtins.str = ...,
+        databases: _abc.Mapping[_builtins.str, Global___UserGroups] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "password", b"password", "role", b"role", "user", b"user"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "databases", b"databases", "password", b"password", "role", b"role", "user", b"user"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -2633,3 +3785,1969 @@ class DeleteUserResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___DeleteUserResponse: _TypeAlias = DeleteUserResponse  # noqa: Y015
+
+@_typing.final
+class OpenDatabaseRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: database lifecycle beyond create/drop
+    -----------------------------------------------------------------------------
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    NAME_FIELD_NUMBER: _builtins.int
+    name: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "name", b"name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___OpenDatabaseRequest: _TypeAlias = OpenDatabaseRequest  # noqa: Y015
+
+@_typing.final
+class OpenDatabaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___OpenDatabaseResponse: _TypeAlias = OpenDatabaseResponse  # noqa: Y015
+
+@_typing.final
+class CloseDatabaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    NAME_FIELD_NUMBER: _builtins.int
+    name: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "name", b"name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CloseDatabaseRequest: _TypeAlias = CloseDatabaseRequest  # noqa: Y015
+
+@_typing.final
+class CloseDatabaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CloseDatabaseResponse: _TypeAlias = CloseDatabaseResponse  # noqa: Y015
+
+@_typing.final
+class AlignDatabaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    NAME_FIELD_NUMBER: _builtins.int
+    name: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "name", b"name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___AlignDatabaseRequest: _TypeAlias = AlignDatabaseRequest  # noqa: Y015
+
+@_typing.final
+class AlignDatabaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___AlignDatabaseResponse: _TypeAlias = AlignDatabaseResponse  # noqa: Y015
+
+@_typing.final
+class SetServerSettingRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: settings
+    -----------------------------------------------------------------------------
+
+    key and value are separate fields here, so - unlike the HTTP "set server setting <key> <value>"
+    command, which splits on the first space - a value containing a space needs no quoting. Both
+    transports then run the same coercion, so a DECLARED setting accepts and refuses the same values
+    on either one.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    KEY_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
+    key: _builtins.str
+    value: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        key: _builtins.str = ...,
+        value: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "key", b"key", "value", b"value"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SetServerSettingRequest: _TypeAlias = SetServerSettingRequest  # noqa: Y015
+
+@_typing.final
+class SetServerSettingResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SetServerSettingResponse: _TypeAlias = SetServerSettingResponse  # noqa: Y015
+
+@_typing.final
+class SetDatabaseSettingRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    KEY_FIELD_NUMBER: _builtins.int
+    VALUE_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    key: _builtins.str
+    value: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+        key: _builtins.str = ...,
+        value: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "key", b"key", "value", b"value"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SetDatabaseSettingRequest: _TypeAlias = SetDatabaseSettingRequest  # noqa: Y015
+
+@_typing.final
+class SetDatabaseSettingResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SetDatabaseSettingResponse: _TypeAlias = SetDatabaseSettingResponse  # noqa: Y015
+
+@_typing.final
+class UserGroups(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: security
+    -----------------------------------------------------------------------------
+
+    The groups a user holds on one database.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    GROUPS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def groups(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        groups: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["groups", b"groups"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UserGroups: _TypeAlias = UserGroups  # noqa: Y015
+
+@_typing.final
+class UserInfo(_message.Message):
+    """A user as the control plane reports it. Password hashes are never included."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class DatabasesEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___UserGroups: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___UserGroups | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    NAME_FIELD_NUMBER: _builtins.int
+    DATABASES_FIELD_NUMBER: _builtins.int
+    name: _builtins.str
+    @_builtins.property
+    def databases(self) -> _containers.MessageMap[_builtins.str, Global___UserGroups]: ...
+    def __init__(
+        self,
+        *,
+        name: _builtins.str = ...,
+        databases: _abc.Mapping[_builtins.str, Global___UserGroups] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["databases", b"databases", "name", b"name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UserInfo: _TypeAlias = UserInfo  # noqa: Y015
+
+@_typing.final
+class ListUsersRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListUsersRequest: _TypeAlias = ListUsersRequest  # noqa: Y015
+
+@_typing.final
+class ListUsersResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    USERS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def users(self) -> _containers.RepeatedCompositeFieldContainer[Global___UserInfo]: ...
+    def __init__(
+        self,
+        *,
+        users: _abc.Iterable[Global___UserInfo] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["users", b"users"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListUsersResponse: _TypeAlias = ListUsersResponse  # noqa: Y015
+
+@_typing.final
+class UserDatabases(_message.Message):
+    """The per-database grants of one user, wrapped in a message so the field can carry PRESENCE. A bare
+    map field cannot: proto3 gives no way to tell "the caller said nothing about grants" from "the
+    caller cleared every grant", and PUT /server/users draws exactly that distinction - a body without
+    a "databases" key leaves the existing grants alone.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class DatabasesEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___UserGroups: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___UserGroups | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    DATABASES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def databases(self) -> _containers.MessageMap[_builtins.str, Global___UserGroups]: ...
+    def __init__(
+        self,
+        *,
+        databases: _abc.Mapping[_builtins.str, Global___UserGroups] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["databases", b"databases"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UserDatabases: _TypeAlias = UserDatabases  # noqa: Y015
+
+@_typing.final
+class UpdateUserRequest(_message.Message):
+    """Updates an existing user, as PUT /server/users?name=<user> does. Both mutable fields are optional
+    and independent: an absent one leaves that part of the user untouched, so changing a password does
+    not silently drop the user's grants. A request that sets neither is a no-op, not an error - the
+    same answer the HTTP route gives an empty body.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    USER_FIELD_NUMBER: _builtins.int
+    PASSWORD_FIELD_NUMBER: _builtins.int
+    DATABASES_FIELD_NUMBER: _builtins.int
+    user: _builtins.str
+    password: _builtins.str
+    """The new plaintext password, hashed server-side. Subject to the same length policy as every other
+    password the server accepts.
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    @_builtins.property
+    def databases(self) -> Global___UserDatabases:
+        """The complete new grants map, replacing whatever the user held. Present-and-empty clears them."""
+
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        user: _builtins.str = ...,
+        password: _builtins.str | None = ...,
+        databases: Global___UserDatabases | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_databases", b"_databases", "_password", b"_password", "credentials", b"credentials", "databases", b"databases", "password", b"password"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_databases", b"_databases", "_password", b"_password", "credentials", b"credentials", "databases", b"databases", "password", b"password", "user", b"user"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__databases: _TypeAlias = _typing.Literal["databases"]  # noqa: Y015
+    _WhichOneofArgType__databases: _TypeAlias = _typing.Literal["_databases", b"_databases"]  # noqa: Y015
+    _WhichOneofReturnType__password: _TypeAlias = _typing.Literal["password"]  # noqa: Y015
+    _WhichOneofArgType__password: _TypeAlias = _typing.Literal["_password", b"_password"]  # noqa: Y015
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__databases) -> _WhichOneofReturnType__databases | None: ...
+    @_typing.overload
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__password) -> _WhichOneofReturnType__password | None: ...
+
+Global___UpdateUserRequest: _TypeAlias = UpdateUserRequest  # noqa: Y015
+
+@_typing.final
+class UpdateUserResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SUCCESS_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    success: _builtins.bool
+    message: _builtins.str
+    def __init__(
+        self,
+        *,
+        success: _builtins.bool = ...,
+        message: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["message", b"message", "success", b"success"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___UpdateUserResponse: _TypeAlias = UpdateUserResponse  # noqa: Y015
+
+@_typing.final
+class ListGroupsRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: groups
+    -----------------------------------------------------------------------------
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListGroupsRequest: _TypeAlias = ListGroupsRequest  # noqa: Y015
+
+@_typing.final
+class ListGroupsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    GROUPS_JSON_FIELD_NUMBER: _builtins.int
+    groups_json: _builtins.str
+    """The whole group document, as GET /server/groups returns it under "result". Carried as JSON for
+    the reason GetBackupConfigResponse.config_json is: it is a free-form document with a version
+    field and per-database group maps, and declaring its shape a second time here would be one more
+    thing to keep in step with the file on disk.
+    """
+    def __init__(
+        self,
+        *,
+        groups_json: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["groups_json", b"groups_json"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListGroupsResponse: _TypeAlias = ListGroupsResponse  # noqa: Y015
+
+@_typing.final
+class SaveGroupRequest(_message.Message):
+    """Creates or replaces one group, as POST /server/groups does. Replaces: the named group's definition
+    becomes exactly what this request carries, it is not merged into the existing one.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    NAME_FIELD_NUMBER: _builtins.int
+    GROUP_JSON_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    """The database the group applies to, or "*" for every database."""
+    name: _builtins.str
+    group_json: _builtins.str
+    """The group definition: resultSetLimit, readTimeout, access and types, as the HTTP body carries
+    them. An absent key takes the same default the HTTP handler applies (-1 for the two limits, empty
+    for the two collections).
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+        name: _builtins.str = ...,
+        group_json: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "group_json", b"group_json", "name", b"name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SaveGroupRequest: _TypeAlias = SaveGroupRequest  # noqa: Y015
+
+@_typing.final
+class SaveGroupResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SUCCESS_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    success: _builtins.bool
+    message: _builtins.str
+    def __init__(
+        self,
+        *,
+        success: _builtins.bool = ...,
+        message: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["message", b"message", "success", b"success"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SaveGroupResponse: _TypeAlias = SaveGroupResponse  # noqa: Y015
+
+@_typing.final
+class DeleteGroupRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    NAME_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    name: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+        name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "name", b"name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DeleteGroupRequest: _TypeAlias = DeleteGroupRequest  # noqa: Y015
+
+@_typing.final
+class DeleteGroupResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SUCCESS_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    success: _builtins.bool
+    message: _builtins.str
+    def __init__(
+        self,
+        *,
+        success: _builtins.bool = ...,
+        message: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["message", b"message", "success", b"success"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DeleteGroupResponse: _TypeAlias = DeleteGroupResponse  # noqa: Y015
+
+@_typing.final
+class ApiTokenInfo(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: API tokens
+    -----------------------------------------------------------------------------
+
+    One issued token as the control plane REPORTS it: the hash that identifies it for revocation and
+    the last four characters of the token, never the token itself. This is the projection
+    GET /server/api-tokens returns.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    NAME_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    EXPIRES_AT_FIELD_NUMBER: _builtins.int
+    CREATED_AT_FIELD_NUMBER: _builtins.int
+    PERMISSIONS_JSON_FIELD_NUMBER: _builtins.int
+    TOKEN_HASH_FIELD_NUMBER: _builtins.int
+    TOKEN_SUFFIX_FIELD_NUMBER: _builtins.int
+    name: _builtins.str
+    database: _builtins.str
+    expires_at: _builtins.int
+    """epoch millis; 0 means no expiry"""
+    created_at: _builtins.int
+    """epoch millis"""
+    permissions_json: _builtins.str
+    """The permission document, as JSON - the same free-form shape SaveGroupRequest.group_json carries."""
+    token_hash: _builtins.str
+    """SHA-256 of the token. This is the handle DeleteApiToken takes."""
+    token_suffix: _builtins.str
+    """The token's last four characters, so an operator can tell two tokens apart in a list."""
+    def __init__(
+        self,
+        *,
+        name: _builtins.str = ...,
+        database: _builtins.str = ...,
+        expires_at: _builtins.int = ...,
+        created_at: _builtins.int = ...,
+        permissions_json: _builtins.str = ...,
+        token_hash: _builtins.str = ...,
+        token_suffix: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "database", b"database", "expires_at", b"expires_at", "name", b"name", "permissions_json", b"permissions_json", "token_hash", b"token_hash", "token_suffix", b"token_suffix"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ApiTokenInfo: _TypeAlias = ApiTokenInfo  # noqa: Y015
+
+@_typing.final
+class ListApiTokensRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListApiTokensRequest: _TypeAlias = ListApiTokensRequest  # noqa: Y015
+
+@_typing.final
+class ListApiTokensResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TOKENS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def tokens(self) -> _containers.RepeatedCompositeFieldContainer[Global___ApiTokenInfo]: ...
+    def __init__(
+        self,
+        *,
+        tokens: _abc.Iterable[Global___ApiTokenInfo] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["tokens", b"tokens"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListApiTokensResponse: _TypeAlias = ListApiTokensResponse  # noqa: Y015
+
+@_typing.final
+class CreateApiTokenRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    NAME_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    EXPIRES_AT_FIELD_NUMBER: _builtins.int
+    PERMISSIONS_JSON_FIELD_NUMBER: _builtins.int
+    name: _builtins.str
+    """Must be unique across issued tokens; a duplicate is refused with ALREADY_EXISTS."""
+    database: _builtins.str
+    """The database the token is scoped to. Empty means "*", every database, as the HTTP default does."""
+    expires_at: _builtins.int
+    """epoch millis; 0 or absent means the token does not expire"""
+    permissions_json: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        name: _builtins.str = ...,
+        database: _builtins.str = ...,
+        expires_at: _builtins.int = ...,
+        permissions_json: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "expires_at", b"expires_at", "name", b"name", "permissions_json", b"permissions_json"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CreateApiTokenRequest: _TypeAlias = CreateApiTokenRequest  # noqa: Y015
+
+@_typing.final
+class CreateApiTokenResponse(_message.Message):
+    """THE ONLY MESSAGE IN THIS FILE THAT CARRIES SECRET MATERIAL.
+
+    'token' is the plaintext token, returned exactly once - the server keeps only its SHA-256 and can
+    never produce it again. Two consequences the rest of the control plane does not have:
+
+      1. The server refuses this RPC unless the call's transport protects the response: TLS, or a
+         loopback peer. Over a cleartext channel to a remote host the mint is refused with
+         FAILED_PRECONDITION rather than answered, because RemoteGrpcServer's refusal to SEND
+         credentials over such a channel has no counterpart on the receive direction and a non-Java
+         client never runs it at all.
+      2. Nothing on the server's own paths may copy this field anywhere durable. The two interceptors
+         that see every message read only the method name, the status and, for one specific response
+         type, a boolean - never the payload.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TOKEN_FIELD_NUMBER: _builtins.int
+    INFO_FIELD_NUMBER: _builtins.int
+    token: _builtins.str
+    @_builtins.property
+    def info(self) -> Global___ApiTokenInfo:
+        """Everything about the token that is safe to keep, including the hash needed to revoke it."""
+
+    def __init__(
+        self,
+        *,
+        token: _builtins.str = ...,
+        info: Global___ApiTokenInfo | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["info", b"info"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["info", b"info", "token", b"token"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___CreateApiTokenResponse: _TypeAlias = CreateApiTokenResponse  # noqa: Y015
+
+@_typing.final
+class DeleteApiTokenRequest(_message.Message):
+    """Revokes a token by its HASH. The plaintext token is deliberately not accepted: it would then
+    appear in whatever logged the request, which is the exposure revoking it is meant to end.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    TOKEN_HASH_FIELD_NUMBER: _builtins.int
+    token_hash: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        token_hash: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "token_hash", b"token_hash"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DeleteApiTokenRequest: _TypeAlias = DeleteApiTokenRequest  # noqa: Y015
+
+@_typing.final
+class DeleteApiTokenResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SUCCESS_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    success: _builtins.bool
+    message: _builtins.str
+    def __init__(
+        self,
+        *,
+        success: _builtins.bool = ...,
+        message: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["message", b"message", "success", b"success"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DeleteApiTokenResponse: _TypeAlias = DeleteApiTokenResponse  # noqa: Y015
+
+@_typing.final
+class GetBackupConfigRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: backup
+    -----------------------------------------------------------------------------
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetBackupConfigRequest: _TypeAlias = GetBackupConfigRequest  # noqa: Y015
+
+@_typing.final
+class GetBackupConfigResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ENABLED_FIELD_NUMBER: _builtins.int
+    CONFIG_JSON_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    enabled: _builtins.bool
+    """false when the auto-backup plugin is not running; a config may still be present, saved but not
+    yet in effect, in which case 'message' says so.
+    """
+    config_json: _builtins.str
+    """AutoBackupConfig as a JSON document. Empty when no configuration exists. It is carried as JSON
+    rather than as proto fields because it is the same free-form document the config file holds, and
+    a second declaration of its shape here would be one more thing to keep in step with it.
+    """
+    message: _builtins.str
+    def __init__(
+        self,
+        *,
+        enabled: _builtins.bool = ...,
+        config_json: _builtins.str = ...,
+        message: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config_json", b"config_json", "enabled", b"enabled", "message", b"message"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetBackupConfigResponse: _TypeAlias = GetBackupConfigResponse  # noqa: Y015
+
+@_typing.final
+class SetBackupConfigRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    CONFIG_JSON_FIELD_NUMBER: _builtins.int
+    config_json: _builtins.str
+    """AutoBackupConfig as a JSON document - the same object POST /api/v1/server takes under "config"."""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        config_json: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["config_json", b"config_json", "credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SetBackupConfigRequest: _TypeAlias = SetBackupConfigRequest  # noqa: Y015
+
+@_typing.final
+class SetBackupConfigResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SetBackupConfigResponse: _TypeAlias = SetBackupConfigResponse  # noqa: Y015
+
+@_typing.final
+class BackupInfo(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    FILE_NAME_FIELD_NUMBER: _builtins.int
+    SIZE_BYTES_FIELD_NUMBER: _builtins.int
+    LAST_MODIFIED_MS_FIELD_NUMBER: _builtins.int
+    TIMESTAMP_FIELD_NUMBER: _builtins.int
+    file_name: _builtins.str
+    size_bytes: _builtins.int
+    last_modified_ms: _builtins.int
+    timestamp: _builtins.str
+    """ISO-8601 local date-time parsed out of the archive name, empty when the name does not carry one."""
+    def __init__(
+        self,
+        *,
+        file_name: _builtins.str = ...,
+        size_bytes: _builtins.int = ...,
+        last_modified_ms: _builtins.int = ...,
+        timestamp: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["file_name", b"file_name", "last_modified_ms", b"last_modified_ms", "size_bytes", b"size_bytes", "timestamp", b"timestamp"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___BackupInfo: _TypeAlias = BackupInfo  # noqa: Y015
+
+@_typing.final
+class ListBackupsRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListBackupsRequest: _TypeAlias = ListBackupsRequest  # noqa: Y015
+
+@_typing.final
+class ListBackupsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    BACKUPS_FIELD_NUMBER: _builtins.int
+    TOTAL_SIZE_FIELD_NUMBER: _builtins.int
+    TOTAL_COUNT_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    total_size: _builtins.int
+    """Retention-manager totals; both are 0 when no retention manager is running."""
+    total_count: _builtins.int
+    @_builtins.property
+    def backups(self) -> _containers.RepeatedCompositeFieldContainer[Global___BackupInfo]: ...
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        backups: _abc.Iterable[Global___BackupInfo] | None = ...,
+        total_size: _builtins.int = ...,
+        total_count: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["backups", b"backups", "database", b"database", "total_count", b"total_count", "total_size", b"total_size"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListBackupsResponse: _TypeAlias = ListBackupsResponse  # noqa: Y015
+
+@_typing.final
+class TriggerBackupRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TriggerBackupRequest: _TypeAlias = TriggerBackupRequest  # noqa: Y015
+
+@_typing.final
+class TriggerBackupResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    BACKUP_FILE_FIELD_NUMBER: _builtins.int
+    backup_file: _builtins.str
+    """Absolute path of the archive that was written."""
+    def __init__(
+        self,
+        *,
+        backup_file: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["backup_file", b"backup_file"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___TriggerBackupResponse: _TypeAlias = TriggerBackupResponse  # noqa: Y015
+
+@_typing.final
+class DeleteBackupRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    FILE_NAME_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    file_name: _builtins.str
+    """A plain archive file name inside the database's backup directory. Path separators and traversal
+    sequences are refused.
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+        file_name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "file_name", b"file_name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DeleteBackupRequest: _TypeAlias = DeleteBackupRequest  # noqa: Y015
+
+@_typing.final
+class DeleteBackupResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DeleteBackupResponse: _TypeAlias = DeleteBackupResponse  # noqa: Y015
+
+@_typing.final
+class ProfilerStartRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: query profiler
+    -----------------------------------------------------------------------------
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    TIMEOUT_SECONDS_FIELD_NUMBER: _builtins.int
+    timeout_seconds: _builtins.int
+    """Seconds after which recording stops on its own. 0 (or negative) applies the server's own default rather
+    than recording indefinitely - there is no way to ask for an unbounded recording, because while one runs
+    every server query is wrapped for profiling. The bound that actually applied comes back in
+    ProfilerStateResponse.timeout_seconds (issue #7394).
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        timeout_seconds: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "timeout_seconds", b"timeout_seconds"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerStartRequest: _TypeAlias = ProfilerStartRequest  # noqa: Y015
+
+@_typing.final
+class ProfilerStopRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerStopRequest: _TypeAlias = ProfilerStopRequest  # noqa: Y015
+
+@_typing.final
+class ProfilerResetRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerResetRequest: _TypeAlias = ProfilerResetRequest  # noqa: Y015
+
+@_typing.final
+class ProfilerResultsRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerResultsRequest: _TypeAlias = ProfilerResultsRequest  # noqa: Y015
+
+@_typing.final
+class ProfilerListRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerListRequest: _TypeAlias = ProfilerListRequest  # noqa: Y015
+
+@_typing.final
+class ProfilerLoadRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    FILE_NAME_FIELD_NUMBER: _builtins.int
+    file_name: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        file_name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "file_name", b"file_name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerLoadRequest: _TypeAlias = ProfilerLoadRequest  # noqa: Y015
+
+@_typing.final
+class ProfilerStateResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RECORDING_FIELD_NUMBER: _builtins.int
+    TIMEOUT_SECONDS_FIELD_NUMBER: _builtins.int
+    recording: _builtins.bool
+    timeout_seconds: _builtins.int
+    """For ProfilerStart, the timeout the recording is actually running under, in seconds: the requested value,
+    the server default when none was requested, or - when a recording was already in flight, which makes a
+    second start a no-op - that recording's own. Unset for ProfilerReset.
+    """
+    def __init__(
+        self,
+        *,
+        recording: _builtins.bool = ...,
+        timeout_seconds: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["recording", b"recording", "timeout_seconds", b"timeout_seconds"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerStateResponse: _TypeAlias = ProfilerStateResponse  # noqa: Y015
+
+@_typing.final
+class ProfilerDocumentResponse(_message.Message):
+    """A profiler run. The document's shape is the profiler's own and changes with it, so it travels as
+    JSON rather than as a proto schema that would have to be revised in step.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RESULTS_JSON_FIELD_NUMBER: _builtins.int
+    results_json: _builtins.str
+    def __init__(
+        self,
+        *,
+        results_json: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["results_json", b"results_json"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerDocumentResponse: _TypeAlias = ProfilerDocumentResponse  # noqa: Y015
+
+@_typing.final
+class ProfilerRunInfo(_message.Message):
+    """One saved profiler run on disk, as ServerQueryProfiler.listSavedRuns reports it."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    FILE_NAME_FIELD_NUMBER: _builtins.int
+    SIZE_BYTES_FIELD_NUMBER: _builtins.int
+    LAST_MODIFIED_MS_FIELD_NUMBER: _builtins.int
+    file_name: _builtins.str
+    size_bytes: _builtins.int
+    last_modified_ms: _builtins.int
+    def __init__(
+        self,
+        *,
+        file_name: _builtins.str = ...,
+        size_bytes: _builtins.int = ...,
+        last_modified_ms: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["file_name", b"file_name", "last_modified_ms", b"last_modified_ms", "size_bytes", b"size_bytes"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerRunInfo: _TypeAlias = ProfilerRunInfo  # noqa: Y015
+
+@_typing.final
+class ProfilerListResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    RUNS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def runs(self) -> _containers.RepeatedCompositeFieldContainer[Global___ProfilerRunInfo]:
+        """Newest first, the order the profiler lists them in."""
+
+    def __init__(
+        self,
+        *,
+        runs: _abc.Iterable[Global___ProfilerRunInfo] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["runs", b"runs"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ProfilerListResponse: _TypeAlias = ProfilerListResponse  # noqa: Y015
+
+@_typing.final
+class RestoreBackupRequest(_message.Message):
+    """These three are the only control-plane operations that report progress while they run, which is
+    why they are server-streaming rather than unary (issue #7308): a unary RestoreDatabase would hold
+    the call open for the length of the restore with nothing to show for it. They are the gRPC
+    counterpart of POST /api/v1/server answering 'restore backup', 'restore database' and 'import
+    database' as Server-Sent Events, and both transports run one implementation -
+    com.arcadedb.server.ServerControlPlane - with the progress sink supplied by the transport.
+
+    Every one of them is root-only and leader-only, matching the HTTP commands, which checkRootUser
+    gates and forwardToLeaderIfReplica sends to the leader. A follower answers FAILED_PRECONDITION
+    with the leader's address on the arcadedb-leader-* trailers.
+
+    The stream carries progress messages while the operation runs and one final message with
+    completed = true. A failure terminates the stream with an error status instead: there is no error
+    message on the stream, so a client that read a completed message has a result that succeeded.
+    Cancelling the call stops the progress; it does not stop the restore, which has no interruption
+    point - the same as an HTTP client dropping its SSE connection.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    FILE_NAME_FIELD_NUMBER: _builtins.int
+    TARGET_DATABASE_FIELD_NUMBER: _builtins.int
+    OVERWRITE_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    """The database the archive was taken from."""
+    file_name: _builtins.str
+    """A plain archive file name inside that database's backup directory, resolved server-side. Path
+    separators and traversal sequences are refused.
+    """
+    target_database: _builtins.str
+    """The database to restore into. May differ from 'database'."""
+    overwrite: _builtins.bool
+    """Replace target_database when it already exists. Without it an existing target fails the call
+    with INVALID_ARGUMENT. The existing database is dropped only once the restore into a temporary
+    directory has succeeded, so a failed restore leaves it intact.
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+        file_name: _builtins.str = ...,
+        target_database: _builtins.str = ...,
+        overwrite: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "file_name", b"file_name", "overwrite", b"overwrite", "target_database", b"target_database"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreBackupRequest: _TypeAlias = RestoreBackupRequest  # noqa: Y015
+
+@_typing.final
+class RestoreDatabaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    URL_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    """The database to create from the archive. Must not already exist."""
+    url: _builtins.str
+    """Where the server fetches the archive from. Unless
+    'arcadedb.server.restoreImportAllowLocalUrls' is enabled, only http/https URLs to non-private
+    hosts are accepted.
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+        url: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "url", b"url"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreDatabaseRequest: _TypeAlias = RestoreDatabaseRequest  # noqa: Y015
+
+@_typing.final
+class ImportDatabaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    URL_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    """The database to create and import into. Must not already exist."""
+    url: _builtins.str
+    """Where the server fetches the source from, under the same URL rules as RestoreDatabaseRequest."""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+        url: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database", "url", b"url"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ImportDatabaseRequest: _TypeAlias = ImportDatabaseRequest  # noqa: Y015
+
+@_typing.final
+class RestoreProgress(_message.Message):
+    """One progress event of a running restore."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    COMPLETED_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    completed: _builtins.bool
+    """Set on the last message of the stream and on no other."""
+    message: _builtins.str
+    def __init__(
+        self,
+        *,
+        completed: _builtins.bool = ...,
+        message: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["completed", b"completed", "message", b"message"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___RestoreProgress: _TypeAlias = RestoreProgress  # noqa: Y015
+
+@_typing.final
+class ImportProgress(_message.Message):
+    """One progress event of a running import."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    COMPLETED_FIELD_NUMBER: _builtins.int
+    MESSAGE_FIELD_NUMBER: _builtins.int
+    PARSED_FIELD_NUMBER: _builtins.int
+    VERTICES_FIELD_NUMBER: _builtins.int
+    EDGES_FIELD_NUMBER: _builtins.int
+    RESULT_JSON_FIELD_NUMBER: _builtins.int
+    completed: _builtins.bool
+    """Set on the last message of the stream and on no other."""
+    message: _builtins.str
+    """A progress line from the importer. Empty on a message that carries only counters."""
+    parsed: _builtins.int
+    """Importer counters, sampled once a second. All zero on a message that carries only a line."""
+    vertices: _builtins.int
+    edges: _builtins.int
+    result_json: _builtins.str
+    """The importer's own final report as a JSON document, set only on the completed message. It
+    travels as JSON because its keys are the importer's and change with it.
+    """
+    def __init__(
+        self,
+        *,
+        completed: _builtins.bool = ...,
+        message: _builtins.str = ...,
+        parsed: _builtins.int = ...,
+        vertices: _builtins.int = ...,
+        edges: _builtins.int = ...,
+        result_json: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["completed", b"completed", "edges", b"edges", "message", b"message", "parsed", b"parsed", "result_json", b"result_json", "vertices", b"vertices"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ImportProgress: _TypeAlias = ImportProgress  # noqa: Y015
+
+@_typing.final
+class GetServerEventsRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: server lifecycle and cluster
+    -----------------------------------------------------------------------------
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    FILE_NAME_FIELD_NUMBER: _builtins.int
+    file_name: _builtins.str
+    """Empty reads the current event file."""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        file_name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "file_name", b"file_name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetServerEventsRequest: _TypeAlias = GetServerEventsRequest  # noqa: Y015
+
+@_typing.final
+class GetServerEventsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    EVENTS_JSON_FIELD_NUMBER: _builtins.int
+    FILES_FIELD_NUMBER: _builtins.int
+    events_json: _builtins.str
+    """JSON array of event objects."""
+    @_builtins.property
+    def files(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        events_json: _builtins.str = ...,
+        files: _abc.Iterable[_builtins.str] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["events_json", b"events_json", "files", b"files"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetServerEventsResponse: _TypeAlias = GetServerEventsResponse  # noqa: Y015
+
+@_typing.final
+class ShutdownRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    SERVER_NAME_FIELD_NUMBER: _builtins.int
+    server_name: _builtins.str
+    """Empty shuts down the server that receives the call; otherwise the named HA peer."""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        server_name: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "server_name", b"server_name"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ShutdownRequest: _TypeAlias = ShutdownRequest  # noqa: Y015
+
+@_typing.final
+class ShutdownResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ShutdownResponse: _TypeAlias = ShutdownResponse  # noqa: Y015
+
+@_typing.final
+class DisconnectClusterRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DisconnectClusterRequest: _TypeAlias = DisconnectClusterRequest  # noqa: Y015
+
+@_typing.final
+class DisconnectClusterResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___DisconnectClusterResponse: _TypeAlias = DisconnectClusterResponse  # noqa: Y015
+
+@_typing.final
+class ConnectClusterRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    SERVER_ADDRESS_FIELD_NUMBER: _builtins.int
+    server_address: _builtins.str
+    """The `<host>:<port>` of the server to join, as the HTTP verb's `connect cluster <address>`
+    argument. Not validated here: the HTTP verb accepts an empty argument too and the shared
+    implementation refuses before reading it, so rejecting it on this transport alone would make
+    the two disagree on the same input.
+    """
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        server_address: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "server_address", b"server_address"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ConnectClusterRequest: _TypeAlias = ConnectClusterRequest  # noqa: Y015
+
+@_typing.final
+class ConnectClusterResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ConnectClusterResponse: _TypeAlias = ConnectClusterResponse  # noqa: Y015
+
+@_typing.final
+class OperationProgressInfo(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: discovery (issue #7310)
+    -----------------------------------------------------------------------------
+
+    One long-running maintenance operation (CHECK DATABASE, REBUILD INDEX, COMPACT INDEX, backup,
+    import) currently running on the server that answers the call. Field for field the document
+    OperationProgress.toJSON() emits on GET /api/v1/progress/{database}.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    ID_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    OPERATION_FIELD_NUMBER: _builtins.int
+    STEP_NAME_FIELD_NUMBER: _builtins.int
+    STEP_INDEX_FIELD_NUMBER: _builtins.int
+    TOTAL_STEPS_FIELD_NUMBER: _builtins.int
+    DONE_FIELD_NUMBER: _builtins.int
+    TOTAL_FIELD_NUMBER: _builtins.int
+    PERCENTAGE_FIELD_NUMBER: _builtins.int
+    STARTED_ON_FIELD_NUMBER: _builtins.int
+    ELAPSED_MS_FIELD_NUMBER: _builtins.int
+    id: _builtins.int
+    database: _builtins.str
+    operation: _builtins.str
+    step_name: _builtins.str
+    step_index: _builtins.int
+    total_steps: _builtins.int
+    done: _builtins.int
+    total: _builtins.int
+    """-1 when the step total is unknown"""
+    percentage: _builtins.int
+    """-1 when the step total is unknown"""
+    started_on: _builtins.int
+    elapsed_ms: _builtins.int
+    def __init__(
+        self,
+        *,
+        id: _builtins.int = ...,
+        database: _builtins.str = ...,
+        operation: _builtins.str = ...,
+        step_name: _builtins.str = ...,
+        step_index: _builtins.int = ...,
+        total_steps: _builtins.int = ...,
+        done: _builtins.int = ...,
+        total: _builtins.int = ...,
+        percentage: _builtins.int = ...,
+        started_on: _builtins.int = ...,
+        elapsed_ms: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["database", b"database", "done", b"done", "elapsed_ms", b"elapsed_ms", "id", b"id", "operation", b"operation", "percentage", b"percentage", "started_on", b"started_on", "step_index", b"step_index", "step_name", b"step_name", "total", b"total", "total_steps", b"total_steps"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___OperationProgressInfo: _TypeAlias = OperationProgressInfo  # noqa: Y015
+
+@_typing.final
+class GetProgressRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    """required: the progress registry is keyed by database name"""
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetProgressRequest: _TypeAlias = GetProgressRequest  # noqa: Y015
+
+@_typing.final
+class GetProgressResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    OPERATIONS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def operations(self) -> _containers.RepeatedCompositeFieldContainer[Global___OperationProgressInfo]:
+        """Oldest first, the order the registry snapshots them in. Empty when nothing is running - which is
+        the normal answer, not an error.
+
+        No 'count' field, deliberately, even though ListSessionsResponse below has one: each response
+        mirrors the shape of the HTTP route it answers, and GET /api/v1/progress/{database} returns only
+        'result' while GET /api/v1/sessions returns 'result' and 'count'. Adding one here to make the two
+        messages look alike would make each of them look less like the document it mirrors.
+        """
+
+    def __init__(
+        self,
+        *,
+        operations: _abc.Iterable[Global___OperationProgressInfo] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["operations", b"operations"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GetProgressResponse: _TypeAlias = GetProgressResponse  # noqa: Y015
+
+@_typing.final
+class SessionInfo(_message.Message):
+    """One open HTTP authentication session, field for field the document GET /api/v1/sessions emits.
+    The token is included for the same reason the HTTP route includes it and to the same principal
+    (root only): the two views would otherwise disagree about what an administrator can see.
+
+    OPERATORS: that token is a live bearer credential for the HTTP surface, and one belonging to
+    ANOTHER user, not to the caller. This transport does not enable TLS by default (grpc.tls.enabled),
+    so a plaintext admin channel carrying ListSessions puts every open session's token on the wire
+    where anything between the client and the server can take it. Turn TLS on before reaching any admin
+    RPC across a network you do not control; this one raises the cost of not having done so.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TOKEN_FIELD_NUMBER: _builtins.int
+    USER_FIELD_NUMBER: _builtins.int
+    CREATED_AT_FIELD_NUMBER: _builtins.int
+    LAST_UPDATE_FIELD_NUMBER: _builtins.int
+    ELAPSED_MS_FIELD_NUMBER: _builtins.int
+    SOURCE_IP_FIELD_NUMBER: _builtins.int
+    USER_AGENT_FIELD_NUMBER: _builtins.int
+    COUNTRY_FIELD_NUMBER: _builtins.int
+    CITY_FIELD_NUMBER: _builtins.int
+    token: _builtins.str
+    user: _builtins.str
+    created_at: _builtins.int
+    last_update: _builtins.int
+    elapsed_ms: _builtins.int
+    source_ip: _builtins.str
+    user_agent: _builtins.str
+    country: _builtins.str
+    city: _builtins.str
+    def __init__(
+        self,
+        *,
+        token: _builtins.str = ...,
+        user: _builtins.str = ...,
+        created_at: _builtins.int = ...,
+        last_update: _builtins.int = ...,
+        elapsed_ms: _builtins.int = ...,
+        source_ip: _builtins.str = ...,
+        user_agent: _builtins.str = ...,
+        country: _builtins.str = ...,
+        city: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["city", b"city", "country", b"country", "created_at", b"created_at", "elapsed_ms", b"elapsed_ms", "last_update", b"last_update", "source_ip", b"source_ip", "token", b"token", "user", b"user", "user_agent", b"user_agent"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___SessionInfo: _TypeAlias = SessionInfo  # noqa: Y015
+
+@_typing.final
+class ListSessionsRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListSessionsRequest: _TypeAlias = ListSessionsRequest  # noqa: Y015
+
+@_typing.final
+class ListSessionsResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    SESSIONS_FIELD_NUMBER: _builtins.int
+    COUNT_FIELD_NUMBER: _builtins.int
+    count: _builtins.int
+    @_builtins.property
+    def sessions(self) -> _containers.RepeatedCompositeFieldContainer[Global___SessionInfo]:
+        """Empty on a server running without the HTTP listener: there are no HTTP sessions to report, which
+        is an answer rather than a failure.
+        """
+
+    def __init__(
+        self,
+        *,
+        sessions: _abc.Iterable[Global___SessionInfo] | None = ...,
+        count: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["count", b"count", "sessions", b"sessions"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ListSessionsResponse: _TypeAlias = ListSessionsResponse  # noqa: Y015
+
+@_typing.final
+class HealthRequest(_message.Message):
+    """-----------------------------------------------------------------------------
+    Control plane: probes
+    -----------------------------------------------------------------------------
+
+    Liveness, the equivalent of GET /api/v1/health. Unauthenticated: reaching the handler is the
+    whole answer, and a probe that needs credentials is not usable as a container liveness probe.
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___HealthRequest: _TypeAlias = HealthRequest  # noqa: Y015
+
+@_typing.final
+class HealthResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    OK_FIELD_NUMBER: _builtins.int
+    ok: _builtins.bool
+    def __init__(
+        self,
+        *,
+        ok: _builtins.bool = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ok", b"ok"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___HealthResponse: _TypeAlias = HealthResponse  # noqa: Y015
+
+@_typing.final
+class ReadyRequest(_message.Message):
+    """Readiness, the equivalent of GET /api/v1/ready. Unauthenticated for the same reason as Health."""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ReadyRequest: _TypeAlias = ReadyRequest  # noqa: Y015
+
+@_typing.final
+class ReadyResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    READY_FIELD_NUMBER: _builtins.int
+    REASON_FIELD_NUMBER: _builtins.int
+    ready: _builtins.bool
+    reason: _builtins.str
+    """Why the node is not ready; empty when it is."""
+    def __init__(
+        self,
+        *,
+        ready: _builtins.bool = ...,
+        reason: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ready", b"ready", "reason", b"reason"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___ReadyResponse: _TypeAlias = ReadyResponse  # noqa: Y015

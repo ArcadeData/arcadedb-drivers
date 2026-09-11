@@ -65,6 +65,23 @@ class ArcadeDbServiceStub:
     RollbackTransaction: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.RollbackTransactionRequest, _arcadedb_server_pb2.RollbackTransactionResponse]
     GraphBatchLoad: _grpc.StreamUnaryMultiCallable[_arcadedb_server_pb2.GraphBatchChunk, _arcadedb_server_pb2.GraphBatchResult]
     """Graph batch load (client-streaming)"""
+    VectorSearch: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.VectorSearchRequest, _arcadedb_server_pb2.VectorSearchResponse]
+    """Vector, hybrid and full-text retrieval (issue #7306). Every bound these enforce - k, ef_search, the filter
+    length, the full-text limit, the expansion caps - is enforced by the same server-side implementation the
+    HTTP /api/v1/vector/* routes and the MCP search tools call, so a request that is legal on one protocol is
+    legal on all of them and rejected with the same message everywhere.
+    """
+    HybridSearch: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.HybridSearchRequest, _arcadedb_server_pb2.HybridSearchResponse]
+    FullTextSearch: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.FullTextSearchRequest, _arcadedb_server_pb2.FullTextSearchResponse]
+    TimeSeriesWrite: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesWriteRequest, _arcadedb_server_pb2.TimeSeriesWriteSummary]
+    """Time series (issue #7305). The streaming write is the one that matters most: time-series ingest is
+    high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
+    answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
+    server's heap.
+    """
+    TimeSeriesWriteStream: _grpc.StreamUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesWriteChunk, _arcadedb_server_pb2.TimeSeriesWriteSummary]
+    TimeSeriesQuery: _grpc.UnaryStreamMultiCallable[_arcadedb_server_pb2.TimeSeriesQueryRequest, _arcadedb_server_pb2.TimeSeriesQueryResult]
+    TimeSeriesLatest: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesLatestRequest, _arcadedb_server_pb2.TimeSeriesLatestResponse]
 
 @_typing.type_check_only
 class ArcadeDbServiceAsyncStub(ArcadeDbServiceStub):
@@ -89,6 +106,23 @@ class ArcadeDbServiceAsyncStub(ArcadeDbServiceStub):
     RollbackTransaction: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.RollbackTransactionRequest, _arcadedb_server_pb2.RollbackTransactionResponse]  # type: ignore[assignment]
     GraphBatchLoad: _aio.StreamUnaryMultiCallable[_arcadedb_server_pb2.GraphBatchChunk, _arcadedb_server_pb2.GraphBatchResult]  # type: ignore[assignment]
     """Graph batch load (client-streaming)"""
+    VectorSearch: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.VectorSearchRequest, _arcadedb_server_pb2.VectorSearchResponse]  # type: ignore[assignment]
+    """Vector, hybrid and full-text retrieval (issue #7306). Every bound these enforce - k, ef_search, the filter
+    length, the full-text limit, the expansion caps - is enforced by the same server-side implementation the
+    HTTP /api/v1/vector/* routes and the MCP search tools call, so a request that is legal on one protocol is
+    legal on all of them and rejected with the same message everywhere.
+    """
+    HybridSearch: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.HybridSearchRequest, _arcadedb_server_pb2.HybridSearchResponse]  # type: ignore[assignment]
+    FullTextSearch: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.FullTextSearchRequest, _arcadedb_server_pb2.FullTextSearchResponse]  # type: ignore[assignment]
+    TimeSeriesWrite: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesWriteRequest, _arcadedb_server_pb2.TimeSeriesWriteSummary]  # type: ignore[assignment]
+    """Time series (issue #7305). The streaming write is the one that matters most: time-series ingest is
+    high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
+    answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
+    server's heap.
+    """
+    TimeSeriesWriteStream: _aio.StreamUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesWriteChunk, _arcadedb_server_pb2.TimeSeriesWriteSummary]  # type: ignore[assignment]
+    TimeSeriesQuery: _aio.UnaryStreamMultiCallable[_arcadedb_server_pb2.TimeSeriesQueryRequest, _arcadedb_server_pb2.TimeSeriesQueryResult]  # type: ignore[assignment]
+    TimeSeriesLatest: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesLatestRequest, _arcadedb_server_pb2.TimeSeriesLatestResponse]  # type: ignore[assignment]
 
 class ArcadeDbServiceServicer(metaclass=_abc_1.ABCMeta):
     @_abc_1.abstractmethod
@@ -195,12 +229,95 @@ class ArcadeDbServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_arcadedb_server_pb2.GraphBatchResult, _abc.Awaitable[_arcadedb_server_pb2.GraphBatchResult]]:
         """Graph batch load (client-streaming)"""
 
+    @_abc_1.abstractmethod
+    def VectorSearch(
+        self,
+        request: _arcadedb_server_pb2.VectorSearchRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.VectorSearchResponse, _abc.Awaitable[_arcadedb_server_pb2.VectorSearchResponse]]:
+        """Vector, hybrid and full-text retrieval (issue #7306). Every bound these enforce - k, ef_search, the filter
+        length, the full-text limit, the expansion caps - is enforced by the same server-side implementation the
+        HTTP /api/v1/vector/* routes and the MCP search tools call, so a request that is legal on one protocol is
+        legal on all of them and rejected with the same message everywhere.
+        """
+
+    @_abc_1.abstractmethod
+    def HybridSearch(
+        self,
+        request: _arcadedb_server_pb2.HybridSearchRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.HybridSearchResponse, _abc.Awaitable[_arcadedb_server_pb2.HybridSearchResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def FullTextSearch(
+        self,
+        request: _arcadedb_server_pb2.FullTextSearchRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.FullTextSearchResponse, _abc.Awaitable[_arcadedb_server_pb2.FullTextSearchResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def TimeSeriesWrite(
+        self,
+        request: _arcadedb_server_pb2.TimeSeriesWriteRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.TimeSeriesWriteSummary, _abc.Awaitable[_arcadedb_server_pb2.TimeSeriesWriteSummary]]:
+        """Time series (issue #7305). The streaming write is the one that matters most: time-series ingest is
+        high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
+        answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
+        server's heap.
+        """
+
+    @_abc_1.abstractmethod
+    def TimeSeriesWriteStream(
+        self,
+        request_iterator: _MaybeAsyncIterator[_arcadedb_server_pb2.TimeSeriesWriteChunk],
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.TimeSeriesWriteSummary, _abc.Awaitable[_arcadedb_server_pb2.TimeSeriesWriteSummary]]: ...
+
+    @_abc_1.abstractmethod
+    def TimeSeriesQuery(
+        self,
+        request: _arcadedb_server_pb2.TimeSeriesQueryRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_abc.Iterator[_arcadedb_server_pb2.TimeSeriesQueryResult], _abc.AsyncIterator[_arcadedb_server_pb2.TimeSeriesQueryResult]]: ...
+
+    @_abc_1.abstractmethod
+    def TimeSeriesLatest(
+        self,
+        request: _arcadedb_server_pb2.TimeSeriesLatestRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.TimeSeriesLatestResponse, _abc.Awaitable[_arcadedb_server_pb2.TimeSeriesLatestResponse]]: ...
+
 def add_ArcadeDbServiceServicer_to_server(servicer: ArcadeDbServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...
 
 class ArcadeDbAdminServiceStub:
     """-----------------------------------------------------------------------------
     Admin service
     -----------------------------------------------------------------------------
+
+    The control plane. Every RPC here reaches the same implementation the HTTP control plane reaches
+    (com.arcadedb.server.ServerControlPlane), so the two protocols cannot drift apart on what an
+    administrative operation does - see issue #7304.
+
+    Authentication is enforced centrally by GrpcAuthInterceptor from the 'credentials' field every
+    request carries, before the call reaches a handler. Health and Ready are exempt from it, exactly
+    as GET /health and GET /ready are unauthenticated over HTTP, so a container orchestrator can probe
+    the node without credentials.
+
+    Authorization on top of that is per RPC, and mirrors what the HTTP counterpart of each operation
+    requires:
+      - Ping, GetServerInfo, ListDatabases, ExistsDatabase and GetDatabaseInfo need only a valid
+        account, as GET /api/v1/databases and GET /api/v1/server do;
+      - GetProgress needs a valid account that is also granted the database it names, the gate
+        GET /api/v1/progress/{database} applies through checkAuthorizationOnDatabase;
+      - every other RPC needs the server-admin (root) principal, the gate POST /api/v1/server and the
+        /api/v1/server/* routes apply through checkRootUser.
+
+    Leader routing: CreateDatabase, DropDatabase, CreateUser, DeleteUser, RestoreBackup,
+    RestoreDatabase and ImportDatabase are refused on a follower
+    with FAILED_PRECONDITION and the leader's address on the arcadedb-leader-* trailers. That is this
+    transport's equivalent of the HTTP handler forwarding those four commands to the leader; gRPC has
+    no request proxy, so the caller redirects itself.
     """
 
     @_typing.overload
@@ -213,15 +330,94 @@ class ArcadeDbAdminServiceStub:
     ExistsDatabase: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ExistsDatabaseRequest, _arcadedb_server_pb2.ExistsDatabaseResponse]
     CreateDatabase: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CreateDatabaseRequest, _arcadedb_server_pb2.CreateDatabaseResponse]
     DropDatabase: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DropDatabaseRequest, _arcadedb_server_pb2.DropDatabaseResponse]
+    OpenDatabase: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.OpenDatabaseRequest, _arcadedb_server_pb2.OpenDatabaseResponse]
+    CloseDatabase: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CloseDatabaseRequest, _arcadedb_server_pb2.CloseDatabaseResponse]
+    AlignDatabase: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.AlignDatabaseRequest, _arcadedb_server_pb2.AlignDatabaseResponse]
     GetDatabaseInfo: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetDatabaseInfoRequest, _arcadedb_server_pb2.GetDatabaseInfoResponse]
+    GetProgress: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetProgressRequest, _arcadedb_server_pb2.GetProgressResponse]
     CreateUser: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CreateUserRequest, _arcadedb_server_pb2.CreateUserResponse]
+    UpdateUser: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.UpdateUserRequest, _arcadedb_server_pb2.UpdateUserResponse]
     DeleteUser: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteUserRequest, _arcadedb_server_pb2.DeleteUserResponse]
+    ListUsers: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListUsersRequest, _arcadedb_server_pb2.ListUsersResponse]
+    ListGroups: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListGroupsRequest, _arcadedb_server_pb2.ListGroupsResponse]
+    """groups - the per-database permission documents users hold through the 'databases' map above"""
+    SaveGroup: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SaveGroupRequest, _arcadedb_server_pb2.SaveGroupResponse]
+    DeleteGroup: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteGroupRequest, _arcadedb_server_pb2.DeleteGroupResponse]
+    ListApiTokens: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListApiTokensRequest, _arcadedb_server_pb2.ListApiTokensResponse]
+    """API tokens. CreateApiToken returns secret material and is gated on transport security; see the
+    comment on CreateApiTokenResponse.
+    """
+    CreateApiToken: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CreateApiTokenRequest, _arcadedb_server_pb2.CreateApiTokenResponse]
+    DeleteApiToken: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteApiTokenRequest, _arcadedb_server_pb2.DeleteApiTokenResponse]
+    SetServerSetting: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SetServerSettingRequest, _arcadedb_server_pb2.SetServerSettingResponse]
+    """settings"""
+    SetDatabaseSetting: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SetDatabaseSettingRequest, _arcadedb_server_pb2.SetDatabaseSettingResponse]
+    GetBackupConfig: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetBackupConfigRequest, _arcadedb_server_pb2.GetBackupConfigResponse]
+    """backup"""
+    SetBackupConfig: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SetBackupConfigRequest, _arcadedb_server_pb2.SetBackupConfigResponse]
+    ListBackups: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListBackupsRequest, _arcadedb_server_pb2.ListBackupsResponse]
+    TriggerBackup: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.TriggerBackupRequest, _arcadedb_server_pb2.TriggerBackupResponse]
+    DeleteBackup: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteBackupRequest, _arcadedb_server_pb2.DeleteBackupResponse]
+    ProfilerStart: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerStartRequest, _arcadedb_server_pb2.ProfilerStateResponse]
+    """query profiler"""
+    ProfilerStop: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerStopRequest, _arcadedb_server_pb2.ProfilerDocumentResponse]
+    ProfilerReset: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerResetRequest, _arcadedb_server_pb2.ProfilerStateResponse]
+    ProfilerResults: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerResultsRequest, _arcadedb_server_pb2.ProfilerDocumentResponse]
+    ProfilerList: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerListRequest, _arcadedb_server_pb2.ProfilerListResponse]
+    ProfilerLoad: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerLoadRequest, _arcadedb_server_pb2.ProfilerDocumentResponse]
+    RestoreBackup: _grpc.UnaryStreamMultiCallable[_arcadedb_server_pb2.RestoreBackupRequest, _arcadedb_server_pb2.RestoreProgress]
+    """restore and import - server-streaming, see the RestoreProgress section below"""
+    RestoreDatabase: _grpc.UnaryStreamMultiCallable[_arcadedb_server_pb2.RestoreDatabaseRequest, _arcadedb_server_pb2.RestoreProgress]
+    ImportDatabase: _grpc.UnaryStreamMultiCallable[_arcadedb_server_pb2.ImportDatabaseRequest, _arcadedb_server_pb2.ImportProgress]
+    GetServerEvents: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetServerEventsRequest, _arcadedb_server_pb2.GetServerEventsResponse]
+    """server lifecycle and cluster"""
+    Shutdown: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ShutdownRequest, _arcadedb_server_pb2.ShutdownResponse]
+    DisconnectCluster: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DisconnectClusterRequest, _arcadedb_server_pb2.DisconnectClusterResponse]
+    ConnectCluster: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ConnectClusterRequest, _arcadedb_server_pb2.ConnectClusterResponse]
+    """The other half of the cluster pair (issue #7400). A thin adapter over the same
+    ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
+    cannot answer the verb differently. The current HA stack does not implement a client-initiated
+    join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
+    issue #7401.
+    """
+    ListSessions: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListSessionsRequest, _arcadedb_server_pb2.ListSessionsResponse]
+    """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
+    session of its own - every admin RPC authenticates from the credentials on the request body - so
+    there is no Login/Logout to go with it (issue #7310).
+    """
+    Health: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.HealthRequest, _arcadedb_server_pb2.HealthResponse]
+    """probes - unauthenticated, see the service comment"""
+    Ready: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ReadyRequest, _arcadedb_server_pb2.ReadyResponse]
 
 @_typing.type_check_only
 class ArcadeDbAdminServiceAsyncStub(ArcadeDbAdminServiceStub):
     """-----------------------------------------------------------------------------
     Admin service
     -----------------------------------------------------------------------------
+
+    The control plane. Every RPC here reaches the same implementation the HTTP control plane reaches
+    (com.arcadedb.server.ServerControlPlane), so the two protocols cannot drift apart on what an
+    administrative operation does - see issue #7304.
+
+    Authentication is enforced centrally by GrpcAuthInterceptor from the 'credentials' field every
+    request carries, before the call reaches a handler. Health and Ready are exempt from it, exactly
+    as GET /health and GET /ready are unauthenticated over HTTP, so a container orchestrator can probe
+    the node without credentials.
+
+    Authorization on top of that is per RPC, and mirrors what the HTTP counterpart of each operation
+    requires:
+      - Ping, GetServerInfo, ListDatabases, ExistsDatabase and GetDatabaseInfo need only a valid
+        account, as GET /api/v1/databases and GET /api/v1/server do;
+      - GetProgress needs a valid account that is also granted the database it names, the gate
+        GET /api/v1/progress/{database} applies through checkAuthorizationOnDatabase;
+      - every other RPC needs the server-admin (root) principal, the gate POST /api/v1/server and the
+        /api/v1/server/* routes apply through checkRootUser.
+
+    Leader routing: CreateDatabase, DropDatabase, CreateUser, DeleteUser, RestoreBackup,
+    RestoreDatabase and ImportDatabase are refused on a follower
+    with FAILED_PRECONDITION and the leader's address on the arcadedb-leader-* trailers. That is this
+    transport's equivalent of the HTTP handler forwarding those four commands to the leader; gRPC has
+    no request proxy, so the caller redirects itself.
     """
 
     def __init__(self, channel: _aio.Channel) -> None: ...
@@ -231,14 +427,93 @@ class ArcadeDbAdminServiceAsyncStub(ArcadeDbAdminServiceStub):
     ExistsDatabase: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ExistsDatabaseRequest, _arcadedb_server_pb2.ExistsDatabaseResponse]  # type: ignore[assignment]
     CreateDatabase: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CreateDatabaseRequest, _arcadedb_server_pb2.CreateDatabaseResponse]  # type: ignore[assignment]
     DropDatabase: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DropDatabaseRequest, _arcadedb_server_pb2.DropDatabaseResponse]  # type: ignore[assignment]
+    OpenDatabase: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.OpenDatabaseRequest, _arcadedb_server_pb2.OpenDatabaseResponse]  # type: ignore[assignment]
+    CloseDatabase: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CloseDatabaseRequest, _arcadedb_server_pb2.CloseDatabaseResponse]  # type: ignore[assignment]
+    AlignDatabase: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.AlignDatabaseRequest, _arcadedb_server_pb2.AlignDatabaseResponse]  # type: ignore[assignment]
     GetDatabaseInfo: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetDatabaseInfoRequest, _arcadedb_server_pb2.GetDatabaseInfoResponse]  # type: ignore[assignment]
+    GetProgress: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetProgressRequest, _arcadedb_server_pb2.GetProgressResponse]  # type: ignore[assignment]
     CreateUser: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CreateUserRequest, _arcadedb_server_pb2.CreateUserResponse]  # type: ignore[assignment]
+    UpdateUser: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.UpdateUserRequest, _arcadedb_server_pb2.UpdateUserResponse]  # type: ignore[assignment]
     DeleteUser: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteUserRequest, _arcadedb_server_pb2.DeleteUserResponse]  # type: ignore[assignment]
+    ListUsers: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListUsersRequest, _arcadedb_server_pb2.ListUsersResponse]  # type: ignore[assignment]
+    ListGroups: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListGroupsRequest, _arcadedb_server_pb2.ListGroupsResponse]  # type: ignore[assignment]
+    """groups - the per-database permission documents users hold through the 'databases' map above"""
+    SaveGroup: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SaveGroupRequest, _arcadedb_server_pb2.SaveGroupResponse]  # type: ignore[assignment]
+    DeleteGroup: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteGroupRequest, _arcadedb_server_pb2.DeleteGroupResponse]  # type: ignore[assignment]
+    ListApiTokens: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListApiTokensRequest, _arcadedb_server_pb2.ListApiTokensResponse]  # type: ignore[assignment]
+    """API tokens. CreateApiToken returns secret material and is gated on transport security; see the
+    comment on CreateApiTokenResponse.
+    """
+    CreateApiToken: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.CreateApiTokenRequest, _arcadedb_server_pb2.CreateApiTokenResponse]  # type: ignore[assignment]
+    DeleteApiToken: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteApiTokenRequest, _arcadedb_server_pb2.DeleteApiTokenResponse]  # type: ignore[assignment]
+    SetServerSetting: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SetServerSettingRequest, _arcadedb_server_pb2.SetServerSettingResponse]  # type: ignore[assignment]
+    """settings"""
+    SetDatabaseSetting: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SetDatabaseSettingRequest, _arcadedb_server_pb2.SetDatabaseSettingResponse]  # type: ignore[assignment]
+    GetBackupConfig: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetBackupConfigRequest, _arcadedb_server_pb2.GetBackupConfigResponse]  # type: ignore[assignment]
+    """backup"""
+    SetBackupConfig: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.SetBackupConfigRequest, _arcadedb_server_pb2.SetBackupConfigResponse]  # type: ignore[assignment]
+    ListBackups: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListBackupsRequest, _arcadedb_server_pb2.ListBackupsResponse]  # type: ignore[assignment]
+    TriggerBackup: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.TriggerBackupRequest, _arcadedb_server_pb2.TriggerBackupResponse]  # type: ignore[assignment]
+    DeleteBackup: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DeleteBackupRequest, _arcadedb_server_pb2.DeleteBackupResponse]  # type: ignore[assignment]
+    ProfilerStart: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerStartRequest, _arcadedb_server_pb2.ProfilerStateResponse]  # type: ignore[assignment]
+    """query profiler"""
+    ProfilerStop: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerStopRequest, _arcadedb_server_pb2.ProfilerDocumentResponse]  # type: ignore[assignment]
+    ProfilerReset: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerResetRequest, _arcadedb_server_pb2.ProfilerStateResponse]  # type: ignore[assignment]
+    ProfilerResults: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerResultsRequest, _arcadedb_server_pb2.ProfilerDocumentResponse]  # type: ignore[assignment]
+    ProfilerList: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerListRequest, _arcadedb_server_pb2.ProfilerListResponse]  # type: ignore[assignment]
+    ProfilerLoad: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ProfilerLoadRequest, _arcadedb_server_pb2.ProfilerDocumentResponse]  # type: ignore[assignment]
+    RestoreBackup: _aio.UnaryStreamMultiCallable[_arcadedb_server_pb2.RestoreBackupRequest, _arcadedb_server_pb2.RestoreProgress]  # type: ignore[assignment]
+    """restore and import - server-streaming, see the RestoreProgress section below"""
+    RestoreDatabase: _aio.UnaryStreamMultiCallable[_arcadedb_server_pb2.RestoreDatabaseRequest, _arcadedb_server_pb2.RestoreProgress]  # type: ignore[assignment]
+    ImportDatabase: _aio.UnaryStreamMultiCallable[_arcadedb_server_pb2.ImportDatabaseRequest, _arcadedb_server_pb2.ImportProgress]  # type: ignore[assignment]
+    GetServerEvents: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.GetServerEventsRequest, _arcadedb_server_pb2.GetServerEventsResponse]  # type: ignore[assignment]
+    """server lifecycle and cluster"""
+    Shutdown: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ShutdownRequest, _arcadedb_server_pb2.ShutdownResponse]  # type: ignore[assignment]
+    DisconnectCluster: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.DisconnectClusterRequest, _arcadedb_server_pb2.DisconnectClusterResponse]  # type: ignore[assignment]
+    ConnectCluster: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ConnectClusterRequest, _arcadedb_server_pb2.ConnectClusterResponse]  # type: ignore[assignment]
+    """The other half of the cluster pair (issue #7400). A thin adapter over the same
+    ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
+    cannot answer the verb differently. The current HA stack does not implement a client-initiated
+    join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
+    issue #7401.
+    """
+    ListSessions: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListSessionsRequest, _arcadedb_server_pb2.ListSessionsResponse]  # type: ignore[assignment]
+    """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
+    session of its own - every admin RPC authenticates from the credentials on the request body - so
+    there is no Login/Logout to go with it (issue #7310).
+    """
+    Health: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.HealthRequest, _arcadedb_server_pb2.HealthResponse]  # type: ignore[assignment]
+    """probes - unauthenticated, see the service comment"""
+    Ready: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ReadyRequest, _arcadedb_server_pb2.ReadyResponse]  # type: ignore[assignment]
 
 class ArcadeDbAdminServiceServicer(metaclass=_abc_1.ABCMeta):
     """-----------------------------------------------------------------------------
     Admin service
     -----------------------------------------------------------------------------
+
+    The control plane. Every RPC here reaches the same implementation the HTTP control plane reaches
+    (com.arcadedb.server.ServerControlPlane), so the two protocols cannot drift apart on what an
+    administrative operation does - see issue #7304.
+
+    Authentication is enforced centrally by GrpcAuthInterceptor from the 'credentials' field every
+    request carries, before the call reaches a handler. Health and Ready are exempt from it, exactly
+    as GET /health and GET /ready are unauthenticated over HTTP, so a container orchestrator can probe
+    the node without credentials.
+
+    Authorization on top of that is per RPC, and mirrors what the HTTP counterpart of each operation
+    requires:
+      - Ping, GetServerInfo, ListDatabases, ExistsDatabase and GetDatabaseInfo need only a valid
+        account, as GET /api/v1/databases and GET /api/v1/server do;
+      - GetProgress needs a valid account that is also granted the database it names, the gate
+        GET /api/v1/progress/{database} applies through checkAuthorizationOnDatabase;
+      - every other RPC needs the server-admin (root) principal, the gate POST /api/v1/server and the
+        /api/v1/server/* routes apply through checkRootUser.
+
+    Leader routing: CreateDatabase, DropDatabase, CreateUser, DeleteUser, RestoreBackup,
+    RestoreDatabase and ImportDatabase are refused on a follower
+    with FAILED_PRECONDITION and the leader's address on the arcadedb-leader-* trailers. That is this
+    transport's equivalent of the HTTP handler forwarding those four commands to the leader; gRPC has
+    no request proxy, so the caller redirects itself.
     """
 
     @_abc_1.abstractmethod
@@ -284,11 +559,39 @@ class ArcadeDbAdminServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_arcadedb_server_pb2.DropDatabaseResponse, _abc.Awaitable[_arcadedb_server_pb2.DropDatabaseResponse]]: ...
 
     @_abc_1.abstractmethod
+    def OpenDatabase(
+        self,
+        request: _arcadedb_server_pb2.OpenDatabaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.OpenDatabaseResponse, _abc.Awaitable[_arcadedb_server_pb2.OpenDatabaseResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def CloseDatabase(
+        self,
+        request: _arcadedb_server_pb2.CloseDatabaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.CloseDatabaseResponse, _abc.Awaitable[_arcadedb_server_pb2.CloseDatabaseResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def AlignDatabase(
+        self,
+        request: _arcadedb_server_pb2.AlignDatabaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.AlignDatabaseResponse, _abc.Awaitable[_arcadedb_server_pb2.AlignDatabaseResponse]]: ...
+
+    @_abc_1.abstractmethod
     def GetDatabaseInfo(
         self,
         request: _arcadedb_server_pb2.GetDatabaseInfoRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_arcadedb_server_pb2.GetDatabaseInfoResponse, _abc.Awaitable[_arcadedb_server_pb2.GetDatabaseInfoResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetProgress(
+        self,
+        request: _arcadedb_server_pb2.GetProgressRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.GetProgressResponse, _abc.Awaitable[_arcadedb_server_pb2.GetProgressResponse]]: ...
 
     @_abc_1.abstractmethod
     def CreateUser(
@@ -298,10 +601,247 @@ class ArcadeDbAdminServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_arcadedb_server_pb2.CreateUserResponse, _abc.Awaitable[_arcadedb_server_pb2.CreateUserResponse]]: ...
 
     @_abc_1.abstractmethod
+    def UpdateUser(
+        self,
+        request: _arcadedb_server_pb2.UpdateUserRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.UpdateUserResponse, _abc.Awaitable[_arcadedb_server_pb2.UpdateUserResponse]]: ...
+
+    @_abc_1.abstractmethod
     def DeleteUser(
         self,
         request: _arcadedb_server_pb2.DeleteUserRequest,
         context: _ServicerContext,
     ) -> _typing.Union[_arcadedb_server_pb2.DeleteUserResponse, _abc.Awaitable[_arcadedb_server_pb2.DeleteUserResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ListUsers(
+        self,
+        request: _arcadedb_server_pb2.ListUsersRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ListUsersResponse, _abc.Awaitable[_arcadedb_server_pb2.ListUsersResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ListGroups(
+        self,
+        request: _arcadedb_server_pb2.ListGroupsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ListGroupsResponse, _abc.Awaitable[_arcadedb_server_pb2.ListGroupsResponse]]:
+        """groups - the per-database permission documents users hold through the 'databases' map above"""
+
+    @_abc_1.abstractmethod
+    def SaveGroup(
+        self,
+        request: _arcadedb_server_pb2.SaveGroupRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.SaveGroupResponse, _abc.Awaitable[_arcadedb_server_pb2.SaveGroupResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def DeleteGroup(
+        self,
+        request: _arcadedb_server_pb2.DeleteGroupRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.DeleteGroupResponse, _abc.Awaitable[_arcadedb_server_pb2.DeleteGroupResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ListApiTokens(
+        self,
+        request: _arcadedb_server_pb2.ListApiTokensRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ListApiTokensResponse, _abc.Awaitable[_arcadedb_server_pb2.ListApiTokensResponse]]:
+        """API tokens. CreateApiToken returns secret material and is gated on transport security; see the
+        comment on CreateApiTokenResponse.
+        """
+
+    @_abc_1.abstractmethod
+    def CreateApiToken(
+        self,
+        request: _arcadedb_server_pb2.CreateApiTokenRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.CreateApiTokenResponse, _abc.Awaitable[_arcadedb_server_pb2.CreateApiTokenResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def DeleteApiToken(
+        self,
+        request: _arcadedb_server_pb2.DeleteApiTokenRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.DeleteApiTokenResponse, _abc.Awaitable[_arcadedb_server_pb2.DeleteApiTokenResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def SetServerSetting(
+        self,
+        request: _arcadedb_server_pb2.SetServerSettingRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.SetServerSettingResponse, _abc.Awaitable[_arcadedb_server_pb2.SetServerSettingResponse]]:
+        """settings"""
+
+    @_abc_1.abstractmethod
+    def SetDatabaseSetting(
+        self,
+        request: _arcadedb_server_pb2.SetDatabaseSettingRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.SetDatabaseSettingResponse, _abc.Awaitable[_arcadedb_server_pb2.SetDatabaseSettingResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def GetBackupConfig(
+        self,
+        request: _arcadedb_server_pb2.GetBackupConfigRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.GetBackupConfigResponse, _abc.Awaitable[_arcadedb_server_pb2.GetBackupConfigResponse]]:
+        """backup"""
+
+    @_abc_1.abstractmethod
+    def SetBackupConfig(
+        self,
+        request: _arcadedb_server_pb2.SetBackupConfigRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.SetBackupConfigResponse, _abc.Awaitable[_arcadedb_server_pb2.SetBackupConfigResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ListBackups(
+        self,
+        request: _arcadedb_server_pb2.ListBackupsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ListBackupsResponse, _abc.Awaitable[_arcadedb_server_pb2.ListBackupsResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def TriggerBackup(
+        self,
+        request: _arcadedb_server_pb2.TriggerBackupRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.TriggerBackupResponse, _abc.Awaitable[_arcadedb_server_pb2.TriggerBackupResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def DeleteBackup(
+        self,
+        request: _arcadedb_server_pb2.DeleteBackupRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.DeleteBackupResponse, _abc.Awaitable[_arcadedb_server_pb2.DeleteBackupResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ProfilerStart(
+        self,
+        request: _arcadedb_server_pb2.ProfilerStartRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ProfilerStateResponse, _abc.Awaitable[_arcadedb_server_pb2.ProfilerStateResponse]]:
+        """query profiler"""
+
+    @_abc_1.abstractmethod
+    def ProfilerStop(
+        self,
+        request: _arcadedb_server_pb2.ProfilerStopRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ProfilerDocumentResponse, _abc.Awaitable[_arcadedb_server_pb2.ProfilerDocumentResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ProfilerReset(
+        self,
+        request: _arcadedb_server_pb2.ProfilerResetRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ProfilerStateResponse, _abc.Awaitable[_arcadedb_server_pb2.ProfilerStateResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ProfilerResults(
+        self,
+        request: _arcadedb_server_pb2.ProfilerResultsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ProfilerDocumentResponse, _abc.Awaitable[_arcadedb_server_pb2.ProfilerDocumentResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ProfilerList(
+        self,
+        request: _arcadedb_server_pb2.ProfilerListRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ProfilerListResponse, _abc.Awaitable[_arcadedb_server_pb2.ProfilerListResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ProfilerLoad(
+        self,
+        request: _arcadedb_server_pb2.ProfilerLoadRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ProfilerDocumentResponse, _abc.Awaitable[_arcadedb_server_pb2.ProfilerDocumentResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def RestoreBackup(
+        self,
+        request: _arcadedb_server_pb2.RestoreBackupRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_abc.Iterator[_arcadedb_server_pb2.RestoreProgress], _abc.AsyncIterator[_arcadedb_server_pb2.RestoreProgress]]:
+        """restore and import - server-streaming, see the RestoreProgress section below"""
+
+    @_abc_1.abstractmethod
+    def RestoreDatabase(
+        self,
+        request: _arcadedb_server_pb2.RestoreDatabaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_abc.Iterator[_arcadedb_server_pb2.RestoreProgress], _abc.AsyncIterator[_arcadedb_server_pb2.RestoreProgress]]: ...
+
+    @_abc_1.abstractmethod
+    def ImportDatabase(
+        self,
+        request: _arcadedb_server_pb2.ImportDatabaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_abc.Iterator[_arcadedb_server_pb2.ImportProgress], _abc.AsyncIterator[_arcadedb_server_pb2.ImportProgress]]: ...
+
+    @_abc_1.abstractmethod
+    def GetServerEvents(
+        self,
+        request: _arcadedb_server_pb2.GetServerEventsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.GetServerEventsResponse, _abc.Awaitable[_arcadedb_server_pb2.GetServerEventsResponse]]:
+        """server lifecycle and cluster"""
+
+    @_abc_1.abstractmethod
+    def Shutdown(
+        self,
+        request: _arcadedb_server_pb2.ShutdownRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ShutdownResponse, _abc.Awaitable[_arcadedb_server_pb2.ShutdownResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def DisconnectCluster(
+        self,
+        request: _arcadedb_server_pb2.DisconnectClusterRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.DisconnectClusterResponse, _abc.Awaitable[_arcadedb_server_pb2.DisconnectClusterResponse]]: ...
+
+    @_abc_1.abstractmethod
+    def ConnectCluster(
+        self,
+        request: _arcadedb_server_pb2.ConnectClusterRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ConnectClusterResponse, _abc.Awaitable[_arcadedb_server_pb2.ConnectClusterResponse]]:
+        """The other half of the cluster pair (issue #7400). A thin adapter over the same
+        ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
+        cannot answer the verb differently. The current HA stack does not implement a client-initiated
+        join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
+        issue #7401.
+        """
+
+    @_abc_1.abstractmethod
+    def ListSessions(
+        self,
+        request: _arcadedb_server_pb2.ListSessionsRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ListSessionsResponse, _abc.Awaitable[_arcadedb_server_pb2.ListSessionsResponse]]:
+        """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
+        session of its own - every admin RPC authenticates from the credentials on the request body - so
+        there is no Login/Logout to go with it (issue #7310).
+        """
+
+    @_abc_1.abstractmethod
+    def Health(
+        self,
+        request: _arcadedb_server_pb2.HealthRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.HealthResponse, _abc.Awaitable[_arcadedb_server_pb2.HealthResponse]]:
+        """probes - unauthenticated, see the service comment"""
+
+    @_abc_1.abstractmethod
+    def Ready(
+        self,
+        request: _arcadedb_server_pb2.ReadyRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.ReadyResponse, _abc.Awaitable[_arcadedb_server_pb2.ReadyResponse]]: ...
 
 def add_ArcadeDbAdminServiceServicer_to_server(servicer: ArcadeDbAdminServiceServicer, server: _typing.Union[_grpc.Server, _aio.Server]) -> None: ...

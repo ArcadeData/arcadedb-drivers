@@ -217,7 +217,7 @@ only the envelope bookkeeping around those batches, which is easy to get wrong b
 
 `insert_stream` also sets `options.database` to the same value as the first chunk's `database`.
 This is a compatibility workaround, established empirically against a real server: on ArcadeDB
-26.9.1 and every earlier release, the server builds its `InsertContext` from
+26.10.1-SNAPSHOT and every earlier release, the server builds its `InsertContext` from
 `InsertOptions.database` **alone** and never reads `InsertChunk.database` at all, despite the
 `.proto` documenting the latter as required. Without this mirror, every stream against such a
 server fails at the deferred commit with `Invalid database name: name is required` - even though
@@ -384,12 +384,12 @@ object does not already implement.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.9.1.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.10.1-SNAPSHOT.proto`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.9.1"
+server-version = "26.10.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver-grpc` | ArcadeDB server |

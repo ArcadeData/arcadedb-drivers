@@ -11,7 +11,7 @@ import pytest
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 
-# Image pin: arcadedata/arcadedb:26.9.1 is the release the committed OpenAPI
+# Image pin: arcadedata/arcadedb:26.10.1-SNAPSHOT is the release the committed OpenAPI
 # contract was generated from, so the client under test and the server it runs
 # against are the same version.
 #
@@ -23,7 +23,7 @@ from testcontainers.core.wait_strategies import LogMessageWaitStrategy
 # #6562). That argument was sound but load-bearing, and it had to be re-made on
 # every bump. Pinning to the contract's own release retires it. Move this pin with
 # the contract and it stays retired.
-DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.9.1"
+DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.10.1-SNAPSHOT"
 
 # ARCADEDB_DOCKER_IMAGE overrides the pin. It exists for the smoke job in
 # ArcadeData/arcadedb, which runs against the image built from the server commit
@@ -107,7 +107,7 @@ def database(base_url: str) -> str:
 # from, not because this one inherits the other's reasoning. The .proto and the OpenAPI
 # spec are separate artifacts published from the same server release; if they ever stop
 # moving together, these two pins move apart, and nothing here should make that awkward.
-GRPC_DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.9.1"
+GRPC_DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.10.1-SNAPSHOT"
 GRPC_ARCADEDB_IMAGE = os.environ.get("ARCADEDB_DOCKER_IMAGE", GRPC_DEFAULT_ARCADEDB_IMAGE)
 GRPC_DB_NAME = "clienttestgrpc"
 

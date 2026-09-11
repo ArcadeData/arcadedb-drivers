@@ -133,7 +133,7 @@ async def test_async_stream_query_returns_rows(async_client: AsyncArcadeDBGrpcCl
 async def test_async_insert_stream_inserts_rows(async_client: AsyncArcadeDBGrpcClient, grpc_database: str) -> None:
     # Same defect this asserts against on the sync side (test_grpc.py's
     # test_insert_stream_inserts_rows): an insert_stream that does not mirror `database`
-    # into `options` fails at the deferred commit on a real 26.9.1 server with "Invalid
+    # into `options` fails at the deferred commit on a real 26.10.1-SNAPSHOT server with "Invalid
     # database name: name is required". The async facade's own `insert_stream` shares
     # `stream._build_chunk` with the sync one, but had never been run against a real
     # server before this test.

@@ -31,7 +31,7 @@ Repository = "https://github.com/ArcadeData/arcadedb-drivers"
 # scripts/adopt-contract-version.sh rewrites it on a contract bump - that script
 # requires this key to appear EXACTLY ONCE in this file.
 [tool.arcadedb]
-server-version = "26.9.1"
+server-version = "26.10.1-SNAPSHOT"
 
 [build-system]
 requires = ["hatchling"]

@@ -22,7 +22,7 @@ Repository = "https://github.com/ArcadeData/arcadedb-drivers"
 # re-verifies this against the committed contract's info.version before publishing,
 # and scripts/adopt-contract-version.sh rewrites it on a contract bump.
 [tool.arcadedb]
-server-version = "26.9.1"
+server-version = "26.10.1-SNAPSHOT"
 
 [build-system]
 requires = ["hatchling"]

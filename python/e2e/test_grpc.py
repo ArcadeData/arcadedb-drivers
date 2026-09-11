@@ -131,7 +131,7 @@ def test_stream_query_returns_rows(client: ArcadeDBGrpcClient, grpc_database: st
 
 
 def test_insert_stream_inserts_rows(client: ArcadeDBGrpcClient, grpc_database: str) -> None:
-    # THE test for the options.database mirroring. Against a real 26.9.1 server, an
+    # THE test for the options.database mirroring. Against a real 26.10.1-SNAPSHOT server, an
     # insert_stream that does not mirror `database` into `options` fails at the deferred
     # commit with "Invalid database name: name is required". If this test fails that way,
     # the mirroring in stream.py has been removed - restore it, do not work around it.

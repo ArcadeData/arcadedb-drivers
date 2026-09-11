@@ -24,6 +24,8 @@ from .batch_response_id_mapping import BatchResponseIdMapping
 from .bootstrap_state_response import BootstrapStateResponse
 from .bootstrap_state_response_databases_item import BootstrapStateResponseDatabasesItem
 from .cluster_action_response import ClusterActionResponse
+from .cluster_auth_session_request import ClusterAuthSessionRequest
+from .cluster_auth_session_response import ClusterAuthSessionResponse
 from .cluster_status import ClusterStatus
 from .cluster_status_alerts_item import ClusterStatusAlertsItem
 from .cluster_status_database_presence import ClusterStatusDatabasePresence
@@ -43,9 +45,17 @@ from .delete_api_token_response_200 import DeleteApiTokenResponse200
 from .delete_group_response_200 import DeleteGroupResponse200
 from .delete_user_response_200 import DeleteUserResponse200
 from .error_response import ErrorResponse
+from .execute_batch_accept import ExecuteBatchAccept
 from .execute_batch_id_mapping import ExecuteBatchIdMapping
 from .execute_batch_ref_mode import ExecuteBatchRefMode
+from .execute_command_accept import ExecuteCommandAccept
+from .execute_query_get_accept import ExecuteQueryGetAccept
 from .execute_query_get_language import ExecuteQueryGetLanguage
+from .execute_query_post_accept import ExecuteQueryPostAccept
+from .full_text_search_request import FullTextSearchRequest
+from .full_text_search_response import FullTextSearchResponse
+from .full_text_search_response_results_item import FullTextSearchResponseResultsItem
+from .full_text_search_response_results_item_properties import FullTextSearchResponseResultsItemProperties
 from .get_database_snapshot_checksums_response_200 import GetDatabaseSnapshotChecksumsResponse200
 from .grafana_health import GrafanaHealth
 from .grafana_metadata import GrafanaMetadata
@@ -77,6 +87,13 @@ from .grafana_query_response_results_additional_property_frames_item_schema impo
 from .grafana_query_response_results_additional_property_frames_item_schema_fields_item import (
     GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchemaFieldsItem,
 )
+from .hybrid_search_request import HybridSearchRequest
+from .hybrid_search_request_expand import HybridSearchRequestExpand
+from .hybrid_search_request_weights import HybridSearchRequestWeights
+from .hybrid_search_response import HybridSearchResponse
+from .hybrid_search_response_legs import HybridSearchResponseLegs
+from .hybrid_search_response_results_item import HybridSearchResponseResultsItem
+from .hybrid_search_response_results_item_properties import HybridSearchResponseResultsItemProperties
 from .invoke_mcp_body import InvokeMcpBody
 from .invoke_mcp_response_200 import InvokeMcpResponse200
 from .invoke_mcp_response_403 import InvokeMcpResponse403
@@ -90,6 +107,16 @@ from .mcp_config import McpConfig
 from .mcp_config_databases import McpConfigDatabases
 from .mcp_config_principal_profiles import McpConfigPrincipalProfiles
 from .mcp_database_override import McpDatabaseOverride
+from .nd_json_batch_event import NdJsonBatchEvent
+from .nd_json_batch_event_error import NdJsonBatchEventError
+from .nd_json_batch_event_progress import NdJsonBatchEventProgress
+from .nd_json_batch_event_progress_id_mapping import NdJsonBatchEventProgressIdMapping
+from .nd_json_batch_event_summary import NdJsonBatchEventSummary
+from .nd_json_query_event import NdJsonQueryEvent
+from .nd_json_query_event_error import NdJsonQueryEventError
+from .nd_json_query_event_record import NdJsonQueryEventRecord
+from .nd_json_query_event_stats import NdJsonQueryEventStats
+from .peer_capabilities_response import PeerCapabilitiesResponse
 from .progress_response import ProgressResponse
 from .progress_response_result_item import ProgressResponseResultItem
 from .prom_ql_data_response import PromQLDataResponse
@@ -125,6 +152,10 @@ from .time_series_write_error import TimeSeriesWriteError
 from .transfer_leader_request import TransferLeaderRequest
 from .update_user_body import UpdateUserBody
 from .update_user_response_200 import UpdateUserResponse200
+from .vector_search_request import VectorSearchRequest
+from .vector_search_response import VectorSearchResponse
+from .vector_search_response_results_item import VectorSearchResponseResultsItem
+from .vector_search_response_results_item_properties import VectorSearchResponseResultsItemProperties
 from .verify_database_response import VerifyDatabaseResponse
 from .verify_database_response_files_item import VerifyDatabaseResponseFilesItem
 from .verify_database_response_local_checksums import VerifyDatabaseResponseLocalChecksums
@@ -162,6 +193,8 @@ __all__ = (
     "BootstrapStateResponse",
     "BootstrapStateResponseDatabasesItem",
     "ClusterActionResponse",
+    "ClusterAuthSessionRequest",
+    "ClusterAuthSessionResponse",
     "ClusterStatus",
     "ClusterStatusAlertsItem",
     "ClusterStatusDatabasePresence",
@@ -181,9 +214,17 @@ __all__ = (
     "DeleteGroupResponse200",
     "DeleteUserResponse200",
     "ErrorResponse",
+    "ExecuteBatchAccept",
     "ExecuteBatchIdMapping",
     "ExecuteBatchRefMode",
+    "ExecuteCommandAccept",
+    "ExecuteQueryGetAccept",
     "ExecuteQueryGetLanguage",
+    "ExecuteQueryPostAccept",
+    "FullTextSearchRequest",
+    "FullTextSearchResponse",
+    "FullTextSearchResponseResultsItem",
+    "FullTextSearchResponseResultsItemProperties",
     "GetDatabaseSnapshotChecksumsResponse200",
     "GrafanaHealth",
     "GrafanaMetadata",
@@ -203,6 +244,13 @@ __all__ = (
     "GrafanaQueryResponseResultsAdditionalPropertyFramesItemDataValuesItemItem",
     "GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema",
     "GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchemaFieldsItem",
+    "HybridSearchRequest",
+    "HybridSearchRequestExpand",
+    "HybridSearchRequestWeights",
+    "HybridSearchResponse",
+    "HybridSearchResponseLegs",
+    "HybridSearchResponseResultsItem",
+    "HybridSearchResponseResultsItemProperties",
     "InvokeMcpBody",
     "InvokeMcpResponse200",
     "InvokeMcpResponse403",
@@ -216,6 +264,16 @@ __all__ = (
     "McpConfigDatabases",
     "McpConfigPrincipalProfiles",
     "McpDatabaseOverride",
+    "NdJsonBatchEvent",
+    "NdJsonBatchEventError",
+    "NdJsonBatchEventProgress",
+    "NdJsonBatchEventProgressIdMapping",
+    "NdJsonBatchEventSummary",
+    "NdJsonQueryEvent",
+    "NdJsonQueryEventError",
+    "NdJsonQueryEventRecord",
+    "NdJsonQueryEventStats",
+    "PeerCapabilitiesResponse",
     "ProgressResponse",
     "ProgressResponseResultItem",
     "PromQLDataResponse",
@@ -251,6 +309,10 @@ __all__ = (
     "TransferLeaderRequest",
     "UpdateUserBody",
     "UpdateUserResponse200",
+    "VectorSearchRequest",
+    "VectorSearchResponse",
+    "VectorSearchResponseResultsItem",
+    "VectorSearchResponseResultsItemProperties",
     "VerifyDatabaseResponse",
     "VerifyDatabaseResponseFilesItem",
     "VerifyDatabaseResponseLocalChecksums",

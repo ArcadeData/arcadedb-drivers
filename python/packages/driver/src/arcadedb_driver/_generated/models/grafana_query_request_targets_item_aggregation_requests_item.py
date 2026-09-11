@@ -19,7 +19,9 @@ class GrafanaQueryRequestTargetsItemAggregationRequestsItem:
         alias (str | Unset): Output field name. Defaults to the field name suffixed with the lower-cased aggregation
             type.
         field (str | Unset): Field name to aggregate
-        type_ (str | Unset): Aggregation function
+        type_ (str | Unset): Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-
+            insensitively. A value that matches none is reported as an error frame on this target, leaving the other targets
+            served.
     """
 
     alias: str | Unset = UNSET

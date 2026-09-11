@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -17,6 +17,9 @@ class ClusterStatusPeersItem:
 
     Attributes:
         address (str | Unset): Peer address
+        capabilities (list[str] | Unset): Optional wire-format sections this peer can decode, as last observed by the
+            leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not
+            reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'.
         http_address (str | Unset): Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved.
         http_address_ambiguous (bool | Unset): True when the HTTP endpoint above does not identify this peer alone: two
             or more peers resolve to it, which is what happens when 'http' ports are not declared in arcadedb.ha.serverList
@@ -40,9 +43,12 @@ class ClusterStatusPeersItem:
         replication_rtt_ms (int | Unset): Mean replication round-trip time. Absent when no sample exists.
         replication_rtt_p99_ms (int | Unset): 99th percentile replication round-trip time. Absent when no sample exists.
         role (str | Unset): LEADER or FOLLOWER
+        version (str | Unset): Server version this peer reported alongside its capabilities. Absent when the leader has
+            no fresh answer from it.
     """
 
     address: str | Unset = UNSET
+    capabilities: list[str] | Unset = UNSET
     http_address: str | Unset = UNSET
     http_address_ambiguous: bool | Unset = UNSET
     id: str | Unset = UNSET
@@ -56,10 +62,15 @@ class ClusterStatusPeersItem:
     replication_rtt_ms: int | Unset = UNSET
     replication_rtt_p99_ms: int | Unset = UNSET
     role: str | Unset = UNSET
+    version: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         address = self.address
+
+        capabilities: list[str] | Unset = UNSET
+        if not isinstance(self.capabilities, Unset):
+            capabilities = self.capabilities
 
         http_address = self.http_address
 
@@ -87,11 +98,15 @@ class ClusterStatusPeersItem:
 
         role = self.role
 
+        version = self.version
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
         if address is not UNSET:
             field_dict["address"] = address
+        if capabilities is not UNSET:
+            field_dict["capabilities"] = capabilities
         if http_address is not UNSET:
             field_dict["httpAddress"] = http_address
         if http_address_ambiguous is not UNSET:
@@ -118,6 +133,8 @@ class ClusterStatusPeersItem:
             field_dict["replicationRttP99Ms"] = replication_rtt_p99_ms
         if role is not UNSET:
             field_dict["role"] = role
+        if version is not UNSET:
+            field_dict["version"] = version
 
         return field_dict
 
@@ -125,6 +142,8 @@ class ClusterStatusPeersItem:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
         address = d.pop("address", UNSET)
+
+        capabilities = cast(list[str], d.pop("capabilities", UNSET))
 
         http_address = d.pop("httpAddress", UNSET)
 
@@ -152,8 +171,11 @@ class ClusterStatusPeersItem:
 
         role = d.pop("role", UNSET)
 
+        version = d.pop("version", UNSET)
+
         cluster_status_peers_item = cls(
             address=address,
+            capabilities=capabilities,
             http_address=http_address,
             http_address_ambiguous=http_address_ambiguous,
             id=id,
@@ -167,6 +189,7 @@ class ClusterStatusPeersItem:
             replication_rtt_ms=replication_rtt_ms,
             replication_rtt_p99_ms=replication_rtt_p99_ms,
             role=role,
+            version=version,
         )
 
         cluster_status_peers_item.additional_properties = d

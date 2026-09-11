@@ -250,12 +250,12 @@ this today because its response schemas do not have this shape.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.9.1.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.9.1"
+server-version = "26.10.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver` | ArcadeDB server |

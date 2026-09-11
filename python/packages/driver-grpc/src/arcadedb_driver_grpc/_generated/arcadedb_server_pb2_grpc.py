@@ -104,6 +104,41 @@ class ArcadeDbServiceStub:
                 request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GraphBatchChunk.SerializeToString,
                 response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GraphBatchResult.FromString,
                 _registered_method=True)
+        self.VectorSearch = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbService/VectorSearch',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.VectorSearchRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.VectorSearchResponse.FromString,
+                _registered_method=True)
+        self.HybridSearch = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbService/HybridSearch',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HybridSearchRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HybridSearchResponse.FromString,
+                _registered_method=True)
+        self.FullTextSearch = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbService/FullTextSearch',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.FullTextSearchRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.FullTextSearchResponse.FromString,
+                _registered_method=True)
+        self.TimeSeriesWrite = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesWrite',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteSummary.FromString,
+                _registered_method=True)
+        self.TimeSeriesWriteStream = channel.stream_unary(
+                '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesWriteStream',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteChunk.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteSummary.FromString,
+                _registered_method=True)
+        self.TimeSeriesQuery = channel.unary_stream(
+                '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesQuery',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesQueryRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesQueryResult.FromString,
+                _registered_method=True)
+        self.TimeSeriesLatest = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesLatest',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesLatestRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesLatestResponse.FromString,
+                _registered_method=True)
 
 
 class ArcadeDbServiceServicer:
@@ -199,6 +234,56 @@ class ArcadeDbServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def VectorSearch(self, request, context):
+        """Vector, hybrid and full-text retrieval (issue #7306). Every bound these enforce - k, ef_search, the filter
+        length, the full-text limit, the expansion caps - is enforced by the same server-side implementation the
+        HTTP /api/v1/vector/* routes and the MCP search tools call, so a request that is legal on one protocol is
+        legal on all of them and rejected with the same message everywhere.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def HybridSearch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def FullTextSearch(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TimeSeriesWrite(self, request, context):
+        """Time series (issue #7305). The streaming write is the one that matters most: time-series ingest is
+        high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
+        answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
+        server's heap.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TimeSeriesWriteStream(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TimeSeriesQuery(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TimeSeriesLatest(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ArcadeDbServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -271,6 +356,41 @@ def add_ArcadeDbServiceServicer_to_server(servicer, server):
                     servicer.GraphBatchLoad,
                     request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GraphBatchChunk.FromString,
                     response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GraphBatchResult.SerializeToString,
+            ),
+            'VectorSearch': grpc.unary_unary_rpc_method_handler(
+                    servicer.VectorSearch,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.VectorSearchRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.VectorSearchResponse.SerializeToString,
+            ),
+            'HybridSearch': grpc.unary_unary_rpc_method_handler(
+                    servicer.HybridSearch,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HybridSearchRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HybridSearchResponse.SerializeToString,
+            ),
+            'FullTextSearch': grpc.unary_unary_rpc_method_handler(
+                    servicer.FullTextSearch,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.FullTextSearchRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.FullTextSearchResponse.SerializeToString,
+            ),
+            'TimeSeriesWrite': grpc.unary_unary_rpc_method_handler(
+                    servicer.TimeSeriesWrite,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteSummary.SerializeToString,
+            ),
+            'TimeSeriesWriteStream': grpc.stream_unary_rpc_method_handler(
+                    servicer.TimeSeriesWriteStream,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteChunk.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteSummary.SerializeToString,
+            ),
+            'TimeSeriesQuery': grpc.unary_stream_rpc_method_handler(
+                    servicer.TimeSeriesQuery,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesQueryRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesQueryResult.SerializeToString,
+            ),
+            'TimeSeriesLatest': grpc.unary_unary_rpc_method_handler(
+                    servicer.TimeSeriesLatest,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesLatestRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesLatestResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -661,12 +781,224 @@ class ArcadeDbService:
             metadata,
             _registered_method=True)
 
+    @staticmethod
+    def VectorSearch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbService/VectorSearch',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.VectorSearchRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.VectorSearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def HybridSearch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbService/HybridSearch',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HybridSearchRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HybridSearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def FullTextSearch(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbService/FullTextSearch',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.FullTextSearchRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.FullTextSearchResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TimeSeriesWrite(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesWrite',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteSummary.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TimeSeriesWriteStream(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_unary(
+            request_iterator,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesWriteStream',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteChunk.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesWriteSummary.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TimeSeriesQuery(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesQuery',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesQueryRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesQueryResult.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TimeSeriesLatest(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbService/TimeSeriesLatest',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesLatestRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TimeSeriesLatestResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
 
 class ArcadeDbAdminServiceStub:
     """-----------------------------------------------------------------------------
     Admin service
     -----------------------------------------------------------------------------
 
+    The control plane. Every RPC here reaches the same implementation the HTTP control plane reaches
+    (com.arcadedb.server.ServerControlPlane), so the two protocols cannot drift apart on what an
+    administrative operation does - see issue #7304.
+
+    Authentication is enforced centrally by GrpcAuthInterceptor from the 'credentials' field every
+    request carries, before the call reaches a handler. Health and Ready are exempt from it, exactly
+    as GET /health and GET /ready are unauthenticated over HTTP, so a container orchestrator can probe
+    the node without credentials.
+
+    Authorization on top of that is per RPC, and mirrors what the HTTP counterpart of each operation
+    requires:
+    - Ping, GetServerInfo, ListDatabases, ExistsDatabase and GetDatabaseInfo need only a valid
+    account, as GET /api/v1/databases and GET /api/v1/server do;
+    - GetProgress needs a valid account that is also granted the database it names, the gate
+    GET /api/v1/progress/{database} applies through checkAuthorizationOnDatabase;
+    - every other RPC needs the server-admin (root) principal, the gate POST /api/v1/server and the
+    /api/v1/server/* routes apply through checkRootUser.
+
+    Leader routing: CreateDatabase, DropDatabase, CreateUser, DeleteUser, RestoreBackup,
+    RestoreDatabase and ImportDatabase are refused on a follower
+    with FAILED_PRECONDITION and the leader's address on the arcadedb-leader-* trailers. That is this
+    transport's equivalent of the HTTP handler forwarding those four commands to the leader; gRPC has
+    no request proxy, so the caller redirects itself.
     """
 
     def __init__(self, channel):
@@ -705,20 +1037,195 @@ class ArcadeDbAdminServiceStub:
                 request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DropDatabaseRequest.SerializeToString,
                 response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DropDatabaseResponse.FromString,
                 _registered_method=True)
+        self.OpenDatabase = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/OpenDatabase',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.OpenDatabaseRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.OpenDatabaseResponse.FromString,
+                _registered_method=True)
+        self.CloseDatabase = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/CloseDatabase',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CloseDatabaseRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CloseDatabaseResponse.FromString,
+                _registered_method=True)
+        self.AlignDatabase = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/AlignDatabase',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AlignDatabaseRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AlignDatabaseResponse.FromString,
+                _registered_method=True)
         self.GetDatabaseInfo = channel.unary_unary(
                 '/com.arcadedb.grpc.ArcadeDbAdminService/GetDatabaseInfo',
                 request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetDatabaseInfoRequest.SerializeToString,
                 response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetDatabaseInfoResponse.FromString,
+                _registered_method=True)
+        self.GetProgress = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/GetProgress',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetProgressRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetProgressResponse.FromString,
                 _registered_method=True)
         self.CreateUser = channel.unary_unary(
                 '/com.arcadedb.grpc.ArcadeDbAdminService/CreateUser',
                 request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateUserRequest.SerializeToString,
                 response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateUserResponse.FromString,
                 _registered_method=True)
+        self.UpdateUser = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/UpdateUser',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.UpdateUserRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.UpdateUserResponse.FromString,
+                _registered_method=True)
         self.DeleteUser = channel.unary_unary(
                 '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteUser',
                 request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteUserRequest.SerializeToString,
                 response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteUserResponse.FromString,
+                _registered_method=True)
+        self.ListUsers = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ListUsers',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListUsersRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListUsersResponse.FromString,
+                _registered_method=True)
+        self.ListGroups = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ListGroups',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListGroupsRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListGroupsResponse.FromString,
+                _registered_method=True)
+        self.SaveGroup = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/SaveGroup',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SaveGroupRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SaveGroupResponse.FromString,
+                _registered_method=True)
+        self.DeleteGroup = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteGroup',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteGroupRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteGroupResponse.FromString,
+                _registered_method=True)
+        self.ListApiTokens = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ListApiTokens',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListApiTokensRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListApiTokensResponse.FromString,
+                _registered_method=True)
+        self.CreateApiToken = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/CreateApiToken',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateApiTokenRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateApiTokenResponse.FromString,
+                _registered_method=True)
+        self.DeleteApiToken = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteApiToken',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteApiTokenRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteApiTokenResponse.FromString,
+                _registered_method=True)
+        self.SetServerSetting = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/SetServerSetting',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetServerSettingRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetServerSettingResponse.FromString,
+                _registered_method=True)
+        self.SetDatabaseSetting = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/SetDatabaseSetting',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetDatabaseSettingRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetDatabaseSettingResponse.FromString,
+                _registered_method=True)
+        self.GetBackupConfig = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/GetBackupConfig',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetBackupConfigRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetBackupConfigResponse.FromString,
+                _registered_method=True)
+        self.SetBackupConfig = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/SetBackupConfig',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetBackupConfigRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetBackupConfigResponse.FromString,
+                _registered_method=True)
+        self.ListBackups = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ListBackups',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListBackupsRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListBackupsResponse.FromString,
+                _registered_method=True)
+        self.TriggerBackup = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/TriggerBackup',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TriggerBackupRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TriggerBackupResponse.FromString,
+                _registered_method=True)
+        self.DeleteBackup = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteBackup',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteBackupRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteBackupResponse.FromString,
+                _registered_method=True)
+        self.ProfilerStart = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStart',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStartRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStateResponse.FromString,
+                _registered_method=True)
+        self.ProfilerStop = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStop',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStopRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.FromString,
+                _registered_method=True)
+        self.ProfilerReset = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerReset',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerResetRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStateResponse.FromString,
+                _registered_method=True)
+        self.ProfilerResults = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerResults',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerResultsRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.FromString,
+                _registered_method=True)
+        self.ProfilerList = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerList',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerListRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerListResponse.FromString,
+                _registered_method=True)
+        self.ProfilerLoad = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerLoad',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerLoadRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.FromString,
+                _registered_method=True)
+        self.RestoreBackup = channel.unary_stream(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/RestoreBackup',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreBackupRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreProgress.FromString,
+                _registered_method=True)
+        self.RestoreDatabase = channel.unary_stream(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/RestoreDatabase',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreDatabaseRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreProgress.FromString,
+                _registered_method=True)
+        self.ImportDatabase = channel.unary_stream(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ImportDatabase',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ImportDatabaseRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ImportProgress.FromString,
+                _registered_method=True)
+        self.GetServerEvents = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/GetServerEvents',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetServerEventsRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetServerEventsResponse.FromString,
+                _registered_method=True)
+        self.Shutdown = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/Shutdown',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ShutdownRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ShutdownResponse.FromString,
+                _registered_method=True)
+        self.DisconnectCluster = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/DisconnectCluster',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DisconnectClusterRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DisconnectClusterResponse.FromString,
+                _registered_method=True)
+        self.ConnectCluster = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ConnectCluster',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterResponse.FromString,
+                _registered_method=True)
+        self.ListSessions = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/ListSessions',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListSessionsRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListSessionsResponse.FromString,
+                _registered_method=True)
+        self.Health = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/Health',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HealthRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HealthResponse.FromString,
+                _registered_method=True)
+        self.Ready = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/Ready',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ReadyRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ReadyResponse.FromString,
                 _registered_method=True)
 
 
@@ -727,6 +1234,29 @@ class ArcadeDbAdminServiceServicer:
     Admin service
     -----------------------------------------------------------------------------
 
+    The control plane. Every RPC here reaches the same implementation the HTTP control plane reaches
+    (com.arcadedb.server.ServerControlPlane), so the two protocols cannot drift apart on what an
+    administrative operation does - see issue #7304.
+
+    Authentication is enforced centrally by GrpcAuthInterceptor from the 'credentials' field every
+    request carries, before the call reaches a handler. Health and Ready are exempt from it, exactly
+    as GET /health and GET /ready are unauthenticated over HTTP, so a container orchestrator can probe
+    the node without credentials.
+
+    Authorization on top of that is per RPC, and mirrors what the HTTP counterpart of each operation
+    requires:
+    - Ping, GetServerInfo, ListDatabases, ExistsDatabase and GetDatabaseInfo need only a valid
+    account, as GET /api/v1/databases and GET /api/v1/server do;
+    - GetProgress needs a valid account that is also granted the database it names, the gate
+    GET /api/v1/progress/{database} applies through checkAuthorizationOnDatabase;
+    - every other RPC needs the server-admin (root) principal, the gate POST /api/v1/server and the
+    /api/v1/server/* routes apply through checkRootUser.
+
+    Leader routing: CreateDatabase, DropDatabase, CreateUser, DeleteUser, RestoreBackup,
+    RestoreDatabase and ImportDatabase are refused on a follower
+    with FAILED_PRECONDITION and the leader's address on the arcadedb-leader-* trailers. That is this
+    transport's equivalent of the HTTP handler forwarding those four commands to the leader; gRPC has
+    no request proxy, so the caller redirects itself.
     """
 
     def Ping(self, request, context):
@@ -765,7 +1295,31 @@ class ArcadeDbAdminServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def OpenDatabase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CloseDatabase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AlignDatabase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetDatabaseInfo(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetProgress(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -777,7 +1331,210 @@ class ArcadeDbAdminServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def UpdateUser(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def DeleteUser(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListUsers(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListGroups(self, request, context):
+        """groups - the per-database permission documents users hold through the 'databases' map above
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SaveGroup(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteGroup(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListApiTokens(self, request, context):
+        """API tokens. CreateApiToken returns secret material and is gated on transport security; see the
+        comment on CreateApiTokenResponse.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateApiToken(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteApiToken(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetServerSetting(self, request, context):
+        """settings
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetDatabaseSetting(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetBackupConfig(self, request, context):
+        """backup
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetBackupConfig(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListBackups(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def TriggerBackup(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteBackup(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ProfilerStart(self, request, context):
+        """query profiler
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ProfilerStop(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ProfilerReset(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ProfilerResults(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ProfilerList(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ProfilerLoad(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RestoreBackup(self, request, context):
+        """restore and import - server-streaming, see the RestoreProgress section below
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RestoreDatabase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ImportDatabase(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetServerEvents(self, request, context):
+        """server lifecycle and cluster
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Shutdown(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DisconnectCluster(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ConnectCluster(self, request, context):
+        """The other half of the cluster pair (issue #7400). A thin adapter over the same
+        ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
+        cannot answer the verb differently. The current HA stack does not implement a client-initiated
+        join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
+        issue #7401.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListSessions(self, request, context):
+        """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
+        session of its own - every admin RPC authenticates from the credentials on the request body - so
+        there is no Login/Logout to go with it (issue #7310).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Health(self, request, context):
+        """probes - unauthenticated, see the service comment
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Ready(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -816,20 +1573,195 @@ def add_ArcadeDbAdminServiceServicer_to_server(servicer, server):
                     request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DropDatabaseRequest.FromString,
                     response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DropDatabaseResponse.SerializeToString,
             ),
+            'OpenDatabase': grpc.unary_unary_rpc_method_handler(
+                    servicer.OpenDatabase,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.OpenDatabaseRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.OpenDatabaseResponse.SerializeToString,
+            ),
+            'CloseDatabase': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloseDatabase,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CloseDatabaseRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CloseDatabaseResponse.SerializeToString,
+            ),
+            'AlignDatabase': grpc.unary_unary_rpc_method_handler(
+                    servicer.AlignDatabase,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AlignDatabaseRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AlignDatabaseResponse.SerializeToString,
+            ),
             'GetDatabaseInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetDatabaseInfo,
                     request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetDatabaseInfoRequest.FromString,
                     response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetDatabaseInfoResponse.SerializeToString,
+            ),
+            'GetProgress': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetProgress,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetProgressRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetProgressResponse.SerializeToString,
             ),
             'CreateUser': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateUser,
                     request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateUserRequest.FromString,
                     response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateUserResponse.SerializeToString,
             ),
+            'UpdateUser': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateUser,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.UpdateUserRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.UpdateUserResponse.SerializeToString,
+            ),
             'DeleteUser': grpc.unary_unary_rpc_method_handler(
                     servicer.DeleteUser,
                     request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteUserRequest.FromString,
                     response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteUserResponse.SerializeToString,
+            ),
+            'ListUsers': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListUsers,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListUsersRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListUsersResponse.SerializeToString,
+            ),
+            'ListGroups': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListGroups,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListGroupsRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListGroupsResponse.SerializeToString,
+            ),
+            'SaveGroup': grpc.unary_unary_rpc_method_handler(
+                    servicer.SaveGroup,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SaveGroupRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SaveGroupResponse.SerializeToString,
+            ),
+            'DeleteGroup': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteGroup,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteGroupRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteGroupResponse.SerializeToString,
+            ),
+            'ListApiTokens': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListApiTokens,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListApiTokensRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListApiTokensResponse.SerializeToString,
+            ),
+            'CreateApiToken': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateApiToken,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateApiTokenRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateApiTokenResponse.SerializeToString,
+            ),
+            'DeleteApiToken': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteApiToken,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteApiTokenRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteApiTokenResponse.SerializeToString,
+            ),
+            'SetServerSetting': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetServerSetting,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetServerSettingRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetServerSettingResponse.SerializeToString,
+            ),
+            'SetDatabaseSetting': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetDatabaseSetting,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetDatabaseSettingRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetDatabaseSettingResponse.SerializeToString,
+            ),
+            'GetBackupConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetBackupConfig,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetBackupConfigRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetBackupConfigResponse.SerializeToString,
+            ),
+            'SetBackupConfig': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetBackupConfig,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetBackupConfigRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetBackupConfigResponse.SerializeToString,
+            ),
+            'ListBackups': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListBackups,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListBackupsRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListBackupsResponse.SerializeToString,
+            ),
+            'TriggerBackup': grpc.unary_unary_rpc_method_handler(
+                    servicer.TriggerBackup,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TriggerBackupRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TriggerBackupResponse.SerializeToString,
+            ),
+            'DeleteBackup': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteBackup,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteBackupRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteBackupResponse.SerializeToString,
+            ),
+            'ProfilerStart': grpc.unary_unary_rpc_method_handler(
+                    servicer.ProfilerStart,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStartRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStateResponse.SerializeToString,
+            ),
+            'ProfilerStop': grpc.unary_unary_rpc_method_handler(
+                    servicer.ProfilerStop,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStopRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.SerializeToString,
+            ),
+            'ProfilerReset': grpc.unary_unary_rpc_method_handler(
+                    servicer.ProfilerReset,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerResetRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStateResponse.SerializeToString,
+            ),
+            'ProfilerResults': grpc.unary_unary_rpc_method_handler(
+                    servicer.ProfilerResults,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerResultsRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.SerializeToString,
+            ),
+            'ProfilerList': grpc.unary_unary_rpc_method_handler(
+                    servicer.ProfilerList,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerListRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerListResponse.SerializeToString,
+            ),
+            'ProfilerLoad': grpc.unary_unary_rpc_method_handler(
+                    servicer.ProfilerLoad,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerLoadRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.SerializeToString,
+            ),
+            'RestoreBackup': grpc.unary_stream_rpc_method_handler(
+                    servicer.RestoreBackup,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreBackupRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreProgress.SerializeToString,
+            ),
+            'RestoreDatabase': grpc.unary_stream_rpc_method_handler(
+                    servicer.RestoreDatabase,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreDatabaseRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreProgress.SerializeToString,
+            ),
+            'ImportDatabase': grpc.unary_stream_rpc_method_handler(
+                    servicer.ImportDatabase,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ImportDatabaseRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ImportProgress.SerializeToString,
+            ),
+            'GetServerEvents': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetServerEvents,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetServerEventsRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetServerEventsResponse.SerializeToString,
+            ),
+            'Shutdown': grpc.unary_unary_rpc_method_handler(
+                    servicer.Shutdown,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ShutdownRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ShutdownResponse.SerializeToString,
+            ),
+            'DisconnectCluster': grpc.unary_unary_rpc_method_handler(
+                    servicer.DisconnectCluster,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DisconnectClusterRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DisconnectClusterResponse.SerializeToString,
+            ),
+            'ConnectCluster': grpc.unary_unary_rpc_method_handler(
+                    servicer.ConnectCluster,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterResponse.SerializeToString,
+            ),
+            'ListSessions': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSessions,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListSessionsRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListSessionsResponse.SerializeToString,
+            ),
+            'Health': grpc.unary_unary_rpc_method_handler(
+                    servicer.Health,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HealthRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HealthResponse.SerializeToString,
+            ),
+            'Ready': grpc.unary_unary_rpc_method_handler(
+                    servicer.Ready,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ReadyRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ReadyResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -844,6 +1776,29 @@ class ArcadeDbAdminService:
     Admin service
     -----------------------------------------------------------------------------
 
+    The control plane. Every RPC here reaches the same implementation the HTTP control plane reaches
+    (com.arcadedb.server.ServerControlPlane), so the two protocols cannot drift apart on what an
+    administrative operation does - see issue #7304.
+
+    Authentication is enforced centrally by GrpcAuthInterceptor from the 'credentials' field every
+    request carries, before the call reaches a handler. Health and Ready are exempt from it, exactly
+    as GET /health and GET /ready are unauthenticated over HTTP, so a container orchestrator can probe
+    the node without credentials.
+
+    Authorization on top of that is per RPC, and mirrors what the HTTP counterpart of each operation
+    requires:
+    - Ping, GetServerInfo, ListDatabases, ExistsDatabase and GetDatabaseInfo need only a valid
+    account, as GET /api/v1/databases and GET /api/v1/server do;
+    - GetProgress needs a valid account that is also granted the database it names, the gate
+    GET /api/v1/progress/{database} applies through checkAuthorizationOnDatabase;
+    - every other RPC needs the server-admin (root) principal, the gate POST /api/v1/server and the
+    /api/v1/server/* routes apply through checkRootUser.
+
+    Leader routing: CreateDatabase, DropDatabase, CreateUser, DeleteUser, RestoreBackup,
+    RestoreDatabase and ImportDatabase are refused on a follower
+    with FAILED_PRECONDITION and the leader's address on the arcadedb-leader-* trailers. That is this
+    transport's equivalent of the HTTP handler forwarding those four commands to the leader; gRPC has
+    no request proxy, so the caller redirects itself.
     """
 
     @staticmethod
@@ -1009,6 +1964,87 @@ class ArcadeDbAdminService:
             _registered_method=True)
 
     @staticmethod
+    def OpenDatabase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/OpenDatabase',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.OpenDatabaseRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.OpenDatabaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloseDatabase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/CloseDatabase',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CloseDatabaseRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CloseDatabaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AlignDatabase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/AlignDatabase',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AlignDatabaseRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AlignDatabaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetDatabaseInfo(request,
             target,
             options=(),
@@ -1025,6 +2061,33 @@ class ArcadeDbAdminService:
             '/com.arcadedb.grpc.ArcadeDbAdminService/GetDatabaseInfo',
             arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetDatabaseInfoRequest.SerializeToString,
             arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetDatabaseInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetProgress(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/GetProgress',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetProgressRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetProgressResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1063,6 +2126,33 @@ class ArcadeDbAdminService:
             _registered_method=True)
 
     @staticmethod
+    def UpdateUser(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/UpdateUser',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.UpdateUserRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.UpdateUserResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def DeleteUser(request,
             target,
             options=(),
@@ -1079,6 +2169,816 @@ class ArcadeDbAdminService:
             '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteUser',
             arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteUserRequest.SerializeToString,
             arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteUserResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListUsers(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ListUsers',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListUsersRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListUsersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListGroups(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ListGroups',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListGroupsRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListGroupsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SaveGroup(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/SaveGroup',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SaveGroupRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SaveGroupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteGroup(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteGroup',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteGroupRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteGroupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListApiTokens(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ListApiTokens',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListApiTokensRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListApiTokensResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateApiToken(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/CreateApiToken',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateApiTokenRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.CreateApiTokenResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteApiToken(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteApiToken',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteApiTokenRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteApiTokenResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetServerSetting(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/SetServerSetting',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetServerSettingRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetServerSettingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetDatabaseSetting(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/SetDatabaseSetting',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetDatabaseSettingRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetDatabaseSettingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetBackupConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/GetBackupConfig',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetBackupConfigRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetBackupConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetBackupConfig(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/SetBackupConfig',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetBackupConfigRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.SetBackupConfigResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListBackups(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ListBackups',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListBackupsRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListBackupsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def TriggerBackup(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/TriggerBackup',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TriggerBackupRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.TriggerBackupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteBackup(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/DeleteBackup',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteBackupRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DeleteBackupResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProfilerStart(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStart',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStartRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStateResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProfilerStop(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStop',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStopRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProfilerReset(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerReset',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerResetRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerStateResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProfilerResults(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerResults',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerResultsRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProfilerList(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerList',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerListRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerListResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ProfilerLoad(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerLoad',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerLoadRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ProfilerDocumentResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RestoreBackup(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/RestoreBackup',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreBackupRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreProgress.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RestoreDatabase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/RestoreDatabase',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreDatabaseRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.RestoreProgress.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ImportDatabase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ImportDatabase',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ImportDatabaseRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ImportProgress.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetServerEvents(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/GetServerEvents',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetServerEventsRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.GetServerEventsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Shutdown(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/Shutdown',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ShutdownRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ShutdownResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DisconnectCluster(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/DisconnectCluster',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DisconnectClusterRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.DisconnectClusterResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ConnectCluster(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ConnectCluster',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListSessions(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/ListSessions',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListSessionsRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListSessionsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Health(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/Health',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HealthRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.HealthResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Ready(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/Ready',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ReadyRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ReadyResponse.FromString,
             options,
             channel_credentials,
             insecure,

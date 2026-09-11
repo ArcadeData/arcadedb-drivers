@@ -140,7 +140,7 @@ async def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Asy
 
     One `session_id` stable for the whole stream, `chunk_seq` starting at 1, `database` on
     the first chunk only (per the .proto contract, and mirrored into `options.database`
-    there too - on 26.9.1 and earlier the server builds its `InsertContext` from
+    there too - on 26.10.1-SNAPSHOT and earlier the server builds its `InsertContext` from
     `InsertOptions.database` ALONE and never reads `InsertChunk.database`, so without the
     mirror every stream fails at the deferred commit with "Invalid database name: name is
     required"; ArcadeData/arcadedb#6597), and `last=True` on the final chunk only.

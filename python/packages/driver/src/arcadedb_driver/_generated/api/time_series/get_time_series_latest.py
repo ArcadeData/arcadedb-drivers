@@ -15,14 +15,18 @@ def _get_kwargs(
     database: str,
     *,
     type_: str,
-    tag: str | Unset = UNSET,
+    tag: list[str] | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
 
     params["type"] = type_
 
-    params["tag"] = tag
+    json_tag: list[str] | Unset = UNSET
+    if not isinstance(tag, Unset):
+        json_tag = tag
+
+    params["tag"] = json_tag
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -92,17 +96,18 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     type_: str,
-    tag: str | Unset = UNSET,
+    tag: list[str] | Unset = UNSET,
 ) -> Response[ErrorResponse | TimeSeriesLatestResponse]:
     """Read the most recent sample of a series
 
      Returns the most recent sample of a time-series type, optionally narrowed to one series by tag.
-    'latest' is null when the type or the selected series holds no sample.
+    Repeat 'tag' once per tag column to name a single series on a type that carries several. 'latest' is
+    null when the type or the selected series holds no sample.
 
     Args:
         database (str):
         type_ (str):
-        tag (str | Unset):
+        tag (list[str] | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -130,17 +135,18 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     type_: str,
-    tag: str | Unset = UNSET,
+    tag: list[str] | Unset = UNSET,
 ) -> ErrorResponse | TimeSeriesLatestResponse | None:
     """Read the most recent sample of a series
 
      Returns the most recent sample of a time-series type, optionally narrowed to one series by tag.
-    'latest' is null when the type or the selected series holds no sample.
+    Repeat 'tag' once per tag column to name a single series on a type that carries several. 'latest' is
+    null when the type or the selected series holds no sample.
 
     Args:
         database (str):
         type_ (str):
-        tag (str | Unset):
+        tag (list[str] | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -163,17 +169,18 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     type_: str,
-    tag: str | Unset = UNSET,
+    tag: list[str] | Unset = UNSET,
 ) -> Response[ErrorResponse | TimeSeriesLatestResponse]:
     """Read the most recent sample of a series
 
      Returns the most recent sample of a time-series type, optionally narrowed to one series by tag.
-    'latest' is null when the type or the selected series holds no sample.
+    Repeat 'tag' once per tag column to name a single series on a type that carries several. 'latest' is
+    null when the type or the selected series holds no sample.
 
     Args:
         database (str):
         type_ (str):
-        tag (str | Unset):
+        tag (list[str] | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -199,17 +206,18 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     type_: str,
-    tag: str | Unset = UNSET,
+    tag: list[str] | Unset = UNSET,
 ) -> ErrorResponse | TimeSeriesLatestResponse | None:
     """Read the most recent sample of a series
 
      Returns the most recent sample of a time-series type, optionally narrowed to one series by tag.
-    'latest' is null when the type or the selected series holds no sample.
+    Repeat 'tag' once per tag column to name a single series on a type that carries several. 'latest' is
+    null when the type or the selected series holds no sample.
 
     Args:
         database (str):
         type_ (str):
-        tag (str | Unset):
+        tag (list[str] | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

@@ -67,7 +67,7 @@ the full reasoning - read that before touching the script:
 
 1. **The contract is staged under a normalised filename.** `protoc` treats `.` in a proto's
    filename as a directory separator, not a literal dot, so handing it
-   `contracts/arcadedb-server-26.9.1.proto` directly produces an unimportable tree (an import line
+   `contracts/arcadedb-server-26.10.1-SNAPSHOT.proto` directly produces an unimportable tree (an import line
    that is a `SyntaxError`). The script copies the contract to a fixed `arcadedb_server.proto`
    first. The happy side effect: the generated module carries no version stamp, unlike the
    TypeScript gRPC client's `arcadedb-server-<version>_pb.ts` - nothing to retire and no imports to

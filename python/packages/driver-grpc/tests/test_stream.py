@@ -90,7 +90,7 @@ def test_the_first_chunk_mirrors_database_into_options(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:
     # Compatibility with servers predating the fix for ArcadeData/arcadedb#6597. On
-    # 26.9.1 and earlier the server builds InsertContext from InsertOptions.database
+    # 26.10.1-SNAPSHOT and earlier the server builds InsertContext from InsertOptions.database
     # ALONE and never reads InsertChunk.database, despite the .proto marking the latter
     # REQUIRED on the first chunk. Without this mirror every stream fails at the
     # deferred commit with "Invalid database name: name is required".

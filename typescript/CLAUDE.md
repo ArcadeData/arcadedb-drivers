@@ -23,7 +23,7 @@ npx vitest run --config e2e/vitest.config.ts e2e/grpc.test.ts   # a single e2e f
 ```
 
 `vitest.config.ts` excludes `e2e/**` so `npm test` never pulls a container; the e2e suite has its
-own config with 60s test / 90s hook timeouts. Both e2e suites pin `arcadedata/arcadedb:26.9.1` and
+own config with 60s test / 90s hook timeouts. Both e2e suites pin `arcadedata/arcadedb:26.10.1-SNAPSHOT` and
 honour `ARCADEDB_DOCKER_IMAGE` to override it (the smoke job in `ArcadeData/arcadedb` sets it to
 the image built from the server commit under review). The gRPC suite must start the server with
 `-Darcadedb.server.plugins=GRPC:...` — the plugin is off by default — and the root password must

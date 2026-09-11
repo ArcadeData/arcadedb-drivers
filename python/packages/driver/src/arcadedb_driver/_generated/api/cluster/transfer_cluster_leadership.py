@@ -53,6 +53,11 @@ def _parse_response(
 
         return response_403
 
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
 
@@ -83,8 +88,10 @@ def sync_detailed(
     """Transfer leadership
 
      Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft
-    selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+    selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership:
+    a server that is not the leader answers 409 naming the leader to reissue against, rather than
+    routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route
+    is registered on every server, but answers only where high availability is configured.
 
     Args:
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.
@@ -117,8 +124,10 @@ def sync(
     """Transfer leadership
 
      Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft
-    selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+    selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership:
+    a server that is not the leader answers 409 naming the leader to reissue against, rather than
+    routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route
+    is registered on every server, but answers only where high availability is configured.
 
     Args:
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.
@@ -146,8 +155,10 @@ async def asyncio_detailed(
     """Transfer leadership
 
      Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft
-    selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+    selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership:
+    a server that is not the leader answers 409 naming the leader to reissue against, rather than
+    routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route
+    is registered on every server, but answers only where high availability is configured.
 
     Args:
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.
@@ -178,8 +189,10 @@ async def asyncio(
     """Transfer leadership
 
      Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft
-    selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is
-    registered on every server, but answers only where high availability is configured.
+    selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership:
+    a server that is not the leader answers 409 naming the leader to reissue against, rather than
+    routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route
+    is registered on every server, but answers only where high availability is configured.
 
     Args:
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.

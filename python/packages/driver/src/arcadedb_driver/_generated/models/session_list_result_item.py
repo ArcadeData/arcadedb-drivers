@@ -20,6 +20,8 @@ class SessionListResultItem:
         country (str | Unset): Country reported by the proxy, when available
         created_at (int | Unset): Creation time as epoch milliseconds
         elapsed_ms (int | Unset): Milliseconds since last use
+        issuer (str | Unset): Name of the cluster node that issued the session, when this node holds a copy of it;
+            absent for a session this node issued
         last_update (int | Unset): Last use as epoch milliseconds
         source_ip (str | Unset): Client address
         token (str | Unset): Session token
@@ -31,6 +33,7 @@ class SessionListResultItem:
     country: str | Unset = UNSET
     created_at: int | Unset = UNSET
     elapsed_ms: int | Unset = UNSET
+    issuer: str | Unset = UNSET
     last_update: int | Unset = UNSET
     source_ip: str | Unset = UNSET
     token: str | Unset = UNSET
@@ -46,6 +49,8 @@ class SessionListResultItem:
         created_at = self.created_at
 
         elapsed_ms = self.elapsed_ms
+
+        issuer = self.issuer
 
         last_update = self.last_update
 
@@ -68,6 +73,8 @@ class SessionListResultItem:
             field_dict["createdAt"] = created_at
         if elapsed_ms is not UNSET:
             field_dict["elapsedMs"] = elapsed_ms
+        if issuer is not UNSET:
+            field_dict["issuer"] = issuer
         if last_update is not UNSET:
             field_dict["lastUpdate"] = last_update
         if source_ip is not UNSET:
@@ -92,6 +99,8 @@ class SessionListResultItem:
 
         elapsed_ms = d.pop("elapsedMs", UNSET)
 
+        issuer = d.pop("issuer", UNSET)
+
         last_update = d.pop("lastUpdate", UNSET)
 
         source_ip = d.pop("sourceIp", UNSET)
@@ -107,6 +116,7 @@ class SessionListResultItem:
             country=country,
             created_at=created_at,
             elapsed_ms=elapsed_ms,
+            issuer=issuer,
             last_update=last_update,
             source_ip=source_ip,
             token=token,

@@ -56,7 +56,40 @@ export type QueryEnvelope<T = unknown> = {
   truncated: boolean;
 };
 
-function toEnvelope<T>(data: components["schemas"]["QueryResponse"]): QueryEnvelope<T> {
+type QueryResponse = components["schemas"]["QueryResponse"];
+type NdJsonQueryEvent = components["schemas"]["NdJsonQueryEvent"];
+
+/**
+ * Narrows the `200` payload of `/query` and `/command` to the buffered JSON envelope.
+ *
+ * `openapi-typescript` unions every media type declared under a response code, and
+ * ArcadeData/arcadedb#7306 added `application/x-ndjson` beside `application/json` on
+ * these two responses - so `unwrap` now yields `QueryResponse | NdJsonQueryEvent`
+ * where it used to yield `QueryResponse` alone.
+ *
+ * This client never sends `Accept: application/x-ndjson`, so the ndjson branch is
+ * unreachable, and this function's job is to say so out loud. `{}` satisfies both
+ * members (every field of both is optional), so the tie is broken by the encoding
+ * that was actually requested rather than by shape: only a payload carrying a key
+ * that exists ONLY on the streaming event is treated as one.
+ *
+ * The throw is not defensive noise. Without it a stray ndjson line would flow
+ * through `toEnvelope` and become `{ result: [], limit: -1, returned: 0,
+ * truncated: false }` - an answer asserting completeness that nobody gave.
+ *
+ * When the streaming surface lands (drivers#39) this stops being an assertion and
+ * becomes the real discriminator between the two encodings.
+ */
+function asQueryResponse(data: QueryResponse | NdJsonQueryEvent): QueryResponse {
+  if ("record" in data || "stats" in data || "error" in data) {
+    throw new ArcadeDBError(200, {
+      error: "the server answered with a streamed ndjson event, an encoding this client never requests",
+    });
+  }
+  return data as QueryResponse;
+}
+
+function toEnvelope<T>(data: QueryResponse): QueryEnvelope<T> {
   return {
     result: (data.result ?? []) as T[],
     limit: data.limit ?? -1,
@@ -111,7 +144,7 @@ export async function executeQuery<T = unknown>(
       body: buildQueryBody(opts),
     }),
   );
-  return toEnvelope<T>(data);
+  return toEnvelope<T>(asQueryResponse(data));
 }
 
 /**
@@ -133,7 +166,7 @@ export async function executeCommand<T = unknown>(
       body: buildCommandBody(opts),
     }),
   );
-  return toEnvelope<T>(data);
+  return toEnvelope<T>(asQueryResponse(data));
 }
 
 /**

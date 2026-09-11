@@ -178,9 +178,12 @@ def test_stream_query_through_the_handle_is_bound_to_the_transaction(
 def test_insert_stream_is_not_offered_on_the_handle(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:
-    # ArcadeData/arcadedb#6607: the server ignores TransactionContext for InsertStream
-    # and BulkInsert. Offering them here would imply a guarantee it does not honour.
-    # Delete this test when #6607 lands and the methods are added.
+    # ArcadeData/arcadedb#6607: on 26.8.1 and earlier the server ignored TransactionContext
+    # for InsertStream and BulkInsert, so offering them here would have implied a guarantee
+    # it did not honour. #6607 HAS since landed (79d931070b, released in 26.9.1) and was
+    # re-measured against real 26.8.1 / 26.9.1 / 26.10.1-SNAPSHOT servers, so this test now
+    # pins a restriction no supported server needs. Delete it when the methods are added -
+    # that is public surface, so it is a release decision, not a contract-adoption change.
     target, _ = fake_server
     with create_client(target) as client, client.transaction("db") as tx:
         assert not hasattr(tx, "insert_stream")

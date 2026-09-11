@@ -140,10 +140,11 @@ async def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Asy
 
     One `session_id` stable for the whole stream, `chunk_seq` starting at 1, `database` on
     the first chunk only (per the .proto contract, and mirrored into `options.database`
-    there too - on 26.9.1 and earlier the server builds its `InsertContext` from
+    there too - on 26.8.1 and earlier the server builds its `InsertContext` from
     `InsertOptions.database` ALONE and never reads `InsertChunk.database`, so without the
-    mirror every stream fails at the deferred commit with "Invalid database name: name is
-    required"; ArcadeData/arcadedb#6597), and `last=True` on the final chunk only.
+    mirror a stream inserts nothing: `inserted=0`, or a deferred-commit failure with
+    "Invalid database name: name is required"; ArcadeData/arcadedb#6597, fixed in 26.9.1),
+    and `last=True` on the final chunk only.
 
     The source is pulled MANUALLY rather than with a plain `async for`, because knowing
     which chunk is last needs one-element lookahead. That has two consequences this
@@ -483,9 +484,12 @@ class AsyncArcadeDBGrpcClient:
         An empty `request.chunks` sends a single chunk with zero rows and `last=True`
         rather than raising: a filter that matched nothing is a legitimate outcome.
 
-        NOT available on `AsyncTransactionHandle`: ArcadeData/arcadedb#6607 has the server
-        ignoring `TransactionContext` here, so offering it there would imply a
-        transactional guarantee the server does not honour.
+        NOT available on `AsyncTransactionHandle`: on 26.8.1 and earlier,
+        ArcadeData/arcadedb#6607 had the server ignoring `TransactionContext` here, so
+        offering it there would have implied a transactional guarantee the server did not
+        honour. That fix shipped in 26.9.1, so the omission is now removable - see
+        `InsertStreamRequest` in `stream.py` for the measurement and why lifting it is a
+        follow-up.
 
         A `chunks` value in NEITHER half of the union is rejected here, before the RPC is
         opened. This method being a plain `async def` is what makes that cheap: the check

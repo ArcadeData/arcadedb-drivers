@@ -41,13 +41,21 @@ class InsertStreamRequest:
     (`session_id`, `chunk_seq`, first-chunk-only `database`, final-chunk `last`); it does
     not decide how rows are batched, which is the caller's call.
 
-    `transaction` IS FORWARDED BUT NOT HONOURED. It is set on every chunk, exactly as the
-    caller gave it, because the `.proto` declares the field - but on 26.9.1 and earlier the
-    server ignores `TransactionContext` for `InsertStream` entirely
-    (ArcadeData/arcadedb#6607), so setting it buys no transactional guarantee. That is the
-    same reason `insert_stream` is not offered on `TransactionHandle` at all: there the
-    omission makes the gap visible, whereas here the field is part of the wire message and
-    cannot be hidden. Do not rely on it until #6607 lands.
+    `transaction` IS FORWARDED. It is set on every chunk, exactly as the caller gave it,
+    because the `.proto` declares the field. On 26.8.1 and earlier the server ignored
+    `TransactionContext` for `InsertStream` entirely (ArcadeData/arcadedb#6607), so setting
+    it bought no transactional guarantee; that is why `insert_stream` is not offered on
+    `TransactionHandle` at all - there the omission makes the gap visible, whereas here the
+    field is part of the wire message and cannot be hidden.
+
+    #6607 HAS since landed (`79d931070b`, released in 26.9.1). Measured against real
+    26.8.1, 26.9.1 and 26.10.1-SNAPSHOT servers - begin over `BeginTransaction`, insert
+    with that server-issued `transaction_id`, then roll back - the rows survive the
+    rollback on 26.8.1 and are correctly discarded on both later versions, with a commit
+    persisting them on all three. So the guarantee IS honoured on every server version this
+    package supports, and the `TransactionHandle` omission is now removable. Lifting it adds
+    public surface, so it is tracked as a follow-up rather than done during a contract
+    adoption.
     """
 
     database: str
@@ -60,16 +68,25 @@ class InsertStreamRequest:
 def _first_chunk_options(request: InsertStreamRequest) -> messages.InsertOptions:
     """The caller's options with `database` forced onto them.
 
-    Empirically established during M1b against a real server: on 26.9.1 and every
-    earlier release the server builds its `InsertContext` from `InsertOptions.database`
-    ALONE and never reads `InsertChunk.database` at all, despite the .proto documenting
-    the latter as REQUIRED on the first chunk. Without this mirror every stream against
-    such a server fails at the deferred commit with "Invalid database name: name is
-    required", even though `database` was sent exactly as the contract specifies.
+    Empirically established during M1b against a real server, and re-measured when this
+    package adopted the 26.10.1-SNAPSHOT contract: on 26.8.1 and every earlier release the
+    server builds its `InsertContext` from `InsertOptions.database` ALONE and never reads
+    `InsertChunk.database` at all, despite the .proto documenting the latter as REQUIRED on
+    the first chunk. Without this mirror a stream against such a server inserts nothing - it
+    reports the rows as `received` with `inserted=0`, or fails at the deferred commit with
+    "Invalid database name: name is required" - even though `database` was sent exactly as
+    the contract specifies.
 
-    A server carrying the fix for ArcadeData/arcadedb#6597 prefers a non-empty chunk
-    `database` and falls back to this one, so setting both to the same value is correct
-    on either side of that fix.
+    A server carrying the fix for ArcadeData/arcadedb#6597 (`7ccade7348`, released in
+    26.9.1) prefers a non-empty chunk `database` and falls back to this one, so setting both
+    to the same value is correct on either side of that fix. Measured directly: a
+    single-chunk stream with `options.database` left empty inserts 0 of 2 rows on 26.8.1 and
+    2 of 2 on both 26.9.1 and 26.10.1-SNAPSHOT.
+
+    Every server version this package supports (the README's compatibility table starts at
+    26.9.1) therefore carries the fix, so this mirror is belt-and-braces rather than
+    load-bearing today. It is kept because removing it is a behaviour change; retiring it is
+    tracked as a follow-up.
     """
     options = messages.InsertOptions()
     if request.options is not None:
@@ -198,13 +215,16 @@ def insert_stream(
     - `chunk_seq` starting at 1 and incrementing by 1
     - `database` on the first chunk only, per the .proto contract, mirrored into
       `options.database` there too for compatibility with servers predating #6597
+      (26.8.1 and earlier; see `_first_chunk_options`)
     - `last=True` on the final chunk only
 
     An empty `request.chunks` sends a single chunk with zero rows and `last=True` rather
     than raising.
 
-    NOT available on a `TransactionHandle`: ArcadeData/arcadedb#6607 has the server
-    ignoring `TransactionContext` here, so offering it there would imply a transactional
-    guarantee the server does not honour.
+    NOT available on a `TransactionHandle`: on 26.8.1 and earlier, ArcadeData/arcadedb#6607
+    had the server ignoring `TransactionContext` here, so offering it there would have
+    implied a transactional guarantee the server did not honour. That fix shipped in 26.9.1
+    and the omission is now removable - see `InsertStreamRequest` for the measurement and
+    why lifting it is a follow-up rather than part of a contract adoption.
     """
     return raw.InsertStream(_envelope_chunks(request, str(uuid.uuid4())), timeout=timeout)

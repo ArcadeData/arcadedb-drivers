@@ -309,3 +309,52 @@ describe("ArcadeDBDatabase.transaction", () => {
     expect((caught as Error).cause).toBe(originalCause);
   });
 });
+
+describe("the 200 response union (ArcadeData/arcadedb#7306)", () => {
+  it("returns the buffered envelope unchanged when the server answers application/json", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ result: [{ name: "a" }], limit: 100, returned: 1, truncated: false }, 200),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const envelope = await server.db("mydb").query({ language: "sql", command: "SELECT FROM V" });
+
+    expect(envelope).toEqual({ result: [{ name: "a" }], limit: 100, returned: 1, truncated: false });
+  });
+
+  it("throws rather than returning an empty envelope when a 200 carries an ndjson event", async () => {
+    // This client never sends `Accept: application/x-ndjson`, so this shape is
+    // unreachable in practice. The point of the assertion is that if it ever
+    // becomes reachable, the caller learns about it instead of silently
+    // receiving `{ result: [], limit: -1, returned: 0, truncated: false }`.
+    const fetchMock = vi.fn(async () => jsonResponse({ record: { name: "a" } }, 200));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(server.db("mydb").query({ language: "sql", command: "SELECT FROM V" })).rejects.toThrow(
+      ArcadeDBError,
+    );
+  });
+
+  it("throws on an ndjson stats trailer reaching command()", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ stats: { limit: 100, returned: 1, truncated: false } }, 200),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(
+      server.db("mydb").command({ language: "sql", command: "UPDATE V SET x = 1" }),
+    ).rejects.toThrow(ArcadeDBError);
+  });
+
+  it("treats an empty 200 body as the buffered envelope, not as an ndjson event", async () => {
+    // Every field of QueryResponse is optional and every field of
+    // NdJsonQueryEvent is too, so `{}` satisfies both. It is the encoding this
+    // client asked for that breaks the tie.
+    const fetchMock = vi.fn(async () => jsonResponse({}, 200));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const envelope = await server.db("mydb").query({ language: "sql", command: "SELECT FROM V" });
+
+    expect(envelope).toEqual({ result: [], limit: -1, returned: 0, truncated: false });
+  });
+});

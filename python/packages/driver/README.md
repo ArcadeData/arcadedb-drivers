@@ -250,17 +250,18 @@ this today because its response schemas do not have this shape.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.9.1.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.9.1"
+server-version = "26.10.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
+| 0.2.0 (unreleased) | 26.10.1-SNAPSHOT |
 
 This table is a historical record tied to a package version, not something derived automatically:
 `scripts/adopt-contract-version.sh` deliberately does not touch it when it retires an old contract

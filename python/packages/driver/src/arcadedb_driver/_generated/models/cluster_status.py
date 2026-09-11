@@ -24,6 +24,7 @@ class ClusterStatus:
 
     Attributes:
         alerts (list[ClusterStatusAlertsItem] | Unset): Conditions worth an operator's attention
+        capabilities (list[str] | Unset): Optional wire-format sections THIS node can decode, sorted (issue #7219)
         cluster_name (str | Unset): Configured cluster name
         database_presence (ClusterStatusDatabasePresence | Unset): Which peer holds which database. Present only when
             this server is the leader and the request set '?presence=true'.
@@ -42,6 +43,7 @@ class ClusterStatus:
     """
 
     alerts: list[ClusterStatusAlertsItem] | Unset = UNSET
+    capabilities: list[str] | Unset = UNSET
     cluster_name: str | Unset = UNSET
     database_presence: ClusterStatusDatabasePresence | Unset = UNSET
     databases: list[ClusterStatusDatabasesItem] | Unset = UNSET
@@ -65,6 +67,10 @@ class ClusterStatus:
             for alerts_item_data in self.alerts:
                 alerts_item = alerts_item_data.to_dict()
                 alerts.append(alerts_item)
+
+        capabilities: list[str] | Unset = UNSET
+        if not isinstance(self.capabilities, Unset):
+            capabilities = self.capabilities
 
         cluster_name = self.cluster_name
 
@@ -119,6 +125,8 @@ class ClusterStatus:
         field_dict.update({})
         if alerts is not UNSET:
             field_dict["alerts"] = alerts
+        if capabilities is not UNSET:
+            field_dict["capabilities"] = capabilities
         if cluster_name is not UNSET:
             field_dict["clusterName"] = cluster_name
         if database_presence is not UNSET:
@@ -166,6 +174,8 @@ class ClusterStatus:
                 alerts_item = ClusterStatusAlertsItem.from_dict(alerts_item_data)
 
                 alerts.append(alerts_item)
+
+        capabilities = cast(list[str], d.pop("capabilities", UNSET))
 
         cluster_name = d.pop("clusterName", UNSET)
 
@@ -230,6 +240,7 @@ class ClusterStatus:
 
         cluster_status = cls(
             alerts=alerts,
+            capabilities=capabilities,
             cluster_name=cluster_name,
             database_presence=database_presence,
             databases=databases,

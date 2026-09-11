@@ -131,10 +131,18 @@ def test_stream_query_returns_rows(client: ArcadeDBGrpcClient, grpc_database: st
 
 
 def test_insert_stream_inserts_rows(client: ArcadeDBGrpcClient, grpc_database: str) -> None:
-    # THE test for the options.database mirroring. Against a real 26.9.1 server, an
-    # insert_stream that does not mirror `database` into `options` fails at the deferred
-    # commit with "Invalid database name: name is required". If this test fails that way,
-    # the mirroring in stream.py has been removed - restore it, do not work around it.
+    # THE test for the options.database mirroring. On a real 26.8.1 or earlier server, an
+    # insert_stream that does not mirror `database` into `options` inserts nothing -
+    # inserted=0, or a deferred-commit failure with "Invalid database name: name is
+    # required". If this test ever fails that way, the mirroring in stream.py has been
+    # removed - restore it, do not work around it.
+    #
+    # Note what this test CANNOT prove on the pinned image. ArcadeData/arcadedb#6597 was
+    # fixed in 26.9.1, and the pin is 26.10.1-SNAPSHOT, so this passes with OR without the
+    # mirror here. The boundary was established separately, by sending a chunk-only
+    # `database` against 26.8.1, 26.9.1 and 26.10.1-SNAPSHOT directly: 0 of 2 rows land on
+    # 26.8.1, 2 of 2 on both later versions. The mirror is kept anyway - removing it is a
+    # behaviour change, not a documentation fix.
     marker = f"is{uuid.uuid4().hex[:8]}"
     summary = client.insert_stream(
         InsertStreamRequest(

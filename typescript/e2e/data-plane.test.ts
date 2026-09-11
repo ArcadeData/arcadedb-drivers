@@ -5,7 +5,7 @@ import { basicAuth, bearerAuth, createClient } from "../packages/driver/src/inde
 import type { ArcadeDBServer } from "../packages/driver/src/index.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 
-// Image pin: `arcadedata/arcadedb:26.9.1` is the release the committed OpenAPI contract was
+// Image pin: `arcadedata/arcadedb:26.10.1-SNAPSHOT` is the release the committed OpenAPI contract was
 // generated from, so the client under test and the server it runs against are the same version.
 //
 // That was not true until this pin moved. It sat at 26.8.1 - a release predating M0 - and needed
@@ -15,7 +15,7 @@ import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 // (upstream fix #6562). That argument was sound but load-bearing, and it had to be re-made on
 // every bump. Pinning to the contract's own release retires it. Move this pin with the contract
 // and it stays retired.
-const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.9.1";
+const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.10.1-SNAPSHOT";
 
 // `ARCADEDB_DOCKER_IMAGE` overrides the pin. It exists for the smoke job in ArcadeData/arcadedb,
 // which runs this suite against the image built from the server commit under review rather than

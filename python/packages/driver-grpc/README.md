@@ -217,14 +217,23 @@ only the envelope bookkeeping around those batches, which is easy to get wrong b
 
 `insert_stream` also sets `options.database` to the same value as the first chunk's `database`.
 This is a compatibility workaround, established empirically against a real server: on ArcadeDB
-26.9.1 and every earlier release, the server builds its `InsertContext` from
+**26.8.1 and every earlier release**, the server builds its `InsertContext` from
 `InsertOptions.database` **alone** and never reads `InsertChunk.database` at all, despite the
-`.proto` documenting the latter as required. Without this mirror, every stream against such a
-server fails at the deferred commit with `Invalid database name: name is required` - even though
-`database` was sent exactly as the contract specifies. A server carrying the fix for
-[ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) prefers a non-empty
-`InsertChunk.database` and falls back to `InsertOptions.database`, so setting both to the same
-value is correct on either side of that fix and safe to keep sending once it ships.
+`.proto` documenting the latter as required. Without this mirror, a stream against such a server
+inserts nothing - the server reports the rows as `received` with `inserted=0`, or fails at the
+deferred commit with `Invalid database name: name is required` - even though `database` was sent
+exactly as the contract specifies. A server carrying the fix for
+[ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (`7ccade7348`,
+**released in 26.9.1**) prefers a non-empty `InsertChunk.database` and falls back to
+`InsertOptions.database`, so setting both to the same value is correct on either side of that fix.
+
+That boundary is measured, not inferred. A single-chunk stream carrying `database` on the chunk
+with `options.database` left empty inserts **0 of 2** rows on `arcadedata/arcadedb:26.8.1` and
+**2 of 2** on both `26.9.1` and `26.10.1-SNAPSHOT`; `7ccade7348` is an ancestor of the `26.9.1`
+tag and not of `26.8.1`. So **every server version this package claims support for carries the
+fix** (the compatibility table below starts at 26.9.1), and the mirror is belt-and-braces rather
+than load-bearing today. It is still sent, because removing it would be a behaviour change;
+retiring it is tracked as a follow-up.
 
 An empty stream is not an error. A caller whose row source produces zero batches (a filter that
 matched nothing, say) gets a single wire chunk with zero rows and `last=True`, and whatever
@@ -304,15 +313,23 @@ propagates.
 
 ### `insert_stream` and `bulk_insert` cannot join a `transaction()` on this server
 
-On this server, `ArcadeDbGrpcService#insertStream` and `#bulkInsert` never read a request's
-`TransactionContext` - each builds its own `InsertContext`, resolves its own database, and commits
-independently, regardless of any `BeginTransaction`/`CommitTransaction`/`RollbackTransaction`
-issued around it. Adding them to `TransactionHandle` would silently misrepresent this: their writes
-would not actually be part of the transaction, would commit even if the transaction's body raised,
-and would survive a rollback. Both remain reachable outside a transaction -
-`client.insert_stream(...)` and `client.raw.BulkInsert(...)` - but never through `tx`. See
-[ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607), filed against this
-gap; this restriction is removable once that lands server-side.
+On **26.8.1 and every earlier server**, `ArcadeDbGrpcService#insertStream` and `#bulkInsert`
+never read a request's `TransactionContext` - each builds its own `InsertContext`, resolves its own
+database, and commits independently, regardless of any
+`BeginTransaction`/`CommitTransaction`/`RollbackTransaction` issued around it. Adding them to
+`TransactionHandle` would silently misrepresent this: their writes would not actually be part of
+the transaction, would commit even if the transaction's body raised, and would survive a rollback.
+Both remain reachable outside a transaction - `client.insert_stream(...)` and
+`client.raw.BulkInsert(...)` - but never through `tx`.
+
+[ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607) was filed against
+this gap and **has since landed**: its fix (`79d931070b`) is an ancestor of the `26.9.1` tag and
+not of `26.8.1`. Measured against real servers - begin over `BeginTransaction`, run an
+`InsertStream` carrying that server-issued `transaction_id`, then roll back - the rows survive the
+rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10.1-SNAPSHOT`, with a
+commit persisting them on all three. So the restriction is now **removable** for every server
+version this package supports. It is kept for now because lifting it adds public surface, a
+deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
 
 ## Errors: `grpc.RpcError`, not a package-specific error
 
@@ -384,17 +401,18 @@ object does not already implement.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.9.1.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.10.1-SNAPSHOT.proto`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.9.1"
+server-version = "26.10.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver-grpc` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
+| 0.2.0 (unreleased) | 26.10.1-SNAPSHOT |
 
 This table is a historical record tied to a package version, not something derived
 automatically: `scripts/adopt-contract-version.sh` deliberately does not touch it when it retires

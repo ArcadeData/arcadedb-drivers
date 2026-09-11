@@ -1,7 +1,7 @@
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import type { ArcadeDbService } from "./gen/arcadedb-server-26.9.1_pb.js";
-import { TransactionContextSchema } from "./gen/arcadedb-server-26.9.1_pb.js";
+import type { ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+import { TransactionContextSchema } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { createStreamQuery } from "./stream.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
@@ -16,15 +16,22 @@ type TransactionContextInit = MessageInitShape<typeof TransactionContextSchema>;
  * `rollbackTransaction` (owned by the wrapper) and the two RPCs the design spec keeps
  * unwrapped (`insertBidirectional`, `graphBatchLoad` - reachable, unwrapped, via `client.raw`).
  *
- * Also excludes `bulkInsert` and `insertStream`: on this server, `ArcadeDbGrpcService#bulkInsert`
- * and `#insertStream` never read the request's transaction context at all - each builds its own
- * `InsertContext`, which resolves its own `Database` and commits on its own, independent of any
- * `BeginTransaction`/`CommitTransaction`/`RollbackTransaction` the caller issued. Binding them
- * here would silently lie: their writes are NOT part of the transaction, survive a rollback, and
- * commit even when the callback throws. Both remain reachable outside a transaction: `insertStream`
- * via `client.insertStream` (or `client.raw.insertStream`), `bulkInsert` via `client.raw.bulkInsert`.
- * See [ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607); this exclusion
- * can be removed once that lands server-side.
+ * Also excludes `bulkInsert` and `insertStream`: on 26.8.1 and every earlier server,
+ * `ArcadeDbGrpcService#bulkInsert` and `#insertStream` never read the request's transaction
+ * context at all - each builds its own `InsertContext`, which resolves its own `Database` and
+ * commits on its own, independent of any `BeginTransaction`/`CommitTransaction`/
+ * `RollbackTransaction` the caller issued. Binding them here would silently lie: their writes are
+ * NOT part of the transaction, survive a rollback, and commit even when the callback throws. Both
+ * remain reachable outside a transaction: `insertStream` via `client.insertStream` (or
+ * `client.raw.insertStream`), `bulkInsert` via `client.raw.bulkInsert`.
+ *
+ * [ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607) HAS since landed
+ * server-side (`79d931070b`, released in 26.9.1), and measurement against 26.8.1, 26.9.1 and
+ * 26.10.1-SNAPSHOT confirms it: an `InsertStream` carrying a server-issued `transaction_id`
+ * survives a rollback on 26.8.1 and is correctly discarded on both later versions. So this
+ * exclusion is removable for every server version this package supports - but lifting it ADDS
+ * public surface, a release decision rather than a documentation fix, so it is tracked as a
+ * follow-up and not done here.
  */
 export interface TransactionHandle {
   executeQuery: RawClient["executeQuery"];

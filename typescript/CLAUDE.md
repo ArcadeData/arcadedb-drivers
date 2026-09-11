@@ -23,7 +23,7 @@ npx vitest run --config e2e/vitest.config.ts e2e/grpc.test.ts   # a single e2e f
 ```
 
 `vitest.config.ts` excludes `e2e/**` so `npm test` never pulls a container; the e2e suite has its
-own config with 60s test / 90s hook timeouts. Both e2e suites pin `arcadedata/arcadedb:26.9.1` and
+own config with 60s test / 90s hook timeouts. Both e2e suites pin `arcadedata/arcadedb:26.10.1-SNAPSHOT` and
 honour `ARCADEDB_DOCKER_IMAGE` to override it (the smoke job in `ArcadeData/arcadedb` sets it to
 the image built from the server commit under review). The gRPC suite must start the server with
 `-Darcadedb.server.plugins=GRPC:...` — the plugin is off by default — and the root password must
@@ -96,12 +96,16 @@ Points to preserve when editing:
   with protocol `"localhost:"`.
 - `insertStream` owns only the envelope bookkeeping — one stable `session_id`, `chunk_seq` from 1,
   `database` on the first chunk, `last` on the final one — plus mirroring `options.database` as a
-  workaround for servers without the fix for `ArcadeData/arcadedb#6597`. An empty `chunks`
-  iterable is valid, not an error.
+  workaround for servers without the fix for `ArcadeData/arcadedb#6597` (i.e. 26.8.1 and earlier;
+  the fix shipped in 26.9.1, so no server version this package supports still needs the mirror —
+  it is kept because removing it is a behaviour change). An empty `chunks` iterable is valid, not
+  an error.
 - `streamQuery` flattens batches into rows and nothing else; `retrievalMode` and `batchSize` stay
   the caller's choice.
-- `TransactionHandle` excludes `bulkInsert` and `insertStream` because the server commits those
-  independently of the transaction (`ArcadeData/arcadedb#6607`).
+- `TransactionHandle` excludes `bulkInsert` and `insertStream` because the server committed those
+  independently of the transaction (`ArcadeData/arcadedb#6607`) on 26.8.1 and earlier. That fix
+  also shipped in 26.9.1, verified against a real server, so the exclusion is now removable — but
+  lifting it adds public surface, so it is a follow-up rather than part of a contract adoption.
 
 ## Lint configuration
 

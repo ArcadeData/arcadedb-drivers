@@ -422,6 +422,37 @@
         },
         "type": "object"
       },
+      "ClusterAuthSessionRequest": {
+        "description": "A session token and the action to apply to it",
+        "properties": {
+          "action": {
+            "description": "'validate' (default) or 'revoke'",
+            "type": "string"
+          },
+          "token": {
+            "description": "The session token, 'AU-<server name>-<uuid>'",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "type": "object"
+      },
+      "ClusterAuthSessionResponse": {
+        "description": "The session as held by the node that issued it",
+        "properties": {
+          "createdAt": {
+            "description": "Creation time, epoch milliseconds",
+            "type": "integer"
+          },
+          "user": {
+            "description": "The principal the session belongs to",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ClusterStatus": {
         "description": "Cluster and replication status",
         "properties": {
@@ -430,6 +461,14 @@
             "items": {
               "description": "One cluster alert",
               "type": "object"
+            },
+            "type": "array"
+          },
+          "capabilities": {
+            "description": "Optional wire-format sections THIS node can decode, sorted (issue #7219)",
+            "items": {
+              "description": "Capability token",
+              "type": "string"
             },
             "type": "array"
           },
@@ -518,6 +557,14 @@
                   "description": "Peer address",
                   "type": "string"
                 },
+                "capabilities": {
+                  "description": "Optional wire-format sections this peer can decode, as last observed by the leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'.",
+                  "items": {
+                    "description": "Capability token",
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "httpAddress": {
                   "description": "Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved.",
                   "type": "string"
@@ -568,6 +615,10 @@
                 },
                 "role": {
                   "description": "LEADER or FOLLOWER",
+                  "type": "string"
+                },
+                "version": {
+                  "description": "Server version this peer reported alongside its capabilities. Absent when the leader has no fresh answer from it.",
                   "type": "string"
                 }
               },
@@ -658,6 +709,85 @@
           },
           "help": {
             "description": "Help information",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "FullTextSearchRequest": {
+        "description": "Full-text search over a FULL_TEXT index",
+        "properties": {
+          "indexName": {
+            "description": "Full-text index to search; wins over 'typeName' when both are given",
+            "type": "string"
+          },
+          "limit": {
+            "default": 10,
+            "description": "Maximum number of results to return",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "properties": {
+            "description": "Indexed properties, to pick between several full-text indexes on the same type",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "queryText": {
+            "description": "Lucene-syntax query, e.g. 'java' or '+java -python'. Must not be blank",
+            "type": "string"
+          },
+          "typeName": {
+            "description": "Type whose full-text index to search. Usable alone only when the type carries exactly one",
+            "type": "string"
+          }
+        },
+        "required": [
+          "queryText"
+        ],
+        "type": "object"
+      },
+      "FullTextSearchResponse": {
+        "description": "Documents matching the full-text query",
+        "properties": {
+          "count": {
+            "description": "Number of results returned",
+            "type": "integer"
+          },
+          "indexName": {
+            "description": "Index that was searched",
+            "type": "string"
+          },
+          "results": {
+            "description": "Hits, highest score first",
+            "items": {
+              "description": "One hit",
+              "properties": {
+                "distance": {
+                  "description": "Dense vector distance, lower is better. Absent on a scored hit",
+                  "type": "number"
+                },
+                "properties": {
+                  "description": "The record's properties",
+                  "type": "object"
+                },
+                "rid": {
+                  "description": "Record id of the hit",
+                  "type": "string"
+                },
+                "score": {
+                  "description": "Sparse or full-text score, higher is better. Absent on a distance hit",
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "similarity": {
+            "description": "Similarity function the index scores with, e.g. BM25",
             "type": "string"
           }
         },
@@ -778,7 +908,7 @@
                             "type": "string"
                           },
                           "type": {
-                            "description": "Aggregation function",
+                            "description": "Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively. A value that matches none is reported as an error frame on this target, leaving the other targets served.",
                             "type": "string"
                           }
                         },
@@ -892,6 +1022,185 @@
             },
             "description": "Results keyed by target refId",
             "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "HybridSearchRequest": {
+        "description": "Fused vector, full-text and graph-expansion search",
+        "properties": {
+          "efSearch": {
+            "description": "Dense-index search beam width",
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "expand": {
+            "description": "Optional graph expansion leg, seeded from the union of the retrieval legs and ranked by breadth-first discovery order.",
+            "properties": {
+              "direction": {
+                "description": "out, in, or both",
+                "type": "string"
+              },
+              "edgeTypes": {
+                "description": "Edge types to walk",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "maxDepth": {
+                "default": 1,
+                "description": "Hops to walk from a seed",
+                "maximum": 3,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "filter": {
+            "description": "Optional read-only SQL WHERE predicate applied to the vector leg's candidate window",
+            "type": "string"
+          },
+          "fulltextIndexName": {
+            "description": "Full-text index the full-text leg searches. Required whenever 'fulltextQuery' is given, and refused without it",
+            "type": "string"
+          },
+          "fulltextQuery": {
+            "description": "Lucene-syntax query for the full-text leg. Goes together with 'fulltextIndexName': half a leg is refused rather than silently dropped. Omit both to search without a full-text leg.",
+            "type": "string"
+          },
+          "fusionStrategy": {
+            "description": "How the legs are combined. Only RRF can consume the graph expansion leg, which is ranked by traversal order",
+            "type": "string"
+          },
+          "k": {
+            "default": 10,
+            "description": "Maximum number of fused results to return",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "queryIndices": {
+            "description": "Sparse dimension ids matching the 'queryVector' weights. Requires sparse=true",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "queryVector": {
+            "description": "Query vector for the vector leg",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "sparse": {
+            "description": "Use the sparse vector path",
+            "type": "boolean"
+          },
+          "vectorIndexName": {
+            "description": "Name of an LSM_VECTOR or LSM_SPARSE_VECTOR index",
+            "type": "string"
+          },
+          "weights": {
+            "description": "Per-leg weight applied to every rank contribution. The only accepted keys are 'vector', 'fulltext' and 'expand', and a weight for a leg the request does not ask for is refused rather than ignored.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "queryVector",
+          "vectorIndexName"
+        ],
+        "type": "object"
+      },
+      "HybridSearchResponse": {
+        "description": "Fused results and per-leg accounting",
+        "properties": {
+          "count": {
+            "description": "Number of results returned",
+            "type": "integer"
+          },
+          "fulltextIndexName": {
+            "description": "Full-text index that was searched, present whenever the full-text leg ran - including when it matched nothing",
+            "type": "string"
+          },
+          "fused": {
+            "description": "False when only one leg produced rows: fusion needs at least two sources, so the response carries that leg's native distance or score instead of a fused one.",
+            "type": "boolean"
+          },
+          "fusionStrategy": {
+            "description": "Strategy actually applied; absent when 'fused' is false",
+            "type": "string"
+          },
+          "legs": {
+            "description": "Per-leg accounting: how many rows each leg contributed, and whether the expansion hit its seed or fan-out cap",
+            "type": "object"
+          },
+          "results": {
+            "description": "Fused hits, best first",
+            "items": {
+              "description": "One fused hit",
+              "properties": {
+                "depth": {
+                  "description": "Hops from the seed, for a hit the expansion leg contributed",
+                  "type": "integer"
+                },
+                "distance": {
+                  "description": "Vector distance, present instead of 'fusedScore' on an unfused dense response",
+                  "type": "number"
+                },
+                "fusedScore": {
+                  "description": "Fused score, higher is better. Present when 'fused' is true",
+                  "type": "number"
+                },
+                "path": {
+                  "description": "Record ids from the seed to this hit, seed included",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "properties": {
+                  "description": "The record's properties",
+                  "type": "object"
+                },
+                "rid": {
+                  "description": "Record id of the hit",
+                  "type": "string"
+                },
+                "score": {
+                  "description": "Sparse or full-text score, present instead of 'fusedScore' on an unfused sparse or full-text response",
+                  "type": "number"
+                },
+                "sources": {
+                  "description": "Which legs contributed this hit: vector, fulltext, expand",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "scoring": {
+            "description": "Scoring direction of the vector leg",
+            "type": "string"
+          },
+          "sparse": {
+            "description": "Whether the vector leg took the sparse path",
+            "type": "boolean"
+          },
+          "truncated": {
+            "description": "True when the result window was filled",
+            "type": "boolean"
+          },
+          "vectorIndexName": {
+            "description": "Vector index that was searched",
+            "type": "string"
           }
         },
         "type": "object"
@@ -1013,6 +1322,146 @@
               "type": "string"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "NdJsonBatchEvent": {
+        "description": "One line of a streamed bulk load. Exactly one of 'progress', 'summary' or 'error' is present.",
+        "properties": {
+          "error": {
+            "description": "Terminal line of a failed load: the same object the buffered encoding carries, plus the 'status' it would have been sent under. The status line cannot be taken back once the stream has started, so the status travels in band.",
+            "properties": {
+              "commitIndex": {
+                "description": "Last applied Raft index, present on a replicated database. On a failed load it bookmarks the chunks that were committed before the failure",
+                "type": "integer"
+              },
+              "status": {
+                "description": "HTTP status the buffered encoding would have used: 400, 408 or 500",
+                "type": "integer"
+              },
+              "statusMapped": {
+                "description": "Present and false when 'status' is the unclassified 500 fallback rather than the status the buffered encoding would have chosen - the case of an engine failure raised after the stream had already started. Key on 'exception' there, not on 'status'. Absent whenever 'status' is exact.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "progress": {
+            "description": "A chunk acknowledgement, written while the request body is still being read. Emitted at every vertex commit and every 'commitEvery' edges. The counters are records ATTEMPTED, the same upper bound on what is durable that the partial-commit counters carry: vertices are committed at each flush, while edges are buffered and written when the load ends.",
+            "properties": {
+              "bytesRead": {
+                "description": "Bytes of the upload the server consumed, so a client can verify its whole file arrived - and, on a truncated load, how far the server got. Never more than the client sent.",
+                "type": "integer"
+              },
+              "edgesCreated": {
+                "description": "Edges attempted so far",
+                "type": "integer"
+              },
+              "idMapping": {
+                "description": "Temporary id to RID mapping of the vertices this chunk resolved, and only of those: the mapping is handed back one committed chunk at a time so neither end ever holds the whole load's worth of it (issue #7353). Concatenate the 'idMapping' of every line, in order, to obtain what the buffered encoding returns in one object, and check the total against 'idMappingSize' on the terminal line. Absent on an edge-phase acknowledgement, on a chunk whose vertices declared no @id under refMode=tempId, and when the request sent idMapping=false.",
+                "type": "object"
+              },
+              "linesRead": {
+                "description": "Lines the parser read, so 'linesRead' minus 'linesSkipped' can be checked against the records created",
+                "type": "integer"
+              },
+              "linesSkipped": {
+                "description": "Lines that carried no record: blank lines, plus CSV headers and '---' separators",
+                "type": "integer"
+              },
+              "phase": {
+                "description": "'vertices' or 'edges'",
+                "type": "string"
+              },
+              "verticesCreated": {
+                "description": "Vertices attempted so far",
+                "type": "integer"
+              },
+              "verticesWithoutId": {
+                "description": "Vertices created without an '@id' under refMode=id. They are loaded and durable, but no edge can reference them. Absent when zero.",
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "summary": {
+            "description": "Terminal line of a successful load: the same object the buffered application/json response carries, plus 'commitIndex' on a replicated database - the read-your-writes bookmark, which cannot be a response header here because the response has already started when its value becomes known.",
+            "properties": {
+              "commitIndex": {
+                "description": "Last applied Raft index, the value the X-ArcadeDB-Commit-Index header carries on the buffered encoding",
+                "type": "integer"
+              },
+              "idMappingSize": {
+                "description": "Total number of temporary ids the load resolved. Check the number of mapping entries received across all the lines against it: a mapping that arrives in pieces can lose one to a truncated response without any single piece looking wrong.",
+                "type": "integer"
+              },
+              "idMappingStreamed": {
+                "description": "Always true on this encoding when the load resolved any temporary id: the mapping travelled in the 'idMapping' of the progress lines rather than in this object, so 'idMapping' here is only whatever the last chunk resolved after the final acknowledgement - usually nothing. 'idMappingOmitted' is never sent on this encoding: the size cap it reports exists because the buffered encoding has to build the whole mapping before it can send anything, which streaming removes (issue #7353).",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "NdJsonQueryEvent": {
+        "description": "One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present.",
+        "properties": {
+          "error": {
+            "description": "A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.",
+            "properties": {
+              "message": {
+                "description": "Why the stream failed",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "record": {
+            "description": "One result row, identical to an element of the 'result' array of the buffered application/json response.",
+            "type": "object"
+          },
+          "stats": {
+            "description": "Trailer, always the last line of a complete stream. Carries the same three numbers the buffered response reports at top level.",
+            "properties": {
+              "limit": {
+                "description": "Effective row cap applied while streaming, -1 when uncapped",
+                "type": "integer"
+              },
+              "returned": {
+                "description": "Number of rows that reached the client",
+                "type": "integer"
+              },
+              "truncated": {
+                "description": "True when the cap stopped the stream with rows still pending, so the result is incomplete",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "PeerCapabilitiesResponse": {
+        "description": "The wire-format sections one peer can decode",
+        "properties": {
+          "capabilities": {
+            "description": "Capability tokens this peer can decode, sorted",
+            "items": {
+              "description": "Capability token",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "peerId": {
+            "description": "Peer that answered. A caller must check this against the peer it meant to ask: on a cluster that declares no explicit 'http' ports several peers can resolve to one address.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Server version of the answering peer, for operators; nothing decides on it",
+            "type": "string"
           }
         },
         "type": "object"
@@ -1337,6 +1786,10 @@
                   "description": "Milliseconds since last use",
                   "type": "integer"
                 },
+                "issuer": {
+                  "description": "Name of the cluster node that issued the session, when this node holds a copy of it; absent for a session this node issued",
+                  "type": "string"
+                },
                 "lastUpdate": {
                   "description": "Last use as epoch milliseconds",
                   "type": "integer"
@@ -1460,7 +1913,7 @@
                       "type": "string"
                     },
                     "type": {
-                      "description": "Aggregation function, for example AVG, SUM, MIN, MAX, COUNT",
+                      "description": "Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively.",
                       "type": "string"
                     }
                   },
@@ -1595,6 +2048,111 @@
           "timeoutMs": {
             "description": "How long to wait for the transfer to complete, in milliseconds. Defaults to 30000.",
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "VectorSearchRequest": {
+        "description": "kNN search over a dense or sparse vector index",
+        "properties": {
+          "efSearch": {
+            "description": "Dense-index search beam width: higher values improve recall at higher cost. Rejected for a sparse index",
+            "maximum": 10000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "filter": {
+            "description": "Optional read-only SQL WHERE predicate applied to a bounded candidate set. Evaluated against each expanded neighbor row, where record properties are flattened and @rid, @type, record, plus distance (dense) or score (sparse) are available. At most4096 characters.",
+            "type": "string"
+          },
+          "indexName": {
+            "description": "Name of an LSM_VECTOR or LSM_SPARSE_VECTOR index",
+            "type": "string"
+          },
+          "k": {
+            "default": 10,
+            "description": "Maximum number of results to return",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "queryIndices": {
+            "description": "Sparse dimension ids matching the 'queryVector' weights; omit to use the vector's own positions. Requires sparse=true",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "queryVector": {
+            "description": "Dense query vector, or the sparse weights matching 'queryIndices' when sparse is true",
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "sparse": {
+            "description": "Search an LSM_SPARSE_VECTOR index instead of a dense one",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "indexName",
+          "queryVector"
+        ],
+        "type": "object"
+      },
+      "VectorSearchResponse": {
+        "description": "Ranked neighbors of the query vector",
+        "properties": {
+          "candidateLimit": {
+            "description": "Size of the candidate window the search inspected, which a filter over-fetches into",
+            "type": "integer"
+          },
+          "count": {
+            "description": "Number of results returned",
+            "type": "integer"
+          },
+          "indexName": {
+            "description": "Index that was searched",
+            "type": "string"
+          },
+          "results": {
+            "description": "Hits, nearest or highest-scoring first",
+            "items": {
+              "description": "One hit",
+              "properties": {
+                "distance": {
+                  "description": "Dense vector distance, lower is better. Absent on a scored hit",
+                  "type": "number"
+                },
+                "properties": {
+                  "description": "The record's properties",
+                  "type": "object"
+                },
+                "rid": {
+                  "description": "Record id of the hit",
+                  "type": "string"
+                },
+                "score": {
+                  "description": "Sparse or full-text score, higher is better. Absent on a distance hit",
+                  "type": "number"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "scoring": {
+            "description": "Which direction is better and how it was computed, e.g. 'distance_lower_is_better:COSINE' or 'score_higher_is_better:dot_product'. Read it rather than assuming, because the two paths rank in opposite directions.",
+            "type": "string"
+          },
+          "sparse": {
+            "description": "Whether the sparse path was taken",
+            "type": "boolean"
+          },
+          "truncated": {
+            "description": "True when the result window was filled, so further matches may exist. False for a short result: the search already returned every match it could find within 'candidateLimit'.",
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -1777,7 +2335,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "ArcadeDB HTTP API",
-    "version": "26.9.1"
+    "version": "26.10.1-SNAPSHOT"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -2831,7 +3389,7 @@
     },
     "/api/v1/batch/{database}": {
       "post": {
-        "description": "Streams vertices and then edges into the database using the GraphBatch API. The body is never buffered, so a load is bounded by the server's memory only through the batching parameters below.\n\nA batch is NOT atomic: GraphBatch commits every 'commitEvery' records, so a failure mid-stream leaves earlier chunks durably committed. A client-input failure answers 400 with 'verticesCreated', 'edgesCreated', and a 'partialCommit' flag; those counts are the records attempted before the failure and are an upper bound on what is durable. Because temporary ids are not keys, retrying the whole payload duplicates already-committed vertices.\n\nA body that ends before its announced length answers 408 with the same partial-commit counts, never a 200 with a truncated count. Compare the returned 'bytesRead' against the bytes sent to verify a chunked upload arrived whole.",
+        "description": "Streams vertices and then edges into the database using the GraphBatch API. The body is never buffered, so a load is bounded by the server's memory only through the batching parameters below.\n\nA batch is NOT atomic: GraphBatch commits every 'commitEvery' records, so a failure mid-stream leaves earlier chunks durably committed. A client-input failure answers 400 with 'verticesCreated', 'edgesCreated', and a 'partialCommit' flag; those counts are the records attempted before the failure and are an upper bound on what is durable. Because temporary ids are not keys, retrying the whole payload duplicates already-committed vertices.\n\nA body that ends before its announced length answers 408 with the same partial-commit counts, never a 200 with a truncated count. Compare the returned 'bytesRead' against the bytes sent to verify a chunked upload arrived whole.\n\nSend 'Accept: application/x-ndjson' to be acknowledged while you are still uploading. The answer is then a newline-delimited stream: a 'progress' line at every vertex commit and every 'commitEvery' edges, then exactly one 'summary' or 'error' line carrying the same object this endpoint would otherwise have returned. That is the HTTP counterpart of the per-chunk acknowledgement of the gRPC InsertBidirectional RPC. A progress line counts records attempted, the same upper bound the partial-commit counters carry. Anything else in Accept, including an absent header, returns the buffered object unchanged.\n\nA load that fails before it has acknowledged anything still answers with its real status code and the buffered error body, because the status line has not been sent yet: the 400 and 408 below apply to a streaming request too. Only a failure raised after the first progress line is reported in band under a 200.",
         "operationId": "executeBatch",
         "parameters": [
           {
@@ -2840,6 +3398,19 @@
             "name": "database",
             "required": true,
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Send 'application/x-ndjson' to receive per-chunk acknowledgements while the request body is still being uploaded, instead of one object after the whole load. Anything else - including an absent header - returns the buffered application/json body unchanged.",
+            "in": "header",
+            "name": "Accept",
+            "required": false,
+            "schema": {
+              "enum": [
+                "application/json",
+                "application/x-ndjson"
+              ],
               "type": "string"
             }
           },
@@ -3036,6 +3607,11 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BatchResponse"
+                }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/NdJsonBatchEvent"
                 }
               }
             },
@@ -3407,6 +3983,127 @@
         ]
       }
     },
+    "/api/v1/cluster/auth-session": {
+      "post": {
+        "description": "Cluster-internal. A session token is held by the node that answered /api/v1/login and names that node ('AU-<server name>-<uuid>'). A peer that receives the token asks the issuer through this route whether the session is still valid ('validate', which also counts as activity on the issuer), and a logout tells every peer to drop its copy ('revoke'). Peers authenticate with the cluster token; a request that carries user credentials instead is refused with 403 (issue #7424).",
+        "operationId": "resolveClusterAuthSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClusterAuthSessionRequest"
+              }
+            }
+          },
+          "description": "The token and what to do with it",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterAuthSessionResponse"
+                }
+              }
+            },
+            "description": "The session, as the issuer holds it",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "204": {
+            "description": "Copy dropped",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Missing token or unknown action",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not a cluster peer",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issuer does not hold this session",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Confirm or revoke an authentication session on the node that issued it",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/api/v1/cluster/bootstrap-state": {
       "post": {
         "description": "Reports this peer's fingerprint and last transaction id for every database. Used by the bootstrap leader at first cluster formation to decide which copy of each database wins. A database this peer cannot read is reported with an 'error' and a last transaction id of -1 rather than omitted.\n\nRestricted to the root user; peers satisfy this by forwarding as root with the cluster token.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
@@ -3494,9 +4191,96 @@
         ]
       }
     },
+    "/api/v1/cluster/capabilities": {
+      "post": {
+        "description": "Reports the optional replication wire-format sections this node can DECODE, as short stable tokens. The leader polls it on every peer of its Raft configuration and writes an optional section only when every peer has advertised it, so a rolling upgrade needs no ordering by hand (issue #7219).\n\nA node running a release without this route answers 404, and the caller reads that as 'this peer can decode nothing optional' - which is why the route is safe to add and why no version comparison takes part in the decision.\n\nRestricted to the root user; peers satisfy this by forwarding as root with the cluster token.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "operationId": "getClusterPeerCapabilities",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PeerCapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Peer capabilities",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Report the wire-format capabilities of this peer",
+        "tags": [
+          "Cluster"
+        ]
+      }
+    },
     "/api/v1/cluster/leader": {
       "post": {
-        "description": "Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "description": "Transfers Raft leadership, to the named peer when 'peerId' is given and to whichever peer Raft selects otherwise. Unknown fields in the body are rejected. Only the leader can transfer leadership: a server that is not the leader answers 409 naming the leader to reissue against, rather than routing the request there and forcing an election nobody asked for.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
         "operationId": "transferClusterLeadership",
         "requestBody": {
           "content": {
@@ -3564,6 +4348,21 @@
               }
             },
             "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -4040,7 +4839,7 @@
     },
     "/api/v1/cluster/stepdown": {
       "post": {
-        "description": "Asks this server to give up leadership, triggering an election. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "description": "Asks this server to give up leadership, triggering an election. Answers 409 when this server is not the leader - it has nothing to step down from, and the request must be reissued against the leader the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
         "operationId": "stepDownClusterLeader",
         "responses": {
           "200": {
@@ -4097,6 +4896,21 @@
               }
             },
             "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -4260,6 +5074,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged.",
+            "in": "header",
+            "name": "Accept",
+            "required": false,
+            "schema": {
+              "enum": [
+                "application/json",
+                "application/x-ndjson"
+              ],
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -4280,10 +5107,21 @@
                 "schema": {
                   "$ref": "#/components/schemas/QueryResponse"
                 }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/NdJsonQueryEvent"
+                }
               }
             },
             "description": "Command executed successfully",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -4299,6 +5137,12 @@
             },
             "description": "Bad request",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -4344,6 +5188,12 @@
             },
             "description": "The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the command",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -4359,6 +5209,12 @@
             },
             "description": "Internal server error",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5460,6 +6316,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged.",
+            "in": "header",
+            "name": "Accept",
+            "required": false,
+            "schema": {
+              "enum": [
+                "application/json",
+                "application/x-ndjson"
+              ],
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -5480,10 +6349,21 @@
                 "schema": {
                   "$ref": "#/components/schemas/QueryResponse"
                 }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/NdJsonQueryEvent"
+                }
               }
             },
             "description": "Query executed successfully",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5499,6 +6379,12 @@
             },
             "description": "Bad request",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5544,6 +6430,12 @@
             },
             "description": "The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the query",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5559,6 +6451,12 @@
             },
             "description": "Internal server error",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5618,6 +6516,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged.",
+            "in": "header",
+            "name": "Accept",
+            "required": false,
+            "schema": {
+              "enum": [
+                "application/json",
+                "application/x-ndjson"
+              ],
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5627,10 +6538,21 @@
                 "schema": {
                   "$ref": "#/components/schemas/QueryResponse"
                 }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/NdJsonQueryEvent"
+                }
               }
             },
             "description": "Query executed successfully",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5646,6 +6568,12 @@
             },
             "description": "Bad request",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5691,6 +6619,12 @@
             },
             "description": "The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the query",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5706,6 +6640,12 @@
             },
             "description": "Internal server error",
             "headers": {
+              "X-ArcadeDB-Commit-Index": {
+                "description": "On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all.",
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
               }
@@ -5904,7 +6844,7 @@
         ]
       },
       "post": {
-        "description": "Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database. Both restore and import support SSE progress streaming via Accept: text/event-stream header",
+        "description": "Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not implemented by the current HA implementation and always fails; use the cluster configuration to join nodes",
         "operationId": "executeServerCommand",
         "requestBody": {
           "content": {
@@ -7392,7 +8332,7 @@
     },
     "/api/v1/ts/{database}/latest": {
       "get": {
-        "description": "Returns the most recent sample of a time-series type, optionally narrowed to one series by tag. 'latest' is null when the type or the selected series holds no sample.",
+        "description": "Returns the most recent sample of a time-series type, optionally narrowed to one series by tag. Repeat 'tag' once per tag column to name a single series on a type that carries several. 'latest' is null when the type or the selected series holds no sample.",
         "operationId": "getTimeSeriesLatest",
         "parameters": [
           {
@@ -7414,13 +8354,18 @@
             }
           },
           {
-            "description": "Tag filter in name:value form. Only the first occurrence is honored if the parameter repeats.",
+            "description": "Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match.",
+            "explode": true,
             "in": "query",
             "name": "tag",
             "required": false,
             "schema": {
-              "type": "string"
-            }
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "style": "form"
           }
         ],
         "responses": {
@@ -8721,6 +9666,378 @@
         ]
       }
     },
+    "/api/v1/vector/{database}/fulltext": {
+      "post": {
+        "description": "Runs a Lucene-syntax query against an ArcadeDB FULL_TEXT index and returns the matching documents ranked by score, highest first.\n\nAddress the index either by 'indexName', or by 'typeName' with optional 'properties'; 'indexName' wins when both are supplied. Because the limit is pushed down per bucket, a hit deleted between the index scan and the record load is skipped rather than back-filled, so a search can legitimately return fewer than 'limit' results.",
+        "operationId": "fullTextSearch",
+        "parameters": [
+          {
+            "description": "Database name",
+            "in": "path",
+            "name": "database",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FullTextSearchRequest"
+              }
+            }
+          },
+          "description": "Full-text search request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FullTextSearchResponse"
+                }
+              }
+            },
+            "description": "Matching documents, highest score first",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Full-text search over a FULL_TEXT index",
+        "tags": [
+          "Vector"
+        ]
+      }
+    },
+    "/api/v1/vector/{database}/hybrid": {
+      "post": {
+        "description": "Fuses a vector retrieval leg, an optional full-text retrieval leg and an optional depth-limited graph expansion leg into one ranked list, using the engine's own vector.fuse rather than a re-implementation.\n\nFusion needs at least two sources. A request naming only the vector leg reports 'fused': false and returns that leg's native distance or score rather than a fabricated fused one. The expansion leg is ranked by traversal order and carries no score, so it can only be fused with the RRF strategy.",
+        "operationId": "hybridSearch",
+        "parameters": [
+          {
+            "description": "Database name",
+            "in": "path",
+            "name": "database",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HybridSearchRequest"
+              }
+            }
+          },
+          "description": "Hybrid search request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HybridSearchResponse"
+                }
+              }
+            },
+            "description": "Fused results, best first, each naming the legs it came from",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Fused vector, full-text and graph-expansion search",
+        "tags": [
+          "Vector"
+        ]
+      }
+    },
+    "/api/v1/vector/{database}/search": {
+      "post": {
+        "description": "Returns the nearest neighbors of a pre-computed query vector in a dense LSM_VECTOR or sparse LSM_SPARSE_VECTOR index. ArcadeDB does not generate embeddings: the caller supplies the vector.\n\nDense results expose a 'distance' (lower is better); sparse results expose a 'score' (higher is better), and 'scoring' names which of the two the response carries. A filtered search inspects a bounded candidate window whose size is reported as 'candidateLimit', so 'truncated' means the window was filled and more matches may exist - raise 'k' to see them.",
+        "operationId": "vectorSearch",
+        "parameters": [
+          {
+            "description": "Database name",
+            "in": "path",
+            "name": "database",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VectorSearchRequest"
+              }
+            }
+          },
+          "description": "Vector search request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorSearchResponse"
+                }
+              }
+            },
+            "description": "Ranked neighbors, nearest first",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "kNN search over a vector index",
+        "tags": [
+          "Vector"
+        ]
+      }
+    },
     "/prometheus": {
       "get": {
         "description": "Exposes the server's metrics in the Prometheus text exposition format, for a Prometheus scrape_config to poll.\n\nAuthentication can be turned off for this route with arcadedb.serverMetrics.prometheus.requireAuthentication=false, which is how most scrape setups run it.Requires PrometheusMetricsPlugin: absent unless the metrics plugin is enabled.",
@@ -8845,6 +10162,10 @@
     {
       "description": "Users, groups, and API tokens",
       "name": "Security"
+    },
+    {
+      "description": "Vector, hybrid and full-text retrieval",
+      "name": "Vector"
     },
     {
       "description": "Time-series ingestion and querying",

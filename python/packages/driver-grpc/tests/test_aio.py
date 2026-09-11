@@ -95,8 +95,10 @@ async def test_insert_stream_envelope_bookkeeping(
     assert len({c.session_id for c in sent}) == 1
     assert sent[0].session_id != ""
     # `database` on the FIRST chunk only, per the .proto contract, and mirrored into
-    # `options.database` there too - ArcadeData/arcadedb#6597, where the server builds
-    # its InsertContext from InsertOptions.database ALONE.
+    # `options.database` there too - ArcadeData/arcadedb#6597, where the server (26.8.1 and
+    # earlier) builds its InsertContext from InsertOptions.database ALONE. Fixed in 26.9.1,
+    # so the mirror is belt-and-braces on every supported server; it stays because removing
+    # it is a behaviour change.
     assert sent[0].database == "db"
     assert sent[0].options.database == "db"
     assert sent[1].database == ""
@@ -299,9 +301,12 @@ async def test_stream_query_through_the_handle_is_bound_to_the_transaction(
 async def test_insert_stream_is_not_offered_on_the_handle(
     async_fake_server: tuple[str, RecordingServicer],
 ) -> None:
-    # ArcadeData/arcadedb#6607: the server ignores TransactionContext for InsertStream and
-    # BulkInsert. Offering them here would imply a guarantee it does not honour - the same
-    # omission the sync handle makes. Delete this test when #6607 lands.
+    # ArcadeData/arcadedb#6607: on 26.8.1 and earlier the server ignored TransactionContext
+    # for InsertStream and BulkInsert, so offering them here would have implied a guarantee
+    # it did not honour - the same omission the sync handle makes. #6607 HAS since landed
+    # (79d931070b, released in 26.9.1), so this pins a restriction no supported server
+    # needs. Delete it when the methods are added; that is public surface, hence a release
+    # decision rather than a contract-adoption change.
     target, _ = async_fake_server
     async with create_client(target) as client, client.transaction("db") as tx:
         assert not hasattr(tx, "insert_stream")

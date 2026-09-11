@@ -152,22 +152,30 @@ class VectorNamespace {
     private readonly database: string,
   ) {}
 
-  /** kNN over a named vector index. */
-  async search(opts: VectorSearchOptions): Promise<VectorSearchResult> {
+  /**
+   * kNN over a named vector index.
+   *
+   * `T`, a hit's `properties` type, defaults to `Record<string, unknown>` and is forwarded
+   * straight to {@link VectorSearchResult} - see that type's doc comment, and
+   * `WithTypedProperties` in `facade/vector.ts`, for why the default is what stops an unchecked
+   * `hit.properties.someField` read from compiling, and how to pass a real row type instead:
+   * `db.vector.search<{ name: string }>(...)`.
+   */
+  async search<T = Record<string, unknown>>(opts: VectorSearchOptions): Promise<VectorSearchResult<T>> {
     const { vectorSearch } = await import("./facade/vector.js");
-    return vectorSearch(this.client, this.database, opts);
+    return vectorSearch<T>(this.client, this.database, opts);
   }
 
-  /** Combined vector and full-text retrieval, fused server-side. */
-  async hybrid(opts: HybridSearchOptions): Promise<HybridSearchResult> {
+  /** Combined vector and full-text retrieval, fused server-side. `T` is as {@link VectorNamespace.search}'s. */
+  async hybrid<T = Record<string, unknown>>(opts: HybridSearchOptions): Promise<HybridSearchResult<T>> {
     const { hybridSearch } = await import("./facade/vector.js");
-    return hybridSearch(this.client, this.database, opts);
+    return hybridSearch<T>(this.client, this.database, opts);
   }
 
-  /** Full-text search over a named index or type. */
-  async fulltext(opts: FullTextSearchOptions): Promise<FullTextSearchResult> {
+  /** Full-text search over a named index or type. `T` is as {@link VectorNamespace.search}'s. */
+  async fulltext<T = Record<string, unknown>>(opts: FullTextSearchOptions): Promise<FullTextSearchResult<T>> {
     const { fullTextSearch } = await import("./facade/vector.js");
-    return fullTextSearch(this.client, this.database, opts);
+    return fullTextSearch<T>(this.client, this.database, opts);
   }
 }
 

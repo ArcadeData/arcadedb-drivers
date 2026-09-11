@@ -137,41 +137,30 @@ allowed range surfaces as an `ArcadeDBError` thrown from the server's response, 
 
 ### Reading a hit
 
-`VectorSearchResponse` carries no `required` list in the contract, so openapi-typescript emits
-every one of its fields as optional - `results?:` - and types each hit's `properties` as
-`Record<string, never>`, its stand-in for "an object whose keys the contract does not enumerate".
-`HybridSearchResponse` and `FullTextSearchResponse` hits are shaped the same way. Both artifacts
-bite, and they bite differently:
+`VectorSearchResponse` carries no `required` list in the contract, so `result.results` is
+`... | undefined`, and `result.results[0]` does not compile unnarrowed
+(`'result.results' is possibly 'undefined'`); `?? []` discharges it. `HybridSearchResponse` and
+`FullTextSearchResponse` hits read the same way.
 
-- `result.results` is `... | undefined`, so `result.results[0]` does not compile
-  (`'result.results' is possibly 'undefined'`). Unlike `db.query<T>()`, these three methods take no
-  generic row-type parameter to escape through.
-- `hit.properties.name` *does* compile, which is the worse half. Every value of
-  `Record<string, never>` is typed `never`, and `never` is assignable to everything, so
-  `const n: number = hit.properties.name` typechecks and hands you a string at runtime. The
-  compiler cannot flag a wrong annotation on a value it believes is `never`.
-
-The facade does not cast the artifact away, and the contrast with `buildCommandBody` - which casts
-*exactly* this openapi-typescript artifact, for a `/command` request's `params` - is the reason.
-That cast runs on the way out: the caller supplies a `Record<string, unknown>` whose type they own,
-and the facade narrows it into the generated shape at the boundary, keeping the caller's real type
-intact. A **response** runs the other way. Casting it would mean the facade inventing a row type on
-the caller's behalf, and the compiler would then enforce that invention as if it had been checked
-against something. So the widening belongs to the caller, at the one point where the record's shape
-is actually known:
+A hit's `properties` is generic, defaulting to `Record<string, unknown>`, so
+`hit.properties?.someField` reads as `unknown` unless you pass your row shape:
 
 ```ts
-const result = await db.vector.search({ indexName: "myIndex", queryVector: [0.1, 0.2, 0.3], k: 5 });
+const result = await db.vector.search<{ name: string }>({ indexName: "myIndex", queryVector: [0.1, 0.2, 0.3], k: 5 });
 
 for (const hit of result.results ?? []) {
-  const props = (hit.properties ?? {}) as Record<string, unknown>;
-  console.log(hit.rid, props.name);
+  console.log(hit.rid, hit.properties?.name); // `name` is `string`, typed for real
 }
 ```
 
-`?? []` and `?? {}` discharge the two optional fields; the assertion to `Record<string, unknown>`
-is what replaces `never` with `unknown`, so reading `props.name` as a string now costs you a narrow
-and a wrong annotation fails where it used to pass. `hybrid` and `fulltext` hits read identically.
+Omit the type argument and `hit.properties?.name` is `unknown` rather than `string` - a read into a
+concrete type then needs its own narrowing, same as any other `unknown`. That default (not the
+generic parameter itself) is what closes the historical hazard here: the contract declares a hit's
+`properties` as a bare `{"type": "object"}` with no keys, which openapi-typescript renders as
+`Record<string, never>` - and every value of an empty record is typed `never`, which is assignable
+to *everything*, so `const n: number = hit.properties.name` used to typecheck and hand back a
+string at runtime with no warning. `hybrid` and `fulltext` hits carried the identical artifact and
+are fixed the same way.
 
 ## Two error models
 

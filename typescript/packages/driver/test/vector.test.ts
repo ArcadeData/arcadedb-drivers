@@ -50,6 +50,25 @@ describe("db.vector.search", () => {
 
     expect(new URL(captured!.url).pathname).toBe("/api/v1/vector/od%2Fdb/search");
   });
+
+  it("passes a caller-supplied row type through to results[].properties (runtime passthrough; the type change itself is proven by tsc, not by vitest)", async () => {
+    const body = {
+      results: [{ rid: "#1:0", score: 0.9, properties: { name: "widget", price: 9.99 } }],
+      count: 1,
+      truncated: false,
+    };
+    const fetchMock = vi.fn(async () => jsonResponse(body, 200));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const result = await server.db("mydb").vector.search<{ name: string; price: number }>({
+      indexName: "v_idx",
+      queryVector: [0.1],
+    });
+
+    expect(result.results?.[0]?.properties?.name).toBe("widget");
+    expect(result.results?.[0]?.properties?.price).toBe(9.99);
+    expect(result).toEqual(body);
+  });
 });
 
 describe("db.vector.hybrid", () => {
@@ -111,6 +130,26 @@ describe("db.vector.hybrid", () => {
       expand: { direction: "out" },
     });
   });
+
+  it("passes a caller-supplied row type through to results[].properties", async () => {
+    const body = {
+      results: [{ rid: "#1:0", fusedScore: 0.8, properties: { name: "widget", tags: ["a", "b"] } }],
+      count: 1,
+      truncated: false,
+      fused: true,
+    };
+    const fetchMock = vi.fn(async () => jsonResponse(body, 200));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const result = await server.db("mydb").vector.hybrid<{ name: string; tags: string[] }>({
+      vectorIndexName: "v_idx",
+      queryVector: [0.1],
+      fulltextQuery: "cat",
+    });
+
+    expect(result.results?.[0]?.properties?.name).toBe("widget");
+    expect(result.results?.[0]?.properties?.tags).toEqual(["a", "b"]);
+  });
 });
 
 describe("db.vector.fulltext", () => {
@@ -136,5 +175,15 @@ describe("db.vector.fulltext", () => {
     const result = await server.db("mydb").vector.fulltext({ queryText: "cat" });
 
     expect("truncated" in result).toBe(false);
+  });
+
+  it("passes a caller-supplied row type through to results[].properties", async () => {
+    const body = { results: [{ rid: "#2:1", score: 1.2, properties: { name: "widget" } }], count: 1, indexName: "ft_idx" };
+    const fetchMock = vi.fn(async () => jsonResponse(body, 200));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const result = await server.db("mydb").vector.fulltext<{ name: string }>({ queryText: "cat" });
+
+    expect(result.results?.[0]?.properties?.name).toBe("widget");
   });
 });

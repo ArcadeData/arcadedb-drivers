@@ -33,6 +33,7 @@ from .facade.data import (
 )
 from .facade.timeseries import TimeSeriesNamespace
 from .facade.transaction import Transaction
+from .facade.vector import VectorNamespace
 
 __version__ = "0.1.0"
 
@@ -131,6 +132,11 @@ class ArcadeDBDatabase:
     def promql(self) -> PromQLNamespace:
         """A Prometheus-compatible query surface over a time-series type."""
         return PromQLNamespace(self._client, self.name)
+
+    @cached_property
+    def vector(self) -> VectorNamespace:
+        """kNN vector search, fused hybrid search, and full-text search."""
+        return VectorNamespace(self._client, self.name)
 
 
 class ArcadeDBServer:

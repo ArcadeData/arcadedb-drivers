@@ -167,14 +167,19 @@ describe("insertStream", () => {
 
   it("mirrors database into options.database on the first chunk only, working around a server-side gap", async () => {
     // Regression test for a real-server finding (task 6 of the M1B plan), filed as
-    // ArcadeData/arcadedb#6597: on 26.10.1-SNAPSHOT and every earlier server, `ArcadeDbGrpcService
+    // ArcadeData/arcadedb#6597: on 26.8.1 and every earlier server, `ArcadeDbGrpcService
     // #insertStream` builds its `InsertContext` from `InsertOptions.database` only and never
     // reads `InsertChunk.database`, even though the .proto contract documents the latter as
-    // REQUIRED on the first chunk. Without mirroring `database` into `options.database`, every
-    // real stream against such a server fails at the deferred commit with "Invalid database
-    // name: name is required". Servers carrying the fix (7ccade7348) honour a non-empty
-    // `InsertChunk.database` and treat `InsertOptions.database` as the fallback, so the two
-    // paths agree and the mirroring stays for as long as released servers need it.
+    // REQUIRED on the first chunk. Without mirroring `database` into `options.database`, a real
+    // stream against such a server inserts nothing - `inserted: 0`, or a deferred-commit failure
+    // with "Invalid database name: name is required". Servers carrying the fix (7ccade7348,
+    // released in 26.9.1) honour a non-empty `InsertChunk.database` and treat
+    // `InsertOptions.database` as the fallback, so the two paths agree.
+    //
+    // Measured against real 26.8.1 / 26.9.1 / 26.10.1-SNAPSHOT servers: chunk-only `database`
+    // inserts 0 of 2 rows on 26.8.1 and 2 of 2 on both later versions. Every version this package
+    // supports therefore carries the fix, so this assertion now guards a workaround no supported
+    // server needs; it stays because removing the mirror is a behaviour change.
     const { raw, sent } = mockRaw(insertSummary());
     const insertStream = createInsertStream(raw);
 

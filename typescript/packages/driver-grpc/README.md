@@ -159,15 +159,27 @@ as an all-zero summary) - it does not invent a summary itself.
 `insertStream` also sets `options.database` to the same value as the first chunk's `database`.
 This is a compatibility workaround for servers older than the fix for
 [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (merged in
-`7ccade7348`, not yet in a release as of this writing): `InsertChunk.database` is marked
-`// REQUIRED` on the first chunk in `arcadedb-server.proto`, but on 26.10.1-SNAPSHOT and every earlier
-release the server's `InsertContext` construction only reads `InsertOptions.database` - it never
-looks at `InsertChunk.database` at all. Without this mirroring, every stream against such a server
-fails at the deferred commit with `Invalid database name: name is required`, even though `database`
-was sent exactly as the contract specifies. A server carrying the #6597 fix prefers a non-empty
-`InsertChunk.database` and falls back to `InsertOptions.database`, so setting both to the same
-value here can never disagree - this mirroring is safe to keep sending even after the fix ships,
-and is what makes `insertStream` work against every server this package supports, fixed or not.
+`7ccade7348`, **released in 26.9.1**): `InsertChunk.database` is marked `// REQUIRED` on the first
+chunk in `arcadedb-server.proto`, but on **26.8.1 and every earlier release** the server's
+`InsertContext` construction only reads `InsertOptions.database` - it never looks at
+`InsertChunk.database` at all. Without this mirroring, a stream against such a server inserts
+nothing: the server reports the rows as `received` with `inserted: 0`, or fails at the deferred
+commit with `Invalid database name: name is required`, even though `database` was sent exactly as
+the contract specifies. A server carrying the #6597 fix prefers a non-empty `InsertChunk.database`
+and falls back to `InsertOptions.database`, so setting both to the same value here can never
+disagree.
+
+That boundary is measured, not inferred. A single-chunk stream carrying `database` on the chunk
+with `options.database` left empty inserts **0 of 2** rows on `arcadedata/arcadedb:26.8.1` and
+**2 of 2** on both `26.9.1` and `26.10.1-SNAPSHOT`; `7ccade7348` is an ancestor of the `26.9.1`
+tag and not of `26.8.1`. Earlier revisions of this paragraph said the fix was "not yet in a
+release", which was already stale when written and which the mechanical version rewrite in
+`scripts/adopt-contract-version.sh` then compounded into a claim about 26.10.1-SNAPSHOT.
+
+The consequence: **every server version this package claims support for carries the fix** (the
+compatibility table below starts at 26.9.1), so the mirror is belt-and-braces rather than
+load-bearing today. It is still sent, because removing it would be a behaviour change; retiring it
+is tracked as a follow-up.
 
 ## Transactions: `transaction`
 
@@ -204,16 +216,24 @@ only ever manages transactions the explicit way.
 
 ### `bulkInsert` and `insertStream` cannot join a `transaction()` on this server
 
-`TransactionHandle` deliberately does **not** include `bulkInsert` or `insertStream`. On this
-server, `ArcadeDbGrpcService#bulkInsert` and `#insertStream` never read the request's transaction
-context at all: each builds its own `InsertContext`, which resolves its own `Database` and commits
-independently, regardless of any `BeginTransaction`/`CommitTransaction`/`RollbackTransaction` the
-caller issued around it. Binding them into a `TransactionHandle` would silently lie about this:
-their writes are **not** part of the transaction, they commit even when the transaction's callback
-throws, and they survive a rollback. Both remain available outside a transaction -
-`grpc.insertStream`/`grpc.raw.insertStream` and `grpc.raw.bulkInsert` - but never through `tx`. See
-[ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607), filed against this
-gap; this restriction is removable once that lands server-side.
+`TransactionHandle` deliberately does **not** include `bulkInsert` or `insertStream`. On **26.8.1
+and every earlier release**, `ArcadeDbGrpcService#bulkInsert` and `#insertStream` never read the
+request's transaction context at all: each builds its own `InsertContext`, which resolves its own
+`Database` and commits independently, regardless of any
+`BeginTransaction`/`CommitTransaction`/`RollbackTransaction` the caller issued around it. Binding
+them into a `TransactionHandle` would silently lie about this: their writes are **not** part of the
+transaction, they commit even when the transaction's callback throws, and they survive a rollback.
+Both remain available outside a transaction - `grpc.insertStream`/`grpc.raw.insertStream` and
+`grpc.raw.bulkInsert` - but never through `tx`.
+
+[ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607) was filed against
+this gap and **has since landed**: its fix (`79d931070b`) is an ancestor of the `26.9.1` tag and
+not of `26.8.1`. Measured against real servers - begin a transaction over `BeginTransaction`, run
+an `InsertStream` carrying that server-issued `transaction_id`, then roll back - the rows survive
+the rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10.1-SNAPSHOT`, with
+a commit persisting them on all three. So the restriction is now **removable** for every server
+version this package supports. It is kept for now because lifting it adds public surface, which is
+a deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
 
 ## The admin service is not a supported path
 

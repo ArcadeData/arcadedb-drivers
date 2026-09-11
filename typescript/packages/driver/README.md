@@ -101,7 +101,8 @@ session) before re-throwing the commit's error.
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `listDatabases`, `exists`, `serverInfo`,
-`health`, `ready`, ...) throw `ArcadeDBError` on any non-2xx response:
+`health`, `ready`, ...) throw `ArcadeDBError` on any non-2xx response - and, in exactly one case
+documented below, on a 2xx one:
 
 ```ts
 import { ArcadeDBError } from "@arcadedb/driver";
@@ -129,6 +130,27 @@ These are two deliberately different contracts in one package. Use the facade fo
 of try/catch; use `raw` when you want to branch on `{ data, error }` without exceptions. Mixing
 assumptions about which one you're calling is the most common way to end up with an unhandled
 rejection or a silently ignored error.
+
+### `ArcadeDBError` is not always a non-2xx status
+
+`err.status` is whatever the exchange actually carried, and there is one case where that is `200`:
+`query` and `command` throw `new ArcadeDBError(200, ...)` when the server answers 200 with a
+streamed ndjson event rather than the buffered JSON envelope. This client never sends
+`Accept: application/x-ndjson`, so it should not happen - but if it does, the alternative is to
+hand back `{ result: [], limit: -1, returned: 0, truncated: false }`, an answer asserting a
+completeness nobody gave. Reporting it is the honest option.
+
+The practical consequence is for callers who classify failures by status alone. Code shaped like
+
+```ts
+catch (err) {
+  if (err instanceof ArcadeDBError && err.status >= 500) return retry();
+}
+```
+
+now has a case it cannot decide: a 200 here is a protocol mismatch, not a transient server fault,
+and retrying will not help. If that distinction matters to you, branch on `err.error` as well as
+`err.status`, or simply treat a 2xx `ArcadeDBError` as non-retryable.
 
 ### Two things neither model catches
 

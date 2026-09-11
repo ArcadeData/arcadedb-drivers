@@ -39,6 +39,20 @@ function parseBody(body: unknown): ArcadeDBErrorBody {
  * `status` is optional because the body may be absent, unparsable, or
  * missing individual fields.
  *
+ * NON-2XX IS THE COMMON CASE, NOT THE ONLY ONE. `status` is whatever the
+ * exchange actually carried, and `facade/data.ts`'s `asQueryResponse` throws
+ * one with `status: 200` when `/query` or `/command` answers 200 with a
+ * streamed ndjson event - an encoding this client never requests. That is a
+ * successful HTTP exchange whose body this client cannot honestly turn into a
+ * `QueryEnvelope`, so it is reported as an error rather than as an empty
+ * envelope asserting a completeness nobody claimed.
+ *
+ * The consequence for callers: `err.status` alone no longer classifies a
+ * failure. Code shaped like `if (err.status >= 500) retry()` has a case it
+ * cannot decide from the status - a 200 here is a protocol mismatch, never
+ * transient, and retrying it will not help. Branch on `err.error` (or simply
+ * do not retry a 2xx) when that distinction matters.
+ *
  * `raw`, the unwrapped openapi-fetch client, never throws this (or anything
  * else) - it returns `{ data, error }` instead. That asymmetry is
  * deliberate: `ArcadeDBError` is a facade-only concern.

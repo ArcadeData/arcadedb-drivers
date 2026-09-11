@@ -6,6 +6,13 @@ import { ArcadeDBError } from "../errors.js";
  * bridges openapi-fetch's non-throwing `{ data, error }` contract to the
  * throwing facade methods on `ArcadeDBServer`/`ArcadeDBDatabase`.
  *
+ * It is NOT, however, the only origin of an `ArcadeDBError`: `facade/data.ts`
+ * throws one with `status: 200` for a 200 response carrying a streamed ndjson
+ * event. That happens downstream of here, on what this function correctly
+ * treats as the success path. "Non-2xx" above describes `unwrap`, not the
+ * full set of statuses an `ArcadeDBError` can carry - see `ArcadeDBError`'s
+ * own doc comment.
+ *
  * Internal-only: not exported from `index.ts`. It exists so `index.ts` and
  * `facade/*.ts` can share one implementation without either statically
  * importing the other - `index.ts` builds `ArcadeDBServer`/`ArcadeDBDatabase`

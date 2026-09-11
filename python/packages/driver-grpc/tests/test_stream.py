@@ -89,11 +89,14 @@ def test_envelope_bookkeeping_across_several_chunks(
 def test_the_first_chunk_mirrors_database_into_options(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:
-    # Compatibility with servers predating the fix for ArcadeData/arcadedb#6597. On
-    # 26.10.1-SNAPSHOT and earlier the server builds InsertContext from InsertOptions.database
-    # ALONE and never reads InsertChunk.database, despite the .proto marking the latter
-    # REQUIRED on the first chunk. Without this mirror every stream fails at the
-    # deferred commit with "Invalid database name: name is required".
+    # Compatibility with servers predating the fix for ArcadeData/arcadedb#6597. On 26.8.1
+    # and earlier the server builds InsertContext from InsertOptions.database ALONE and
+    # never reads InsertChunk.database, despite the .proto marking the latter REQUIRED on
+    # the first chunk. Without this mirror a stream inserts nothing - inserted=0, or a
+    # deferred-commit failure with "Invalid database name: name is required". Measured
+    # against real servers: 0 of 2 rows land on 26.8.1, 2 of 2 on 26.9.1 and on
+    # 26.10.1-SNAPSHOT, so the fix shipped in 26.9.1 and no supported server still needs
+    # the mirror. It stays because removing it is a behaviour change.
     target, servicer = fake_server
     with create_client(target) as client:
         client.insert_stream(InsertStreamRequest(database="db", chunks=[_records("a")]))

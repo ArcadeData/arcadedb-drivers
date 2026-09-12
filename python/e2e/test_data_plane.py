@@ -224,17 +224,22 @@ def stream_rows(base_url: str, database: str) -> int:
 # boundaries in test_stream.py.
 #
 # The size was swept empirically against a live container (see task-4-report.md for the full
-# table), not guessed. Up to ~40,000 bytes a single record's line reliably arrived in ONE read
-# every time: ArcadeDB's response writer appears to issue one write() per output line, and TCP
-# delivers a write that size as one segment on loopback as long as it stays under the client's own
-# socket read buffer. Splitting only starts to appear past roughly 50,000-65,000 bytes, and even
-# there it was inconsistent run to run (3 splits out of 5 at 40,000 bytes) - consistent with that
-# boundary being where a single line starts to exceed the reader's read-buffer size (observed
-# chunk sizes cluster at 65536 bytes for an even larger field in the initial probe). 70,000 through
-# 95,000 bytes split on every one of 6 repeated runs against both this client's transport
-# (`httpx`) and the TypeScript client's (Node's `fetch`). 80,000 bytes sits in the middle of that
-# reliable range: comfortably past the ~64KB boundary with margin, not the 500,000 bytes used only
-# to confirm the mechanism existed in the first place.
+# table), not guessed. Payload sizes from 1,000 through 32,000 bytes never split across a real
+# read, not once in repeated probing: ArcadeDB's response writer appears to issue one write() per
+# output line, and TCP delivers a write that size as one segment on loopback as long as it stays
+# under the client's own socket read buffer, so the record's line and the stats trailer always
+# arrived as two whole chunks. Splitting starts to appear at 40,000 bytes, but unreliably - 2 of 5
+# repeated runs split there against this client's transport (`httpx`), 3 of 5 against the
+# TypeScript client's (Node's `fetch`) - and the whole 40,000-65,000-byte band is non-deterministic
+# run to run, consistent with the boundary being the client's own socket read-buffer size (chunk
+# sizes cluster at 65536 bytes once a field is large enough to force several full buffers, matching
+# what the 500,000-byte field used to first confirm the mechanism showed). Past that band,
+# splitting becomes reliable: 70,000 and 80,000 bytes split on every one of 6 repeated runs against
+# both this client's transport and the TypeScript client's; 90,000 and 95,000 bytes were
+# additionally confirmed 6-for-6 against the TypeScript client's transport alone. 80,000 bytes sits
+# in the middle of that reliable range: comfortably clear of the non-deterministic band with margin
+# for a CI runner whose buffering differs slightly from this machine's, and nowhere near the
+# 500,000 bytes it took to first confirm the mechanism existed.
 BIG_FIELD_TYPE = "BigFieldRow"
 BIG_PAYLOAD_SIZE = 80_000
 # A cycling digit pattern, not a repeated single character: a decoder that drops, duplicates, or

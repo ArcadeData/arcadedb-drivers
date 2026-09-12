@@ -50,16 +50,22 @@ def test_messages_exposes_the_data_plane_types() -> None:
 
 
 def test_client_instance_exposes_exactly_raw_and_raw_admin() -> None:
-    # `raw` and `raw_admin` are INSTANCE attributes, not module-level exports, so
-    # `EXPECTED_SURFACE` above never lists them and never will. This is the guard that
-    # takes their place: adding a public attribute to `ArcadeDBGrpcClient` is exactly the
-    # kind of deliberate API change `EXPECTED_SURFACE` pins for the module itself, and
-    # this test pins the same thing one level down, on the client object a caller
-    # actually holds.
+    # `raw`/`raw_admin` are not module-level exports, so `EXPECTED_SURFACE` above never
+    # lists them and never will - this is the guard that takes their place, pinned one
+    # level down on the client object a caller actually holds.
+    #
+    # `raw` is a plain instance attribute; `raw_admin` is a PROPERTY, not an instance
+    # attribute - that is what lets its insecure-channel guard fire on ACCESS rather than
+    # at construction (see `ArcadeDBGrpcClient.raw_admin`'s docstring). So this pins two
+    # facts at once: the instance dict holds only `raw` (plus private bookkeeping,
+    # filtered out here), and `raw_admin` is a property on the class, reachable once its
+    # guard is satisfied.
     channel = grpc.insecure_channel("127.0.0.1:0")
     try:
-        client = arcadedb_driver_grpc.ArcadeDBGrpcClient(channel)
-        public_attrs = {name for name in vars(client) if not name.startswith("_")}
-        assert public_attrs == {"raw", "raw_admin"}
+        client = arcadedb_driver_grpc.ArcadeDBGrpcClient(channel, insecure_admin=True)
+        instance_public_attrs = {name for name in vars(client) if not name.startswith("_")}
+        assert instance_public_attrs == {"raw"}
+        assert isinstance(type(client).__dict__["raw_admin"], property)
+        assert client.raw_admin is not None
     finally:
         channel.close()

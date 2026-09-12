@@ -79,17 +79,21 @@ async def test_password_auth_over_an_insecure_channel_is_refused_even_though_raw
 
 
 async def test_raw_admin_reaches_the_server(async_fake_admin_server: tuple[str, RecordingAdminServicer]) -> None:
+    # insecure=True: this test is about reaching the admin server, not the insecure-channel
+    # guard on `raw_admin` itself - which is covered separately below.
     target, servicer = async_fake_admin_server
-    async with create_client(target) as client:
+    async with create_client(target, insecure=True) as client:
         await client.raw_admin.Ping(messages.PingRequest())
     assert servicer.calls == ["Ping"]
 
 
 async def test_raw_admin_is_authenticated_too(async_fake_admin_server: tuple[str, RecordingAdminServicer]) -> None:
-    # Same channel interceptor as `raw` - an admin RPC arrives authenticated exactly the
-    # same way a data-plane one does.
+    # `Ping` DOES carry `DatabaseCredentials` in its own request body (unlike Health/Ready),
+    # but this test is about whether the CHANNEL's auth interceptor also reaches an admin
+    # RPC - so it asserts on `servicer.metadata` (channel-level metadata), not on anything
+    # inside the request message itself.
     target, servicer = async_fake_admin_server
-    async with create_client(target, auth=bearer_auth("t0ken")) as client:
+    async with create_client(target, auth=bearer_auth("t0ken"), insecure=True) as client:
         await client.raw_admin.Ping(messages.PingRequest())
     assert ("authorization", "Bearer t0ken") in servicer.metadata
 
@@ -113,7 +117,10 @@ async def test_raw_and_raw_admin_are_built_from_the_same_channel(monkeypatch: py
     monkeypatch.setattr(_pb2_grpc, "ArcadeDbServiceStub", spy_stub)
     monkeypatch.setattr(_pb2_grpc, "ArcadeDbAdminServiceStub", spy_admin_stub)
 
-    client = create_client("127.0.0.1:50051")
+    # insecure=True: this test is about the shared channel/transport, not the
+    # insecure-channel guard on `raw_admin` itself - which needs `client.raw_admin` to be
+    # reachable in order to compare it against `client.raw` below.
+    client = create_client("127.0.0.1:50051", insecure=True)
     try:
         assert len(channels_seen) == 2
         assert channels_seen[0] is channels_seen[1]
@@ -128,12 +135,46 @@ async def test_close_closes_the_channel_raw_admin_shares_with_raw(
     async_fake_admin_server: tuple[str, RecordingAdminServicer],
 ) -> None:
     target, _ = async_fake_admin_server
-    client = create_client(target)
+    client = create_client(target, insecure=True)
     await client.raw_admin.Ping(messages.PingRequest())  # works before close
     await client.close()
     await client.close()  # idempotent
     with pytest.raises(Exception, match="closed"):
         await client.raw_admin.Ping(messages.PingRequest())
+
+
+async def test_raw_admin_over_an_insecure_channel_is_refused_without_opt_in() -> None:
+    # Construction itself must NOT raise - only READING `raw_admin` does. This is the
+    # regression guard for "the guard moved to the wrong place."
+    client = create_client("127.0.0.1:50051")  # must not raise
+    with pytest.raises(InsecureChannelError, match=r"credentials|insecure"):
+        client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+
+
+async def test_raw_admin_over_an_insecure_channel_is_allowed_when_opted_into(
+    async_fake_admin_server: tuple[str, RecordingAdminServicer],
+) -> None:
+    target, _ = async_fake_admin_server
+    client = create_client(target, insecure=True)
+    assert client.raw_admin is not None
+    await client.close()
+
+
+async def test_raw_admin_over_a_secure_channel_is_not_refused() -> None:
+    client = create_client("127.0.0.1:50051", credentials=grpc.ssl_channel_credentials())
+    assert client.raw_admin is not None
+    await client.close()
+
+
+async def test_raw_still_works_over_an_insecure_channel_with_no_auth(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The over-guarding regression check: a caller who never touches `raw_admin` must not
+    # be newly broken by this guard. `raw` keeps working over plain HTTP exactly as before.
+    target, servicer = async_fake_server
+    async with create_client(target) as client:
+        await client.raw.ExecuteCommand(messages.ExecuteCommandRequest(database="db", command="SELECT 1"))
+    assert servicer.calls == ["ExecuteCommand"]
 
 
 async def test_stream_query_flattens_batches(

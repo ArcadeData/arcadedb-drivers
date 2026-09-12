@@ -82,12 +82,60 @@ describe("rawAdmin", () => {
       }
     };
 
-    const client = createClient({ baseUrl: "http://127.0.0.1:1", auth: spyAuth });
+    // `insecure: true`: this test is about interceptor wiring, not the insecure-channel
+    // guard below - which would otherwise fire on this http:// baseUrl before `rawAdmin`
+    // could even be read.
+    const client = createClient({ baseUrl: "http://127.0.0.1:1", auth: spyAuth, insecure: true });
 
     await expect(client.rawAdmin.ping({})).rejects.toThrow();
 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.url).toContain("ArcadeDbAdminService");
     expect(seen[0]?.authorization).toBe("Bearer t0ken");
+  });
+});
+
+describe("rawAdmin's insecure-channel guard", () => {
+  // 42 of ArcadeDbAdminService's 44 RPCs carry `DatabaseCredentials` inside the request
+  // message rather than authenticating from the transport's interceptor metadata - so the
+  // #5048-style hazard here is a request BODY travelling in cleartext, not anything the
+  // auth interceptor does. This guard is therefore unconditional on `auth`: it fires (or
+  // not) purely from `baseUrl`'s scheme and `insecure`, unlike the plaintext-password guard
+  // above, which additionally requires `passwordAuth`.
+
+  it("throws on ACCESS (not at createClient) for a non-TLS baseUrl without insecure: true", () => {
+    const client = createClient({ baseUrl: "http://example.com:50051" });
+
+    // Construction itself must not throw - see the "raw still works" test below for why.
+    expect(() => client.rawAdmin).toThrow(/insecure/i);
+  });
+
+  it("names the remedy in the thrown message", () => {
+    const client = createClient({ baseUrl: "http://example.com:50051" });
+
+    expect(() => client.rawAdmin).toThrow(/https:\/\/ baseUrl|insecure: true/);
+  });
+
+  it("permits rawAdmin over a non-TLS baseUrl when insecure: true is passed explicitly", () => {
+    const client = createClient({ baseUrl: "http://example.com:50051", insecure: true });
+
+    expect(() => client.rawAdmin).not.toThrow();
+    expect(typeof client.rawAdmin.ping).toBe("function");
+  });
+
+  it("permits rawAdmin over a TLS baseUrl without needing insecure: true", () => {
+    const client = createClient({ baseUrl: "https://example.com:50051" });
+
+    expect(() => client.rawAdmin).not.toThrow();
+  });
+
+  it("leaves raw working over an insecure channel with no auth at all - the over-guarding regression check", () => {
+    // The guard above must be scoped to `rawAdmin` alone. A caller who never touches the
+    // admin service must not start failing because they built a client over plain HTTP for
+    // the data plane - that would be a worse regression than the gap this guard closes.
+    const client = createClient({ baseUrl: "http://example.com:50051" });
+
+    expect(() => client.raw).not.toThrow();
+    expect(typeof client.raw.executeCommand).toBe("function");
   });
 });

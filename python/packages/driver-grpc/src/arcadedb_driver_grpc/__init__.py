@@ -50,19 +50,53 @@ class ArcadeDBGrpcClient:
     control plane (database lifecycle, users, groups, API tokens, settings, backups, the
     profiler, server shutdown/cluster operations, `Health`/`Ready`). No facade wraps any
     of its 44 RPCs: each is a one-line stub call, exactly like the data-plane RPCs `raw`
-    reaches without a wrapper. `raw_admin` is built from the SAME `channel` as `raw`, not
-    a second one, so it shares this client's auth interceptor and TLS policy - including
-    the #5048 refusal below - because there is only one channel, not because anything
-    here re-implements that guard for a second one.
+    reaches without a wrapper.
+
+    `raw_admin` is built from the SAME `channel` as `raw`, so it shares this client's TLS
+    policy - but NOT its authentication. 42 of the 44 admin RPCs (everything but `Health`
+    and `Ready`) authenticate from a `DatabaseCredentials` field INSIDE the request
+    message, not from the channel's auth interceptor, so `bearer_auth`/`password_auth` do
+    nothing for them. Reading `raw_admin` raises `InsecureChannelError` unless the channel
+    was built with real transport credentials or `insecure=True` was passed to
+    `create_client`: those in-body credentials would otherwise travel in cleartext
+    regardless of any auth interceptor, the same hazard #5048 closed for the data plane's
+    password auth. The check runs on ACCESS, not in `__init__`, so a client built over an
+    insecure channel for the data plane keeps working unchanged - only reading `raw_admin`
+    requires the same opt-in. `Health` and `Ready` carry no credentials at all and are
+    still refused by this guard: it protects the stub as a whole, not a per-RPC list, so
+    there is deliberately no special case carving the two credential-free RPCs back out.
 
     A `grpc.Channel` must be closed, so this is a context manager. `@arcadedb/driver-grpc`
     has no counterpart because Connect's transport needs no teardown.
     """
 
-    def __init__(self, channel: grpc.Channel) -> None:
+    def __init__(self, channel: grpc.Channel, *, insecure_admin: bool = False) -> None:
         self._channel = channel
         self.raw = _pb2_grpc.ArcadeDbServiceStub(channel)
-        self.raw_admin = _pb2_grpc.ArcadeDbAdminServiceStub(channel)
+        self._raw_admin_stub = _pb2_grpc.ArcadeDbAdminServiceStub(channel)
+        # Whether `raw_admin` may be read despite the channel possibly being insecure.
+        # `create_client` computes this the same way it decides its own #5048 guard
+        # (`credentials is not None or insecure`); a caller constructing this class
+        # directly, bypassing `create_client`, gets the safe default - `raw_admin` is
+        # blocked until they say otherwise, since this class cannot itself inspect
+        # whether an arbitrary `grpc.Channel` it was handed is actually encrypted.
+        self._insecure_admin = insecure_admin
+
+    @property
+    def raw_admin(self) -> _pb2_grpc.ArcadeDbAdminServiceStub:
+        """The admin (control-plane) stub - see the class docstring. Raises
+        `InsecureChannelError` on read if the channel may be insecure and no opt-in was
+        given; never raises at construction time.
+        """
+        if not self._insecure_admin:
+            raise InsecureChannelError(
+                "raw_admin: refusing to expose ArcadeDbAdminService over a channel that may be "
+                "insecure. 42 of its 44 RPCs (everything but Health and Ready) carry "
+                "DatabaseCredentials in the request body, which would travel in cleartext "
+                "regardless of any auth interceptor. Pass credentials=grpc.ssl_channel_credentials() "
+                "to create_client, or insecure=True to opt in explicitly."
+            )
+        return self._raw_admin_stub
 
     def close(self) -> None:
         """Closes the underlying channel. Safe to call more than once."""
@@ -136,6 +170,12 @@ def create_client(
     which is stated outright rather than inferred - the TypeScript client has to defend
     against `new URL("localhost:50051").protocol` evaluating to `"localhost:"` instead
     of `"http:"`, and Python has no such trap.
+
+    `raw_admin` carries its own, separate insecure-channel guard - see
+    `ArcadeDBGrpcClient.raw_admin` - that fires on READING the property, not here. It uses
+    the same `credentials is not None or insecure` test this function applies to its own
+    guard above, but unconditionally on `auth`: the admin hazard is credentials inside an
+    admin RPC's request body, not anything an auth interceptor puts on the wire.
     """
     if credentials is None and not insecure and auth is not None and auth.sends_plaintext_password:
         raise InsecureChannelError(
@@ -148,4 +188,4 @@ def create_client(
     channel = grpc.insecure_channel(target) if credentials is None else grpc.secure_channel(target, credentials)
     if interceptors:
         channel = grpc.intercept_channel(channel, *interceptors)
-    return ArcadeDBGrpcClient(channel)
+    return ArcadeDBGrpcClient(channel, insecure_admin=credentials is not None or insecure)

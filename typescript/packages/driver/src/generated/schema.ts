@@ -2102,7 +2102,7 @@ export interface components {
             from?: number;
             /** @description Maximum rows to return for a raw (non-aggregated) query. Defaults to 20000. Ignored when 'aggregation' is present. */
             limit?: number;
-            /** @description Tag filter as name to value pairs. All pairs must match. */
+            /** @description Tag filter as name to value pairs. All pairs must match. A name that is no TAG column of the type is refused with 400 rather than ignored. */
             tags?: Record<string, never>;
             /** @description Inclusive upper bound of the timestamp range. Unbounded when omitted. */
             to?: number;
@@ -6128,7 +6128,7 @@ export interface operations {
             query: {
                 /** @description Time-series type name */
                 type: string;
-                /** @description Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match. */
+                /** @description Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match. An occurrence that carries no ':' separator, or whose name is no TAG column of the type, is refused with 400 rather than ignored. */
                 tag?: string[];
             };
             header?: never;
@@ -6150,7 +6150,7 @@ export interface operations {
                     "application/json": components["schemas"]["TimeSeriesLatestResponse"];
                 };
             };
-            /** @description Bad request */
+            /** @description Bad request. A 'tag' occurrence not in 'name:value' form, or whose name is no TAG column of the type, is refused here, naming it and listing the type's declared TAG columns. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6782,7 +6782,7 @@ export interface operations {
                     "application/json": components["schemas"]["TimeSeriesRawResponse"] | components["schemas"]["TimeSeriesAggregatedResponse"];
                 };
             };
-            /** @description Bad request */
+            /** @description Bad request. A name in 'tags' that is no TAG column of the type is refused here, naming it and listing the type's declared TAG columns: dropping it would widen the query to the whole range, which is indistinguishable from a filter that matched everything. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];

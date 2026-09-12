@@ -282,6 +282,146 @@ printf '[tool.arcadedb]\n' > "$FIX/python/packages/driver/pyproject.toml"
 check "$rc" "1" "refuses a pyproject.toml with no server-version key"
 rm -rf "$FIX"
 
+echo "adopt-contract-version.sh - version-rewrite guard (issue #44)"
+
+# The literal substitution cannot tell a filename from a claim, and cannot know
+# the claim was true before it ran. Issue #44: nine sites of the shape
+# "26.9.1-SNAPSHOT and every earlier server ignore it" were silently rewritten
+# into an untested claim about 26.10.1-SNAPSHOT. This fixture reproduces that
+# shape, three plausible rephrasings of the same kind of claim the pattern set
+# must generalize to (not just transcribe), and the things that must NOT trip
+# the guard: a filename rewrite, a line a filename pattern rewrites that is
+# ALSO claim-shaped (the literal replacement never touches it, so it must stay
+# silent even though the words would match), a compatibility-table row (even
+# one containing claim-shaped words), and an ordinary, non-claim mention of the
+# outgoing version.
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+
+STREAM="$FIX/typescript/packages/driver-grpc/src/stream.ts"
+cat > "$STREAM" <<TS
+// 26.9.1-SNAPSHOT and every earlier server ignore it entirely.
+export const noop = 1;
+TS
+
+# Rephrasings of the same claim, in shapes issue #44's nine examples did not
+# use literally: a requirement, a boundary, and an exclusivity.
+REPHRASINGS="$FIX/typescript/packages/driver-grpc/src/rephrasings.ts"
+cat > "$REPHRASINGS" <<TS
+// requires 26.9.1-SNAPSHOT or newer
+// broken until 26.9.1-SNAPSHOT
+// only 26.9.1-SNAPSHOT supports this
+TS
+
+README="$FIX/typescript/packages/driver-grpc/README.md"
+echo '| 9.9.9 | 26.9.1-SNAPSHOT and every earlier |' >> "$README"
+# This line IS rewritten (PROTO_REF consumes the whole filename, version and
+# all) and its remaining English IS claim-shaped ("and every earlier") - but
+# the literal replacement finds nothing left to change once the filename
+# pattern has already run, so the guard must not fire on it. A bug that
+# flagged "any line a pattern touched" instead of "any line the LITERAL
+# replacement touched" would bury the real signal under this kind of noise.
+# shellcheck disable=SC2016  # the backticks are literal markdown, not a subshell
+echo 'See `contracts/arcadedb-server-26.9.1-SNAPSHOT.proto` and every earlier contract for the schema.' >> "$README"
+
+# A release-status claim with NO version literal on its line at all. The guard
+# only ever looks at a line the literal substitution rewrote, and this one has
+# nothing for that substitution to change - so it is never examined and never
+# flagged, however stale or true it may be. That is correct, not a miss: three
+# of the release-status patterns ("not yet in a release", "as of this
+# writing", "once #NNNN lands") name no version of their own and so can only
+# ever fire alongside a version rewritten on the SAME line - this fixture pins
+# that a standalone instance is silently skipped rather than caught by luck.
+RELEASE_STATUS="$FIX/typescript/packages/driver-grpc/src/release-status.ts"
+cat > "$RELEASE_STATUS" <<TS
+// The fix merged, but is not yet in a release as of this writing.
+export const x = 1;
+TS
+
+out="$("$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT 2>&1 1>/dev/null)"; rc=$?
+check "$rc" "0" "the guard firing does not change the script's exit code"
+
+case "$out" in
+  *"VERIFY: 4 rewritten line(s) assert something about a server version"*)
+    ok "flags exactly the four claim-shaped rewritten lines" ;;
+  *) bad "flags exactly the four claim-shaped rewritten lines (got: $out)" ;;
+esac
+
+case "$out" in
+  *"typescript/packages/driver-grpc/src/stream.ts:1"*)
+    ok "names the exact path and line number of the flagged claim" ;;
+  *) bad "names the exact path and line number of the flagged claim (got: $out)" ;;
+esac
+
+case "$out" in
+  *"26.10.1-SNAPSHOT and every earlier server ignore it entirely"*)
+    ok "shows enough of the rewritten text to judge it" ;;
+  *) bad "shows enough of the rewritten text to judge it (got: $out)" ;;
+esac
+
+case "$out" in
+  *"requires 26.10.1-SNAPSHOT or newer"*) ok "generalizes to a requirement rephrasing (\"requires ... or newer\")" ;;
+  *) bad "generalizes to a requirement rephrasing (got: $out)" ;;
+esac
+
+case "$out" in
+  *"broken until 26.10.1-SNAPSHOT"*) ok "generalizes to a boundary rephrasing (\"until ...\")" ;;
+  *) bad "generalizes to a boundary rephrasing (got: $out)" ;;
+esac
+
+case "$out" in
+  *"only 26.10.1-SNAPSHOT supports this"*) ok "generalizes to an exclusivity rephrasing (\"only ...\")" ;;
+  *) bad "generalizes to an exclusivity rephrasing (got: $out)" ;;
+esac
+
+case "$out" in
+  *"9.9.9"*) bad "does not flag a compatibility-table row, even a claim-shaped one (got: $out)" ;;
+  *) ok "does not flag a compatibility-table row, even a claim-shaped one" ;;
+esac
+
+# index.ts legitimately appears in the "repointed:" list above (it IS
+# rewritten, by a filename pattern) - the guard block specifically is what must
+# stay silent about it.
+verify_block="${out#*VERIFY:}"
+case "$verify_block" in
+  *"index.ts"*) bad "does not flag a filename-only rewrite (got: $verify_block)" ;;
+  *) ok "does not flag a filename-only rewrite" ;;
+esac
+
+case "$verify_block" in
+  *"contract for the schema"*)
+    bad "does not flag a claim-shaped line whose change came only from a filename pattern (got: $verify_block)" ;;
+  *) ok "does not flag a claim-shaped line whose change came only from a filename pattern" ;;
+esac
+
+case "$out" in
+  *"generated from is 26.10.1-SNAPSHOT, in prose"*)
+    bad "does not flag an ordinary, non-claim version mention (got: $out)" ;;
+  *) ok "does not flag an ordinary, non-claim version mention" ;;
+esac
+
+case "$verify_block" in
+  *"release-status.ts"*)
+    bad "does not flag a release-status claim carrying no version on its own line (got: $verify_block)" ;;
+  *) ok "does not flag a release-status claim carrying no version on its own line" ;;
+esac
+rm -rf "$FIX"
+
+# A guard that always speaks gets ignored: the default fixture's rewrites are
+# filenames, a serverVersion key, and one ordinary prose mention - none of them
+# claims about server behaviour - so nothing should print.
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+out="$("$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT 2>&1 1>/dev/null)"; rc=$?
+check "$rc" "0" "adopts cleanly when nothing qualifies for the guard"
+case "$out" in
+  *"VERIFY"*) bad "prints nothing when nothing qualifies for the guard (got: $out)" ;;
+  *) ok "prints nothing when nothing qualifies for the guard" ;;
+esac
+rm -rf "$FIX"
+
 echo "contract-watch.yml wiring"
 
 # The script gaining a capability and the workflow USING it are two different

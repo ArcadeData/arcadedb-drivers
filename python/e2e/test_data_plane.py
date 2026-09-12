@@ -318,6 +318,57 @@ def test_buffered_query_returns_the_same_rows_streaming_did(base_url: str, datab
     assert len(buffered_rows) == stream_rows
 
 
+def test_command_stream_also_streams_ndjson_from_a_real_server_for_a_read_only_command(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    # The property under test is server-side, not client-side: `test_stream.py` already proves this
+    # client sends the right Accept header and parses whatever it is handed, against a MOCKED
+    # response - it cannot prove ArcadeDB actually honors that header on `/command` rather than
+    # silently answering with a buffered `QueryResponse` regardless. If the server did that,
+    # nothing else in this repository would catch it, since the unit tests never talk to a real
+    # server. Asserting a `record` + `stats` shape here - not just "a list came back" - is what
+    # rules that failure mode out: a buffered JSON body would not decode into these events at all.
+    #
+    # This does NOT use a mutating statement, unlike the read-only-vs-write asymmetry one might
+    # expect a "command" test to cover. Verified empirically against a live container (see
+    # task-4-report.md): ArcadeDB rejects `Accept: application/x-ndjson` on `/command` for any
+    # non-read-only statement with 400 "The streaming encoding is available only for a read-only
+    # statement, because its rows reach the client before the transaction commits: run this one
+    # with 'Accept: application/json'" - a deliberate server-side rule (rows cannot stream to the
+    # client ahead of a commit that might still roll back), not a gap in this client. A read-only
+    # SELECT run through /command is the only statement shape /command can stream at all.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.command_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE} WHERE n < 5"))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == 5
+    assert stats.returned == 5
+
+
+@pytest.mark.asyncio
+async def test_async_command_stream_also_streams_ndjson_from_a_real_server_for_a_read_only_command(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    # The async twin of the sync test above - nearly free given `stream_rows` already does its
+    # setup once and is reusable by both sync and async tests, and worth having since Task 3 shipped
+    # a real async transport (`httpx.AsyncClient.stream()`), not just a sync one, for exactly this
+    # endpoint.
+    async with AsyncArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = [
+            event async for event in db.command_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE} WHERE n < 5")
+        ]
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == 5
+    assert stats.returned == 5
+
+
 @pytest.mark.asyncio
 async def test_async_stream_query_yields_records_and_a_stats_trailer(
     base_url: str, database: str, stream_rows: int

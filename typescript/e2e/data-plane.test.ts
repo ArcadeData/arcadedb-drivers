@@ -266,6 +266,37 @@ describe("queryStream / commandStream: ndjson events over a real container", () 
     expect(bufferedRows).toHaveLength(STREAM_ROW_COUNT);
   });
 
+  it("commandStream also gets a real ndjson stream from the server, not a buffered response in disguise", async () => {
+    // The property under test is server-side, not client-side: `stream.test.ts` already proves
+    // this client sends the right Accept header and parses whatever it is handed, against a
+    // MOCKED response - it cannot prove ArcadeDB actually honors that header on `/command` rather
+    // than silently answering with a buffered `QueryResponse` regardless. If the server did that,
+    // nothing else in this repository would catch it, since the unit tests never talk to a real
+    // server. Asserting a `record` + `stats` shape here - not just "a promise resolved" - is what
+    // rules that failure mode out: a buffered JSON body would not decode into these events at all.
+    //
+    // This does NOT use a mutating statement, unlike the read-only-vs-write asymmetry one might
+    // expect a "command" test to cover. Verified empirically against a live container (see
+    // task-4-report.md): ArcadeDB rejects `Accept: application/x-ndjson` on `/command` for any
+    // non-read-only statement with 400 "The streaming encoding is available only for a read-only
+    // statement, because its rows reach the client before the transaction commits: run this one
+    // with 'Accept: application/json'" - a deliberate server-side rule (rows cannot stream to the
+    // client ahead of a commit that might still roll back), not a gap in this client. A read-only
+    // `SELECT` run through `/command` is the only statement shape `/command` can stream at all.
+    const db = rootServer.db(DB_NAME);
+    const events: NdJsonQueryEvent[] = [];
+    for await (const event of db.commandStream({ language: "sql", command: `SELECT FROM ${STREAM_TYPE} WHERE n < 5` })) {
+      events.push(event);
+    }
+
+    const records = events.filter((e) => e.record !== undefined);
+    const last = events[events.length - 1];
+
+    expect(records.length).toBe(5);
+    expect(last?.stats).toBeDefined();
+    expect(last?.stats?.returned).toBe(5);
+  });
+
   it("reassembles a single record whose own ndjson line spans multiple real reads, intact", async () => {
     // This is a DIFFERENT property from the 2000-row test above: that one proves the response
     // arrives across many real reads; this one proves a single ndjson LINE really spans two of

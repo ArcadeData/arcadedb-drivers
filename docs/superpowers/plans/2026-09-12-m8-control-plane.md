@@ -31,7 +31,7 @@
 | Python | impossible through the public API — `client._channel` and `arcadedb_driver_grpc._generated.arcadedb_server_pb2_grpc` are both private |
 | TypeScript | the descriptor is exported, but the transport is a local `const` inside `createClient`, so a caller builds their own with `createGrpcTransport(...)` — **bypassing the refusal to pair a plaintext-password interceptor with a non-TLS `baseUrl`** (arcadedb#5048) |
 
-Documenting that workaround would publish instructions for defeating a credential-exposure control, on a service whose `CreateApiToken` returns secret material. Reusing the existing channel/transport means auth, TLS policy and that refusal all carry over unchanged, because there is only one of each.
+Documenting that workaround would publish instructions for defeating a credential-exposure control, on a service whose `CreateApiToken` returns secret material. Reusing the existing channel/transport means TLS policy carries over unchanged, because there is only one of each. Authentication does NOT: 42 of the 44 admin RPCs authenticate from a `DatabaseCredentials` field inside the request message rather than from channel metadata, so this package's `auth` option does nothing for them - and because those credentials sit in the body, the arcadedb#5048 refusal, which keys on a marker attached to the auth interceptor, cannot see them either. `rawAdmin` / `raw_admin` therefore carries its own access-time guard.
 
 **D-M8-3 — no facade for `Health` and `Ready`.** Their request messages are empty (`message HealthRequest {}`), so the entire difference is `rawAdmin.health({})` versus `health()`. An empty request makes them the easiest RPCs to call through the stub, not the hardest — the opposite of the case for an exception.
 
@@ -117,7 +117,7 @@ TypeScript: build `rawAdmin` from the *same* `transport` local that `raw` alread
 
 Python: `self.raw_admin = _pb2_grpc.ArcadeDbAdminServiceStub(channel)` beside the existing `raw`, in both the sync and async clients, using the same `channel`. Add `raw_admin` to the class docstrings on both sides with the same behavioural content.
 
-The doc comment in each language must say what the handle is (the generated admin stub, no facade), that it shares the client's channel and therefore its auth and TLS policy, and that it is the control plane rather than the data plane.
+The doc comment in each language must say what the handle is (the generated admin stub, no facade), that it shares the client's channel and therefore its TLS policy but NOT its authentication (42 of the 44 admin RPCs carry `DatabaseCredentials` inside the request body, so the `auth` option does nothing for them), and that it is the control plane rather than the data plane.
 
 - [ ] **Step 4: Update the pinned public surface**
 
@@ -142,9 +142,11 @@ two private names; in TypeScript it meant building a transport by hand, which
 bypasses the refusal to send a plaintext password over a non-TLS baseUrl.
 
 `rawAdmin` / `raw_admin` is the generated stub, exposed once, built from the
-channel or transport `raw` already uses - so auth, TLS policy and the
-insecure-channel refusal apply to the control plane because there is only one
-of each, not because anything re-implements them.
+channel or transport `raw` already uses - so TLS policy applies to the control
+plane because there is only one of each, not because anything re-implements it.
+Authentication does not carry over: 42 of the 44 admin RPCs read their
+credentials from inside the request message, and the arcadedb#5048 refusal
+cannot see a request body, so reading the handle is guarded separately.
 
 Not a facade: 44 admin RPCs stay one-line stub calls, which is what the
 parity bar asks for.
@@ -205,7 +207,7 @@ Expect 44 names. Group them for a reader rather than listing alphabetically — 
 - [ ] **Step 2: Write the sections**
 
 Each README in its own voice, and each must state:
-- what `rawAdmin` / `raw_admin` is: the generated admin stub, no facade, sharing the client's channel and therefore its auth and TLS policy;
+- what `rawAdmin` / `raw_admin` is: the generated admin stub, no facade, sharing the client's channel and therefore its TLS policy - but NOT its authentication, because 42 of the 44 admin RPCs authenticate from a `DatabaseCredentials` field inside the request message rather than from channel metadata;
 - that the 41 unary RPCs are one-line stub calls, and why that is the design rather than an omission (the parity bar);
 - that `RestoreBackup`, `RestoreDatabase` and `ImportDatabase` are **server-streaming** on purpose — a long restore reports progress and stays cancellable — and are the three the bare stub drives least comfortably;
 - that `Health` and `Ready` take empty request messages, which is why they get no facade;

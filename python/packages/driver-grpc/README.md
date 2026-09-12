@@ -48,9 +48,11 @@ with create_client("localhost:50051", insecure=True) as client:
 parse and nothing to default: pass `credentials=grpc.ssl_channel_credentials()` for TLS, or
 `insecure=True` to say explicitly that you want a plaintext channel.
 
-`raw` is the generated stub for `com.arcadedb.grpc.ArcadeDbService` - every RPC the `.proto`
-contract declares is reachable through it. `create_client` adds five wrappers on top for the RPCs
-the generated stub alone handles badly: `stream_query`, `insert_stream`, `time_series_query`,
+`raw` is the generated stub for `com.arcadedb.grpc.ArcadeDbService` - every RPC of that data-plane
+service is reachable through it. The contract's other service, `ArcadeDbAdminService` (the control
+plane), is a separate handle, `raw_admin` - see "The control plane: `raw_admin`" below.
+`create_client` adds five wrappers on top for the RPCs the generated stub alone handles badly:
+`stream_query`, `insert_stream`, `time_series_query`,
 `time_series_write_stream`, and `transaction`. Everything else - the unary CRUD calls,
 `VectorSearch`/`HybridSearch`/`FullTextSearch`, `BulkInsert`, `InsertBidirectional`,
 `GraphBatchLoad`, `TimeSeriesWrite`, `TimeSeriesLatest` - is used directly through `raw` at the top
@@ -653,9 +655,8 @@ therefore carries its **own** guard against the same hazard, and raises the same
 client = create_client("localhost:50051", insecure=True)
 client.raw.ExecuteQuery(...)  # fine, unchanged
 
-create_client("localhost:50051")  # constructed with neither credentials nor insecure=True
-# ...and then, on the client it returned:
-client.raw_admin
+plain = create_client("localhost:50051")  # constructed with neither credentials nor insecure=True
+plain.raw_admin
 # raises InsecureChannelError: refusing to expose ArcadeDbAdminService over a channel that
 # may be insecure ...
 
@@ -700,11 +701,13 @@ guard on `raw_admin`, not the server's separate one on this single RPC, so a cal
 unblock `raw_admin` over a plaintext channel to a remote host can still watch `CreateApiToken` refuse
 to mint anything. This package never touches that response. All four `intercept_*` methods, sync and async
 alike, add metadata to the outgoing call and `return continuation(...)` without looking at what
-comes back; they are request-side by construction, and the package contains no logging at all - no
-`logging`, no `print`. A token cannot reach a log sink through this client, which is the property
-[ArcadeData/arcadedb#7309](https://github.com/ArcadeData/arcadedb/issues/7309) argues for
-server-side. A test pins it rather than leaving it as a reading of the source, so an interceptor
-that started inspecting responses, or a stray `print`, fails the suite.
+comes back; they are request-side by construction, and this package's hand-written source contains
+no logging at all - no `logging`, no `print`. A token cannot reach a log sink through this client,
+which is the property [ArcadeData/arcadedb#7309](https://github.com/ArcadeData/arcadedb/issues/7309)
+argues for server-side. A test pins it rather than leaving it as a reading of the source, so an
+interceptor that started inspecting responses, or a stray `print`, fails the suite - the test walks
+`src/arcadedb_driver_grpc/` and excludes `_generated/`, generated code this package never
+hand-edits and so can never be the source of a leak.
 
 ## Errors: `grpc.RpcError`, not a package-specific error
 

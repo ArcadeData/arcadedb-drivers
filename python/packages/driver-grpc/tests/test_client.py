@@ -29,6 +29,8 @@ def test_raw_is_authenticated_too(fake_server: tuple[str, RecordingServicer]) ->
 
 
 def test_password_auth_over_an_insecure_channel_is_refused() -> None:
+    # Also pins that adding `raw_admin` did not move this #5048 guard: it still runs
+    # BEFORE any client - and therefore before any `raw_admin` - is constructed at all.
     with pytest.raises(InsecureChannelError):
         create_client("127.0.0.1:50051", auth=password_auth("root", "playwithdata"))
 
@@ -70,13 +72,6 @@ def test_close_is_idempotent(fake_server: tuple[str, RecordingServicer]) -> None
     client = create_client(target, auth=bearer_auth("t0ken"))
     client.close()
     client.close()
-
-
-def test_password_auth_over_an_insecure_channel_is_refused_even_though_raw_admin_now_exists() -> None:
-    # Pins that adding `raw_admin` did not move the #5048 guard: it still runs BEFORE
-    # any client - and therefore before any `raw_admin` - is constructed at all.
-    with pytest.raises(InsecureChannelError):
-        create_client("127.0.0.1:50051", auth=password_auth("root", "playwithdata"))
 
 
 def test_raw_admin_reaches_the_server(fake_admin_server: tuple[str, RecordingAdminServicer]) -> None:
@@ -152,8 +147,11 @@ def test_raw_admin_over_an_insecure_channel_is_refused_without_opt_in() -> None:
     # `raw_admin` does. This is the regression guard for "the guard moved to the wrong
     # place."
     client = create_client("127.0.0.1:50051")  # must not raise
-    with pytest.raises(InsecureChannelError, match=r"credentials|insecure"):
-        client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+    try:
+        with pytest.raises(InsecureChannelError, match=r"credentials|insecure"):
+            client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+    finally:
+        client.close()
 
 
 def test_raw_admin_over_an_insecure_channel_is_allowed_when_opted_into(

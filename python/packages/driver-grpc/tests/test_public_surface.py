@@ -49,10 +49,13 @@ def test_messages_exposes_the_data_plane_types() -> None:
         assert hasattr(arcadedb_driver_grpc.messages, name)
 
 
-def test_client_instance_exposes_exactly_raw_and_raw_admin() -> None:
+def test_raw_is_an_instance_attribute_and_raw_admin_is_a_guarded_property() -> None:
     # `raw`/`raw_admin` are not module-level exports, so `EXPECTED_SURFACE` above never
     # lists them and never will - this is the guard that takes their place, pinned one
-    # level down on the client object a caller actually holds.
+    # level down on the client object a caller actually holds. Despite living in this
+    # file, this is NOT the public-surface check the other tests above are: it says
+    # nothing about the many public methods the instance also exposes, and everything
+    # about one implementation detail those tests can't see.
     #
     # `raw` is a plain instance attribute; `raw_admin` is a PROPERTY, not an instance
     # attribute - that is what lets its insecure-channel guard fire on ACCESS rather than

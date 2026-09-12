@@ -71,14 +71,9 @@ async def test_auth_reaches_every_rpc_shape_not_only_unary_unary(
 
 async def test_password_auth_over_an_insecure_channel_is_refused() -> None:
     # The async facade carries the same #5048 guard as the sync one; a facade that
-    # quietly dropped it would be the easier of the two to reach by accident.
-    with pytest.raises(InsecureChannelError):
-        create_client("127.0.0.1:50051", auth=password_auth("root", "playwithdata"))
-
-
-async def test_password_auth_over_an_insecure_channel_is_refused_even_though_raw_admin_now_exists() -> None:
-    # Pins that adding `raw_admin` did not move the #5048 guard on the async facade
-    # either: it still runs BEFORE any client - and therefore any `raw_admin` - exists.
+    # quietly dropped it would be the easier of the two to reach by accident. Also pins
+    # that adding `raw_admin` did not move it: it still runs BEFORE any client - and
+    # therefore before any `raw_admin` - exists.
     with pytest.raises(InsecureChannelError):
         create_client("127.0.0.1:50051", auth=password_auth("root", "playwithdata"))
 
@@ -153,8 +148,11 @@ async def test_raw_admin_over_an_insecure_channel_is_refused_without_opt_in() ->
     # Construction itself must NOT raise - only READING `raw_admin` does. This is the
     # regression guard for "the guard moved to the wrong place."
     client = create_client("127.0.0.1:50051")  # must not raise
-    with pytest.raises(InsecureChannelError, match=r"credentials|insecure"):
-        client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+    try:
+        with pytest.raises(InsecureChannelError, match=r"credentials|insecure"):
+            client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+    finally:
+        await client.close()
 
 
 async def test_raw_admin_over_an_insecure_channel_is_allowed_when_opted_into(

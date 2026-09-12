@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createClient as createConnectClient } from "@connectrpc/connect";
 import type { Interceptor } from "@connectrpc/connect";
 import { createGrpcTransport } from "@connectrpc/connect-node";
-import { bearerAuth, createClient, passwordAuth } from "../src/index.js";
+import { bearerAuth, createClient } from "../src/index.js";
 
 // `createClient` (from `@connectrpc/connect`) and `createGrpcTransport` (from
 // `@connectrpc/connect-node`) are wrapped in `vi.fn(actual)` rather than stubbed out:
@@ -22,17 +22,6 @@ vi.mock("@connectrpc/connect-node", async (importOriginal) => {
 });
 
 describe("rawAdmin", () => {
-  it("throws for a plaintext-password auth over a non-TLS baseUrl, exactly as it did before rawAdmin existed", () => {
-    // Pins that exposing a second stub did not move the #5048 guard. The guard runs
-    // BEFORE any client (or transport) is constructed, so there is no `rawAdmin` for a
-    // caller to fall back on when this throws - the only way to reach the admin service
-    // insecurely would be building a second transport by hand, which is exactly the
-    // hazard this task closes off.
-    expect(() =>
-      createClient({ baseUrl: "http://example.com:50051", auth: passwordAuth("root", "pw") }),
-    ).toThrow(/insecure/i);
-  });
-
   it("exposes the generated Connect client for the admin service, distinct from raw", () => {
     const client = createClient({ baseUrl: "https://example.com:50051" });
 

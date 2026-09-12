@@ -55,9 +55,11 @@ const response = await grpc.raw.executeQuery({
 });
 ```
 
-`raw` is the generated Connect client for `ArcadeDbService` (the data plane) - every RPC the
-`.proto` contract declares is callable through it. `createClient` adds five ergonomic wrappers
-on top for the RPCs the generated client alone handles badly: `streamQuery`, `insertStream`,
+`raw` is the generated Connect client for `ArcadeDbService` (the data plane) - every RPC of that
+service is callable through it. The contract's other service, `ArcadeDbAdminService` (the control
+plane), is a separate handle, `rawAdmin` - see "The control plane: `rawAdmin`" below.
+`createClient` adds five ergonomic wrappers on top for the RPCs the generated client alone handles
+badly: `streamQuery`, `insertStream`,
 `timeSeriesQuery`, `timeSeriesWriteStream`, and `transaction`. Everything else - the unary CRUD
 calls, `vectorSearch`/`hybridSearch`/`fullTextSearch`, `insertBidirectional`, `graphBatchLoad`,
 `TimeSeriesWrite`, `TimeSeriesLatest` - is used directly through `raw` at the top level; the CRUD
@@ -567,11 +569,13 @@ guard on `rawAdmin`, not the server's separate one on this single RPC, so a call
 unblock `rawAdmin` over a plaintext baseUrl to a remote host can still watch `CreateApiToken` refuse
 to mint anything. This package never touches that response. Both auth interceptors set request headers and
 `return next(req)` without looking at what comes back; they are request-side by construction, and
-the package contains no logging at all - no `console.*`, nothing. A token cannot reach a log sink
-through this client, which is the property
+this package's hand-written source contains no logging at all - no `console.*`, nothing. A token
+cannot reach a log sink through this client, which is the property
 [ArcadeData/arcadedb#7309](https://github.com/ArcadeData/arcadedb/issues/7309) argues for
 server-side. That is pinned by a test rather than left as a reading of the source, so an interceptor
-that started inspecting responses, or a stray `console.log`, fails the suite.
+that started inspecting responses, or a stray `console.log`, fails the suite - the test scans `src/`
+and deliberately skips `src/gen/`, generated code this package never hand-edits and so can never be
+the source of a leak.
 
 ## Errors: `ConnectError`, not `ArcadeDBError`
 

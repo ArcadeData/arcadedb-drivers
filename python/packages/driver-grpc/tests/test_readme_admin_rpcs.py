@@ -57,5 +57,21 @@ def test_readme_lists_each_rpc_exactly_once() -> None:
     assert not duplicates, f"README lists these RPCs more than once: {duplicates}"
 
 
-def test_readme_documents_all_44_rpcs() -> None:
-    assert len(_generated_admin_rpc_names()) == 44
+def test_the_contract_still_declares_44_admin_rpcs() -> None:
+    """Not a README check - the two tests above already pin the README against the generated
+    stub's *names*, inside the marker region only. This one is blind to the README entirely and
+    exists solely to catch the day this number moves, because roughly twenty other places state
+    "44" or "42 of 44" as prose OUTSIDE that marker region, where nothing else here re-derives it
+    from the contract. If this fails, the contract's admin RPC count changed - update every one of:
+    both READMEs (the "The 44 RPCs" heading and surrounding prose, both packages), the
+    `ArcadeDBGrpcClient`/`AsyncArcadeDBGrpcClient` class docstrings in `__init__.py` and `aio.py`,
+    `errors.py`'s `InsecureChannelError` docstring, the equivalent docstrings and guard message in
+    `typescript/packages/driver-grpc/src/index.ts`, and the admin-service bullets in
+    `typescript/CLAUDE.md` and `python/CLAUDE.md`.
+    """
+    count = len(_generated_admin_rpc_names())
+    assert count == 44, (
+        f"ArcadeDbAdminService now declares {count} RPCs, not 44. Update every '44'/'42 of 44' "
+        "statement: both READMEs, the class docstrings in __init__.py and aio.py, errors.py, "
+        "typescript/src/index.ts's docstrings and guard message, and both CLAUDE.md files."
+    )

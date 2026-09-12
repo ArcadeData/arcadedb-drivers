@@ -393,15 +393,39 @@ timestamp misread by a million, silently, with no error raised on either side. M
 a required (no-default) field on the dataclass turns that into a `TypeError` at construction
 instead of a silent data-corruption bug.
 
+**The same trap is wide open on the raw unary path, where nothing can protect you.**
+`TimeSeriesWriteRequest.precision` is field 4 of the same enum, with the same proto3 zero value,
+and `TimeSeriesWrite` is reachable only as `client.raw.TimeSeriesWrite` (see the table above) - a
+generated protobuf message this package does not wrap and cannot make any field required on. A
+caller who follows that table to `raw.TimeSeriesWrite` for one-shot writes and omits `precision`
+hits exactly the 10\*\*6 misread described here, with no wrapper standing in the way. Set
+`precision` explicitly on **every** `raw.TimeSeriesWrite` call. This is not an argument for
+wrapping `TimeSeriesWrite` - the reasons it stays `raw`-only are below, and they still hold - it
+is a warning that the protection above stops at the streaming wrapper's edge.
+
 ### `database`, `type` and `precision` repeat on every chunk, not just the first
 
 Unlike `insert_stream`'s envelope (`database` on the first chunk only, `last=True` on the final
 one), `TimeSeriesWriteChunk` declares no `session_id`, `chunk_seq` or `last` field on the wire at
 all. `time_series_write_stream` therefore simply sets `database`, `credentials`, `type` and
-`precision` on **every** chunk it builds - there is no first-chunk-only special case to get wrong,
-and `insert_stream`'s `options.database` mirroring workaround (see above) has nothing to port
-here: `TimeSeriesWriteChunk` was never shown to share `InsertChunk`'s bug
-(ArcadeData/arcadedb#6597).
+`precision` on **every** chunk it builds, and `insert_stream`'s `options.database` mirroring
+workaround (see above) has nothing to port here: `TimeSeriesWriteChunk` was never shown to share
+`InsertChunk`'s bug (ArcadeData/arcadedb#6597).
+
+That repetition is a deliberate **simplification on this wrapper's part, not something the
+`.proto` requires** - an earlier version of this section said the contract asked for it, and the
+contract says the opposite. `TimeSeriesWriteChunk.database` is documented there as "REQUIRED on
+the first chunk; ignored on later ones (the server caches the first chunk's database)", so a
+first-chunk-only semantic **does** exist on this RPC. Repeating `database` is safe precisely
+because the server ignores the later copies, and it spares the wrapper a first-chunk special case
+it has no other reason to carry.
+
+The one thing repetition costs is `type`. The contract documents `TimeSeriesWriteChunk.type` as
+the default measurement for points in **that** chunk, so a stream may switch measurement between
+chunks without naming it on every point. `TimeSeriesWriteStreamRequest` takes a single stream-wide
+`type` and sets it on every chunk, so **this wrapper does not expose that per-chunk default**. A
+caller who needs to mix measurements in one stream sets `type` on each `TimeSeriesPoint` instead,
+which still works and is unaffected by the chunk-level default.
 
 ### An empty `chunks` sends zero wire chunks, not one - and the server accepts it
 

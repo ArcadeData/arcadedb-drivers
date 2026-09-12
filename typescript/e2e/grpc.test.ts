@@ -8,8 +8,13 @@ import type { ArcadeDBServer } from "../packages/driver/src/index.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 import { bearerAuth, createClient as createGrpcClient, passwordAuth } from "../packages/driver-grpc/src/index.js";
 import type { ArcadeDBGrpcClient, GrpcRecordSchema, GrpcValueSchema, InsertSummarySchema, Interceptor, QueryResultSchema } from "../packages/driver-grpc/src/index.js";
-import { TimeSeriesPrecision } from "../packages/driver-grpc/src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
-import type { TimeSeriesPoint } from "../packages/driver-grpc/src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+// Imported from the package entry point, not from the version-stamped generated file: this is the
+// path the README documents to callers (`import { TimeSeriesPrecision } from "@arcadedb/driver-grpc"`),
+// `src/index.ts` re-exports the whole generated module for exactly that reason, and naming the
+// generated file here would both leave the documented path unexercised and need rewriting at every
+// contract adoption.
+import { TimeSeriesPrecision } from "../packages/driver-grpc/src/index.js";
+import type { TimeSeriesPoint } from "../packages/driver-grpc/src/index.js";
 
 // Image pin: kept independent of `e2e/data-plane.test.ts`'s pin, even though both currently name
 // the same tag. They agree because each is pinned to the release its own contract came from, not
@@ -468,9 +473,9 @@ describe("TimeSeriesWriteStream, TimeSeriesQuery and TimeSeriesLatest", () => {
   it("an empty timeSeriesWriteStream sends zero wire chunks and the server answers with an all-zero summary, not an error", async () => {
     // Established empirically against a real server (see task-4-report.md): a stream that never
     // sends a single wire chunk - so the server never learns database, type or precision - is
-    // accepted cleanly rather than rejected. This is the answer to the question stream.ts's own
-    // doc comment for `createTimeSeriesWriteStream` leaves open ("an all-zero summary and an
-    // error are both plausible outcomes... a real e2e run settles it"): it does NOT raise.
+    // accepted cleanly rather than rejected. This test is the measurement the doc comments and
+    // both READMEs now cite for that claim: the call does NOT raise, and the summary comes back
+    // all-zero, counts and type lists alike.
     async function* noChunks(): AsyncGenerator<TimeSeriesPoint[]> {
       // Yields nothing - zero wire chunks.
     }

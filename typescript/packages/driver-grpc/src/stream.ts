@@ -54,7 +54,7 @@ export function createStreamQuery(raw: Pick<RawClient, "streamQuery">) {
 }
 
 /**
- * `TimeSeriesQuery` request. Unlike {@link StreamQueryRequestInit}, no field is defaulted or
+ * `TimeSeriesQuery` request. Like {@link StreamQueryRequestInit}, no field is defaulted or
  * reshaped here either - `limit`, `batchSize`, `aggregation` and the rest pass straight through.
  */
 export type TimeSeriesQueryRequestInit = MessageInitShape<typeof TimeSeriesQueryRequestSchema>;
@@ -224,7 +224,14 @@ async function* envelopeChunks(request: InsertStreamRequest, sessionId: string):
 export interface TimeSeriesWriteStreamRequest {
   database: string;
   credentials?: MessageInitShape<typeof DatabaseCredentialsSchema>;
-  /** Default measurement for points in a chunk that do not name one. */
+  /**
+   * Default measurement for points that do not name one. Stream-wide, and that is narrower than
+   * the wire field: the `.proto` documents `TimeSeriesWriteChunk.type` as the default for points
+   * in *that* chunk, so a stream may switch measurement between chunks. This wrapper takes one
+   * `type` and sets it on every chunk, so it does not expose that per-chunk capability - a caller
+   * who needs to mix measurements sets `type` on each `TimeSeriesPoint` instead, which still
+   * works.
+   */
   type: string;
   /** REQUIRED - see the interface doc comment above for why. */
   precision: TimeSeriesPrecision;
@@ -242,8 +249,18 @@ export interface TimeSeriesWriteStreamRequest {
  * specific to `InsertStream`/`InsertContext` (closed, fixed in 26.9.1); `TimeSeriesWriteChunk`
  * carries none of `InsertChunk`'s session/sequence/last fields and was never shown to share that
  * bug, so copying the workaround here would be cargo-culting a fix onto an RPC that never needed
- * one - setting all four fields on every chunk is simply the contract-faithful reading of the
- * `.proto` (see the field comments on `TimeSeriesWriteChunk`).
+ * one.
+ *
+ * Repeating the envelope on every chunk is a deliberate SIMPLIFICATION, not something the `.proto`
+ * asks for - an earlier version of this comment claimed the contract required it, and the contract
+ * says the opposite. `TimeSeriesWriteChunk.database` is documented there as "REQUIRED on the first
+ * chunk; ignored on later ones (the server caches the first chunk's database)", so a
+ * first-chunk-only semantic *does* exist on this RPC. Sending `database` again on later chunks is
+ * harmless precisely because the server throws those copies away, and it spares this wrapper a
+ * first-chunk special case it has no other reason to carry. The repetition does cost one thing:
+ * the contract documents `type` as a per-CHUNK default and advertises switching measurement
+ * between chunks, and a single stream-wide `type` cannot express that - see
+ * {@link TimeSeriesWriteStreamRequest.type}.
  *
  * An empty `request.chunks` sends zero wire chunks and awaits whatever `TimeSeriesWriteSummary` the
  * server returns for a stream that carried none, rather than throwing - the same "an empty input is
@@ -268,6 +285,14 @@ export function createTimeSeriesWriteStream(raw: Pick<RawClient, "timeSeriesWrit
 }
 
 async function* timeSeriesWriteChunks(request: TimeSeriesWriteStreamRequest): AsyncGenerator<TimeSeriesWriteChunkInit> {
+  // No try/finally around this loop, unlike {@link envelopeChunks} above, and the difference is
+  // deliberate rather than an oversight. `envelopeChunks` pulls its iterator by hand to compute
+  // the one-element lookahead its `last` flag needs, so nothing finalizes the caller's iterable
+  // for it and the explicit `finally` is what calls `iterator.return()` on an early abort. There
+  // is no `last` flag here, so a plain `for await...of` suffices - and its IteratorClose semantics
+  // already close the iterator on every abrupt completion, break, throw or early return included.
+  // (The Python twin is the mirror image of this: a plain `for` never closes what it consumes, so
+  // `_time_series_chunks_inner` there needs the explicit try/finally this one does not.)
   for await (const points of request.chunks) {
     yield {
       database: request.database,

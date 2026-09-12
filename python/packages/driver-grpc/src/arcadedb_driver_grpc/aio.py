@@ -686,9 +686,11 @@ class AsyncArcadeDBGrpcClient:
 
         An empty `request.chunks` sends ZERO wire chunks, rather than `insert_stream`'s
         single-empty-chunk special case. What the server does with a stream that never told
-        it `database`, `type` or `precision` is genuinely UNVERIFIED against a real server -
-        this wrapper invents neither an all-zero summary nor an error; a real e2e run
-        settles it.
+        it `database`, `type` or `precision` is now MEASURED against a real server, not
+        guessed at: it does NOT raise. The awaited call is accepted cleanly and returns an
+        all-zero `TimeSeriesWriteSummary` - `received == written == dropped == 0`, with
+        `unknown_types`, `non_time_series_types` and `unavailable_types` all empty. This
+        wrapper still invents nothing; it hands back whatever summary the server sent.
 
         Returns the server's `TimeSeriesWriteSummary` WHOLE (D-M6-3): `received`,
         `written`, `dropped`, `unknown_types`, `non_time_series_types`, `unavailable_types`

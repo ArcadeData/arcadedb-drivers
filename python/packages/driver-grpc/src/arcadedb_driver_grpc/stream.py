@@ -280,6 +280,19 @@ class TimeSeriesWriteStreamRequest:
     never shown to share it, and copying the workaround would be cargo-culting a fix onto
     an RPC that never needed one.
 
+    Repeating the envelope on every chunk is a deliberate SIMPLIFICATION, not something the
+    `.proto` asks for - an earlier version of this docstring claimed the contract required
+    it, and the contract says the opposite. `TimeSeriesWriteChunk.database` is documented
+    there as "REQUIRED on the first chunk; ignored on later ones (the server caches the
+    first chunk's database)", so a first-chunk-only semantic DOES exist on this RPC.
+    Sending `database` again on later chunks is harmless precisely because the server
+    throws those copies away, and it spares this wrapper a first-chunk special case it has
+    no other reason to carry. The repetition does cost one thing: the contract documents
+    `type` as a per-CHUNK default and advertises switching measurement between chunks, so a
+    single stream-wide `type` cannot express that. This wrapper does not expose the
+    per-chunk default - a caller who needs to mix measurements sets `type` on each
+    `TimeSeriesPoint` instead, which still works.
+
     `precision` is REQUIRED here, deliberately (D-M6-1) - the one place this wrapper
     diverges from "pass everything through unchanged". `TimeSeriesPrecision`'s proto3 zero
     value is `TS_PRECISION_MILLISECONDS` (0), and the wire cannot distinguish "the caller
@@ -373,9 +386,11 @@ def time_series_write_stream(
     An empty `request.chunks` sends ZERO wire chunks, rather than `insert_stream`'s
     single-empty-chunk special case: `TimeSeriesWriteChunk` has no `last`/first-chunk field
     forcing that workaround. What the server does with a stream that never told it
-    `database`, `type` or `precision` is genuinely UNVERIFIED against a real server - an
-    all-zero summary and an error are both plausible outcomes, and this wrapper invents
-    neither; a real e2e run settles it.
+    `database`, `type` or `precision` is now MEASURED against a real server, not guessed at:
+    it does NOT raise. The call is accepted cleanly and returns an all-zero
+    `TimeSeriesWriteSummary` - `received == written == dropped == 0`, with
+    `unknown_types`, `non_time_series_types` and `unavailable_types` all empty. This
+    wrapper still invents nothing; it hands back whatever summary the server sent.
 
     Returns the server's `TimeSeriesWriteSummary` WHOLE (D-M6-3): `received`, `written`,
     `dropped`, `unknown_types`, `non_time_series_types`, `unavailable_types` and

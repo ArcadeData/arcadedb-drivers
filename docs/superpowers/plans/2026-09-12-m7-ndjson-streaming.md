@@ -212,6 +212,14 @@ EOF
 
 Cover the same properties as Task 2, plus the two that are Python-specific:
 - `iter_lines()` handles line splitting, so the split-line case is the library's job — but assert it anyway, because this is the property most likely to regress if someone swaps the implementation.
+
+> **Superseded during execution (2026-09-12).** `iter_lines()` turned out to be the wrong tool and
+> the shipped code does not use it. Its `LineDecoder` splits on `str.splitlines()` semantics, which
+> include U+0085, U+2028 and U+2029 — legal raw characters inside a JSON string that the server does
+> not escape — so a record carrying one is split mid-JSON. The implementation hand-rolls splitting
+> on `"\n"` alone over `iter_text()`/`aiter_text()` instead, matching the TypeScript twin. See
+> `facade/stream.py`'s module docstring, and §4 M7 of the design doc. This step and the snippet
+> below are left as written, because they record what was planned; the code is what shipped.
 - The response is **closed** when the caller abandons the iterator early. `httpx.stream` is a context manager; a generator that yields inside it must not leak the connection when the consumer breaks. Assert with an explicit `.close()`/`aclose()` on the generator, the same way `arcadedb-driver-grpc`'s stream tests do.
 
 - [ ] **Step 2: Run them and see them fail**

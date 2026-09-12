@@ -1,9 +1,9 @@
 """Tests for `query_stream`/`command_stream`, sync and async.
 
 Most cases feed the whole ndjson body as one buffered `httpx.Response(json=...)`-style
-`content=` blob - respx pre-reads that (`httpx.ByteStream`), but `iter_lines()`/`aiter_lines()`
-still split it into events correctly regardless of how many chunks it arrived in, so this proves
-nothing about chunk boundaries specifically.
+`content=` blob - respx pre-reads that (`httpx.ByteStream`), but the decoder still splits it into
+events correctly regardless of how many chunks it arrived in, so this proves nothing about chunk
+boundaries specifically.
 
 Two cases need real control over chunking and need to know when the connection is released, and
 both go around respx's default pre-reading: passing a custom `httpx.SyncByteStream` /
@@ -118,14 +118,28 @@ def test_query_stream_yields_each_event_in_order_including_the_stats_trailer() -
 
 @respx.mock
 def test_query_stream_reassembles_a_line_split_across_two_chunks() -> None:
-    # iter_lines() owns this, but the property is worth asserting explicitly - it is the one
-    # most likely to regress if this transform is ever hand-rolled instead.
+    # The decoder's `remainder` owns this - `facade/stream.py` splits lines itself rather than
+    # leaning on `iter_lines()`, so nothing else is buffering the half-line for it.
     stream = _SyncChunks([b'{"record":{"a":', b"1}}\n"])
     respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(return_value=httpx.Response(200, stream=stream))
     with server() as srv:
         events = list(srv.db("mydb").query_stream(language="sql", command="SELECT FROM V"))
 
     assert [_record(e) for e in events] == [{"a": 1}]
+
+
+@respx.mock
+def test_query_stream_keeps_a_record_containing_u2028_intact() -> None:
+    # U+2028 (and U+0085, U+2029) are legal raw characters inside a JSON string, but
+    # `str.splitlines()` - and therefore httpx's `iter_lines()` - treats all three as line
+    # terminators. Routing this body through `iter_lines()` cuts the record in two and raises
+    # `json.JSONDecodeError` on both halves. Splitting on "\n" alone keeps it whole.
+    line = '{"record": {"text": "a\u2028b"}}\n'.encode()
+    respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(return_value=httpx.Response(200, content=line))
+    with server() as srv:
+        events = list(srv.db("mydb").query_stream(language="sql", command="SELECT FROM V"))
+
+    assert [_record(e) for e in events] == [{"text": "a\u2028b"}]
 
 
 @respx.mock
@@ -198,7 +212,7 @@ def test_command_stream_reaches_the_command_endpoint() -> None:
         return_value=httpx.Response(200, content=_lines({"stats": {"limit": -1, "returned": 0, "truncated": False}}))
     )
     with server() as srv:
-        events = list(srv.db("mydb").command_stream(language="sql", command="CREATE VERTEX V"))
+        events = list(srv.db("mydb").command_stream(language="sql", command="SELECT FROM V"))
 
     assert route.calls.last.request.headers["Accept"] == "application/x-ndjson"
     assert _stats(events[0]) == {"limit": -1, "returned": 0, "truncated": False}
@@ -255,6 +269,18 @@ async def test_async_query_stream_reassembles_a_line_split_across_two_chunks() -
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_async_query_stream_keeps_a_record_containing_u2028_intact() -> None:
+    """The async twin of the sync U+2028 case - see it for why this character matters."""
+    line = '{"record": {"text": "a\u2028b"}}\n'.encode()
+    respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(return_value=httpx.Response(200, content=line))
+    async with async_server() as srv:
+        events = [e async for e in srv.db("mydb").query_stream(language="sql", command="SELECT FROM V")]
+
+    assert [_record(e) for e in events] == [{"text": "a\u2028b"}]
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_async_query_stream_raises_arcadedb_error_on_an_in_band_error_event() -> None:
     respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(
         return_value=httpx.Response(200, content=_lines({"record": {"a": 1}}, {"error": {"message": "boom"}}))
@@ -307,7 +333,7 @@ async def test_async_command_stream_reaches_the_command_endpoint() -> None:
         return_value=httpx.Response(200, content=_lines({"stats": {"limit": -1, "returned": 0, "truncated": False}}))
     )
     async with async_server() as srv:
-        events = [e async for e in srv.db("mydb").command_stream(language="sql", command="CREATE VERTEX V")]
+        events = [e async for e in srv.db("mydb").command_stream(language="sql", command="SELECT FROM V")]
 
     assert route.calls.last.request.headers["Accept"] == "application/x-ndjson"
     assert _stats(events[0]) == {"limit": -1, "returned": 0, "truncated": False}

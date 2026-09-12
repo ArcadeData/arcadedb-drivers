@@ -24,6 +24,29 @@ function chunkedResponse(chunks: Uint8Array[], status = 200): Response {
   return new Response(body, { status, headers: { "content-type": "application/x-ndjson" } });
 }
 
+/**
+ * Builds an ndjson `Response` whose underlying source records whether it was cancelled.
+ *
+ * `cancelled()` is the only thing that distinguishes a decoder which merely releases its reader's
+ * lock from one that actually tears the body down. A test that breaks out of the loop and asserts
+ * no exception was thrown passes against either.
+ */
+function cancellableNdjsonResponse(lines: string[]): { response: Response; cancelled: () => boolean } {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const line of lines) controller.enqueue(new TextEncoder().encode(line + "\n"));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return {
+    response: new Response(body, { status: 200, headers: { "content-type": "application/x-ndjson" } }),
+    cancelled: () => cancelled,
+  };
+}
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
@@ -155,6 +178,39 @@ describe("ArcadeDBDatabase.queryStream", () => {
     expect((caught as ArcadeDBError).status).toBe(400);
     expect((caught as ArcadeDBError).error).toBe("bad request");
   });
+
+  it("cancels the response body when the caller breaks out of the loop early", async () => {
+    // The stream is never closed by its source, so it stands in for a transfer still in flight
+    // when the caller walks away. `releaseLock()` on its own would leave it that way forever.
+    const { response, cancelled } = cancellableNdjsonResponse([
+      JSON.stringify({ record: { a: 1 } }),
+      JSON.stringify({ record: { a: 2 } }),
+    ]);
+    const fetchMock = vi.fn(async () => response);
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const seen: NdJsonQueryEvent[] = [];
+    for await (const event of server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" })) {
+      seen.push(event);
+      break;
+    }
+
+    expect(seen).toEqual([{ record: { a: 1 } }]);
+    expect(cancelled()).toBe(true);
+  });
+
+  it("does not disturb a stream that was consumed to exhaustion", async () => {
+    // The same assertion from the other side: cancelling in the `finally` must be a no-op once the
+    // reader has already seen `done`, not something that turns a complete read into a failure.
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse([JSON.stringify({ record: { a: 1 } }), JSON.stringify({ stats: { returned: 1 } })]),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const events = await collect(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(events).toEqual([{ record: { a: 1 } }, { stats: { returned: 1 } }]);
+  });
 });
 
 describe("ArcadeDBDatabase.commandStream", () => {
@@ -166,7 +222,7 @@ describe("ArcadeDBDatabase.commandStream", () => {
     });
     const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
 
-    const events = await collect(server.db("mydb").commandStream({ language: "sql", command: "CREATE VERTEX V" }));
+    const events = await collect(server.db("mydb").commandStream({ language: "sql", command: "SELECT FROM V" }));
 
     expect(new URL(capturedRequest!.url).pathname).toBe("/api/v1/command/mydb");
     expect(capturedRequest?.headers.get("accept")).toBe("application/x-ndjson");

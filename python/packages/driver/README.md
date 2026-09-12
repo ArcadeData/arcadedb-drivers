@@ -139,6 +139,19 @@ enforced **server-side** and this client does not pre-empt it by inspecting the 
 the rejection surfaces as an `ArcadeDBError` raised from the server's response (HTTP 400), not a
 local exception before the request is even sent.
 
+You are free to stop early, and that is most of the point of a streaming API. `break`ing out of
+the loop, or calling the generator's `.close()`/`.aclose()`, **closes the response**: `httpx`'s
+`.stream()` context manager lives inside the generator body, so the `GeneratorExit` that
+abandonment throws into the suspended `yield` unwinds through it and releases the connection.
+`@arcadedb/driver` gives the same guarantee through its own idiom, an explicit `reader.cancel()`.
+
+Line splitting is hand-rolled here rather than delegated to `httpx`'s `iter_lines()`, and that is
+load-bearing: `iter_lines()` follows `str.splitlines()`, which breaks on U+0085, U+2028 and U+2029
+as well as `\n` - and all three are legal raw characters inside a JSON string, which ArcadeDB does
+not escape. A record carrying one would be cut in half and surface as a bare `json.JSONDecodeError`
+partway through an otherwise healthy stream. This client splits on `\n` alone, exactly as
+`@arcadedb/driver` does, so such a record arrives intact.
+
 Both the sync and async versions reach the server through the generated `Client`'s own pooled
 `httpx.Client`/`httpx.AsyncClient`, via its `.stream()` context manager, rather than a hand-rolled
 request or a `httpx.Client` of their own; that is what lets them reuse the same base URL, auth

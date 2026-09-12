@@ -30,6 +30,25 @@ export type NdJsonQueryEvent = components["schemas"]["NdJsonQueryEvent"];
  *
  * Blank lines (a stray trailing `\n\n`, or the empty string a `split` leaves at the very end) are
  * skipped rather than yielded or thrown on.
+ *
+ * A third property is invisible to any test that consumes the stream to exhaustion: **an abandoned
+ * stream must be cancelled, not merely unlocked.** The headline use of a streaming API is to stop
+ * early -
+ *
+ * ```ts
+ * for await (const event of db.queryStream({ ... })) {
+ *   if (enough) break;
+ * }
+ * ```
+ *
+ * - and `break` runs this generator's `finally` (via the generator's `return()`, delegated inward
+ * by `yield*`). `reader.releaseLock()` alone is not enough there: releasing a lock is not
+ * cancelling, so the response body would be left unread and uncancelled mid-transfer, and the
+ * socket never returned to the pool until the whole thing is garbage-collected. `reader.cancel()`
+ * is what actually tears the body down; on a stream already read to `done` it is a no-op, so the
+ * exhausted case pays nothing for it. Its rejection is swallowed because the `finally` must not
+ * replace the caller's own reason for leaving the loop - an in-band `error` event, a `JSON.parse`
+ * failure, or nothing at all - with a teardown failure.
  */
 async function* decodeNdJson(stream: ReadableStream<Uint8Array>): AsyncGenerator<NdJsonQueryEvent> {
   const reader = stream.getReader();
@@ -52,6 +71,7 @@ async function* decodeNdJson(stream: ReadableStream<Uint8Array>): AsyncGenerator
       yield JSON.parse(remainder) as NdJsonQueryEvent;
     }
   } finally {
+    await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }

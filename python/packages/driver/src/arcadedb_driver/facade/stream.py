@@ -27,7 +27,7 @@ Three decisions, matching `queryStream`/`commandStream` in `@arcadedb/driver`:
 - **`query`/`command` are untouched.** They keep returning `QueryEnvelope` and keep sending no
   `Accept` header at all; streaming is a separate pair of methods, not a mode of the existing two.
 
-Two things Python-specific that the TypeScript twin (`facade/stream.ts`) did not have to solve:
+Two more things, the first of which both clients must solve and each solves in its own idiom:
 
 1. **Closing the connection on early abandonment.** `httpx`'s `.stream()` is a context manager
    whose `finally` calls `response.close()` - but a generator that `yield`s from inside that block
@@ -41,22 +41,40 @@ Two things Python-specific that the TypeScript twin (`facade/stream.ts`) did not
    `arcadedb-driver-grpc`'s. This is the same class of hazard M6 named for a plain Python `for`
    loop that never closes the iterable it consumes on early exit; the fix here is structural
    rather than an explicit `try`/`finally`, because the iterable being closed is this function's
-   own local `with` block, not a caller-supplied one.
+   own local `with` block, not a caller-supplied one. `facade/stream.ts` faces the same hazard and
+   pays for it explicitly - releasing its reader's lock does not cancel the response body, so its
+   `finally` calls `reader.cancel()`. What differs is the idiom, not the requirement.
 2. **Reading a non-2xx body before it can be reported.** A streaming response's body has not been
    read when its status line arrives - accessing `.content` before `.read()`/`.aread()` raises
    `httpx.ResponseNotRead`. `ArcadeDBError` needs that body for the server's error detail, so it is
    read explicitly, exactly once, before `ArcadeDBError` is raised.
 
-`httpx.Response.iter_lines()` / `.aiter_lines()` already buffer a partial line across chunk
-boundaries, so unlike `facade/stream.ts`'s hand-rolled decoder this module carries no `remainder`
-string of its own. `test_stream.py` asserts the split-line case anyway: it is the property most
-likely to regress if this transform is ever swapped for a hand-rolled loop.
+**The line splitting is hand-rolled, deliberately, and must stay that way.**
+`httpx.Response.iter_lines()` / `.aiter_lines()` do buffer a partial line across chunk boundaries,
+which is why they look like the obvious thing to use here - but they split on `str.splitlines()`
+semantics, and that is a strictly larger set of line terminators than ndjson has. Besides `\\n` and
+`\\r`, `splitlines()` breaks on U+0085, U+2028 and U+2029, and all three are *legal raw characters
+inside a JSON string*: the JSON grammar requires escaping only `"`, `\\` and the C0 controls, and
+Jackson (the server's serialiser) emits them raw. So one record carrying any of the three - scraped
+web text, JavaScript-sourced content, Windows-1252 mojibake that decodes to U+0085 - is cut in half
+mid-string by `iter_lines()`, and the caller gets a bare `json.JSONDecodeError` partway through an
+otherwise healthy stream instead of an `ArcadeDBError`. `_iter_ndjson_lines` below splits on `"\\n"`
+and nothing else, carrying a `remainder` across chunks, which is exactly what `facade/stream.ts`'s
+decoder does; the two languages now agree line for line. `test_stream.py` asserts both the
+split-line case and the U+2028 case, sync and async - the second is the regression this hand-rolled
+loop exists to prevent, so anyone tempted to "simplify" it back to `iter_lines()` meets a red test.
+
+The encoding half of the same problem is *not* hand-rolled: `iter_text()` / `aiter_text()` run the
+body through an incremental codec, so a multi-byte UTF-8 sequence straddling a chunk boundary is
+held back and completed rather than turned into U+FFFD. That is the same hazard `facade/stream.ts`
+must spend a `TextDecoder(..., { stream: true })` on by hand; here httpx supplies it, so these
+functions take `str` chunks and never touch bytes.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
 from typing import Any
 from urllib.parse import quote
 
@@ -113,12 +131,40 @@ async def _araise_for_status(response: httpx.Response) -> None:
         raise ArcadeDBError(response.status_code, response.content, response.headers.get(REQUEST_ID_HEADER))
 
 
+def _iter_ndjson_lines(chunks: Iterator[str]) -> Iterator[str]:
+    """Splits already-decoded text chunks into ndjson lines on `"\\n"` and nothing else.
+
+    See the module docstring for why `iter_lines()` cannot be used for this. A `remainder` carries
+    whatever the last chunk left unterminated into the next one, and is emitted after the stream
+    ends so a final line with no trailing newline is not dropped.
+    """
+    remainder = ""
+    for chunk in chunks:
+        remainder += chunk
+        *lines, remainder = remainder.split("\n")
+        yield from lines
+    if remainder:
+        yield remainder
+
+
+async def _aiter_ndjson_lines(chunks: AsyncIterator[str]) -> AsyncIterator[str]:
+    """The async twin of `_iter_ndjson_lines`."""
+    remainder = ""
+    async for chunk in chunks:
+        remainder += chunk
+        *lines, remainder = remainder.split("\n")
+        for line in lines:
+            yield line
+    if remainder:
+        yield remainder
+
+
 def _stream_events(
     client: Client, url: str, body: dict[str, Any], session_id: str | None
 ) -> Generator[NdJsonQueryEvent, None, None]:
     with client.get_httpx_client().stream("POST", url, json=body, headers=_headers(session_id)) as response:
         _raise_for_status(response)
-        for line in response.iter_lines():
+        for line in _iter_ndjson_lines(response.iter_text()):
             if not line.strip():
                 continue
             yield _parse_event(line)
@@ -129,7 +175,7 @@ async def _astream_events(
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
     async with client.get_async_httpx_client().stream("POST", url, json=body, headers=_headers(session_id)) as response:
         await _araise_for_status(response)
-        async for line in response.aiter_lines():
+        async for line in _aiter_ndjson_lines(response.aiter_text()):
             if not line.strip():
                 continue
             yield _parse_event(line)

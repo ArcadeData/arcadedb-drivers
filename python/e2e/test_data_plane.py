@@ -186,7 +186,7 @@ async def test_async_vector_hybrid_and_fulltext_search_all_return_non_empty_resu
 # STREAM_ROW_COUNT and STREAM_PAYLOAD were worked out empirically against a live container before
 # this fixture was written, not guessed - see task-4-report.md for the transcript of chunk counts
 # measured at increasing row counts. A handful of rows arrives from a real server in a single
-# ndjson chunk (one `iter_lines()`/`aiter_lines()` read), which would let a decoder with no
+# ndjson chunk (one read of the decoder), which would let a decoder with no
 # cross-chunk buffering at all pass this suite for the wrong reason - the exact defect
 # `test_stream.py`'s fabricated-boundary cases target. 2000 rows of ~150 bytes each reliably
 # splits the response across dozens of real reads.

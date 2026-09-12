@@ -128,6 +128,14 @@ enforced **server-side** and this client does not pre-empt it by inspecting the 
 the rejection surfaces as an `ArcadeDBError` from the server's response (HTTP 400), not a local
 `throw` before the request is even sent.
 
+You are free to stop early, and that is most of the point of a streaming API. `break`ing out of
+the `for await` loop (or calling the generator's `.return()`) **cancels the response body**, not
+just the loop: the transfer is torn down and the connection goes back to the pool instead of
+hanging mid-response. That takes an explicit `reader.cancel()` inside the decoder - a generator's
+`finally` releasing its reader's lock is *not* cancelling, and a released-but-uncancelled body sits
+there until garbage collection notices. `arcadedb-driver` (Python) gives the same guarantee through
+its own idiom, `httpx`'s `.stream()` context manager unwinding on `GeneratorExit`.
+
 Both methods reach the server through the generated client's own streaming primitive -
 `client.POST(..., { parseAs: "stream" })` - rather than a hand-rolled `fetch` or a second HTTP
 client of their own; that is what lets them reuse the same base URL, auth, and error mapping every

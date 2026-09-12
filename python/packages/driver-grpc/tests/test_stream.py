@@ -350,8 +350,8 @@ def test_write_stream_sends_zero_chunks_for_an_empty_stream(fake_server: tuple[s
     # empty `chunks` into a single empty final chunk (there is a first-chunk-only
     # `database` field that would otherwise never be sent), `TimeSeriesWriteChunk` has no
     # such field to force that workaround, so an empty `chunks` here sends ZERO wire
-    # chunks. What the server does with a stream that never told it `database`, `type` or
-    # `precision` is genuinely unverified against a real server - Task 4's e2e settles it.
+    # chunks. The server accepts this cleanly: the call does not raise and returns an
+    # all-zero `TimeSeriesWriteSummary` with all three type lists empty.
     target, servicer = fake_server
     with create_client(target) as client:
         client.time_series_write_stream(

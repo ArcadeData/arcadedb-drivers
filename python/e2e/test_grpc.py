@@ -356,13 +356,12 @@ def test_time_series_write_stream_multi_chunk_then_query_and_latest_through_a_tr
 def test_an_empty_time_series_write_stream_is_accepted_with_an_all_zero_summary(
     client: ArcadeDBGrpcClient, grpc_database: str, grpc_timeseries_type: str
 ) -> None:
-    """Established empirically against a real server (see task-4-report.md): an empty
-    `chunks` sends ZERO wire chunks (unlike `insert_stream`'s single-empty-chunk special
-    case - see `TimeSeriesWriteStreamRequest`'s docstring), so the server is never told
-    `database`, `type` or `precision` at all. That is accepted cleanly rather than
-    rejected: the call does not raise, and the summary comes back with every count at
-    zero. This is the answer `stream.py`'s own docstring for `time_series_write_stream`
-    left as "genuinely UNVERIFIED... a real e2e run settles it" - it does not raise.
+    """Established empirically against a real server: an empty `chunks` sends ZERO wire
+    chunks (unlike `insert_stream`'s single-empty-chunk special case - see
+    `TimeSeriesWriteStreamRequest`'s docstring), so the server is never told `database`,
+    `type` or `precision` at all. That is accepted cleanly without raising: the call
+    completes successfully and the server returns an all-zero `TimeSeriesWriteSummary`
+    with `received`, `written`, and `dropped` all zero, and all three type lists empty.
     """
     summary = client.time_series_write_stream(
         TimeSeriesWriteStreamRequest(

@@ -57,6 +57,11 @@ decision to leave it unwrapped or hand-written - never a way to quiet the check.
 that makes the generator skip something *not* on the list, or stops skipping something that *is*,
 fails CI.
 
+Two of those four skipped endpoints are wrapped by hand anyway - `facade/timeseries.py`'s `write`
+and `facade/batch.py`'s `batch_load`/`batch_load_stream` - each issuing its request through the
+generated `Client`'s own pooled httpx client, with `_internal/batch_rows.py` owning the ndjson
+line format the contract declares only as `{"type": "string"}`.
+
 ## gRPC generation
 
 `scripts/generate-grpc.sh` runs `grpc_tools.protoc` against the contract located by

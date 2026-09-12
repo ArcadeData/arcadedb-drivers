@@ -142,8 +142,137 @@ client of their own; that is what lets them reuse the same base URL, auth, and e
 other call on this client already goes through. Anyone adding another streaming endpoint to this
 package should do the same rather than reaching for a bare `fetch`.
 
-Streaming `/batch` is not part of this client; see
-[#52](https://github.com/ArcadeData/arcadedb-drivers/issues/52).
+## Bulk-loading a graph: `batchLoad`/`batchLoadStream`
+
+`POST /api/v1/batch/{database}` loads vertices and edges from one ndjson payload. `batchLoad`
+waits for the buffered summary; `batchLoadStream` asks the same load for `application/x-ndjson`
+and hands back an `AsyncGenerator` that reports progress while the upload is still going:
+
+```ts
+const summary = await db.batchLoad({
+  vertices: [
+    { type: "Person", id: "p1", properties: { name: "Alice" } },
+    { type: "Person", id: "p2", properties: { name: "Bob" } },
+  ],
+  edges: [{ type: "Knows", from: "p1", to: "p2", properties: { since: 2020 } }],
+  options: { commitEvery: 5000 },
+});
+
+console.log(summary.verticesCreated, summary.edgesCreated, summary.idMapping);
+```
+
+Vertices and edges arrive as two arguments rather than one interleaved array because the server
+resolves an edge's `from`/`to` against temporary ids declared **earlier in the same payload**, and
+answers 400 for anything else. Two arguments let the serializer emit every vertex before any edge
+unconditionally, which turns that ordering rule from something this README asks you to remember
+into something the argument shape cannot express a violation of. `properties` is its own object
+for the same kind of reason: flattened into the row it would be indistinguishable from a record
+field literally named `properties`, which the server accepts, answers 200 for, and stores - so
+nothing fails until a query months later looks for a field that was never written.
+
+`options` is `BatchOptions`, the 17 tuning parameters the endpoint takes as query parameters,
+spelled exactly as the contract spells them. An option you leave unset is omitted from the URL
+rather than sent empty, so the server applies its own default instead of parsing `""`.
+
+The ndjson line format itself is in no schema - the contract declares all three request media
+types as `{"type": "string"}` - so `src/internal/batch-rows.ts` owns it, established against a
+live server and reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570). That is why
+`VertexRow`/`EdgeRow` are the only way in: hand-built payload strings are not a supported input.
+
+### A batch is not atomic
+
+Read this paragraph before you use either method. The server commits every `commitEvery` records,
+so a load that fails halfway leaves every chunk before the failure **durably committed**. The
+`ArcadeDBError` thrown by a failed `batchLoad` describes real data that is already in the
+database, not a load that undid itself. And because temporary ids are not keys, **retrying the
+whole payload duplicates every vertex that already committed** - there is no server-side
+idempotency to lean on, and this client does not invent one. The counters that come back on a 400
+(`verticesCreated` and `edgesCreated`, beside a `partialCommit` flag) are records *attempted*
+before the failure: an upper bound on what is durable, not a count of it. The two counters do not
+even overshoot by the same rule - vertices are committed as the load flushes, while edges are
+buffered and written when it ends. A failed load is something to inspect and reconcile against the
+database, not something to re-send.
+
+Temporary ids are **request-scoped**, which is the other half of the same design. An id means
+something only for the payload that declared it: a vertex loaded by an earlier call cannot be
+referenced by its temp id from a later one, and the server will not resolve it. Reference it by
+its RID (`#bucket:position`) instead - which is exactly what the summary's `idMapping` returns
+temp ids for.
+
+`bytesRead` is how you verify a chunked upload arrived whole: compare it against the bytes you
+sent. A body that ends before its announced length is answered **408** with the same
+partial-commit counters, never a 200 carrying a truncated count, so `bytesRead` falling short on a
+200 means the server consumed less than you believe you sent - not that it quietly accepted a
+short load.
+
+### Streaming: what the summary carries, and what it does not
+
+```ts
+for await (const event of db.batchLoadStream({ vertices, edges })) {
+  if (event.progress) console.log(event.progress.phase, event.progress.verticesCreated);
+  if (event.summary) console.log(event.summary.idMappingSize, event.summary.idMappingStreamed);
+}
+```
+
+A `progress` event arrives at every vertex commit and every `commitEvery` edges, then exactly one
+`summary`. The two encodings disagree about the temp-id mapping, deliberately. `batchLoad`'s
+summary carries `idMapping`, the whole temp-id-to-RID map in one object. A streamed load puts that
+map on the wire in fragments - each `progress` event's `idMapping` is only what that chunk
+resolved - and its `summary` carries `idMappingStreamed: true` and `idMappingSize` with **no map
+at all**.
+
+This client yields progress events exactly as it receives them and never merges those fragments.
+Accumulating them here would rebuild, client-side, the million-entry map that streaming exists to
+avoid holding: the buffered encoding's size cap on `idMapping` is a symptom of the server having
+to build the whole map before it can answer anything, and streaming removes that on both ends. A
+caller who genuinely needs the whole mapping concatenates the fragments as they arrive - checking
+the total against `idMappingSize`, since a map delivered in pieces can lose one to a truncated
+response without any single piece looking wrong - or calls `batchLoad` and accepts the memory
+cost, which is a perfectly good trade right up until the map stops fitting.
+
+`idMappingStreamed` is a different condition from `idMappingOmitted`: *omitted* means the map was
+too large to return, *streamed* means it was already delivered, piecemeal, in the progress events.
+The generated types declare neither field a caller needs on this path: `BatchResponse` - the shape
+`batchLoad` returns, and the one a streamed summary otherwise matches - has no
+`idMappingStreamed`, and `NdJsonBatchEvent`'s error object declares only `commitIndex`, `status`
+and `statusMapped`, not the `error` message and `exception` the server actually sends with them.
+`BatchSummary` and `NdJsonBatchEvent` are widened here by exactly those fields. Both widenings were
+established against a live 26.10.1-SNAPSHOT server, are reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570), and should be
+narrowed back to the generated types once the contract declares the fields.
+
+### Both ways a load can fail throw the same thing
+
+A failure **before** the first acknowledgement is reported as a real HTTP status with the buffered
+error body - nothing has been written to the response yet, so the status line is still free. A
+failure **after** the first progress line cannot be: the 200 is already on the wire and cannot be
+taken back, so it travels in band as an `error` event carrying the status the buffered encoding
+would have used. `batchLoadStream` throws `ArcadeDBError` for both, so a `for await` loop fails
+identically whichever channel carried the failure; *when* the load failed is the only difference
+between them, and it is not something a caller can branch on usefully. Every event already yielded
+stays delivered - and per the non-atomicity paragraph above, those progress counters are the best
+record you will get of what may already be durable.
+
+One field on that error event is worth branching on. When `statusMapped` is `false`, `status` is
+an unclassified 500 fallback rather than the status the buffered encoding would have chosen (an
+engine failure raised after the stream had already started). Key on `exception` there, not on
+`status`; the thrown `ArcadeDBError` carries `exception` and its `detail` says why.
+
+### This is `batchLoad`, not `bulkInsert`
+
+[`@arcadedb/driver-grpc`](../driver-grpc/README.md)'s `bulkInsert` is a **different operation** -
+it inserts records into one target type and knows nothing about edges or temporary ids. The gRPC
+counterpart of the endpoint documented here is `GraphBatchLoad`, which that package exposes
+through `raw` and wraps nowhere.
+
+### `text/csv` is not exposed
+
+The endpoint accepts `application/jsonl`, `application/x-ndjson` and `text/csv`. This client always
+sends `application/x-ndjson` (the contract makes `application/jsonl` identical in meaning, so there
+is nothing to choose between them) and does not expose CSV. The CSV dialect is as undocumented as
+the ndjson line format, and a rows-in API has nowhere to put a header row. Convert a CSV file into
+`VertexRow`/`EdgeRow` yourself, or send the bytes through `server.raw`.
 
 ## Transactions
 

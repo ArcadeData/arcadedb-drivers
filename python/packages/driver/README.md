@@ -190,17 +190,47 @@ named exactly as the contract names them and sent only when present: an option a
 set is left off the URL entirely rather than sent as an empty value, so the server applies its own
 default instead of parsing `""`.
 
-A load is **not atomic**: the server commits every `options["commitEvery"]` records, so a load
-that fails partway through can leave earlier chunks durably committed - an `ArcadeDBError` raised
-from a failed `batch_load` still corresponds to real, already-durable data. Because temporary ids
-are not keys, retrying the whole payload after such a failure duplicates whatever already
-committed rather than resuming cleanly.
+The line format the rows are serialized into is in no schema - the contract declares all three of
+the endpoint's request media types as `{"type": "string"}` - so `_internal/batch_rows.py` owns it,
+established against a live server and reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570). `VertexRow` and
+`EdgeRow` are consequently the only way in: a hand-built payload string is not a supported input
+to either method.
+
+### A load is not atomic
+
+This is the paragraph to read before using either method. The server commits every
+`options["commitEvery"]` records, so a load that fails partway through leaves every chunk before
+the failure **durably committed** - an `ArcadeDBError` raised from a failed `batch_load` still
+corresponds to real, already-durable data, not to a load that undid itself. Because temporary ids
+are not keys, **retrying the whole payload duplicates every vertex that already committed** rather
+than resuming cleanly; there is no server-side idempotency to lean on, and this client does not
+invent one. The counters that come back with a 400 (`verticesCreated` and `edgesCreated`, beside a
+`partialCommit` flag) are records *attempted* before the failure - an upper bound on what is
+durable, not a count of it, and the two do not even overshoot by the same rule: vertices are
+committed as the load flushes, while edges are buffered and written when it ends. Treat a failed
+load as something to inspect and reconcile against the database, never as something to re-send.
+
+Temporary ids are **request-scoped**, which is the other half of the same design. An id means
+something only to the payload that declared it, so a vertex loaded by an earlier call cannot be
+referenced by its temp id from a later one - the server will not resolve it, and `"#1:7"` in the
+example above is the alternative: a vertex already in the database is referenced by its RID,
+`#bucket:position`, which is exactly what the summary's `idMapping` returns a temp id for.
+
+`bytesRead` on the summary is how a caller verifies that a chunked upload arrived whole: compare
+it against the bytes sent. A body that ends before its announced length is answered **408** with
+the same partial-commit counters, never a 200 carrying a truncated count - so a short `bytesRead`
+on a 200 means the server consumed less than you believe you sent, not that it quietly accepted a
+half-load.
+
+### Streaming: what the summary carries, and what it does not
 
 `batch_load_stream` streams the same load as `application/x-ndjson` instead: a `progress` event as
 the load proceeds, then exactly one `summary` event carrying the same fields the buffered call
-returns, plus `idMappingStreamed: true` - a field the contract does not declare, sent only on a
-streamed load, distinct from `idMappingOmitted` (*omitted* means too large to return; *streamed*
-means already delivered, piecemeal, in the `progress` events that preceded the summary). Each
+returns, plus `idMappingStreamed: true` - a field `BatchResponse`, the buffered shape it
+otherwise matches, does not declare, sent only on a streamed load and distinct from
+`idMappingOmitted` (*omitted* means too large to return; *streamed* means already delivered,
+piecemeal, in the `progress` events that preceded the summary). Each
 `progress` event's `idMapping` is only the fragment that chunk resolved and is never merged across
 events - accumulating it here would reintroduce, client-side, the memory cost streaming a
 million-vertex load exists to avoid. An in-band `error` event raises `ArcadeDBError` instead of
@@ -209,6 +239,39 @@ started cannot be reported as an HTTP status, because the 200 status line is alr
 so it travels in band instead and fails the caller the same way a failure before the stream started
 does. Any event already yielded before the error stays delivered - a partial commit is durable, and
 those progress counts are how a caller learns what may have landed.
+
+The two encodings therefore disagree about the mapping, deliberately: `batch_load`'s summary
+carries `idMapping`, the whole temp-id-to-RID map in one dict, while the streamed `summary` event
+carries `idMappingSize` and **no map at all**. A caller who genuinely needs the whole mapping from
+a streamed load accumulates the fragments as they arrive - checking the total against
+`idMappingSize`, since a mapping delivered in pieces can lose one to a truncated response without
+any single piece looking wrong - or calls `batch_load` and accepts the memory cost, which is a
+good trade right up until the map stops fitting.
+
+When a streamed `error` event's `statusMapped` is `False`, its `status` is an unclassified 500
+fallback rather than the status the buffered encoding would have chosen - an engine failure raised
+after the stream had already started. Key on `exception` there, not on `status`; the raised
+`ArcadeDBError` carries `exception` and its `detail` says why. `error` and `exception` are two
+more fields the server sends that no schema declares (the contract's streamed error object
+declares only `commitIndex`, `status` and `statusMapped`), read off the raw event here and
+reported upstream on the same issue as `idMappingStreamed`,
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570).
+
+### This is `batch_load`, not `bulk_insert`
+
+[`arcadedb-driver-grpc`](../driver-grpc/README.md)'s `bulk_insert` is a **different operation** -
+it inserts records into one target type and knows nothing about edges or temporary ids. The gRPC
+counterpart of the endpoint documented here is `GraphBatchLoad`, which that package reaches
+through `raw` and wraps nowhere.
+
+### `text/csv` is not exposed
+
+The endpoint accepts `application/jsonl`, `application/x-ndjson` and `text/csv`. Both methods
+always send `application/x-ndjson` - the contract makes `application/jsonl` identical in meaning,
+so there is nothing to choose between them - and neither exposes CSV. Its dialect is as
+undocumented as the ndjson line format, and a rows-in API has nowhere to put a header row. Convert
+a CSV file into `VertexRow`/`EdgeRow` yourself, or post the bytes through `srv.raw`'s pooled httpx
+client.
 
 ## Sync and async
 

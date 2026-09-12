@@ -546,6 +546,153 @@ the bound is enforced **server-side**. Neither `raw` nor the handle validates th
 out-of-range value surfaces as a `grpc.RpcError` from the server's response, not as a client-side
 exception before the request is ever sent.
 
+## The control plane: `raw_admin`
+
+The `.proto` contract declares a second service beside `ArcadeDbService`: `ArcadeDbAdminService`,
+ArcadeDB's control plane - database lifecycle, users, groups, API tokens, server and database
+settings, backups, the profiler, cluster and shutdown operations, and the two probes. Both
+`create_client`s build a stub for it from the **same** channel they build `raw` from, and expose it
+as `raw_admin`:
+
+```python
+import grpc
+
+from arcadedb_driver_grpc import create_client, messages
+
+with create_client("localhost:50051", credentials=grpc.ssl_channel_credentials()) as client:
+    info = client.raw_admin.GetServerInfo(
+        messages.GetServerInfoRequest(
+            credentials=messages.DatabaseCredentials(username="root", password="playwithdata")
+        )
+    )
+```
+
+`aio.create_client` gives the same property on `AsyncArcadeDBGrpcClient`, awaited rather than
+called: `await client.raw_admin.GetServerInfo(...)`.
+
+No facade wraps any of it, and that is the design rather than an omission. `stream_query`,
+`insert_stream`, `time_series_write_stream` and `transaction` exist because the generated stub alone
+handles those RPCs badly - batches to flatten, envelope bookkeeping to get right, a
+begin/commit/rollback sequence to hold together across two facades. 41 of the admin service's 44
+RPCs are plain unary calls: build a request message, read one response message back. Wrapping one
+would be a renamed passthrough, which is the same bar `VectorSearch` and `TimeSeriesWrite` are held
+to above - and the bill would be paid twice here, once per facade.
+
+### The 44 RPCs
+
+Every backticked name between the two markers below is one RPC of `ArcadeDbAdminService`, and a test
+asserts that this set equals the generated stub's own method set. A hand-written list of 44 names is
+exactly the kind of prose that rots on the next contract bump, and a stale list is worse than no
+list, because a reader trusts it.
+
+<!-- admin-rpcs:begin -->
+
+| Group | RPCs |
+| --- | --- |
+| Databases | `CreateDatabase`, `DropDatabase`, `OpenDatabase`, `CloseDatabase`, `AlignDatabase`, `ExistsDatabase`, `GetDatabaseInfo`, `GetProgress` |
+| Discovery and probes | `Ping`, `GetServerInfo`, `ListDatabases`, `Health`, `Ready` |
+| Security | `CreateUser`, `UpdateUser`, `DeleteUser`, `ListUsers`, `ListGroups`, `SaveGroup`, `DeleteGroup`, `ListApiTokens`, `CreateApiToken`, `DeleteApiToken` |
+| Settings | `SetServerSetting`, `SetDatabaseSetting` |
+| Backup | `GetBackupConfig`, `SetBackupConfig`, `ListBackups`, `TriggerBackup`, `DeleteBackup` |
+| Profiler | `ProfilerStart`, `ProfilerStop`, `ProfilerReset`, `ProfilerResults`, `ProfilerList`, `ProfilerLoad` |
+| Server and cluster | `GetServerEvents`, `Shutdown`, `DisconnectCluster`, `ConnectCluster`, `ListSessions` |
+| Restore and import (server-streaming) | `RestoreBackup`, `RestoreDatabase`, `ImportDatabase` |
+
+<!-- admin-rpcs:end -->
+
+Authorization is the server's business and is not uniform across that table: `Ping`,
+`GetServerInfo`, `ListDatabases`, `ExistsDatabase` and `GetDatabaseInfo` need only a valid account,
+`GetProgress` needs an account granted the database it names, and every other RPC needs the
+server-admin (root) principal. `CreateDatabase`, `DropDatabase`, `CreateUser`, `DeleteUser`,
+`RestoreBackup`, `RestoreDatabase` and `ImportDatabase` are additionally refused on a cluster
+follower, with `FAILED_PRECONDITION` and the leader's address on the `arcadedb-leader-*` trailers -
+gRPC has no request proxy, so the caller redirects itself instead of being forwarded.
+
+### The three server-streaming RPCs
+
+`RestoreBackup`, `RestoreDatabase` and `ImportDatabase` return `stream RestoreProgress` /
+`stream ImportProgress` rather than a single response, and the shape is deliberate: a restore or an
+import can run for minutes, so the server reports progress as it goes and the call stays cancellable
+throughout, instead of being one opaque call that either returns or times out.
+
+They are also the three the bare stub drives least comfortably. A unary admin call is one line; a
+server-streaming one is an iterator (`for progress in client.raw_admin.RestoreDatabase(...)`, or
+`async for` on the async facade) that has to decide what to do with each progress message and to
+treat an abandoned loop as a cancellation whose effect on the restore is the server's to decide.
+Nothing here smooths that over. If any admin RPC ever earns a wrapper, these three are the
+candidates, on exactly the grounds `stream_query` earned its own.
+
+### `Health` and `Ready` take empty request messages
+
+`HealthRequest` and `ReadyRequest` declare no fields at all - not even `credentials`. They are
+exempt from the server's auth interceptor, exactly as `GET /health` and `GET /ready` are
+unauthenticated over HTTP, so a container orchestrator can probe a node without an account.
+`client.raw_admin.Health(messages.HealthRequest())` is the whole call, and there is nothing left for
+a facade to simplify.
+
+### `auth` does nothing for the admin service
+
+42 of the 44 RPCs above authenticate from a `DatabaseCredentials` field **inside the request
+message** - the `credentials=messages.DatabaseCredentials(...)` in the example at the top of this
+section, set per call - rather than from channel metadata, the way every data-plane call does. This
+is a property of the contract, not of this client, and it is the single most surprising thing about
+`raw_admin`: `bearer_auth` and `password_auth` authenticate the **data plane** only. Pass either as
+`auth` and its metadata is still attached to an admin call, and the server still authenticates that
+call from the request body and ignores it. (`Health` and `Ready` are the other two, and they carry
+no credentials because they are not authenticated at all.)
+
+That placement also defeats the insecure-channel guard described under "Authentication" above. That
+check keys on `Auth.sends_plaintext_password`, a marker on the interceptor, so it can only ever see
+a password an interceptor is about to put in metadata; a password sitting in a request body is
+invisible to it. `raw_admin` therefore carries its **own** guard against the same hazard, and raises
+the same `InsecureChannelError`:
+
+```python
+client = create_client("localhost:50051", insecure=True)
+client.raw.ExecuteQuery(...)  # fine, unchanged
+
+create_client("localhost:50051")  # constructed with neither credentials nor insecure=True
+# ...and then, on the client it returned:
+client.raw_admin
+# raises InsecureChannelError: refusing to expose ArcadeDbAdminService over a channel that
+# may be insecure ...
+
+create_client("localhost:50051", insecure=True).raw_admin  # fine - you opted in
+create_client("localhost:50051", credentials=grpc.ssl_channel_credentials()).raw_admin  # fine - encrypted
+```
+
+Four things about that guard are deliberate:
+
+- **It fires when `raw_admin` is read, not when the client is constructed.** A caller who only ever
+  touches the data plane over an insecure channel is entirely unaffected: their client is built
+  exactly as it always was, and nothing about exposing the admin stub can raise at them.
+- **It is unconditional on `auth`.** The credentials at risk are in the request body, not in
+  anything an interceptor puts on the wire, so the refusal is identical with `bearer_auth`, with
+  `password_auth`, and with no `auth` at all.
+- **`Health` and `Ready` are refused too**, even though they carry no credentials. The guard
+  protects the stub as a whole rather than a per-RPC list, and carving those two back out would mean
+  wrapping the other 42 - the facade this package deliberately does not have. Probing health over a
+  plaintext channel costs one `insecure=True`, which is the cheaper end of that trade.
+- **Constructing `ArcadeDBGrpcClient` yourself blocks `raw_admin` until you say otherwise**, even
+  when the channel you hand it was built with genuine `grpc.ssl_channel_credentials()`. The class
+  cannot inspect an arbitrary `grpc.Channel` for encryption, so it takes the safe default and a
+  direct caller opts in with `ArcadeDBGrpcClient(channel, allow_admin=True)`. `create_client`
+  computes that argument for its own callers, as `credentials is not None or insecure` - the same
+  test it applies to its own plaintext-password guard. The keyword is `allow_admin` on the class and
+  `insecure` on `create_client`; they are not the same knob and are deliberately not spelled alike.
+
+### `CreateApiToken` returns secret material, and nothing here reads it
+
+`CreateApiTokenResponse.token` is a freshly minted API token in cleartext - the only time the server
+will ever show it, which is why `DeleteApiToken` revokes by hash and refuses to accept the token
+itself. This package never touches that response. All four `intercept_*` methods, sync and async
+alike, add metadata to the outgoing call and `return continuation(...)` without looking at what
+comes back; they are request-side by construction, and the package contains no logging at all - no
+`logging`, no `print`. A token cannot reach a log sink through this client, which is the property
+[ArcadeData/arcadedb#7309](https://github.com/ArcadeData/arcadedb/issues/7309) argues for
+server-side. A test pins it rather than leaving it as a reading of the source, so an interceptor
+that started inspecting responses, or a stray `print`, fails the suite.
+
 ## Errors: `grpc.RpcError`, not a package-specific error
 
 A failed call raises `grpc.RpcError` (sync) or `grpc.aio.AioRpcError` (async) directly - this

@@ -158,8 +158,57 @@ request or a `httpx.Client` of their own; that is what lets them reuse the same 
 headers, and timeout every other call on this client already goes through. Anyone adding another
 streaming endpoint to this package should do the same rather than standing up a new `httpx.Client`.
 
-Streaming `/batch` is not part of this client; see
-[#52](https://github.com/ArcadeData/arcadedb-drivers/issues/52).
+## Batch loading: `batch_load`/`batch_load_stream`
+
+`POST /api/v1/batch/{database}` bulk-loads vertices and edges from one ndjson payload. The
+contract declares its request body `{"type": "string"}` for all three of the jsonl/ndjson/csv
+media types it accepts, not a JSON schema `openapi-python-client` can generate a model from, so -
+like `db.ts.write` above - both `batch_load` and `batch_load_stream` are hand-written, issuing
+their request through the same generated `Client`'s own pooled `httpx.Client`/`httpx.AsyncClient`
+rather than a `httpx.Client` of their own:
+
+```python
+from arcadedb_driver import VertexRow, EdgeRow
+
+vertices: list[VertexRow] = [{"type": "Person", "id": "p1", "properties": {"name": "Alice"}}]
+edges: list[EdgeRow] = [{"type": "Knows", "from_": "p1", "to": "#1:7"}]
+
+summary = db.batch_load(vertices=vertices, edges=edges, options={"commitEvery": 5000})
+```
+
+`EdgeRow`'s source endpoint is spelled `from_`, not `from`, because `from` is a Python keyword and
+cannot be a `TypedDict` key. Properties live in their own `properties` dict rather than being
+merged into the row: the server accepts a top-level key literally named `properties` and stores it
+as an ordinary property, silently, so keeping structure and data apart in the type is what makes
+that mistake impossible to make by construction. Every vertex is always sent before any edge,
+regardless of the order passed in - the server resolves an edge's `from_`/`to` only against ids
+declared earlier in the SAME payload, and this client enforces that ordering unconditionally
+rather than exposing a way to get it wrong.
+
+`options` is `BatchOptions`, the 17 tuning parameters the contract accepts as query parameters,
+named exactly as the contract names them and sent only when present: an option a caller does not
+set is left off the URL entirely rather than sent as an empty value, so the server applies its own
+default instead of parsing `""`.
+
+A load is **not atomic**: the server commits every `options["commitEvery"]` records, so a load
+that fails partway through can leave earlier chunks durably committed - an `ArcadeDBError` raised
+from a failed `batch_load` still corresponds to real, already-durable data. Because temporary ids
+are not keys, retrying the whole payload after such a failure duplicates whatever already
+committed rather than resuming cleanly.
+
+`batch_load_stream` streams the same load as `application/x-ndjson` instead: a `progress` event as
+the load proceeds, then exactly one `summary` event carrying the same fields the buffered call
+returns, plus `idMappingStreamed: true` - a field the contract does not declare, sent only on a
+streamed load, distinct from `idMappingOmitted` (*omitted* means too large to return; *streamed*
+means already delivered, piecemeal, in the `progress` events that preceded the summary). Each
+`progress` event's `idMapping` is only the fragment that chunk resolved and is never merged across
+events - accumulating it here would reintroduce, client-side, the memory cost streaming a
+million-vertex load exists to avoid. An in-band `error` event raises `ArcadeDBError` instead of
+being yielded, exactly like `query_stream`/`command_stream` above: a failure after the stream has
+started cannot be reported as an HTTP status, because the 200 status line is already on the wire,
+so it travels in band instead and fails the caller the same way a failure before the stream started
+does. Any event already yielded before the error stays delivered - a partial commit is durable, and
+those progress counts are how a caller learns what may have landed.
 
 ## Sync and async
 
@@ -369,19 +418,21 @@ absent; it only means "not visible to this caller right now."
 Two distinct things are true about parts of the contract, and they should not be confused with
 each other.
 
-**Not wrapped at all.** `POST /api/v1/batch/{database}` (a jsonl/ndjson/csv body),
-`POST /api/v1/ts/{database}/prom/read` and `POST /api/v1/ts/{database}/prom/write` (protobuf
-bodies) are endpoints the generator cannot model - it has no way to describe a non-JSON request
-body, so it prints a warning, skips the endpoint entirely, and exits 0. Nothing downstream notices
-on its own: a skipped endpoint leaves no trace in the generated tree for `git diff` to flag. This
-package pins the exact skip set in `scripts/check_codegen_skips.py`, which re-runs the generator
-against the committed contract and fails if the set of skipped operations changes - so a future
-contract that starts describing `batch` in a way the generator *can* model, or drops one of these
-endpoints, cannot pass unnoticed.
+**Not wrapped at all.** `POST /api/v1/ts/{database}/prom/read` and
+`POST /api/v1/ts/{database}/prom/write` (protobuf bodies) are endpoints the generator cannot model -
+it has no way to describe a non-JSON request body, so it prints a warning, skips the endpoint
+entirely, and exits 0. Nothing downstream notices on its own: a skipped endpoint leaves no trace in
+the generated tree for `git diff` to flag. This package pins the exact skip set in
+`scripts/check_codegen_skips.py`, which re-runs the generator against the committed contract and
+fails if the set of skipped operations changes - so a future contract that starts describing either
+endpoint in a way the generator *can* model, or drops one of them, cannot pass unnoticed.
 
-`db.ts.write` (`POST /api/v1/ts/{database}/write`, InfluxDB line protocol as `text/plain`) has the
-same generator limitation but is hand-written rather than left unwrapped, because a time-series
-namespace that could query samples but never ingest any would be an odd thing to ship.
+`db.ts.write` (`POST /api/v1/ts/{database}/write`, InfluxDB line protocol as `text/plain`) and
+`batch_load`/`batch_load_stream` (`POST /api/v1/batch/{database}`, a jsonl/ndjson/csv body) have
+the same generator limitation - both endpoints are also in `EXPECTED_SKIPS` above - but both are
+hand-written rather than left unwrapped: a time-series namespace that could query samples but never
+ingest any, or a client with no way to bulk-load a graph at all, would be an odd thing to ship. See
+"Batch loading" above for `batch_load`/`batch_load_stream`.
 
 `POST /api/v1/server` (administrative commands) is likewise not wrapped by the facade, and reached
 through `.raw` returns a body that does not conform to its declared `QueryResponse` schema

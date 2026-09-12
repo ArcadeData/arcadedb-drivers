@@ -163,10 +163,13 @@ const STREAM_PAYLOAD = "x".repeat(100);
 
 // BIG_PAYLOAD_SIZE is a second, different way to force a genuinely multi-chunk response: not many
 // ordinarily-sized rows, but ONE record whose own ndjson line is large enough that a single write
-// of it cannot be delivered to the client in one read. This matters because it is an ordinary
-// shape - a large text field, a base64 blob, a high-dimensional vector-search hit - not an
-// exotic one, and it is the case where cross-chunk buffering is load-bearing against a real server
-// rather than only against the fabricated boundaries in stream.test.ts.
+// of it cannot be delivered to the client in one read. This matters because a large text field or
+// a base64 blob big enough to land here is an ordinary shape, not an exotic one - a caller could
+// plausibly store either - even though most rows are nowhere near this size and never take this
+// path. The point of this test is not that the split is common; it is that the decoder must still
+// reassemble it correctly on the rows where it does happen, which is the case where cross-chunk
+// buffering is load-bearing against a real server rather than only against the fabricated
+// boundaries in stream.test.ts.
 //
 // The size was swept empirically against a live container (see task-4-report.md for the full
 // table), not guessed. Up to ~40,000 bytes a single record's line reliably arrived in ONE read
@@ -239,7 +242,7 @@ describe("queryStream / commandStream: ndjson events over a real container", () 
   it("the buffered query over the same data returns the same rows streaming did - streaming did not change the buffered path", async () => {
     const db = rootServer.db(DB_NAME);
 
-    const envelope = await db.query<{ n: number }>({
+    const envelope = await db.query<{ n: number; payload: string }>({
       language: "sql",
       command: `SELECT FROM ${STREAM_TYPE}`,
       limit: -1,
@@ -249,15 +252,18 @@ describe("queryStream / commandStream: ndjson events over a real container", () 
     for await (const event of db.queryStream({ language: "sql", command: `SELECT FROM ${STREAM_TYPE}`, limit: -1 })) {
       events.push(event);
     }
-    const streamedNs = events
+    // Compare the FULL row shape (both `n` and `payload`), not just `n` - `StreamRow` carries both
+    // fields, and the property under test is that streaming did not change what the buffered path
+    // returns, not merely that the two sides agree on one column.
+    const streamedRows = events
       .filter((e) => e.record !== undefined)
-      .map((e) => (e.record as unknown as { n: number }).n)
-      .sort((a, b) => a - b);
-    const bufferedNs = envelope.result.map((row) => row.n).sort((a, b) => a - b);
+      .map((e) => (e.record as unknown as { n: number; payload: string }))
+      .sort((a, b) => a.n - b.n);
+    const bufferedRows = [...envelope.result].sort((a, b) => a.n - b.n);
 
     expect(envelope.truncated).toBe(false);
-    expect(streamedNs).toEqual(bufferedNs);
-    expect(bufferedNs).toHaveLength(STREAM_ROW_COUNT);
+    expect(streamedRows).toEqual(bufferedRows);
+    expect(bufferedRows).toHaveLength(STREAM_ROW_COUNT);
   });
 
   it("reassembles a single record whose own ndjson line spans multiple real reads, intact", async () => {

@@ -109,8 +109,9 @@ unlike the buffered path, where a failure still in progress when the response st
 reported as a non-2xx status, a streamed response has committed to 200 before the first row is
 known to exist, and that status line cannot be taken back once the stream has started. That is why
 the contract puts this failure in band, as an event, rather than as an HTTP status. This client
-raises `ArcadeDBError` for it - exactly as `query`/`command` throw `ArcadeDBError` for a non-2xx
-response - so both paths fail the same way; any event already yielded before the error stays
+raises `ArcadeDBError` for it, with a `status` of 200 - honest, since that is the status the
+exchange actually carried - exactly as `query`/`command` throw `ArcadeDBError` for a non-2xx
+response, so both paths fail the same way; any event already yielded before the error stays
 delivered to the caller.
 
 `query` and `command` themselves are unchanged: they still return `QueryEnvelope` and still send no

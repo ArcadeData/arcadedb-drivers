@@ -215,10 +215,13 @@ def stream_rows(base_url: str, database: str) -> int:
 
 # BIG_PAYLOAD_SIZE is a second, different way to force a genuinely multi-chunk response: not many
 # ordinarily-sized rows, but ONE record whose own ndjson line is large enough that a single write
-# of it cannot be delivered to the client in one read. This matters because it is an ordinary
-# shape - a large text field, a base64 blob, a high-dimensional vector-search hit - not an exotic
-# one, and it is the case where cross-chunk buffering is load-bearing against a real server rather
-# than only against the fabricated boundaries in test_stream.py.
+# of it cannot be delivered to the client in one read. This matters because a large text field or
+# a base64 blob big enough to land here is an ordinary shape, not an exotic one - a caller could
+# plausibly store either - even though most rows are nowhere near this size and never take this
+# path. The point of this test is not that the split is common; it is that the decoder must still
+# reassemble it correctly on the rows where it does happen, which is the case where cross-chunk
+# buffering is load-bearing against a real server rather than only against the fabricated
+# boundaries in test_stream.py.
 #
 # The size was swept empirically against a live container (see task-4-report.md for the full
 # table), not guessed. Up to ~40,000 bytes a single record's line reliably arrived in ONE read
@@ -304,12 +307,15 @@ def test_buffered_query_returns_the_same_rows_streaming_did(base_url: str, datab
         buffered = db.query(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1)
         events = list(db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1))
 
-    streamed_ns = sorted(e.record["n"] for e in events if not isinstance(e.record, Unset))
-    buffered_ns = sorted(row["n"] for row in buffered.result)
+    # Compare the FULL row shape (both "n" and "payload"), not just "n" - StreamRow carries both
+    # fields, and the property under test is that streaming did not change what the buffered path
+    # returns, not merely that the two sides agree on one column.
+    streamed_rows = sorted((_record(e) for e in events if not isinstance(e.record, Unset)), key=lambda r: r["n"])
+    buffered_rows = sorted(buffered.result, key=lambda r: r["n"])
 
     assert buffered.truncated is False
-    assert streamed_ns == buffered_ns
-    assert len(buffered_ns) == stream_rows
+    assert streamed_rows == buffered_rows
+    assert len(buffered_rows) == stream_rows
 
 
 @pytest.mark.asyncio

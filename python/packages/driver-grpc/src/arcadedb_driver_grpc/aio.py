@@ -580,20 +580,24 @@ class AsyncArcadeDBGrpcClient:
     policy - but NOT its authentication. 42 of the 44 admin RPCs (everything but `Health`
     and `Ready`) authenticate from a `DatabaseCredentials` field INSIDE the request
     message, not from the channel's auth interceptor, so `bearer_auth`/`password_auth` do
-    nothing for them. Reading `raw_admin` raises `InsecureChannelError` unless the channel
-    was built with real transport credentials or `insecure=True` was passed to
-    `create_client`: those in-body credentials would otherwise travel in cleartext
-    regardless of any auth interceptor, the same hazard #5048 closed for the data plane's
-    password auth. The check runs on ACCESS, not in `__init__`, so a client built over an
+    nothing for them. Reading `raw_admin` raises `InsecureChannelError` unless
+    `allow_admin=True` was passed to this constructor: those in-body credentials would
+    otherwise travel in cleartext regardless of any auth interceptor, the same hazard
+    #5048 closed for the data plane's password auth. `create_client` computes that
+    argument for its own callers (`credentials is not None or insecure`), but a caller
+    constructing this class directly gets no such help: this class cannot inspect an
+    arbitrary `grpc.aio.Channel` for encryption, so even a channel built with genuine TLS
+    transport credentials leaves `raw_admin` blocked until `allow_admin=True` is passed
+    explicitly. The check runs on ACCESS, not in `__init__`, so a client built over an
     insecure channel for the data plane keeps working unchanged - only reading `raw_admin`
-    requires the same opt-in. `Health` and `Ready` carry no credentials at all and are
+    requires the opt-in. `Health` and `Ready` carry no credentials at all and are
     still refused by this guard: it protects the stub as a whole, not a per-RPC list, so
     there is deliberately no special case carving the two credential-free RPCs back out.
 
     A `grpc.aio.Channel` must be closed, so this is an async context manager.
     """
 
-    def __init__(self, channel: grpc.aio.Channel, *, insecure_admin: bool = False) -> None:
+    def __init__(self, channel: grpc.aio.Channel, *, allow_admin: bool = False) -> None:
         self._channel = channel
         # ONE runtime class serves both channel kinds - grpc constructs `ArcadeDbServiceStub`
         # whether the channel is sync or async, and `ArcadeDbServiceAsyncStub` exists only in
@@ -611,21 +615,22 @@ class AsyncArcadeDBGrpcClient:
         # default blocks `raw_admin` unless `create_client` (or a direct caller) says
         # otherwise, since this class cannot itself tell whether an arbitrary
         # `grpc.aio.Channel` it was handed is actually encrypted.
-        self._insecure_admin = insecure_admin
+        self._allow_admin = allow_admin
 
     @property
     def raw_admin(self) -> ArcadeDbAdminServiceAsyncStub:
         """The admin (control-plane) stub - see the class docstring. Raises
-        `InsecureChannelError` on read if the channel may be insecure and no opt-in was
-        given; never raises at construction time.
+        `InsecureChannelError` on read if `allow_admin` was not set; never raises at
+        construction time.
         """
-        if not self._insecure_admin:
+        if not self._allow_admin:
             raise InsecureChannelError(
                 "raw_admin: refusing to expose ArcadeDbAdminService over a channel that may be "
                 "insecure. 42 of its 44 RPCs (everything but Health and Ready) carry "
                 "DatabaseCredentials in the request body, which would travel in cleartext "
                 "regardless of any auth interceptor. Pass credentials=grpc.ssl_channel_credentials() "
-                "to create_client, or insecure=True to opt in explicitly."
+                "or insecure=True to create_client, or allow_admin=True to this class's "
+                "constructor if you built the channel yourself."
             )
         return self._raw_admin_stub
 
@@ -817,4 +822,4 @@ def create_client(
         if credentials is None
         else grpc.aio.secure_channel(target, credentials, interceptors=interceptors)
     )
-    return AsyncArcadeDBGrpcClient(channel, insecure_admin=credentials is not None or insecure)
+    return AsyncArcadeDBGrpcClient(channel, allow_admin=credentials is not None or insecure)

@@ -116,10 +116,12 @@ request object first. That override is the safety mechanism, not an incidental d
 what makes transaction hijack, silent data loss, and leaked transactions
 (ArcadeData/arcadedb#5040-#5042) unrepeatable through the handle, the gRPC-specific way
 `arcadedb-driver`'s second `ArcadeDBDatabase` handle (see "The transaction contract" below) keeps a
-transaction's calls separated from the outer handle's. Only three RPCs are ever reachable solely
-through `raw` with no wrapper at any level: `BulkInsert`, `InsertBidirectional`, and
-`GraphBatchLoad`. See `packages/driver-grpc/README.md` for its own sync/async split and its
-transaction and streaming wrappers; it is not duplicated here.
+transaction's calls separated from the outer handle's. Only three data-plane RPCs are ever
+reachable solely through `raw` with no wrapper at any level: `BulkInsert`, `InsertBidirectional`,
+and `GraphBatchLoad` - `raw_admin`'s 44 control-plane RPCs are all reachable only through a bare
+stub call the same way, since no facade wraps any of them (see `ArcadeDBGrpcClient`'s class
+docstring in `__init__.py`). See `packages/driver-grpc/README.md` for its own sync/async split
+and its transaction and streaming wrappers; it is not duplicated here.
 
 ## Deliberate asymmetries
 

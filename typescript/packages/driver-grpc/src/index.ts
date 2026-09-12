@@ -39,10 +39,18 @@ export interface CreateClientOptions {
   /** An auth interceptor, typically {@link bearerAuth} or {@link passwordAuth}. */
   auth?: Interceptor;
   /**
-   * Opts into an `http://` (non-TLS) `baseUrl` paired with a plaintext-password auth
-   * interceptor ({@link passwordAuth}). Without this, `createClient` throws rather than send a
-   * password over an unencrypted channel. Has no effect otherwise (TLS `baseUrl`, no auth, or a
-   * non-password auth interceptor such as {@link bearerAuth}).
+   * Opts into two separate guards against sending credentials over a non-TLS `baseUrl`:
+   *
+   * 1. Lets `createClient` pair an `http://` `baseUrl` with a plaintext-password auth
+   *    interceptor ({@link passwordAuth}) instead of throwing (issue #5048).
+   * 2. Lets `rawAdmin` be read at all over an `http://` `baseUrl` - see its doc comment. This
+   *    guard is unconditional on `auth`: 42 of `ArcadeDbAdminService`'s 44 RPCs carry
+   *    `DatabaseCredentials` INSIDE the request body, which no auth interceptor protects, so it
+   *    fires the same way with {@link bearerAuth}, with {@link passwordAuth}, or with no `auth`
+   *    at all - and even for `Health`/`Ready`, which carry no credentials but share the guarded
+   *    stub.
+   *
+   * Has no effect over a TLS `baseUrl`, and no effect on `raw` (the data plane) beyond guard 1.
    */
   insecure?: boolean;
 }

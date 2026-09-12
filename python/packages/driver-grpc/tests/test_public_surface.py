@@ -62,7 +62,7 @@ def test_client_instance_exposes_exactly_raw_and_raw_admin() -> None:
     # guard is satisfied.
     channel = grpc.insecure_channel("127.0.0.1:0")
     try:
-        client = arcadedb_driver_grpc.ArcadeDBGrpcClient(channel, insecure_admin=True)
+        client = arcadedb_driver_grpc.ArcadeDBGrpcClient(channel, allow_admin=True)
         instance_public_attrs = {name for name in vars(client) if not name.startswith("_")}
         assert instance_public_attrs == {"raw"}
         assert isinstance(type(client).__dict__["raw_admin"], property)

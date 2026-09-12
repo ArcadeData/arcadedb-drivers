@@ -8,7 +8,12 @@ import grpc
 import pytest
 from arcadedb_driver_grpc import InsecureChannelError, InsertStreamRequest, TimeSeriesWriteStreamRequest, messages
 from arcadedb_driver_grpc._generated import arcadedb_server_pb2_grpc as _pb2_grpc
-from arcadedb_driver_grpc.aio import _envelope_chunks, _envelope_time_series_chunks, create_client
+from arcadedb_driver_grpc.aio import (
+    AsyncArcadeDBGrpcClient,
+    _envelope_chunks,
+    _envelope_time_series_chunks,
+    create_client,
+)
 from arcadedb_driver_grpc.auth import bearer_auth, password_auth
 
 from .conftest import RecordingAdminServicer, RecordingServicer
@@ -87,11 +92,12 @@ async def test_raw_admin_reaches_the_server(async_fake_admin_server: tuple[str, 
     assert servicer.calls == ["Ping"]
 
 
-async def test_raw_admin_is_authenticated_too(async_fake_admin_server: tuple[str, RecordingAdminServicer]) -> None:
-    # `Ping` DOES carry `DatabaseCredentials` in its own request body (unlike Health/Ready),
-    # but this test is about whether the CHANNEL's auth interceptor also reaches an admin
-    # RPC - so it asserts on `servicer.metadata` (channel-level metadata), not on anything
-    # inside the request message itself.
+async def test_channel_auth_metadata_also_reaches_an_admin_rpc(
+    async_fake_admin_server: tuple[str, RecordingAdminServicer],
+) -> None:
+    # Channel metadata arrives at an admin RPC same as a data-plane one - it just doesn't
+    # authenticate the RPC, since 42 of 44 admin RPCs check `DatabaseCredentials` in the
+    # request body instead. Asserts on `servicer.metadata`, not on anything in the request.
     target, servicer = async_fake_admin_server
     async with create_client(target, auth=bearer_auth("t0ken"), insecure=True) as client:
         await client.raw_admin.Ping(messages.PingRequest())
@@ -164,6 +170,21 @@ async def test_raw_admin_over_a_secure_channel_is_not_refused() -> None:
     client = create_client("127.0.0.1:50051", credentials=grpc.ssl_channel_credentials())
     assert client.raw_admin is not None
     await client.close()
+
+
+async def test_raw_admin_is_blocked_by_default_on_direct_construction_even_over_a_secure_channel() -> None:
+    # Async twin of the sync client's test of the same name. `AsyncArcadeDBGrpcClient(channel)`
+    # bypasses `create_client` entirely, so nothing computed `credentials is not None or
+    # insecure` on this caller's behalf, and this class cannot inspect an arbitrary
+    # `grpc.aio.Channel` for encryption - so even a channel built with genuine TLS
+    # credentials, as here, stays blocked until `allow_admin=True` is passed explicitly.
+    channel = grpc.aio.secure_channel("127.0.0.1:50051", grpc.ssl_channel_credentials())
+    client = AsyncArcadeDBGrpcClient(channel)
+    try:
+        with pytest.raises(InsecureChannelError, match="allow_admin"):
+            client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+    finally:
+        await client.close()
 
 
 async def test_raw_still_works_over_an_insecure_channel_with_no_auth(

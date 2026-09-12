@@ -129,6 +129,15 @@ describe("rawAdmin's insecure-channel guard", () => {
     expect(() => client.rawAdmin).not.toThrow();
   });
 
+  it("throws for a schemeless baseUrl (M7's protocol trap applies to rawAdmin too)", () => {
+    // `new URL("localhost:50051").protocol` evaluates to "localhost:", not "https:" - see
+    // `test/index.test.ts`'s twin test for the plaintext-password guard. `rawAdmin`'s guard
+    // reuses the same `!== "https:"` comparison, so it fails closed here too.
+    const client = createClient({ baseUrl: "localhost:50051" });
+
+    expect(() => client.rawAdmin).toThrow(/insecure/i);
+  });
+
   it("leaves raw working over an insecure channel with no auth at all - the over-guarding regression check", () => {
     // The guard above must be scoped to `rawAdmin` alone. A caller who never touches the
     // admin service must not start failing because they built a client over plain HTTP for

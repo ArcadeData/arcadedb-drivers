@@ -980,3 +980,31 @@ async def test_the_callers_time_series_latest_request_object_is_left_unchanged(
     assert servicer.ts_latest_requests[0].database == "db"
     assert request.database == ""
     assert request.transaction.transaction_id == ""
+
+
+async def test_the_sync_and_async_guard_messages_are_byte_identical() -> None:
+    # `raw_admin`'s refusal message is written out twice - once in `__init__.py`, once in
+    # `aio.py` - because `python/CLAUDE.md` makes `unasync` a non-goal and leaves the
+    # sync/async facades hand-maintained twins. Duplicated prose drifts, and this branch
+    # already shipped one round of docstrings that outlived the claim they described.
+    # Nothing else in the suite would notice if only one copy were edited: the guard tests
+    # above match on `credentials|insecure` and `allow_admin`, substrings that survive
+    # almost any rewrite of the surrounding sentence. So this compares the two strings
+    # directly. If it fails, edit BOTH copies - do not relax this assertion.
+    #
+    # It lives in the async suite rather than the sync one because building the
+    # `grpc.aio.Channel` half needs a running event loop.
+    from arcadedb_driver_grpc import ArcadeDBGrpcClient
+
+    sync_channel = grpc.insecure_channel("127.0.0.1:50051")
+    async_channel = grpc.aio.insecure_channel("127.0.0.1:50051")
+    try:
+        with pytest.raises(InsecureChannelError) as sync_error:
+            ArcadeDBGrpcClient(sync_channel).raw_admin  # noqa: B018 - the access IS the assertion
+        with pytest.raises(InsecureChannelError) as async_error:
+            AsyncArcadeDBGrpcClient(async_channel).raw_admin  # noqa: B018 - the access IS the assertion
+
+        assert str(sync_error.value) == str(async_error.value)
+    finally:
+        sync_channel.close()
+        await async_channel.close(grace=None)

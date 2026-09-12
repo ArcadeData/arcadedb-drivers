@@ -38,6 +38,16 @@ def test_id_is_omitted_when_absent() -> None:
     assert row == {"@type": "vertex", "@class": "Person", "name": "Anon"}
 
 
+def test_an_explicit_none_id_is_treated_as_absent() -> None:
+    # Sibling parity: `internal/batch-rows.ts` tests `v.id !== undefined`, so a vertex spelled
+    # `{ id: undefined }` there never emits `@id`. `VertexRow` forbids `None` for `id`, so only an
+    # unchecked caller reaches this, but `{"id": None}` must still behave the same way here rather
+    # than emit `"@id": null` - this repository treats behavioural divergence between the two
+    # clients as a defect in its own right, even when only one side is reachable through the type.
+    (row,) = _lines(serialize_rows([{"type": "Person", "id": None, "properties": {"name": "Anon"}}], []))  # type: ignore[typeddict-item]
+    assert row == {"@type": "vertex", "@class": "Person", "name": "Anon"}
+
+
 def test_edge_endpoints_and_properties() -> None:
     (row,) = _lines(serialize_rows([], [{"type": "Knows", "from_": "a", "to": "#1:7", "properties": {"since": 2020}}]))
     assert row == {"@type": "edge", "@class": "Knows", "@from": "a", "@to": "#1:7", "since": 2020}

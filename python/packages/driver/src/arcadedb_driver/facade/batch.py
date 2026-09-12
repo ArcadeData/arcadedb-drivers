@@ -12,23 +12,31 @@ hand-written `write` is the closer relative: both issue a raw request through th
 pooling still apply, and both return `dict[str, Any]` rather than a generated model, because there
 is no generated model to return here at all.
 
-Two gaps in the contract's declared shapes carry over from `@arcadedb/driver`'s `facade/batch.ts`,
-so the two clients tell the same story even though only the TypeScript side has a generated type
-to widen (there is nothing to widen here - this module returns parsed JSON either way):
+Two things about the contract's declared shapes are worth knowing before reading `batch_load` and
+`batch_load_stream` below - and only one of them is the gap it looks like:
 
 - **`idMappingStreamed`.** The buffered response (`batch_load`) is the contract's declared
-  `BatchResponse` shape: `idMapping`, `idMappingOmitted`, `idMappingSize`. A STREAMED load's
-  `summary` event additionally carries `idMappingStreamed: true` - a field no schema declares,
-  reported upstream on ArcadeData/arcadedb#7570. It is a genuinely different condition from
-  `idMappingOmitted`: *omitted* means too large to return; *streamed* means already delivered,
-  piecemeal, in the `progress` events that came before the summary. Progress events are yielded
-  exactly as received and never merged - accumulating `idMapping` fragments across events would
-  reintroduce, client-side, the memory cost streaming a large load exists to avoid (D5; see
-  `test_batch_load_stream_does_not_merge_id_mapping_fragments` in `test_batch.py`).
-- **An in-band error's `error`/`exception` fields.** The contract's `NdJsonBatchEvent.error`
-  object declares only `commitIndex`, `status` and `statusMapped`, but the server also sends
-  `error` (the message) and `exception` - the same two fields the BUFFERED encoding's
-  `BatchError` declares. `_raise_on_error_event` reads both off the raw dict.
+  `BatchResponse` shape: `idMapping`, `idMappingOmitted`, `idMappingSize` - and correctly has no
+  `idMappingStreamed`, because a buffered load never sends it. A STREAMED load's `summary` event
+  carries `idMappingStreamed: true` instead of `idMapping`, and the contract DOES declare that
+  field: on the TypeScript client's generated `NdJsonBatchEvent["summary"]`, the streaming path's
+  own schema, alongside `commitIndex` and `idMappingSize`. It is `BatchResponse` specifically that
+  lacks it, not the contract as a whole - `@arcadedb/driver`'s `BatchSummary` is a plain alias for
+  `BatchResponse` and was never the type that needed widening for this field. Python has no
+  generated model for either shape (see above), so there is nothing to widen here regardless -
+  this dict is parsed JSON, unchecked against any schema. `idMappingStreamed` is a genuinely
+  different condition from `idMappingOmitted`: *omitted* means too large to return; *streamed*
+  means already delivered, piecemeal, in the `progress` events that came before the summary.
+  Progress events are yielded exactly as received and never merged - accumulating `idMapping`
+  fragments across events would reintroduce, client-side, the memory cost streaming a large load
+  exists to avoid (D5; see `test_batch_load_stream_does_not_merge_id_mapping_fragments` in
+  `test_batch.py`).
+- **An in-band error's `error`/`exception` fields.** This one is a genuine gap: the contract's
+  `NdJsonBatchEvent.error` object declares only `commitIndex`, `status` and `statusMapped` in
+  every schema that describes it, but the server also sends `error` (the message) and `exception`
+  - the same two fields the BUFFERED encoding's `BatchError` declares. `@arcadedb/driver`'s
+  `facade/batch.ts` widens its generated type for exactly this field pair, and still does.
+  `_raise_on_error_event` reads both off the raw dict.
 
 **D6: the two error channels collapse into one `ArcadeDBError`.** A load that fails BEFORE the
 first line is written to the response answers with a real HTTP status and the buffered error
@@ -42,6 +50,19 @@ unclassified 500 fallback rather than the status the buffered encoding would hav
 contract says to key on `exception` in that case, so the raised error's `detail` says so. Any
 event already yielded before the error stays delivered to the caller; the exception is raised from
 the iterator at the point the `error` event arrives, not before.
+
+**Closing the connection on early abandonment.** `batch_load_stream`'s `with ...stream()` lives
+directly in the generator body, the same construct `facade/stream.py` uses and for the same
+reason: a `GeneratorExit` thrown into the suspended `yield` - which is what `.close()` and a
+caller's `for ... break` both eventually do - propagates out through the `with` block exactly like
+any other exception, and `httpx`'s own `__exit__` closes the response during that unwind. Nothing
+extra needs writing for this to work correctly; `abatch_load_stream`'s `async with` gets the async
+half of the same guarantee from `.aclose()`/`async for ... break`. See
+`test_batch_load_stream_closes_the_response_when_the_caller_abandons_the_iterator` and its async
+twin in `test_batch.py` - the same bug class this note exists to rule out once bit this project's
+TypeScript sibling, which shipped a decoder that released its reader's lock without cancelling the
+response body, leaking the connection, and only a test that abandoned the stream would have
+caught it.
 
 Every vertex is serialized before any edge (`serialize_rows`, in `_internal/batch_rows.py`), and a
 batch is not atomic - the server commits every `options["commitEvery"]` records, so a failure

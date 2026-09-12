@@ -233,14 +233,16 @@ cost, which is a perfectly good trade right up until the map stops fitting.
 
 `idMappingStreamed` is a different condition from `idMappingOmitted`: *omitted* means the map was
 too large to return, *streamed* means it was already delivered, piecemeal, in the progress events.
-The generated types declare neither field a caller needs on this path: `BatchResponse` - the shape
-`batchLoad` returns, and the one a streamed summary otherwise matches - has no
-`idMappingStreamed`, and `NdJsonBatchEvent`'s error object declares only `commitIndex`, `status`
-and `statusMapped`, not the `error` message and `exception` the server actually sends with them.
-`BatchSummary` and `NdJsonBatchEvent` are widened here by exactly those fields. Both widenings were
-established against a live 26.10.1-SNAPSHOT server, are reported upstream as
+`BatchResponse` - the shape `batchLoad` returns - correctly has no `idMappingStreamed`, because a
+buffered load never sends it; but the generator does declare the field where it belongs, on
+`NdJsonBatchEvent["summary"]`, the streaming path's own type, alongside `commitIndex` and
+`idMappingSize`. `BatchSummary` is a plain alias for `BatchResponse` and carries no widening.
+`NdJsonBatchEvent`'s error object is the one genuine gap: it declares only `commitIndex`, `status`
+and `statusMapped`, not the `error` message and `exception` the server actually sends with them,
+so `NdJsonBatchEvent` is widened here by exactly those two fields. That widening was established
+against a live 26.10.1-SNAPSHOT server, is reported upstream as
 [ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570), and should be
-narrowed back to the generated types once the contract declares the fields.
+narrowed back to the generated type once the contract declares the fields.
 
 ### Both ways a load can fail throw the same thing
 

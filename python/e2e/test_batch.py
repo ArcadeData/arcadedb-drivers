@@ -65,6 +65,7 @@ def test_properties_are_stored_as_real_fields(base_url: str, batch_schema: str) 
 
         env = db.query(language="sql", command=f"SELECT FROM {BATCH_TYPE} WHERE name = 'Cat'")
         assert len(env.result) == 1
+        assert env.result[0]["name"] == "Cat"
 
 
 def test_batch_load_stream_reports_progress_before_its_summary(base_url: str, batch_schema: str) -> None:
@@ -126,6 +127,7 @@ async def test_async_properties_are_stored_as_real_fields(base_url: str, batch_s
 
         env = await db.query(language="sql", command=f"SELECT FROM {BATCH_TYPE} WHERE name = 'Hal'")
         assert len(env.result) == 1
+        assert env.result[0]["name"] == "Hal"
 
 
 @pytest.mark.asyncio

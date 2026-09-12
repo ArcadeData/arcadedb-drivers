@@ -227,10 +227,13 @@ half-load.
 
 `batch_load_stream` streams the same load as `application/x-ndjson` instead: a `progress` event as
 the load proceeds, then exactly one `summary` event carrying the same fields the buffered call
-returns, plus `idMappingStreamed: true` - a field `BatchResponse`, the buffered shape it
-otherwise matches, does not declare, sent only on a streamed load and distinct from
-`idMappingOmitted` (*omitted* means too large to return; *streamed* means already delivered,
-piecemeal, in the `progress` events that preceded the summary). Each
+returns, plus `idMappingStreamed: true` - a field `BatchResponse`, the buffered shape it otherwise
+matches, does not declare, because a buffered load never sends it. The field is not missing from
+the contract entirely, though: the TypeScript client's generated schema declares it on
+`NdJsonBatchEvent["summary"]`, the streaming path's own type - this client just has no generated
+model of either shape to declare it on (see above). `idMappingStreamed` is sent only on a streamed
+load and is distinct from `idMappingOmitted` (*omitted* means too large to return; *streamed*
+means already delivered, piecemeal, in the `progress` events that preceded the summary). Each
 `progress` event's `idMapping` is only the fragment that chunk resolved and is never merged across
 events - accumulating it here would reintroduce, client-side, the memory cost streaming a
 million-vertex load exists to avoid. An in-band `error` event raises `ArcadeDBError` instead of
@@ -242,11 +245,11 @@ those progress counts are how a caller learns what may have landed.
 
 The two encodings therefore disagree about the mapping, deliberately: `batch_load`'s summary
 carries `idMapping`, the whole temp-id-to-RID map in one dict, while the streamed `summary` event
-carries `idMappingSize` and **no map at all**. A caller who genuinely needs the whole mapping from
-a streamed load accumulates the fragments as they arrive - checking the total against
-`idMappingSize`, since a mapping delivered in pieces can lose one to a truncated response without
-any single piece looking wrong - or calls `batch_load` and accepts the memory cost, which is a
-good trade right up until the map stops fitting.
+carries `idMappingStreamed: true` and `idMappingSize`, with **no map at all**. A caller who
+genuinely needs the whole mapping from a streamed load accumulates the fragments as they arrive -
+checking the total against `idMappingSize`, since a mapping delivered in pieces can lose one to a
+truncated response without any single piece looking wrong - or calls `batch_load` and accepts the
+memory cost, which is a good trade right up until the map stops fitting.
 
 When a streamed `error` event's `statusMapped` is `False`, its `status` is an unclassified 500
 fallback rather than the status the buffered encoding would have chosen - an engine failure raised

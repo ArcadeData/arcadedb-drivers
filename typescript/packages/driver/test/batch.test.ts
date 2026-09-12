@@ -12,6 +12,29 @@ function ndjsonResponse(lines: string[], status = 200): Response {
   return new Response(body, { status, headers: { "content-type": "application/x-ndjson" } });
 }
 
+/**
+ * Builds an ndjson `Response` whose underlying source records whether it was cancelled.
+ *
+ * Duplicated from `stream.test.ts` rather than imported: importing one test file's module from
+ * another re-executes its top-level `describe`/`it` registrations a second time (vitest has no
+ * notion of "just import the helpers"), silently doubling that file's test count.
+ */
+function cancellableNdjsonResponse(lines: string[]): { response: Response; cancelled: () => boolean } {
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const line of lines) controller.enqueue(new TextEncoder().encode(line + "\n"));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  return {
+    response: new Response(body, { status: 200, headers: { "content-type": "application/x-ndjson" } }),
+    cancelled: () => cancelled,
+  };
+}
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
@@ -185,6 +208,28 @@ describe("ArcadeDBDatabase.batchLoadStream", () => {
     ).rejects.toBeInstanceOf(ArcadeDBError);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.progress?.verticesCreated).toBe(2);
+  });
+
+  it("cancels the response body when the caller breaks out of the loop early", async () => {
+    // Same hazard `stream.test.ts` pins for queryStream: a decoder that only releases its
+    // reader's lock on early abandonment leaks the connection instead of tearing the body down.
+    // batchLoadStream shares `decodeNdJson` with queryStream/commandStream, but nothing exercised
+    // that sharing from the batch side before this test.
+    const { response, cancelled } = cancellableNdjsonResponse([
+      JSON.stringify({ progress: { verticesCreated: 1 } }),
+      JSON.stringify({ progress: { verticesCreated: 2 } }),
+    ]);
+    const fetchMock = vi.fn(async () => response);
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const seen: NdJsonBatchEvent[] = [];
+    for await (const event of server.db("mydb").batchLoadStream(ROWS)) {
+      seen.push(event);
+      break;
+    }
+
+    expect(seen).toHaveLength(1);
+    expect(cancelled()).toBe(true);
   });
 
   it("records that status is an unclassified fallback when statusMapped is false (D6)", async () => {

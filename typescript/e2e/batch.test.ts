@@ -79,6 +79,7 @@ describe("batchLoad / batchLoadStream against a real ArcadeDB server", () => {
       command: "SELECT FROM Person WHERE name = 'Cat'",
     });
     expect(rows.result).toHaveLength(1);
+    expect(rows.result[0]?.name).toBe("Cat");
   });
 
   it("streams progress before exactly one summary", async () => {

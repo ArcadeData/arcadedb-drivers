@@ -73,7 +73,7 @@ def serialize_rows(vertices: Iterable[VertexRow], edges: Iterable[EdgeRow]) -> s
     out = []
     for vertex in vertices:
         control = {"@type": "vertex", "@class": vertex["type"]}
-        if "id" in vertex:
+        if vertex.get("id") is not None:
             control["@id"] = vertex["id"]
         out.append(_line(control, vertex.get("properties")))
     for edge in edges:

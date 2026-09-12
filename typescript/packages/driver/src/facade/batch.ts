@@ -13,8 +13,9 @@ type RawClient = Client<paths>;
  * The generated `error` object carries only `commitIndex`, `status` and `statusMapped` - but the
  * server sends `error` (the message) and `exception` on it too, the same fields the BUFFERED
  * encoding declares on `BatchError`. Established against a live 26.10.1-SNAPSHOT server and
- * reported upstream alongside ArcadeData/arcadedb#7570 (the `idMappingStreamed` gap `BatchSummary`
- * works around below is the same contract, the same endpoint, the same kind of gap). Without this
+ * reported upstream as ArcadeData/arcadedb#7570. Unlike `idMappingStreamed` - which the contract
+ * DOES declare, on `NdJsonBatchEvent["summary"]`, see `BatchSummary` below - this is a genuine
+ * gap: no schema anywhere declares `error`/`exception` on the streamed error object. Without this
  * widening, the one thing a caller needs from an in-band failure - what went wrong - is
  * unreachable through the generated type.
  *
@@ -30,18 +31,18 @@ export type NdJsonBatchEvent = Omit<components["schemas"]["NdJsonBatchEvent"], "
 };
 
 /**
- * The buffered summary, plus one field the contract does not declare.
+ * The buffered summary, exactly as the contract declares it - `idMapping`, `idMappingOmitted`
+ * and `idMappingSize` - with nothing added.
  *
- * `BatchResponse` declares `idMapping`, `idMappingOmitted` and `idMappingSize`. On a STREAMED
- * load the server sends `idMappingStreamed: true` instead - a field in no schema, reported
- * upstream as a comment on ArcadeData/arcadedb#7570. It is a genuinely different condition from
- * `idMappingOmitted`: *omitted* means too large to return, *streamed* means already delivered in
- * the progress lines. Without this widening, the one signal telling a caller which of those
- * happened is unreachable through the generated type.
- *
- * Narrow this back to the generated type once the contract declares the field.
+ * On a STREAMED load the server sends `idMappingStreamed: true` instead of `idMapping`, but that
+ * is not a field in no schema: `NdJsonBatchEvent["summary"]` (the streaming path's own return
+ * type, see `generated/schema.ts`) declares it, alongside `commitIndex` and `idMappingSize`.
+ * `BatchResponse` - this alias's target - correctly has no `idMappingStreamed`, because a
+ * buffered load never sends it; it sends `idMapping`. There is nothing to widen here, so
+ * `BatchSummary` stays a plain alias, kept only because it is exported and used by `index.ts`
+ * and the README.
  */
-export type BatchSummary = components["schemas"]["BatchResponse"] & { idMappingStreamed?: boolean };
+export type BatchSummary = components["schemas"]["BatchResponse"];
 
 /** The 17 tuning parameters, named exactly as the contract names them. */
 export interface BatchOptions {

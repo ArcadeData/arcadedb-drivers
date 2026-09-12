@@ -1,16 +1,22 @@
 """Tests for `batch_load`/`batch_load_stream`, sync and async.
 
 Follows `test_stream.py`'s httpx-mocking style: most cases feed the whole ndjson (or JSON) body as
-one buffered `httpx.Response(content=...)` blob, which respx pre-reads. Nothing here needs the
-`_SyncChunks`/`_AsyncChunks` chunk-boundary control `test_stream.py` needs for its own cases, since
-none of these tests are about chunk splitting itself - that behaviour lives in
-`_internal/ndjson.py` and is already covered there and in `test_stream.py`.
+one buffered `httpx.Response(content=...)` blob, which respx pre-reads. Almost none of these
+cases are about chunk splitting itself - that behaviour lives in `_internal/ndjson.py` and is
+already covered there and in `test_stream.py` - except the early-termination pair below, which
+needs the same `_SyncChunks`/`_AsyncChunks` respx-bypass `test_stream.py` uses for its own
+`close()`/`aclose()` tests: a body respx pre-reads is fully consumed before the facade ever gets a
+chance to abandon it, so its `close()`/`aclose()` would always fire regardless of whether the
+facade's own teardown does its job. Duplicated here rather than imported - `tests/` has no
+`__init__.py`, so there is no package for `test_batch.py` to import `test_stream.py`'s classes
+from.
 """
 
 from __future__ import annotations
 
 import inspect
 import json
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import httpx
@@ -37,6 +43,35 @@ def async_server() -> AsyncArcadeDBServer:
 
 def _lines(*events: dict[str, Any]) -> bytes:
     return b"".join((json.dumps(event) + "\n").encode() for event in events)
+
+
+class _SyncChunks(httpx.SyncByteStream):
+    """A byte stream respx will NOT pre-read - see the module docstring."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+        self.closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield from self._chunks
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _AsyncChunks(httpx.AsyncByteStream):
+    """The async twin of `_SyncChunks`."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 # --- sync -----------------------------------------------------------------------------------
@@ -231,6 +266,24 @@ def test_status_mapped_false_is_recorded_on_the_error() -> None:
 
     assert caught.value.status == 500
     assert caught.value.exception == "java.lang.IllegalStateException"
+
+
+@respx.mock
+def test_batch_load_stream_closes_the_response_when_the_caller_abandons_the_iterator() -> None:
+    # This exact bug class bit this project before: an earlier milestone shipped a TypeScript
+    # decoder that released its reader's lock without cancelling the response body, leaking the
+    # connection - only a test that abandoned the stream would have caught it. `facade/batch.py`'s
+    # `with ...stream()` is its own context manager, not shared code with `facade/stream.py`, so
+    # nothing else in the suite pins its teardown.
+    stream = _SyncChunks([b'{"progress":{"verticesCreated":1}}\n', b'{"progress":{"verticesCreated":2}}\n'])
+    respx.post(f"{BASE_URL}/api/v1/batch/mydb").mock(return_value=httpx.Response(200, stream=stream))
+    with server() as srv:
+        events = srv.db("mydb").batch_load_stream(**ROWS)
+        first = next(events)
+        assert first["progress"]["verticesCreated"] == 1
+        events.close()
+
+    assert stream.closed is True
 
 
 # --- async ----------------------------------------------------------------------------------
@@ -433,6 +486,20 @@ async def test_async_status_mapped_false_is_recorded_on_the_error() -> None:
 
     assert caught.value.status == 500
     assert caught.value.exception == "java.lang.IllegalStateException"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_async_batch_load_stream_closes_the_response_when_the_caller_abandons_the_iterator() -> None:
+    stream = _AsyncChunks([b'{"progress":{"verticesCreated":1}}\n', b'{"progress":{"verticesCreated":2}}\n'])
+    respx.post(f"{BASE_URL}/api/v1/batch/mydb").mock(return_value=httpx.Response(200, stream=stream))
+    async with async_server() as srv:
+        events = srv.db("mydb").batch_load_stream(**ROWS)
+        first = await events.__anext__()
+        assert first["progress"]["verticesCreated"] == 1
+        await events.aclose()
+
+    assert stream.closed is True
 
 
 # --- docstring parity (issue #30) ------------------------------------------------------------

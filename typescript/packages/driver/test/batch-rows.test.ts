@@ -33,6 +33,16 @@ describe("serializeRows", () => {
     expect(row).toEqual({ "@type": "vertex", "@class": "Person", name: "Anon" });
   });
 
+  it("omits @id when a vertex's id is explicitly undefined", () => {
+    // Sibling parity: `_internal/batch_rows.py` tests `if "id" in vertex`, so a row spelled
+    // `{"id": None}` there emits `"@id": null` unless it treats an explicit None as absent too.
+    // Pin the TypeScript side of that parity here: `{ id: undefined }` must behave exactly like
+    // an omitted `id` key, not like an empty string.
+    const [row] = lines(serializeRows([{ type: "Person", id: undefined, properties: { name: "Anon" } }], []));
+    expect(row).not.toHaveProperty("@id");
+    expect(row).toEqual({ "@type": "vertex", "@class": "Person", name: "Anon" });
+  });
+
   it("serializes edge endpoints and properties", () => {
     const [row] = lines(serializeRows([], [{ type: "Knows", from: "a", to: "#1:7", properties: { since: 2020 } }]));
     expect(row).toEqual({ "@type": "edge", "@class": "Knows", "@from": "a", "@to": "#1:7", since: 2020 });

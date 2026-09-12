@@ -6,8 +6,8 @@ from collections.abc import AsyncIterator, Iterator
 
 import grpc
 import pytest
-from arcadedb_driver_grpc import InsecureChannelError, InsertStreamRequest, messages
-from arcadedb_driver_grpc.aio import _envelope_chunks, create_client
+from arcadedb_driver_grpc import InsecureChannelError, InsertStreamRequest, TimeSeriesWriteStreamRequest, messages
+from arcadedb_driver_grpc.aio import _envelope_chunks, _envelope_time_series_chunks, create_client
 from arcadedb_driver_grpc.auth import bearer_auth, password_auth
 
 from .conftest import RecordingServicer
@@ -17,6 +17,10 @@ pytestmark = pytest.mark.asyncio
 
 def _records(*rids: str) -> list[messages.GrpcRecord]:
     return [messages.GrpcRecord(rid=rid) for rid in rids]
+
+
+def _points(*types: str) -> list[messages.TimeSeriesPoint]:
+    return [messages.TimeSeriesPoint(type=t, timestamp=1) for t in types]
 
 
 async def test_raw_reaches_the_server_and_is_authenticated(
@@ -647,3 +651,206 @@ async def test_a_chunks_value_in_neither_half_of_the_union_is_rejected_before_th
     # No RPC was ever opened: the guard fired before grpc saw a single chunk.
     assert servicer.calls == []
     assert servicer.insert_chunks == []
+
+
+async def test_write_stream_returns_the_summary_whole(async_fake_server: tuple[str, RecordingServicer]) -> None:
+    # The async twin of the sync suite's `test_write_stream_returns_the_summary_whole`. A
+    # successful RPC can still drop points - asserting only that it returned would pass
+    # against a wrapper that discarded the reasons (D-M6-3).
+    target, servicer = async_fake_server
+    servicer.ts_summary = messages.TimeSeriesWriteSummary(
+        received=5, written=3, dropped=2, unknown_types=["nosuchtype"], unavailable_types=["cold"]
+    )
+    async with create_client(target) as client:
+        summary = await client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(
+                database="db", type="cpu", precision=messages.TS_PRECISION_SECONDS, chunks=iter([[]])
+            )
+        )
+
+    assert summary.written == 3
+    assert summary.dropped == 2
+    assert list(summary.unknown_types) == ["nosuchtype"]
+    assert list(summary.unavailable_types) == ["cold"]
+
+
+async def test_write_stream_sets_the_envelope_on_every_chunk(async_fake_server: tuple[str, RecordingServicer]) -> None:
+    # The async twin of the sync suite's `test_write_stream_sets_the_envelope_on_every_chunk`.
+    target, servicer = async_fake_server
+    credentials = messages.DatabaseCredentials(username="root", password="playwithdata")
+
+    async def chunks() -> AsyncIterator[list[messages.TimeSeriesPoint]]:
+        yield _points("cpu")
+        yield _points("cpu")
+
+    async with create_client(target) as client:
+        await client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(
+                database="db",
+                type="cpu",
+                precision=messages.TS_PRECISION_SECONDS,
+                chunks=chunks(),
+                credentials=credentials,
+            )
+        )
+
+    assert len(servicer.ts_chunks) == 2
+    for chunk in servicer.ts_chunks:
+        assert chunk.database == "db"
+        assert chunk.type == "cpu"
+        assert chunk.precision == messages.TS_PRECISION_SECONDS
+        assert chunk.credentials.username == "root"
+
+
+async def test_write_stream_a_sync_iterable_of_batches_is_accepted(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The async facade takes either half of `TimeSeriesWriteStreamRequest.chunks`'s
+    # declared union, the same as `insert_stream`'s.
+    target, servicer = async_fake_server
+    async with create_client(target) as client:
+        await client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(
+                database="db",
+                type="cpu",
+                precision=messages.TS_PRECISION_SECONDS,
+                chunks=[_points("cpu"), _points("cpu")],
+            )
+        )
+    assert len(servicer.ts_chunks) == 2
+
+
+async def test_write_stream_sends_zero_chunks_for_an_empty_stream(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Mirrors Task 2's TypeScript twin and the sync suite's twin of this test: an empty
+    # `chunks` sends ZERO wire chunks, unlike `insert_stream`'s single-empty-chunk special
+    # case - there is no first-chunk-only field on `TimeSeriesWriteChunk` to force it.
+    target, servicer = async_fake_server
+    async with create_client(target) as client:
+        await client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(database="db", type="cpu", precision=messages.TS_PRECISION_SECONDS, chunks=[])
+        )
+    assert servicer.ts_chunks == []
+
+
+async def test_write_stream_a_chunks_value_in_neither_half_of_the_union_is_rejected_before_the_rpc_opens(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The async twin of `insert_stream`'s equivalent guard: refused eagerly, in the
+    # caller's own frame, rather than inside `_envelope_time_series_chunks`'s generator
+    # body where grpc would swallow the TypeError and re-raise its own opaque error.
+    target, servicer = async_fake_server
+    async with create_client(target) as client:
+        with pytest.raises(TypeError, match="iterable or an async iterable"):
+            await client.time_series_write_stream(
+                TimeSeriesWriteStreamRequest(
+                    database="db",
+                    type="cpu",
+                    precision=messages.TS_PRECISION_SECONDS,
+                    chunks=object(),  # type: ignore[arg-type]  # off-contract on purpose
+                )
+            )
+    assert servicer.calls == []
+    assert servicer.ts_chunks == []
+
+
+async def test_write_stream_the_callers_async_generator_is_finalised_when_the_stream_is_abandoned() -> None:
+    # The async twin of the sync suite's finalisation test, and of
+    # `test_the_callers_async_generator_is_finalised_when_the_stream_is_abandoned` for
+    # `insert_stream`: `_aiter_chunks` (shared with `insert_stream`) forwards the close so
+    # the caller's own generator does not stay suspended forever.
+    closed = False
+
+    async def chunks() -> AsyncIterator[list[messages.TimeSeriesPoint]]:
+        nonlocal closed
+        try:
+            yield _points("a")
+            yield _points("b")
+            yield _points("c")
+        finally:
+            closed = True
+
+    source = chunks()
+    request = TimeSeriesWriteStreamRequest(
+        database="db", type="cpu", precision=messages.TS_PRECISION_SECONDS, chunks=source
+    )
+    envelope = _envelope_time_series_chunks(request)
+    await anext(envelope)
+    await envelope.aclose()
+
+    assert closed is True
+
+
+async def test_time_series_query_flattens_nothing_but_yields_each_message(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    target, servicer = async_fake_server
+    servicer.ts_query_results = [
+        messages.TimeSeriesQueryResult(type="cpu", columns=["ts", "v"], last=False),
+        messages.TimeSeriesQueryResult(type="cpu", columns=["ts", "v"], last=True, truncated=True),
+    ]
+    request = messages.TimeSeriesQueryRequest(database="db", type="cpu")
+    async with create_client(target) as client:
+        results = [r async for r in client.time_series_query(request)]
+
+    assert [r.last for r in results] == [False, True]
+    assert results[1].truncated is True
+
+
+async def test_time_series_query_through_the_handle_is_bound_to_the_transaction(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    async with create_client(target) as client, client.transaction("db") as tx:
+        results = [r async for r in tx.time_series_query(messages.TimeSeriesQueryRequest(type="cpu"))]
+    assert results == []
+    sent = servicer.ts_query_requests[0]
+    assert sent.transaction.transaction_id == "tx-42"
+    assert sent.database == "db"
+
+
+async def test_time_series_latest_through_the_handle_is_bound(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The async twin of the sync suite's `test_time_series_latest_through_the_handle_is_bound`.
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    async with create_client(target) as client, client.transaction("db") as tx:
+        await tx.time_series_latest(
+            messages.TimeSeriesLatestRequest(
+                database="somewhere-else",
+                type="cpu",
+                transaction=messages.TransactionContext(
+                    transaction_id="tx-forged",
+                    rollback=True,
+                    read_only=True,
+                    commit=True,
+                    timeout_ms=5,
+                ),
+            )
+        )
+
+    sent = servicer.ts_latest_requests[0]
+    assert sent.database == "db"
+    assert sent.transaction.transaction_id == "tx-42"
+    assert sent.transaction.rollback is False
+    assert sent.transaction.read_only is False
+    assert sent.transaction.commit is False
+    assert sent.transaction.timeout_ms == 0
+    assert sent.type == "cpu"
+
+
+async def test_the_callers_time_series_latest_request_object_is_left_unchanged(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    request = messages.TimeSeriesLatestRequest(type="cpu")
+    async with create_client(target) as client, client.transaction("db") as tx:
+        await tx.time_series_latest(request)
+
+    assert servicer.ts_latest_requests[0].database == "db"
+    assert request.database == ""
+    assert request.transaction.transaction_id == ""

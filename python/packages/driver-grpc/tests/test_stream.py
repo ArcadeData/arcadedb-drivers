@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Generator, Iterator
 from typing import cast
 
 import pytest
-from arcadedb_driver_grpc import InsertStreamRequest, create_client, messages
+from arcadedb_driver_grpc import InsertStreamRequest, TimeSeriesWriteStreamRequest, create_client, messages
 
 from .conftest import RecordingServicer
 
@@ -291,3 +291,145 @@ def test_an_async_iterable_is_rejected_before_grpc_ever_sees_it(
         client.insert_stream(InsertStreamRequest(database="db", chunks=_AsyncChunks()))
     # No RPC was ever opened: the guard fired before grpc saw a single chunk.
     assert servicer.insert_chunks == []
+
+
+def _points(*types: str) -> list[messages.TimeSeriesPoint]:
+    return [messages.TimeSeriesPoint(type=t, timestamp=1) for t in types]
+
+
+def test_write_stream_returns_the_summary_whole(fake_server: tuple[str, RecordingServicer]) -> None:
+    # A successful RPC can still drop points. Asserting only that it returned would pass
+    # against a wrapper that discarded the reasons (D-M6-3).
+    target, servicer = fake_server
+    servicer.ts_summary = messages.TimeSeriesWriteSummary(
+        received=5, written=3, dropped=2, unknown_types=["nosuchtype"], unavailable_types=["cold"]
+    )
+    with create_client(target) as client:
+        summary = client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(
+                database="db", type="cpu", precision=messages.TS_PRECISION_SECONDS, chunks=iter([[]])
+            )
+        )
+
+    assert summary.written == 3
+    assert summary.dropped == 2
+    assert list(summary.unknown_types) == ["nosuchtype"]
+    assert list(summary.unavailable_types) == ["cold"]
+
+
+def test_write_stream_sets_the_envelope_on_every_chunk(fake_server: tuple[str, RecordingServicer]) -> None:
+    # Unlike `insert_stream`'s first-chunk-only `database` mirror (a workaround for
+    # ArcadeData/arcadedb#6597, a bug specific to InsertStream/InsertContext),
+    # `TimeSeriesWriteChunk` declares no session/sequence/last fields at all - `database`,
+    # `credentials`, `type` and `precision` are simply set on EVERY chunk, the
+    # contract-faithful reading of the .proto.
+    target, servicer = fake_server
+    points = _points("cpu")
+    credentials = messages.DatabaseCredentials(username="root", password="playwithdata")
+    with create_client(target) as client:
+        client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(
+                database="db",
+                type="cpu",
+                precision=messages.TS_PRECISION_SECONDS,
+                chunks=iter([points, points]),
+                credentials=credentials,
+            )
+        )
+
+    assert len(servicer.ts_chunks) == 2
+    for chunk in servicer.ts_chunks:
+        assert chunk.database == "db"
+        assert chunk.type == "cpu"
+        assert chunk.precision == messages.TS_PRECISION_SECONDS
+        assert chunk.credentials.username == "root"
+
+
+def test_write_stream_sends_zero_chunks_for_an_empty_stream(fake_server: tuple[str, RecordingServicer]) -> None:
+    # Mirrors Task 2's TypeScript twin: unlike `insert_stream`, which special-cases an
+    # empty `chunks` into a single empty final chunk (there is a first-chunk-only
+    # `database` field that would otherwise never be sent), `TimeSeriesWriteChunk` has no
+    # such field to force that workaround, so an empty `chunks` here sends ZERO wire
+    # chunks. The server accepts this cleanly: the call does not raise and returns an
+    # all-zero `TimeSeriesWriteSummary` with all three type lists empty.
+    target, servicer = fake_server
+    with create_client(target) as client:
+        client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(database="db", type="cpu", precision=messages.TS_PRECISION_SECONDS, chunks=[])
+        )
+    assert servicer.ts_chunks == []
+
+
+def test_write_stream_an_async_iterable_is_rejected_before_grpc_ever_sees_it(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Same eager-validation split as `insert_stream`'s: the TypeError has to raise
+    # synchronously in the caller's own frame, before grpc opens the RPC and starts
+    # consuming the request iterator - otherwise grpc swallows it and re-raises an opaque
+    # `_InactiveRpcError` instead.
+    class _AsyncChunks:
+        async def __aiter__(self) -> AsyncIterator[list[messages.TimeSeriesPoint]]:
+            yield _points("cpu")
+
+    target, servicer = fake_server
+    with create_client(target) as client, pytest.raises(TypeError, match="async iterable"):
+        client.time_series_write_stream(
+            TimeSeriesWriteStreamRequest(
+                database="db", type="cpu", precision=messages.TS_PRECISION_SECONDS, chunks=_AsyncChunks()
+            )
+        )
+    assert servicer.ts_chunks == []
+
+
+def test_write_stream_the_callers_iterator_is_finalised_when_the_stream_is_abandoned() -> None:
+    # The twin of `test_the_callers_iterator_is_finalised_when_the_stream_is_abandoned`: a
+    # plain Python `for` loop never closes the iterable it consumes on early abandonment,
+    # so this wrapper must forward the close explicitly, exactly like `insert_stream`'s
+    # does - even though the TypeScript twin needs no equivalent, because a JS
+    # `for await...of` loop DOES close its iterator on abrupt completion (IteratorClose).
+    closed = False
+
+    def chunks() -> Iterator[list[messages.TimeSeriesPoint]]:
+        nonlocal closed
+        try:
+            yield _points("a")
+            yield _points("b")
+            yield _points("c")
+        finally:
+            closed = True
+
+    from arcadedb_driver_grpc.stream import _envelope_time_series_chunks
+
+    request = TimeSeriesWriteStreamRequest(
+        database="db", type="cpu", precision=messages.TS_PRECISION_SECONDS, chunks=chunks()
+    )
+    envelope = cast(Generator[messages.TimeSeriesWriteChunk, None, None], _envelope_time_series_chunks(request))
+    next(envelope)
+    envelope.close()
+    assert closed is True
+
+
+def test_time_series_query_yields_each_result_message_unflattened(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Deliberately thinner than `stream_query`: `TimeSeriesQueryResult` cannot be
+    # flattened the way `QueryResult` batches are, because `truncated`/`last` are
+    # per-message and a raw answer's `rows` differ in shape from an aggregated answer's
+    # `buckets`.
+    target, servicer = fake_server
+    servicer.ts_query_results = [
+        messages.TimeSeriesQueryResult(type="cpu", columns=["ts", "v"], last=False),
+        messages.TimeSeriesQueryResult(type="cpu", columns=["ts", "v"], last=True, truncated=True),
+    ]
+    with create_client(target) as client:
+        results = list(client.time_series_query(messages.TimeSeriesQueryRequest(database="db", type="cpu")))
+
+    assert [r.last for r in results] == [False, True]
+    assert results[1].truncated is True
+
+
+def test_time_series_query_an_empty_stream_yields_nothing(fake_server: tuple[str, RecordingServicer]) -> None:
+    target, servicer = fake_server
+    servicer.ts_query_results = []
+    with create_client(target) as client:
+        assert list(client.time_series_query(messages.TimeSeriesQueryRequest(database="db", type="cpu"))) == []

@@ -6,8 +6,8 @@ Two hand-written facades over one generated layer, as `python/CLAUDE.md` documen
 The reasoning behind each wrapper is repeated here rather than cross-referenced,
 deliberately: a reader of this module should not have to open `stream.py` and
 `transaction.py` to learn what the contract is. What IS shared with the sync facade is
-the code that has no I/O in it at all - `_build_chunk` and the `_EndOfStream` sentinel -
-because only the *iteration* genuinely differs between the two.
+the code that has no I/O in it at all - `_build_chunk`, `_build_time_series_chunk` and the
+`_EndOfStream` sentinel - because only the *iteration* genuinely differs between the two.
 """
 
 from __future__ import annotations
@@ -24,7 +24,14 @@ from ._generated import arcadedb_server_pb2 as messages
 from ._generated import arcadedb_server_pb2_grpc as _pb2_grpc
 from .auth import Auth, async_interceptors
 from .errors import InsecureChannelError
-from .stream import _END_OF_STREAM, InsertStreamRequest, _build_chunk, _EndOfStream
+from .stream import (
+    _END_OF_STREAM,
+    InsertStreamRequest,
+    TimeSeriesWriteStreamRequest,
+    _build_chunk,
+    _build_time_series_chunk,
+    _EndOfStream,
+)
 
 if TYPE_CHECKING:
     # `ArcadeDbServiceAsyncStub` exists ONLY in the generated .pyi - mypy-protobuf models
@@ -52,7 +59,11 @@ _Request = TypeVar(
     messages.VectorSearchRequest,
     messages.HybridSearchRequest,
     messages.FullTextSearchRequest,
+    messages.TimeSeriesQueryRequest,
+    messages.TimeSeriesLatestRequest,
 )
+
+_Row = TypeVar("_Row")
 
 
 async def _stream_query(
@@ -76,19 +87,52 @@ async def _stream_query(
             yield record
 
 
+async def _time_series_query(
+    raw: ArcadeDbServiceAsyncStub,
+    request: messages.TimeSeriesQueryRequest,
+    *,
+    timeout: float | None = None,
+) -> AsyncIterator[messages.TimeSeriesQueryResult]:
+    """Streams a time-series answer message by message.
+
+    Wraps the server-streaming `TimeSeriesQuery`. Deliberately THINNER than `_stream_query`
+    above, which flattens `QueryResult` batches into individual `GrpcRecord`s:
+    `TimeSeriesQueryResult` cannot be flattened the same way. `truncated` and `last` are
+    carried per-message (`truncated` is only meaningful on the message where `last` is
+    true), and a raw answer's `rows` versus an aggregated answer's `buckets` are shaped
+    differently. Flattening either away would throw away the information a caller needs to
+    tell "the stream ended" from "the stream ended early because of `limit`" - so this
+    yields the messages exactly as the server sent them.
+
+    Also reachable, bound to an open transaction, as
+    `AsyncTransactionHandle.time_series_query` below, since `TimeSeriesQueryRequest`
+    carries a `transaction` field (issue #7370): a query naming an open transaction runs on
+    that transaction's own thread and observes its uncommitted points, where a query with
+    no transaction runs on a gRPC worker and sees only committed data.
+    """
+    async for result in raw.TimeSeriesQuery(request, timeout=timeout):
+        yield result
+
+
 async def _aiter_chunks(
-    chunks: Iterable[Sequence[messages.GrpcRecord]] | AsyncIterable[Sequence[messages.GrpcRecord]],
-) -> AsyncGenerator[Sequence[messages.GrpcRecord], None]:
-    """Normalises either half of `InsertStreamRequest.chunks` into one async source.
+    chunks: Iterable[Sequence[_Row]] | AsyncIterable[Sequence[_Row]],
+) -> AsyncGenerator[Sequence[_Row], None]:
+    """Normalises either half of a `chunks` union (`InsertStreamRequest.chunks` or
+    `TimeSeriesWriteStreamRequest.chunks`) into one async source.
 
     The async facade accepts BOTH halves of the declared union, unlike the sync facade,
     which genuinely cannot consume the async half and rejects it eagerly with a message
     pointing here. A caller who already has a list should not have to wrap it in an async
     generator just to reach this facade.
 
-    The parameter is `AsyncIterable`, not `AsyncIterator`, because that is what
-    `InsertStreamRequest.chunks` declares: an object with `__aiter__` but no `__anext__`
-    of its own is a legitimate caller value, and narrowing this would reject it.
+    Generic over the row type (`_Row`) rather than duplicated per caller: the normalisation
+    and closing logic below has no dependency on what a "row batch" contains, and it is
+    exactly the closing behaviour - subtle enough that `insert_stream`'s own tests exist to
+    pin it - that duplicating this function per message type would risk letting drift.
+
+    The parameter is `AsyncIterable`, not `AsyncIterator`, because that is what both
+    `chunks` fields declare: an object with `__aiter__` but no `__anext__` of its own is a
+    legitimate caller value, and narrowing this would reject it.
 
     Both branches FORWARD THE CLOSE to the source they were handed, and that is the whole
     reason this is a `try/finally` rather than two plain loops. `_envelope_chunks` closes
@@ -194,6 +238,40 @@ async def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Asy
                 return
             current = nxt
             seq += 1
+    finally:
+        await source.aclose()
+
+
+async def _envelope_time_series_chunks(
+    request: TimeSeriesWriteStreamRequest,
+) -> AsyncGenerator[messages.TimeSeriesWriteChunk, None]:
+    """Turns `request.chunks` into wire `TimeSeriesWriteChunk`s.
+
+    No session/sequence/last envelope here, unlike `_envelope_chunks` above:
+    `TimeSeriesWriteChunk` declares no such fields, so `database`, `credentials`, `type` and
+    `precision` are simply set on every chunk (see `stream._build_time_series_chunk`) and no
+    one-element lookahead is needed to know which chunk is last.
+
+    The `try/finally` still matters even without that lookahead: `source` (an async
+    generator, `_aiter_chunks`'s own return value) must be closed if this generator is
+    abandoned early - the RPC aborts mid-stream, or the caller stops consuming - otherwise
+    the caller's own generator is left suspended and any `finally` they wrote around it
+    (closing a file handle, a cursor) never runs. `async for` alone does not close its
+    source on early exit, which is exactly the hazard `_aiter_chunks`'s own docstring
+    documents.
+
+    Carries no eager-validation split of its own, for the same reason `_envelope_chunks`
+    above does not: a `chunks` value in neither half of the declared union still has to be
+    refused, and refusing it here (inside an async generator whose body does not run until
+    grpc pulls the first chunk) would let grpc swallow the `TypeError` and re-raise its own
+    opaque error instead. The check lives in
+    `AsyncArcadeDBGrpcClient.time_series_write_stream`, a plain `async def` that raises in
+    the caller's own frame.
+    """
+    source = _aiter_chunks(request.chunks)
+    try:
+        async for points in source:
+            yield _build_time_series_chunk(request, points)
     finally:
         await source.aclose()
 
@@ -330,6 +408,38 @@ class AsyncTransactionHandle:
         metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> messages.FullTextSearchResponse:
         return await self._raw.FullTextSearch(self._bind(request), timeout=timeout, metadata=metadata)
+
+    def time_series_query(
+        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+    ) -> AsyncIterator[messages.TimeSeriesQueryResult]:
+        """Streams a bound time-series answer message by message: `async for r in
+        tx.time_series_query(...)`.
+
+        A plain `def` returning the async generator `_time_series_query` produces, rather
+        than an `async def` that re-yields it - the same spelling `stream_query` above
+        uses, and for the same reason: the caller gets the same directly-`async for`-able
+        object either way, and `_bind` runs eagerly at the call rather than lazily on the
+        first pull. `TimeSeriesQueryRequest` carries a `transaction` field (issue #7370: a
+        query naming an open transaction runs on that transaction's own thread and observes
+        its uncommitted points), the same reason `stream_query` is offered here.
+        """
+        return _time_series_query(self._raw, self._bind(request), timeout=timeout)
+
+    async def time_series_latest(
+        self,
+        request: messages.TimeSeriesLatestRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.TimeSeriesLatestResponse:
+        """Reads the latest sample bound to this transaction.
+
+        `TimeSeriesLatestRequest` also carries a `transaction` field, for the same #7370
+        reason as `time_series_query` above - but `TimeSeriesLatest` is unary, so there is
+        no batching or flattening for a wrapper to own, and this is bound directly through
+        `self._raw.TimeSeriesLatest` rather than through a stream-shaped helper.
+        """
+        return await self._raw.TimeSeriesLatest(self._bind(request), timeout=timeout, metadata=metadata)
 
 
 class AsyncTransaction:
@@ -536,6 +646,79 @@ class AsyncArcadeDBGrpcClient:
                 f"not {type(request.chunks).__name__}."
             )
         return await self.raw.InsertStream(_envelope_chunks(request, str(uuid.uuid4())), timeout=timeout)
+
+    def time_series_query(
+        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+    ) -> AsyncIterator[messages.TimeSeriesQueryResult]:
+        """Streams a time-series answer message by message.
+
+        `async for result in client.time_series_query(...)`: the return value is an async
+        generator, not a coroutine, so it is iterated directly rather than awaited first.
+
+        Deliberately THINNER than `stream_query` above, which flattens `QueryResult`
+        batches into individual `GrpcRecord`s: `TimeSeriesQueryResult` cannot be flattened
+        the same way. `truncated` and `last` are carried per-message (`truncated` is only
+        meaningful on the message where `last` is true), and a raw answer's `rows` versus
+        an aggregated answer's `buckets` are shaped differently. Flattening either away
+        would throw away the information a caller needs to tell "the stream ended" from
+        "the stream ended early because of `limit`" - so this yields the messages exactly
+        as the server sent them.
+
+        Also reachable, bound to an open transaction, as
+        `AsyncTransactionHandle.time_series_query`, since `TimeSeriesQueryRequest` carries a
+        `transaction` field (issue #7370).
+        """
+        return _time_series_query(self.raw, request, timeout=timeout)
+
+    async def time_series_write_stream(
+        self, request: TimeSeriesWriteStreamRequest, *, timeout: float | None = None
+    ) -> messages.TimeSeriesWriteSummary:
+        """Streams points to the server in chunks and returns the server's
+        `TimeSeriesWriteSummary`.
+
+        Sets `database`, `credentials`, `type` and `precision` on EVERY wire chunk - unlike
+        `insert_stream`'s first-chunk-only `database` mirror, `TimeSeriesWriteChunk` has no
+        session/sequence/last fields forcing that special case (see
+        `TimeSeriesWriteStreamRequest` in `stream.py`).
+
+        `request.chunks` may be a sync OR an async iterable here - both halves of the
+        declared union work, unlike on the sync facade.
+
+        An empty `request.chunks` sends ZERO wire chunks, rather than `insert_stream`'s
+        single-empty-chunk special case. What the server does with a stream that never told
+        it `database`, `type` or `precision` is now MEASURED against a real server, not
+        guessed at: it does NOT raise. The awaited call is accepted cleanly and returns an
+        all-zero `TimeSeriesWriteSummary` - `received == written == dropped == 0`, with
+        `unknown_types`, `non_time_series_types` and `unavailable_types` all empty. This
+        wrapper still invents nothing; it hands back whatever summary the server sent.
+
+        Returns the server's `TimeSeriesWriteSummary` WHOLE (D-M6-3): `received`,
+        `written`, `dropped`, `unknown_types`, `non_time_series_types`, `unavailable_types`
+        and `execution_time_ms` all survive unchanged. A write is NOT atomic - each
+        measurement's batch commits its own shard transaction as it is appended - so a
+        SUCCESSFUL call can still report `written < received`. A caller who checks only
+        that the awaited call did not raise has not checked that its data landed; this
+        wrapper never reduces the summary to a boolean or a count.
+
+        NOT available on `AsyncTransactionHandle`: `TimeSeriesWriteChunk` carries no
+        `transaction` field on the wire at all, so there is nothing to bind.
+        `TimeSeriesWrite` (the unary write) needs no wrapper either - its request has no
+        `transaction` field, so `raw.TimeSeriesWrite` already works unassisted.
+
+        A `chunks` value in NEITHER half of the union is rejected here, before the RPC is
+        opened - the same eager guard `insert_stream` above carries, and for the same
+        reason: this method being a plain `async def` is what makes the check run in the
+        caller's own frame, rather than inside `_envelope_time_series_chunks` - an async
+        generator whose body does not run until grpc pulls the first chunk, where the
+        `TypeError` would otherwise be swallowed and replaced with grpc's own opaque
+        `_InactiveRpcError`.
+        """
+        if not isinstance(request.chunks, Iterable | AsyncIterable):
+            raise TypeError(
+                "time_series_write_stream: `chunks` must be an iterable or an async iterable of point batches, "
+                f"not {type(request.chunks).__name__}."
+            )
+        return await self.raw.TimeSeriesWriteStream(_envelope_time_series_chunks(request), timeout=timeout)
 
     def transaction(self, database: str) -> AsyncTransaction:
         """Runs a server-side transaction: `async with client.transaction("db") as tx:`."""

@@ -8,6 +8,13 @@ import type { ArcadeDBServer } from "../packages/driver/src/index.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 import { bearerAuth, createClient as createGrpcClient, passwordAuth } from "../packages/driver-grpc/src/index.js";
 import type { ArcadeDBGrpcClient, GrpcRecordSchema, GrpcValueSchema, InsertSummarySchema, Interceptor, QueryResultSchema } from "../packages/driver-grpc/src/index.js";
+// Imported from the package entry point, not from the version-stamped generated file: this is the
+// path the README documents to callers (`import { TimeSeriesPrecision } from "@arcadedb/driver-grpc"`),
+// `src/index.ts` re-exports the whole generated module for exactly that reason, and naming the
+// generated file here would both leave the documented path unexercised and need rewriting at every
+// contract adoption.
+import { TimeSeriesPrecision } from "../packages/driver-grpc/src/index.js";
+import type { TimeSeriesPoint } from "../packages/driver-grpc/src/index.js";
 
 // Image pin: kept independent of `e2e/data-plane.test.ts`'s pin, even though both currently name
 // the same tag. They agree because each is pinned to the release its own contract came from, not
@@ -55,6 +62,11 @@ function stringProperty(value: string): GrpcValueInit {
 function readStringProperty(record: QueryResultRecord, key: string): string | undefined {
   const value = record.properties[key];
   return value?.kind.case === "stringValue" ? value.kind.value : undefined;
+}
+
+/** Builds a `GrpcValue`-shaped `double_value` entry, for a `TimeSeriesPoint.fields` map. */
+function doubleProperty(value: number): GrpcValueInit {
+  return { kind: { case: "doubleValue", value } };
 }
 
 /** Composes a call-recording wrapper around an auth interceptor: every outgoing RPC's method
@@ -408,5 +420,103 @@ describe("VectorSearch, HybridSearch and FullTextSearch: through raw outside a t
 
     expect(fulltext.results.length).toBeGreaterThan(0);
     expect(fulltext.count).toBe(2);
+  });
+});
+
+// The exact DDL was worked out against a live container before any test file was touched - see
+// task-4-report.md for the transcript. `CREATE TIMESERIES TYPE` takes an inline TIMESTAMP column
+// plus optional `TAGS (...)`/`FIELDS (...)` clauses in the SAME statement; there is no other way
+// to declare a type's tag/field columns. Two things that look like they should work do not: a
+// plain `CREATE PROPERTY` after the type exists adds the column to the schema listing, but the
+// column is never populated by a time-series write, and neither is `ALTER PROPERTY ... CUSTOM
+// role = "FIELD"` on top of it - both were tried against this server and both silently drop the
+// column's values rather than raising. Only naming the column inside `CREATE TIMESERIES TYPE`
+// itself, via `TAGS (...)`/`FIELDS (...)`, makes it a real tag/field column.
+const TS_TYPE = "GrpcTsPoint";
+
+describe("TimeSeriesWriteStream, TimeSeriesQuery and TimeSeriesLatest", () => {
+  beforeAll(async () => {
+    const httpDb = httpRoot.db(DB_NAME);
+    await httpDb.command({
+      language: "sql",
+      command: `CREATE TIMESERIES TYPE ${TS_TYPE} TIMESTAMP ts TAGS (sensor STRING) FIELDS (value DOUBLE)`,
+    });
+  }, 30_000);
+
+  it("a MULTI-CHUNK timeSeriesWriteStream reports written == the total points sent and dropped == 0", async () => {
+    // Multi-chunk is the point: it is the only thing that can prove the per-chunk envelope
+    // (database/type/precision repeated on every wire chunk, per D-M6-4) actually works end to
+    // end - a unit test against a fake servicer cannot prove that, because the fake is not the
+    // server.
+    async function* chunks(): AsyncGenerator<TimeSeriesPoint[]> {
+      yield [
+        { timestamp: 1_000n, tags: { sensor: stringProperty("A") }, fields: { value: doubleProperty(1.1) } },
+        { timestamp: 2_000n, tags: { sensor: stringProperty("A") }, fields: { value: doubleProperty(1.2) } },
+      ] as TimeSeriesPoint[];
+      yield [
+        { timestamp: 3_000n, tags: { sensor: stringProperty("B") }, fields: { value: doubleProperty(2.1) } },
+      ] as TimeSeriesPoint[];
+    }
+
+    const summary = await rootGrpc.timeSeriesWriteStream({
+      database: DB_NAME,
+      type: TS_TYPE,
+      precision: TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+      chunks: chunks(),
+    });
+
+    expect(summary.received).toBe(3n);
+    expect(summary.written).toBe(3n);
+    expect(summary.dropped).toBe(0n);
+  });
+
+  it("an empty timeSeriesWriteStream sends zero wire chunks and the server answers with an all-zero summary, not an error", async () => {
+    // Established empirically against a real server (see task-4-report.md): a stream that never
+    // sends a single wire chunk - so the server never learns database, type or precision - is
+    // accepted cleanly rather than rejected. This test is the measurement the doc comments and
+    // both READMEs now cite for that claim: the call does NOT raise, and the summary comes back
+    // all-zero, counts and type lists alike.
+    async function* noChunks(): AsyncGenerator<TimeSeriesPoint[]> {
+      // Yields nothing - zero wire chunks.
+    }
+
+    const summary = await rootGrpc.timeSeriesWriteStream({
+      database: DB_NAME,
+      type: TS_TYPE,
+      precision: TimeSeriesPrecision.TS_PRECISION_MILLISECONDS,
+      chunks: noChunks(),
+    });
+
+    expect(summary.received).toBe(0n);
+    expect(summary.written).toBe(0n);
+    expect(summary.dropped).toBe(0n);
+    expect(summary.unknownTypes).toEqual([]);
+    expect(summary.nonTimeSeriesTypes).toEqual([]);
+    expect(summary.unavailableTypes).toEqual([]);
+  });
+
+  it("timeSeriesQuery returns the points written above, non-empty", async () => {
+    const results = [];
+    for await (const result of rootGrpc.timeSeriesQuery({ database: DB_NAME, type: TS_TYPE })) {
+      results.push(result);
+    }
+
+    const rows = results.flatMap((result) => result.rows);
+    expect(rows.length).toBeGreaterThan(0);
+  });
+
+  it("timeSeriesLatest, bound to an open transaction handle, returns the most recently written point", async () => {
+    // No top-level `timeSeriesLatest` alias exists on `ArcadeDBGrpcClient` (see index.ts) - the
+    // only wrapped way to reach it is through a transaction handle, which is what this test
+    // exercises; `timeSeriesQuery` above already covers the top-level (non-transactional) path.
+    const latest = await rootGrpc.transaction(DB_NAME, async (tx) => tx.timeSeriesLatest({ type: TS_TYPE }));
+
+    expect(latest.found).toBe(true);
+    const tsColumn = latest.columns.indexOf("ts");
+    expect(tsColumn).toBeGreaterThanOrEqual(0);
+    const tsValue = latest.latest?.values[tsColumn];
+    expect(tsValue?.kind.case).toBe("int64Value");
+    // The most recently written point above carries timestamp 3000.
+    expect(tsValue?.kind.case === "int64Value" ? tsValue.kind.value : undefined).toBe(3_000n);
   });
 });

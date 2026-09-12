@@ -35,6 +35,9 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self.vector_requests: list[pb2.VectorSearchRequest] = []
         self.hybrid_requests: list[pb2.HybridSearchRequest] = []
         self.fulltext_requests: list[pb2.FullTextSearchRequest] = []
+        self.ts_chunks: list[pb2.TimeSeriesWriteChunk] = []
+        self.ts_query_requests: list[pb2.TimeSeriesQueryRequest] = []
+        self.ts_latest_requests: list[pb2.TimeSeriesLatestRequest] = []
         # `time_remaining()` is how a call's `timeout=` reaching the server is observed:
         # `grpc._server`'s sync `ServicerContext` returns a huge sentinel float (~9.2e18)
         # when no deadline was set and the actual remaining seconds otherwise; `grpc.aio`'s
@@ -55,6 +58,9 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self.commit_raises = False
         self.rollback_raises = False
         self.stream_batches: list[list[str]] = [["a", "b"], ["c"]]
+        self.ts_summary = pb2.TimeSeriesWriteSummary()
+        self.ts_query_results: list[pb2.TimeSeriesQueryResult] = []
+        self.ts_latest_response = pb2.TimeSeriesLatestResponse()
 
     def _record(self, name: str, context: grpc.ServicerContext) -> None:
         self.calls.append(name)
@@ -102,6 +108,28 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
             self.insert_chunks.append(chunk)
             received += len(chunk.rows)
         return pb2.InsertSummary(received=received, inserted=received)
+
+    def TimeSeriesWriteStream(
+        self, request_iterator: Iterator[pb2.TimeSeriesWriteChunk], context: grpc.ServicerContext
+    ) -> pb2.TimeSeriesWriteSummary:
+        self._record("TimeSeriesWriteStream", context)
+        for chunk in request_iterator:
+            self.ts_chunks.append(chunk)
+        return self.ts_summary
+
+    def TimeSeriesQuery(
+        self, request: pb2.TimeSeriesQueryRequest, context: grpc.ServicerContext
+    ) -> Iterator[pb2.TimeSeriesQueryResult]:
+        self._record("TimeSeriesQuery", context)
+        self.ts_query_requests.append(request)
+        yield from self.ts_query_results
+
+    def TimeSeriesLatest(
+        self, request: pb2.TimeSeriesLatestRequest, context: grpc.ServicerContext
+    ) -> pb2.TimeSeriesLatestResponse:
+        self._record("TimeSeriesLatest", context)
+        self.ts_latest_requests.append(request)
+        return self.ts_latest_response
 
     def BeginTransaction(
         self, request: pb2.BeginTransactionRequest, context: grpc.ServicerContext

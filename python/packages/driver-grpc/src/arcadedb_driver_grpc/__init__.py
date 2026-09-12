@@ -12,9 +12,11 @@ from ._generated import arcadedb_server_pb2_grpc as _pb2_grpc
 from .aio import AsyncArcadeDBGrpcClient, AsyncTransaction, AsyncTransactionHandle
 from .auth import Auth, bearer_auth, password_auth, sync_interceptors
 from .errors import InsecureChannelError
-from .stream import InsertStreamRequest
+from .stream import InsertStreamRequest, TimeSeriesWriteStreamRequest
 from .stream import insert_stream as _insert_stream
 from .stream import stream_query as _stream_query
+from .stream import time_series_query as _time_series_query
+from .stream import time_series_write_stream as _time_series_write_stream
 from .transaction import Transaction, TransactionHandle
 
 __version__ = "0.1.0"
@@ -27,6 +29,7 @@ __all__ = [
     "Auth",
     "InsecureChannelError",
     "InsertStreamRequest",
+    "TimeSeriesWriteStreamRequest",
     "Transaction",
     "TransactionHandle",
     "__version__",
@@ -64,6 +67,31 @@ class ArcadeDBGrpcClient:
     def insert_stream(self, request: InsertStreamRequest, *, timeout: float | None = None) -> messages.InsertSummary:
         """Streams rows to the server in chunks. See `stream.insert_stream`."""
         return _insert_stream(self.raw, request, timeout=timeout)
+
+    def time_series_query(
+        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+    ) -> Iterator[messages.TimeSeriesQueryResult]:
+        """Streams a time-series answer message by message. See `stream.time_series_query`.
+
+        Also reachable, bound to an open transaction, as `TransactionHandle.time_series_query`
+        (see `transaction.py`), since `TimeSeriesQueryRequest` carries a `transaction` field.
+        """
+        return _time_series_query(self.raw, request, timeout=timeout)
+
+    def time_series_write_stream(
+        self, request: TimeSeriesWriteStreamRequest, *, timeout: float | None = None
+    ) -> messages.TimeSeriesWriteSummary:
+        """Streams points to `TimeSeriesWriteStream`, one wire chunk per input batch. See
+        `stream.time_series_write_stream`.
+
+        `TimeSeriesWrite` (the unary write) and `TimeSeriesLatest` carry no top-level
+        wrapper of their own: `TimeSeriesWrite`'s request has no `transaction` field, so
+        `raw.TimeSeriesWrite` already works unassisted, and `TimeSeriesLatest` is reachable
+        only bound to a transaction, as `TransactionHandle.time_series_latest` - a bare stub
+        drives both of those fine, so wrapping either would be a named passthrough adding
+        nothing.
+        """
+        return _time_series_write_stream(self.raw, request, timeout=timeout)
 
     def transaction(self, database: str) -> Transaction:
         """Runs a server-side transaction: `with client.transaction("db") as tx:`."""

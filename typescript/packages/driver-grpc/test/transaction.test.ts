@@ -11,6 +11,8 @@ import type {
   HybridSearchRequestSchema,
   RollbackTransactionRequestSchema,
   RollbackTransactionResponseSchema,
+  TimeSeriesLatestRequestSchema,
+  TimeSeriesQueryRequestSchema,
   VectorSearchRequestSchema,
 } from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { createTransaction } from "../src/transaction.js";
@@ -25,6 +27,8 @@ type ExecuteQueryRequest = MessageInitShape<typeof ExecuteQueryRequestSchema>;
 type VectorSearchRequest = MessageInitShape<typeof VectorSearchRequestSchema>;
 type HybridSearchRequest = MessageInitShape<typeof HybridSearchRequestSchema>;
 type FullTextSearchRequest = MessageInitShape<typeof FullTextSearchRequestSchema>;
+type TimeSeriesQueryRequest = MessageInitShape<typeof TimeSeriesQueryRequestSchema>;
+type TimeSeriesLatestRequest = MessageInitShape<typeof TimeSeriesLatestRequestSchema>;
 
 /** Records every call made through a fake `raw` client, mimicking the subset of
  * `Client<typeof ArcadeDbService>` the transaction wrapper touches. */
@@ -54,6 +58,8 @@ function mockRaw(
     vectorSearch: VectorSearchRequest[];
     hybridSearch: HybridSearchRequest[];
     fullTextSearch: FullTextSearchRequest[];
+    timeSeriesQuery: TimeSeriesQueryRequest[];
+    timeSeriesLatest: TimeSeriesLatestRequest[];
   } = {
     begin: [],
     commit: [],
@@ -63,6 +69,8 @@ function mockRaw(
     vectorSearch: [],
     hybridSearch: [],
     fullTextSearch: [],
+    timeSeriesQuery: [],
+    timeSeriesLatest: [],
   };
 
   const raw = {
@@ -104,6 +112,14 @@ function mockRaw(
     fullTextSearch: async (request: FullTextSearchRequest) => {
       calls.fullTextSearch.push(request);
       return { indexName: "", similarity: "", count: 0, results: [] };
+    },
+    timeSeriesQuery: (request: TimeSeriesQueryRequest) => {
+      calls.timeSeriesQuery.push(request);
+      return (async function* () {})();
+    },
+    timeSeriesLatest: async (request: TimeSeriesLatestRequest) => {
+      calls.timeSeriesLatest.push(request);
+      return { type: "", columns: [], found: false, latest: undefined };
     },
     bulkInsert: async () => ({
       received: 0n,
@@ -425,6 +441,79 @@ describe("transaction", () => {
       expect(calls.hybridSearch[0]?.transaction?.transactionId).toBe("tx-abc");
       expect(calls.fullTextSearch[0]?.database).toBe("mydb");
       expect(calls.fullTextSearch[0]?.transaction?.transactionId).toBe("tx-abc");
+    });
+  });
+
+  describe("time series through the handle", () => {
+    it("binds timeSeriesQuery: forces database/transaction and clears caller-supplied transaction flags (anti-hijack)", async () => {
+      const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+      const transaction = createTransaction(raw);
+      const request: TimeSeriesQueryRequest = {
+        database: "somewhere-else",
+        type: "cpu",
+        transaction: {
+          transactionId: "hijacked-tx-id",
+          database: "somewhere-else",
+          rollback: true,
+          readOnly: true,
+          commit: true,
+          timeoutMs: 5n,
+        },
+      };
+
+      await transaction("mydb", async (tx) => {
+        const results = tx.timeSeriesQuery(request);
+        for (let step = await results.next(); !step.done; step = await results.next());
+      });
+
+      const sent = calls.timeSeriesQuery[0];
+      expect(sent?.database).toBe("mydb");
+      expect(sent?.transaction?.transactionId).toBe("tx-abc");
+      // `bindTransaction` replaces `transaction` wholesale with a fresh `{ transactionId,
+      // database }` object rather than merging into the caller's, so the caller's inline flags
+      // are simply absent here - never the caller's `true`/`5n`.
+      expect(sent?.transaction?.rollback).toBeFalsy();
+      expect(sent?.transaction?.readOnly).toBeFalsy();
+      expect(sent?.transaction?.commit).toBeFalsy();
+      expect(sent?.transaction?.timeoutMs ?? 0n).toBe(0n);
+      // The payload the caller actually cares about is untouched.
+      expect(sent?.type).toBe("cpu");
+      // The caller's own object is left unmutated.
+      expect(request.database).toBe("somewhere-else");
+      expect(request.transaction?.transactionId).toBe("hijacked-tx-id");
+    });
+
+    it("binds timeSeriesLatest: forces database/transaction and clears caller-supplied transaction flags (anti-hijack)", async () => {
+      const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+      const transaction = createTransaction(raw);
+      const request: TimeSeriesLatestRequest = {
+        database: "somewhere-else",
+        type: "cpu",
+        transaction: {
+          transactionId: "hijacked-tx-id",
+          database: "somewhere-else",
+          rollback: true,
+          readOnly: true,
+          commit: true,
+          timeoutMs: 5n,
+        },
+      };
+
+      await transaction("mydb", async (tx) => {
+        await tx.timeSeriesLatest(request);
+      });
+
+      const sent = calls.timeSeriesLatest[0];
+      expect(sent?.database).toBe("mydb");
+      expect(sent?.transaction?.transactionId).toBe("tx-abc");
+      expect(sent?.transaction?.rollback).toBeFalsy();
+      expect(sent?.transaction?.readOnly).toBeFalsy();
+      expect(sent?.transaction?.commit).toBeFalsy();
+      expect(sent?.transaction?.timeoutMs ?? 0n).toBe(0n);
+      expect(sent?.type).toBe("cpu");
+      // The caller's own object is left unmutated.
+      expect(request.database).toBe("somewhere-else");
+      expect(request.transaction?.transactionId).toBe("hijacked-tx-id");
     });
   });
 });

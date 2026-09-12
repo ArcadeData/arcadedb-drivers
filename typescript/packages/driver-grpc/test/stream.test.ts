@@ -6,12 +6,20 @@ import {
   QueryResultSchema,
   StreamQueryRequest_RetrievalMode,
   StreamQueryRequestSchema,
+  TimeSeriesPrecision,
+  TimeSeriesQueryResultSchema,
+  TimeSeriesWriteChunkSchema,
+  TimeSeriesWriteSummarySchema,
 } from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
-import { createInsertStream, createStreamQuery } from "../src/stream.js";
+import type { TimeSeriesPoint } from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+import { createInsertStream, createStreamQuery, createTimeSeriesQuery, createTimeSeriesWriteStream } from "../src/stream.js";
 
 type QueryResult = MessageShape<typeof QueryResultSchema>;
 type InsertChunk = MessageInitShape<typeof InsertChunkSchema>;
 type InsertSummary = MessageShape<typeof InsertSummarySchema>;
+type TimeSeriesWriteChunkInit = MessageInitShape<typeof TimeSeriesWriteChunkSchema>;
+type TimeSeriesWriteSummary = MessageShape<typeof TimeSeriesWriteSummarySchema>;
+type TimeSeriesQueryResult = MessageShape<typeof TimeSeriesQueryResultSchema>;
 
 /** Builds a minimal `QueryResult`-shaped object, only the fields these tests exercise. */
 function queryResult(records: QueryResult["records"]): QueryResult {
@@ -266,5 +274,145 @@ describe("insertStream", () => {
     await insertStream({ database: "mydb", chunks: rows() });
 
     expect(cleanedUp).toBe(true);
+  });
+});
+
+describe("timeSeriesWriteStream", () => {
+  it("sends one wire chunk per input batch, carrying database/type/precision and the points unaltered", async () => {
+    const sent: TimeSeriesWriteChunkInit[] = [];
+    const raw = {
+      timeSeriesWriteStream: async (chunks: AsyncIterable<TimeSeriesWriteChunkInit>): Promise<TimeSeriesWriteSummary> => {
+        for await (const chunk of chunks) sent.push(chunk);
+        return { received: 3n, written: 3n, dropped: 0n, unknownTypes: [], nonTimeSeriesTypes: [], unavailableTypes: [], executionTimeMs: 1n };
+      },
+    };
+    const writeStream = createTimeSeriesWriteStream(raw);
+
+    const firstBatch = [{ type: "cpu", timestamp: 1n }] as TimeSeriesPoint[];
+    const secondBatch = [{ type: "cpu", timestamp: 2n }, { type: "cpu", timestamp: 3n }] as TimeSeriesPoint[];
+
+    await writeStream({
+      database: "db",
+      type: "cpu",
+      precision: TimeSeriesPrecision.TS_PRECISION_SECONDS,
+      chunks: (async function* () {
+        yield firstBatch;
+        yield secondBatch;
+      })(),
+    });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[0]?.points).toBe(firstBatch);
+    expect(sent[1]?.points).toBe(secondBatch);
+  });
+
+  it("returns the write summary whole, including a partial success (D-M6-3)", async () => {
+    // A SUCCESSFUL RPC can still drop points. A test asserting only that the call
+    // resolved would pass against a wrapper that threw the reasons away, which is
+    // the failure mode this assertion exists for.
+    const raw = {
+      timeSeriesWriteStream: async () => ({
+        received: 5n, written: 3n, dropped: 2n,
+        unknownTypes: ["nosuchtype"], nonTimeSeriesTypes: [], unavailableTypes: ["cold"],
+        executionTimeMs: 7n,
+      }),
+    };
+    const writeStream = createTimeSeriesWriteStream(raw as never);
+
+    const summary = await writeStream({
+      database: "db", type: "cpu", precision: TimeSeriesPrecision.TS_PRECISION_SECONDS,
+      chunks: (async function* () { yield [] as TimeSeriesPoint[]; })(),
+    });
+
+    expect(summary.written).toBe(3n);
+    expect(summary.dropped).toBe(2n);
+    expect(summary.unknownTypes).toEqual(["nosuchtype"]);
+    expect(summary.unavailableTypes).toEqual(["cold"]);
+  });
+
+  it("sends database, type and precision on EVERY chunk, not just the first (D-M6-4)", async () => {
+    const sent: TimeSeriesWriteChunkInit[] = [];
+    const raw = {
+      timeSeriesWriteStream: async (chunks: AsyncIterable<TimeSeriesWriteChunkInit>) => {
+        for await (const c of chunks) sent.push(c);
+        return { received: 2n, written: 2n, dropped: 0n };
+      },
+    };
+    const writeStream = createTimeSeriesWriteStream(raw as never);
+
+    await writeStream({
+      database: "db", type: "cpu", precision: TimeSeriesPrecision.TS_PRECISION_SECONDS,
+      chunks: (async function* () {
+        yield [{ type: "cpu", timestamp: 1n }] as TimeSeriesPoint[];
+        yield [{ type: "cpu", timestamp: 2n }] as TimeSeriesPoint[];
+      })(),
+    });
+
+    expect(sent).toHaveLength(2);
+    for (const chunk of sent) {
+      expect(chunk.database).toBe("db");
+      expect(chunk.type).toBe("cpu");
+      expect(chunk.precision).toBe(TimeSeriesPrecision.TS_PRECISION_SECONDS);
+    }
+  });
+
+  it("accepts an empty batch iterable and yields a summary rather than throwing", async () => {
+    const sent: TimeSeriesWriteChunkInit[] = [];
+    const summary: TimeSeriesWriteSummary = {
+      received: 0n, written: 0n, dropped: 0n, unknownTypes: [], nonTimeSeriesTypes: [], unavailableTypes: [], executionTimeMs: 0n,
+    };
+    const raw = {
+      timeSeriesWriteStream: async (chunks: AsyncIterable<TimeSeriesWriteChunkInit>): Promise<TimeSeriesWriteSummary> => {
+        for await (const c of chunks) sent.push(c);
+        return summary;
+      },
+    };
+    const writeStream = createTimeSeriesWriteStream(raw);
+
+    async function* noBatches(): AsyncGenerator<TimeSeriesPoint[]> {
+      // Yields nothing.
+    }
+
+    const result = await writeStream({ database: "db", type: "cpu", precision: TimeSeriesPrecision.TS_PRECISION_SECONDS, chunks: noBatches() });
+
+    expect(sent).toHaveLength(0);
+    expect(result).toBe(summary);
+  });
+});
+
+describe("timeSeriesQuery", () => {
+  it("yields each TimeSeriesQueryResult the server streams, in order, surfacing truncated and last", async () => {
+    function result(overrides: Partial<TimeSeriesQueryResult>): TimeSeriesQueryResult {
+      return {
+        $typeName: "com.arcadedb.grpc.TimeSeriesQueryResult",
+        type: "cpu",
+        columns: ["timestamp", "value"],
+        aggregations: [],
+        rows: [],
+        buckets: [],
+        runningTotalEmitted: 0n,
+        last: false,
+        truncated: false,
+        ...overrides,
+      };
+    }
+
+    async function* fakeServerStream(): AsyncGenerator<TimeSeriesQueryResult> {
+      yield result({ runningTotalEmitted: 2n, last: false });
+      yield result({ runningTotalEmitted: 5n, last: true, truncated: true });
+    }
+
+    const raw = { timeSeriesQuery: () => fakeServerStream() };
+    const timeSeriesQuery = createTimeSeriesQuery(raw);
+
+    const results: TimeSeriesQueryResult[] = [];
+    for await (const r of timeSeriesQuery({ database: "db", type: "cpu" })) {
+      results.push(r);
+    }
+
+    expect(results.map((r) => r.runningTotalEmitted)).toEqual([2n, 5n]);
+    expect(results[0]?.last).toBe(false);
+    expect(results[1]?.last).toBe(true);
+    expect(results[1]?.truncated).toBe(true);
   });
 });

@@ -262,6 +262,68 @@ def test_the_callers_vector_request_object_is_left_unchanged(
     assert request.transaction.transaction_id == ""
 
 
+def test_time_series_query_through_the_handle_is_bound_to_the_transaction(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `TimeSeriesQueryRequest` carries a `transaction` field (issue #7370), the same shape
+    # as `stream_query` above.
+    target, servicer = fake_server
+    servicer.transaction_id = "tx-42"
+    with create_client(target) as client, client.transaction("db") as tx:
+        list(tx.time_series_query(messages.TimeSeriesQueryRequest(type="cpu")))
+    sent = servicer.ts_query_requests[0]
+    assert sent.transaction.transaction_id == "tx-42"
+    assert sent.database == "db"
+
+
+def test_time_series_latest_through_the_handle_is_bound(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # `TimeSeriesLatest` is unary and carries a `transaction` field for the same #7370
+    # reason as `time_series_query` above; it is bound directly rather than through a
+    # stream-flattening wrapper. Populating the forged inline flags and asserting they are
+    # cleared distinguishes CopyFrom from MergeFrom, as the vector_search test above does.
+    target, servicer = fake_server
+    servicer.transaction_id = "tx-42"
+    with create_client(target) as client, client.transaction("db") as tx:
+        tx.time_series_latest(
+            messages.TimeSeriesLatestRequest(
+                database="somewhere-else",
+                type="cpu",
+                transaction=messages.TransactionContext(
+                    transaction_id="tx-forged",
+                    rollback=True,
+                    read_only=True,
+                    commit=True,
+                    timeout_ms=5,
+                ),
+            )
+        )
+
+    sent = servicer.ts_latest_requests[0]
+    assert sent.database == "db"
+    assert sent.transaction.transaction_id == "tx-42"
+    assert sent.transaction.rollback is False
+    assert sent.transaction.read_only is False
+    assert sent.transaction.commit is False
+    assert sent.transaction.timeout_ms == 0
+    assert sent.type == "cpu"
+
+
+def test_the_callers_time_series_latest_request_object_is_left_unchanged(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    target, servicer = fake_server
+    servicer.transaction_id = "tx-42"
+    request = messages.TimeSeriesLatestRequest(type="cpu")
+    with create_client(target) as client, client.transaction("db") as tx:
+        tx.time_series_latest(request)
+
+    assert servicer.ts_latest_requests[0].database == "db"
+    assert request.database == ""
+    assert request.transaction.transaction_id == ""
+
+
 def test_hybrid_and_fulltext_through_the_handle_are_bound(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:

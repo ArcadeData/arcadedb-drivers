@@ -2,7 +2,7 @@ import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { TransactionContextSchema } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
-import { createStreamQuery } from "./stream.js";
+import { createStreamQuery, createTimeSeriesQuery } from "./stream.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
 type RawClient = Client<typeof ArcadeDbService>;
@@ -45,6 +45,20 @@ export interface TransactionHandle {
   fullTextSearch: RawClient["fullTextSearch"];
   /** See {@link createStreamQuery}; bound to this transaction. */
   streamQuery: ReturnType<typeof createStreamQuery>;
+  /**
+   * See {@link createTimeSeriesQuery}; bound to this transaction. `TimeSeriesQueryRequest` carries
+   * a `transaction` field (issue #7370: a query naming an open transaction runs on that
+   * transaction's own thread and observes its uncommitted points; without it the read runs on a
+   * gRPC worker and sees only committed data), so this is the same shape as `streamQuery` above.
+   */
+  timeSeriesQuery: ReturnType<typeof createTimeSeriesQuery>;
+  /**
+   * `TimeSeriesLatest` also carries a `transaction` field, for the same reason as
+   * `timeSeriesQuery` above, but it is unary - there is no batching or flattening for a wrapper to
+   * own, so it is bound directly rather than through a `create*` wrapper the way
+   * `executeQuery`/`vectorSearch`/etc. are above.
+   */
+  timeSeriesLatest: RawClient["timeSeriesLatest"];
 }
 
 /**
@@ -71,6 +85,10 @@ function createHandle(raw: RawClient, database: string, transactionId: string): 
   // `streamQuery`'s ergonomic wrapper (batch flattening) is reused as-is; only the underlying raw
   // call it forwards to is bound to this transaction.
   const streamRaw: Parameters<typeof createStreamQuery>[0] = { streamQuery: bound(raw.streamQuery) };
+  // Same pattern as `streamRaw` above: `createTimeSeriesQuery`'s wrapper is reused as-is, only the
+  // underlying raw call it forwards to is bound to this transaction. Do not bind `timeSeriesQuery`
+  // directly and skip the wrapper - that would be a second binding path alongside this one.
+  const timeSeriesQueryRaw: Parameters<typeof createTimeSeriesQuery>[0] = { timeSeriesQuery: bound(raw.timeSeriesQuery) };
 
   return {
     executeQuery: bound(raw.executeQuery),
@@ -83,6 +101,8 @@ function createHandle(raw: RawClient, database: string, transactionId: string): 
     hybridSearch: bound(raw.hybridSearch),
     fullTextSearch: bound(raw.fullTextSearch),
     streamQuery: createStreamQuery(streamRaw),
+    timeSeriesQuery: createTimeSeriesQuery(timeSeriesQueryRaw),
+    timeSeriesLatest: bound(raw.timeSeriesLatest),
   };
 }
 

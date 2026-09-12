@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Generator, Mapping
 from functools import cached_property
 from types import TracebackType
 from typing import Any
@@ -15,6 +15,7 @@ from ._generated.api.health import check_health, check_ready
 from ._generated.api.query import execute_query_post
 from ._generated.api.server import get_server_info
 from ._generated.client import Client
+from ._generated.models.nd_json_query_event import NdJsonQueryEvent
 from ._generated.models.query_response import QueryResponse
 from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
@@ -31,6 +32,7 @@ from .facade.data import (
     session_kwarg,
     to_envelope,
 )
+from .facade.stream import stream_command, stream_query
 from .facade.timeseries import TimeSeriesNamespace
 from .facade.transaction import Transaction
 from .facade.vector import VectorNamespace
@@ -113,6 +115,63 @@ class ArcadeDBDatabase:
         data = unwrap(response)
         assert isinstance(data, QueryResponse)
         return to_envelope(data)
+
+    def query_stream(
+        self,
+        *,
+        language: QueryLanguage,
+        command: str,
+        params: dict[str, Any] | None = None,
+        limit: int | None = None,
+    ) -> Generator[NdJsonQueryEvent, None, None]:
+        """Streams `POST /api/v1/query/{database}` as `application/x-ndjson` instead of a single
+        buffered `QueryEnvelope`, yielding one `NdJsonQueryEvent` per line.
+
+        Each event carries exactly one of `record` (one result row), `stats` (a trailer carrying
+        the same `limit`/`returned`/`truncated` `query`'s `QueryEnvelope` reports at top level -
+        always the last event of a complete stream), or `error`. Ignoring `stats` loses the same
+        information ignoring `QueryEnvelope.truncated` loses on the buffered path: a caller cannot
+        tell a complete result from one the server's row cap cut short.
+
+        `error` is a failure the server can only report after the 200 status line was already
+        sent - the status cannot be taken back once the stream has started, which is why the
+        contract reports it in band rather than as an HTTP status. This method raises
+        `ArcadeDBError` for it, exactly as `query` raises for a non-2xx response, so both paths
+        fail the same way. Any event already yielded before the error stays delivered; the
+        `ArcadeDBError` is raised from the iterator at the point the `error` event arrives.
+
+        `query` itself is unaffected: it keeps returning `QueryEnvelope` and sending no `Accept`
+        header. This is a separate method, not a mode.
+        """
+        return stream_query(
+            self._client,
+            self.name,
+            self._session_id,
+            language=language,
+            command=command,
+            params=params,
+            limit=limit,
+        )
+
+    def command_stream(
+        self,
+        *,
+        language: QueryLanguage,
+        command: str,
+        params: dict[str, Any] | None = None,
+    ) -> Generator[NdJsonQueryEvent, None, None]:
+        """Streams `POST /api/v1/command/{database}` as `application/x-ndjson` - the `command`
+        twin of `query_stream`; see its docstring for what an event carries and why an in-band
+        `error` raises `ArcadeDBError`.
+
+        Only a READ-ONLY statement can stream: a mutating one (`UPDATE`, `INSERT`, DDL,
+        `RETURN AFTER` included) is refused with an `ArcadeDBError` (HTTP 400) before it produces a
+        row, because a streamed response starts sending rows before the transaction commits, and
+        that commit can still roll back. Use `command` for a mutating statement.
+        """
+        return stream_command(
+            self._client, self.name, self._session_id, language=language, command=command, params=params
+        )
 
     def transaction(self) -> Transaction:
         """Runs a block inside a server-side transaction; see `Transaction`."""

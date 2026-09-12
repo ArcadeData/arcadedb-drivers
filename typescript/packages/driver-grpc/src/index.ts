@@ -1,7 +1,7 @@
 import { createClient as createConnectClient } from "@connectrpc/connect";
 import type { Client, Interceptor } from "@connectrpc/connect";
 import { createGrpcTransport } from "@connectrpc/connect-node";
-import { ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+import { ArcadeDbAdminService, ArcadeDbService } from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 import { sendsPlaintextPassword } from "./auth.js";
 import { createInsertStream, createStreamQuery, createTimeSeriesQuery, createTimeSeriesWriteStream } from "./stream.js";
 import { createTransaction } from "./transaction.js";
@@ -27,6 +27,8 @@ export * from "./gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService` (the data plane). */
 type RawClient = Client<typeof ArcadeDbService>;
+/** The generated Connect client for `com.arcadedb.grpc.ArcadeDbAdminService` (the control plane). */
+type RawAdminClient = Client<typeof ArcadeDbAdminService>;
 
 /**
  * Options for {@link createClient}.
@@ -53,6 +55,16 @@ export interface CreateClientOptions {
 export interface ArcadeDBGrpcClient {
   /** The generated Connect client for the `ArcadeDbService` data plane. */
   raw: RawClient;
+  /**
+   * The generated Connect client for `ArcadeDbAdminService` - the control plane (database
+   * lifecycle, users, groups, API tokens, settings, backups, the profiler, server
+   * shutdown/cluster operations, `Health`/`Ready`). No facade: every one of its 44 RPCs is
+   * reached exactly as `raw` reaches the data plane's, one stub call at a time. `rawAdmin` is
+   * built from the SAME transport `raw` is, so it shares the client's auth interceptor and TLS
+   * policy - including the refusal below - because there is only one transport, not because
+   * anything here re-implements that guard for a second one.
+   */
+  rawAdmin: RawAdminClient;
   /**
    * Streams a query's results row by row. `retrievalMode` and `batchSize` pass through to the
    * server unchanged - see {@link StreamQueryRequestInit}.
@@ -111,9 +123,11 @@ export function createClient(opts: CreateClientOptions): ArcadeDBGrpcClient {
 
   const transport = createGrpcTransport({ baseUrl, interceptors: auth ? [auth] : [] });
   const raw = createConnectClient(ArcadeDbService, transport);
+  const rawAdmin = createConnectClient(ArcadeDbAdminService, transport);
 
   return {
     raw,
+    rawAdmin,
     streamQuery: createStreamQuery(raw),
     insertStream: createInsertStream(raw),
     timeSeriesQuery: createTimeSeriesQuery(raw),

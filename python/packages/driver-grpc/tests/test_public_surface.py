@@ -1,4 +1,5 @@
 import arcadedb_driver_grpc
+import grpc
 
 EXPECTED_SURFACE = {
     "ArcadeDBGrpcClient",
@@ -46,3 +47,19 @@ def test_the_generated_package_is_not_part_of_the_public_surface() -> None:
 def test_messages_exposes_the_data_plane_types() -> None:
     for name in ("StreamQueryRequest", "InsertChunk", "InsertSummary", "GrpcRecord", "TransactionContext"):
         assert hasattr(arcadedb_driver_grpc.messages, name)
+
+
+def test_client_instance_exposes_exactly_raw_and_raw_admin() -> None:
+    # `raw` and `raw_admin` are INSTANCE attributes, not module-level exports, so
+    # `EXPECTED_SURFACE` above never lists them and never will. This is the guard that
+    # takes their place: adding a public attribute to `ArcadeDBGrpcClient` is exactly the
+    # kind of deliberate API change `EXPECTED_SURFACE` pins for the module itself, and
+    # this test pins the same thing one level down, on the client object a caller
+    # actually holds.
+    channel = grpc.insecure_channel("127.0.0.1:0")
+    try:
+        client = arcadedb_driver_grpc.ArcadeDBGrpcClient(channel)
+        public_attrs = {name for name in vars(client) if not name.startswith("_")}
+        assert public_attrs == {"raw", "raw_admin"}
+    finally:
+        channel.close()

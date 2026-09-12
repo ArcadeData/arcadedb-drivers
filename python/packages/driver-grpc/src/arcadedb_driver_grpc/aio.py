@@ -34,11 +34,12 @@ from .stream import (
 )
 
 if TYPE_CHECKING:
-    # `ArcadeDbServiceAsyncStub` exists ONLY in the generated .pyi - mypy-protobuf models
-    # the async stub as its own class, but grpc constructs the SAME class for both channel
-    # kinds, so the runtime .py defines no such name. Importing it here rather than at
-    # module scope is what keeps that a typing-only fiction.
-    from ._generated.arcadedb_server_pb2_grpc import ArcadeDbServiceAsyncStub
+    # `ArcadeDbServiceAsyncStub`/`ArcadeDbAdminServiceAsyncStub` exist ONLY in the
+    # generated .pyi - mypy-protobuf models each async stub as its own class, but grpc
+    # constructs the SAME runtime class for both channel kinds, so the runtime .py defines
+    # no such names. Importing them here rather than at module scope is what keeps that a
+    # typing-only fiction.
+    from ._generated.arcadedb_server_pb2_grpc import ArcadeDbAdminServiceAsyncStub, ArcadeDbServiceAsyncStub
 
 __all__ = [
     "AsyncArcadeDBGrpcClient",
@@ -569,6 +570,15 @@ class AsyncArcadeDBGrpcClient:
     facade does not wrap is reached through it, already authenticated - which is why the
     auth interceptors are attached to the CHANNEL and not passed as per-call metadata.
 
+    `raw_admin` is the generated stub for `com.arcadedb.grpc.ArcadeDbAdminService` - the
+    control plane (database lifecycle, users, groups, API tokens, settings, backups, the
+    profiler, server shutdown/cluster operations, `Health`/`Ready`). No facade wraps any
+    of its 44 RPCs: each is a one-line stub call, exactly like the data-plane RPCs `raw`
+    reaches without a wrapper. `raw_admin` is built from the SAME `channel` as `raw`, not
+    a second one, so it shares this client's auth interceptor and TLS policy - including
+    the #5048 refusal below - because there is only one channel, not because anything
+    here re-implements that guard for a second one.
+
     A `grpc.aio.Channel` must be closed, so this is an async context manager.
     """
 
@@ -583,6 +593,8 @@ class AsyncArcadeDBGrpcClient:
         # would be flagged redundant, besides having to spell the type as a STRING (`cast`
         # evaluates its first argument at runtime, where that name does not exist).
         self.raw: ArcadeDbServiceAsyncStub = _pb2_grpc.ArcadeDbServiceStub(channel)
+        # Same story as `raw` above, for the admin stub's async typing fiction.
+        self.raw_admin: ArcadeDbAdminServiceAsyncStub = _pb2_grpc.ArcadeDbAdminServiceStub(channel)
 
     async def close(self) -> None:
         """Closes the underlying channel."""

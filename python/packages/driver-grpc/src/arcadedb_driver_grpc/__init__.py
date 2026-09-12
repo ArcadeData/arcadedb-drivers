@@ -46,6 +46,15 @@ class ArcadeDBGrpcClient:
     `raw` is the generated stub for `com.arcadedb.grpc.ArcadeDbService`; every RPC the
     facade does not wrap is reached through it, already authenticated.
 
+    `raw_admin` is the generated stub for `com.arcadedb.grpc.ArcadeDbAdminService` - the
+    control plane (database lifecycle, users, groups, API tokens, settings, backups, the
+    profiler, server shutdown/cluster operations, `Health`/`Ready`). No facade wraps any
+    of its 44 RPCs: each is a one-line stub call, exactly like the data-plane RPCs `raw`
+    reaches without a wrapper. `raw_admin` is built from the SAME `channel` as `raw`, not
+    a second one, so it shares this client's auth interceptor and TLS policy - including
+    the #5048 refusal below - because there is only one channel, not because anything
+    here re-implements that guard for a second one.
+
     A `grpc.Channel` must be closed, so this is a context manager. `@arcadedb/driver-grpc`
     has no counterpart because Connect's transport needs no teardown.
     """
@@ -53,6 +62,7 @@ class ArcadeDBGrpcClient:
     def __init__(self, channel: grpc.Channel) -> None:
         self._channel = channel
         self.raw = _pb2_grpc.ArcadeDbServiceStub(channel)
+        self.raw_admin = _pb2_grpc.ArcadeDbAdminServiceStub(channel)
 
     def close(self) -> None:
         """Closes the underlying channel. Safe to call more than once."""

@@ -7,10 +7,11 @@ from collections.abc import AsyncIterator, Iterator
 import grpc
 import pytest
 from arcadedb_driver_grpc import InsecureChannelError, InsertStreamRequest, TimeSeriesWriteStreamRequest, messages
+from arcadedb_driver_grpc._generated import arcadedb_server_pb2_grpc as _pb2_grpc
 from arcadedb_driver_grpc.aio import _envelope_chunks, _envelope_time_series_chunks, create_client
 from arcadedb_driver_grpc.auth import bearer_auth, password_auth
 
-from .conftest import RecordingServicer
+from .conftest import RecordingAdminServicer, RecordingServicer
 
 pytestmark = pytest.mark.asyncio
 
@@ -68,6 +69,71 @@ async def test_password_auth_over_an_insecure_channel_is_refused() -> None:
     # quietly dropped it would be the easier of the two to reach by accident.
     with pytest.raises(InsecureChannelError):
         create_client("127.0.0.1:50051", auth=password_auth("root", "playwithdata"))
+
+
+async def test_password_auth_over_an_insecure_channel_is_refused_even_though_raw_admin_now_exists() -> None:
+    # Pins that adding `raw_admin` did not move the #5048 guard on the async facade
+    # either: it still runs BEFORE any client - and therefore any `raw_admin` - exists.
+    with pytest.raises(InsecureChannelError):
+        create_client("127.0.0.1:50051", auth=password_auth("root", "playwithdata"))
+
+
+async def test_raw_admin_reaches_the_server(async_fake_admin_server: tuple[str, RecordingAdminServicer]) -> None:
+    target, servicer = async_fake_admin_server
+    async with create_client(target) as client:
+        await client.raw_admin.Ping(messages.PingRequest())
+    assert servicer.calls == ["Ping"]
+
+
+async def test_raw_admin_is_authenticated_too(async_fake_admin_server: tuple[str, RecordingAdminServicer]) -> None:
+    # Same channel interceptor as `raw` - an admin RPC arrives authenticated exactly the
+    # same way a data-plane one does.
+    target, servicer = async_fake_admin_server
+    async with create_client(target, auth=bearer_auth("t0ken")) as client:
+        await client.raw_admin.Ping(messages.PingRequest())
+    assert ("authorization", "Bearer t0ken") in servicer.metadata
+
+
+async def test_raw_and_raw_admin_are_built_from_the_same_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same property, same reasoning as the sync client's twin test in test_client.py:
+    # "both exist" is not enough - this proves the shared channel by recording the exact
+    # `channel` object each generated stub constructor received.
+    real_stub = _pb2_grpc.ArcadeDbServiceStub
+    real_admin_stub = _pb2_grpc.ArcadeDbAdminServiceStub
+    channels_seen: list[grpc.aio.Channel] = []
+
+    def spy_stub(channel: grpc.aio.Channel) -> _pb2_grpc.ArcadeDbServiceStub:
+        channels_seen.append(channel)
+        return real_stub(channel)
+
+    def spy_admin_stub(channel: grpc.aio.Channel) -> _pb2_grpc.ArcadeDbAdminServiceStub:
+        channels_seen.append(channel)
+        return real_admin_stub(channel)
+
+    monkeypatch.setattr(_pb2_grpc, "ArcadeDbServiceStub", spy_stub)
+    monkeypatch.setattr(_pb2_grpc, "ArcadeDbAdminServiceStub", spy_admin_stub)
+
+    client = create_client("127.0.0.1:50051")
+    try:
+        assert len(channels_seen) == 2
+        assert channels_seen[0] is channels_seen[1]
+        # Different generated stub classes, so mypy sees no possible overlap between
+        # them - this identity check is exactly the point, hence the ignore.
+        assert client.raw is not client.raw_admin  # type: ignore[comparison-overlap]
+    finally:
+        await client.close()
+
+
+async def test_close_closes_the_channel_raw_admin_shares_with_raw(
+    async_fake_admin_server: tuple[str, RecordingAdminServicer],
+) -> None:
+    target, _ = async_fake_admin_server
+    client = create_client(target)
+    await client.raw_admin.Ping(messages.PingRequest())  # works before close
+    await client.close()
+    await client.close()  # idempotent
+    with pytest.raises(Exception, match="closed"):
+        await client.raw_admin.Ping(messages.PingRequest())
 
 
 async def test_stream_query_flattens_batches(

@@ -1941,7 +1941,7 @@
             "type": "integer"
           },
           "tags": {
-            "description": "Tag filter as name to value pairs. All pairs must match.",
+            "description": "Tag filter as name to value pairs. All pairs must match. A name that is no TAG column of the type is refused with 400 rather than ignored.",
             "type": "object"
           },
           "to": {
@@ -8354,7 +8354,7 @@
             }
           },
           {
-            "description": "Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match.",
+            "description": "Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match. An occurrence that carries no ':' separator, or whose name is no TAG column of the type, is refused with 400 rather than ignored.",
             "explode": true,
             "in": "query",
             "name": "tag",
@@ -8392,7 +8392,7 @@
                 }
               }
             },
-            "description": "Bad request",
+            "description": "Bad request. A 'tag' occurrence not in 'name:value' form, or whose name is no TAG column of the type, is refused here, naming it and listing the type's declared TAG columns.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9445,7 +9445,7 @@
                 }
               }
             },
-            "description": "Bad request",
+            "description": "Bad request. A name in 'tags' that is no TAG column of the type is refused here, naming it and listing the type's declared TAG columns: dropping it would widen the query to the whole range, which is indistinguishable from a filter that matched everything.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"

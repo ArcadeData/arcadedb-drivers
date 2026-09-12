@@ -55,7 +55,10 @@ export function createStreamQuery(raw: Pick<RawClient, "streamQuery">) {
 
 /**
  * `TimeSeriesQuery` request. Like {@link StreamQueryRequestInit}, no field is defaulted or
- * reshaped here either - `limit`, `batchSize`, `aggregation` and the rest pass straight through.
+ * reshaped here either - `limit`, `batchSize`, `aggregation`, `tags` and the rest pass straight
+ * through, including their server-side enforcement: an unknown tag name in `tags` and a `limit`
+ * above `arcadedb.server.grpcTimeSeriesMaxResultRows` are both refused by the server, not by this
+ * package - see the README's "Time series" section.
  */
 export type TimeSeriesQueryRequestInit = MessageInitShape<typeof TimeSeriesQueryRequestSchema>;
 

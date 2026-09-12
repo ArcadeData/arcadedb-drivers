@@ -301,6 +301,22 @@ docstring). `openapi-typescript` does the opposite: it emits a property carrying
 a hand-written widening back to optional (`WithOptionalDefaults` in `facade/vector.ts`) that this
 client never needed.
 
+## Time series: `db.ts.query`'s `tags` and `db.ts.latest`'s `tag` are enforced server-side
+
+A name in `db.ts.query`'s `tags` body field, or in `db.ts.latest`'s `tag` parameter, that is not
+one of the type's declared TAG columns is not dropped from the filter - it is **refused** with a
+400 response naming the offending tag and listing the type's declared TAG columns. Silently
+ignoring it would widen the query to the whole range, and a caller has no way to tell that result
+apart from a filter that legitimately matched everything. `db.ts.latest`'s `tag` is also refused
+the same way when it is not in `name:value` form - a missing `:` separator is an error, not a
+skipped filter.
+
+Both rules are enforced **server-side**, the same way `ef_search` and the vector/full-text
+result-limit parameters are (see "Vector, hybrid and full-text search" above): this client sends
+`tags`/`tag` unchanged and does not check either against a schema it does not have, so a violation
+surfaces as an `ArcadeDBError` raised from the server's response, not a local exception before the
+request is even sent.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `list_databases`, `exists`, `server_info`,

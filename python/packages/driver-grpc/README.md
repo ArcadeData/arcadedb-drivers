@@ -475,6 +475,27 @@ So `TimeSeriesWrite`'s status is not on the same follow-up list as `insert_strea
 `.proto` contract to change upstream before this package could do anything about it; the other
 needs only this package to decide to expose what the server can already do.
 
+### `tags` and `limit` on `TimeSeriesQueryRequest` are enforced server-side
+
+A name in `TimeSeriesTagFilter.equals` that is not one of the type's declared TAG columns is not
+dropped from the filter - it is **refused**, with `INVALID_ARGUMENT` naming the offending tag and
+listing the type's declared TAG columns. Silently ignoring it would widen the query to every
+series, and a caller has no way to tell that result apart from a filter that legitimately matched
+everything ([ArcadeData/arcadedb#7334](https://github.com/ArcadeData/arcadedb/issues/7334)).
+
+`limit` bounds rows *or* aggregation buckets, whichever the query produces - not rows only.
+Non-positive means "no limit of the client's own," not "use the server default." The server-side
+ceiling is `arcadedb.server.grpcTimeSeriesMaxResultRows`, and a `limit` above it is refused with
+`RESOURCE_EXHAUSTED` **before the first message is streamed**, so a caller can never mistake a
+partial series for a complete one
+([ArcadeData/arcadedb#7390](https://github.com/ArcadeData/arcadedb/issues/7390)).
+
+Both rules are enforced **server-side**, the same way `ef_search` and the vector/full-text
+result-limit fields are (see "Vector, hybrid and full-text search" below): this package validates
+neither a tag name against a schema it does not have nor `limit` against a ceiling it does not
+know, so a violation surfaces as a `grpc.RpcError` from the server's response, not a client-side
+exception before the request is ever sent.
+
 ## Vector, hybrid and full-text search: `VectorSearch`, `HybridSearch`, `FullTextSearch`
 
 ```python

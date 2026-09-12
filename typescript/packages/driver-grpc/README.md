@@ -533,7 +533,7 @@ createClient({ baseUrl: "http://localhost:50051", insecure: true }).rawAdmin; //
 createClient({ baseUrl: "https://localhost:50051" }).rawAdmin; // fine - TLS, nothing to opt into
 ```
 
-Three things about that guard are deliberate:
+Four things about that guard are deliberate:
 
 - **It fires when `rawAdmin` is read, not when `createClient` is called.** A caller who only ever
   touches the data plane over a plain `http://` baseUrl is entirely unaffected: their client is
@@ -545,6 +545,12 @@ Three things about that guard are deliberate:
   protects the stub as a whole rather than a per-RPC list, and carving those two back out would mean
   wrapping the other 42 - the facade this package deliberately does not have. Probing health over a
   plaintext channel costs one `insecure: true`, and that is the cheaper end of the trade.
+- **It throws a plain `Error`**, consistent with the plaintext-password guard beside it
+  (`createClient` throws the same way under "Authentication" above). The Python sibling raises an
+  exported, catchable `InsecureChannelError` for its equivalent guard - that is not an oversight
+  here: this package's guards are all plain `Error`, and its one *named* error type, `ConnectError`,
+  belongs to Connect and models an RPC failure returned by a server, not an argument this package
+  refuses locally before any call is made.
 
 The check is `protocol !== "https:"`, not `=== "http:"`, for the reason "Authentication" gives:
 `new URL("localhost:50051").protocol` is `"localhost:"`, so a strict `http:` comparison would wave
@@ -554,7 +560,12 @@ through exactly the schemeless `baseUrl` a caller who forgot the scheme would wr
 
 `CreateApiTokenResponse.token` is a freshly minted API token in cleartext - the only time the server
 will ever show it, which is why `DeleteApiToken` revokes by hash and refuses to accept the token
-itself. This package never touches that response. Both auth interceptors set request headers and
+itself. The server enforces that independently of anything in this package: `CreateApiToken` is
+refused with `FAILED_PRECONDITION` over a cleartext channel to a remote host, and answered only over
+TLS or from a loopback peer. `insecure: true` does not reach that check - it lifts this client's own
+guard on `rawAdmin`, not the server's separate one on this single RPC, so a caller who opted in to
+unblock `rawAdmin` over a plaintext baseUrl to a remote host can still watch `CreateApiToken` refuse
+to mint anything. This package never touches that response. Both auth interceptors set request headers and
 `return next(req)` without looking at what comes back; they are request-side by construction, and
 the package contains no logging at all - no `console.*`, nothing. A token cannot reach a log sink
 through this client, which is the property

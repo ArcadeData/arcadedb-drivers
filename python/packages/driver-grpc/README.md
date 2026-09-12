@@ -642,10 +642,12 @@ call from the request body and ignores it. (`Health` and `Ready` are the other t
 no credentials because they are not authenticated at all.)
 
 That placement also defeats the insecure-channel guard described under "Authentication" above. That
-check keys on `Auth.sends_plaintext_password`, a marker on the interceptor, so it can only ever see
-a password an interceptor is about to put in metadata; a password sitting in a request body is
-invisible to it. `raw_admin` therefore carries its **own** guard against the same hazard, and raises
-the same `InsecureChannelError`:
+check keys on `Auth.sends_plaintext_password`, a field on the `Auth` dataclass the interceptors are
+built from - not a marker on the interceptor itself, the way the TypeScript sibling attaches one to
+the `Interceptor` value `passwordAuth` returns - so it can only ever see a password that `Auth`'s
+metadata is about to carry; a password sitting in a request body is invisible to it. `raw_admin`
+therefore carries its **own** guard against the same hazard, and raises the same
+`InsecureChannelError`:
 
 ```python
 client = create_client("localhost:50051", insecure=True)
@@ -661,7 +663,7 @@ create_client("localhost:50051", insecure=True).raw_admin  # fine - you opted in
 create_client("localhost:50051", credentials=grpc.ssl_channel_credentials()).raw_admin  # fine - encrypted
 ```
 
-Four things about that guard are deliberate:
+Five things about that guard are deliberate:
 
 - **It fires when `raw_admin` is read, not when the client is constructed.** A caller who only ever
   touches the data plane over an insecure channel is entirely unaffected: their client is built
@@ -680,12 +682,23 @@ Four things about that guard are deliberate:
   computes that argument for its own callers, as `credentials is not None or insecure` - the same
   test it applies to its own plaintext-password guard. The keyword is `allow_admin` on the class and
   `insecure` on `create_client`; they are not the same knob and are deliberately not spelled alike.
+- **It raises `InsecureChannelError`, an exported, catchable type** - not a bare `ValueError`
+  construction that would leave a caller with nothing but string-matching on the message to tell
+  "channel is insecure" apart from any other bad argument. (It is *also* a `ValueError` under the
+  hood, so a handler written against the builtin still catches it.) The TypeScript sibling's
+  equivalent guard throws a plain `Error`; see that package's README for why the two packages
+  differ here on purpose.
 
 ### `CreateApiToken` returns secret material, and nothing here reads it
 
 `CreateApiTokenResponse.token` is a freshly minted API token in cleartext - the only time the server
 will ever show it, which is why `DeleteApiToken` revokes by hash and refuses to accept the token
-itself. This package never touches that response. All four `intercept_*` methods, sync and async
+itself. The server enforces that independently of anything in this package: `CreateApiToken` is
+refused with `FAILED_PRECONDITION` over a cleartext channel to a remote host, and answered only over
+TLS or from a loopback peer. `insecure=True` does not reach that check - it lifts this client's own
+guard on `raw_admin`, not the server's separate one on this single RPC, so a caller who opted in to
+unblock `raw_admin` over a plaintext channel to a remote host can still watch `CreateApiToken` refuse
+to mint anything. This package never touches that response. All four `intercept_*` methods, sync and async
 alike, add metadata to the outgoing call and `return continuation(...)` without looking at what
 comes back; they are request-side by construction, and the package contains no logging at all - no
 `logging`, no `print`. A token cannot reach a log sink through this client, which is the property

@@ -700,18 +700,20 @@ type RawClient = Client<paths>;
 export type NdJsonBatchEvent = components["schemas"]["NdJsonBatchEvent"];
 
 /**
- * The buffered summary, plus one field the contract does not declare.
+ * The buffered summary.
  *
- * `BatchResponse` declares `idMapping`, `idMappingOmitted` and `idMappingSize`. On a STREAMED
- * load the server sends `idMappingStreamed: true` instead - a field in no schema, reported
- * upstream as a comment on ArcadeData/arcadedb#7570. It is a genuinely different condition from
- * `idMappingOmitted`: *omitted* means too large to return, *streamed* means already delivered in
- * the progress lines. Without this widening, the one signal telling a caller which of those
- * happened is unreachable through the generated type.
+ * CORRECTED DURING EXECUTION - this plan originally widened the type here with
+ * `& { idMappingStreamed?: boolean }`, on the claim that `idMappingStreamed` was "a field in no
+ * schema". That claim was FALSE, and the widening was in the wrong place. `NdJsonBatchEvent.summary`
+ * declares `idMappingStreamed` (with `commitIndex` and `idMappingSize`), and that is the type the
+ * STREAMING path returns. `BatchResponse` is the BUFFERED response, which never sends the field at
+ * all - it sends `idMapping`. So there was nothing here to widen.
  *
- * Narrow this back to the generated type once the contract declares the field.
+ * `BatchErrorEvent` below is a different matter and its widening is real: `NdJsonBatchEvent.error`
+ * genuinely omits `error` and `exception`, which the server does send, and the contract's own
+ * `statusMapped` text tells a caller to key on `exception`. See ArcadeData/arcadedb#7570.
  */
-export type BatchSummary = components["schemas"]["BatchResponse"] & { idMappingStreamed?: boolean };
+export type BatchSummary = components["schemas"]["BatchResponse"];
 
 /** The 17 tuning parameters, named exactly as the contract names them. */
 export interface BatchOptions {

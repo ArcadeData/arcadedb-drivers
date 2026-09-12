@@ -5,6 +5,8 @@ import { ArcadeDBError } from "./errors.js";
 import { unwrap } from "./internal/unwrap.js";
 import { beginTransaction, commitTransaction, executeCommand, executeQuery, rollbackTransaction } from "./facade/data.js";
 import type { CommandOptions, QueryEnvelope, QueryOptions } from "./facade/data.js";
+import { commandStream, queryStream } from "./facade/stream.js";
+import type { NdJsonQueryEvent } from "./facade/stream.js";
 import type {
   GrafanaQueryOptions,
   GrafanaQueryResponse,
@@ -29,6 +31,7 @@ export { ArcadeDBError } from "./errors.js";
 export { basicAuth, bearerAuth } from "./auth.js";
 export type { Middleware } from "openapi-fetch";
 export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions } from "./facade/data.js";
+export type { NdJsonQueryEvent } from "./facade/stream.js";
 export type {
   GrafanaQueryOptions,
   GrafanaQueryResponse,
@@ -228,6 +231,22 @@ export class ArcadeDBDatabase {
   /** Executes a command and returns the whole result envelope - not just `result`. */
   async command<T = unknown>(opts: CommandOptions): Promise<QueryEnvelope<T>> {
     return executeCommand<T>(this.client, this.name, this.sessionId, opts);
+  }
+
+  /**
+   * Streams a read-or-write query as `application/x-ndjson` instead of buffering the whole
+   * result server-side first. Yields one `NdJsonQueryEvent` per line - `record` rows in order,
+   * then a `stats` trailer carrying the same `limit`/`returned`/`truncated` `query` reports at
+   * the top of its envelope. An in-band `error` event raises `ArcadeDBError` instead of being
+   * yielded; see `facade/stream.ts` for why the contract puts that failure in band.
+   */
+  queryStream(opts: QueryOptions): AsyncGenerator<NdJsonQueryEvent> {
+    return queryStream(this.client, this.name, this.sessionId, opts);
+  }
+
+  /** Streams a command as `application/x-ndjson`. As {@link ArcadeDBDatabase.queryStream}, but for `/command`. */
+  commandStream(opts: CommandOptions): AsyncGenerator<NdJsonQueryEvent> {
+    return commandStream(this.client, this.name, this.sessionId, opts);
   }
 
   /**

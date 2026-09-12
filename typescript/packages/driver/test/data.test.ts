@@ -323,10 +323,11 @@ describe("the 200 response union (ArcadeData/arcadedb#7306)", () => {
   });
 
   it("throws rather than returning an empty envelope when a 200 carries an ndjson event", async () => {
-    // This client never sends `Accept: application/x-ndjson`, so this shape is
-    // unreachable in practice. The point of the assertion is that if it ever
-    // becomes reachable, the caller learns about it instead of silently
-    // receiving `{ result: [], limit: -1, returned: 0, truncated: false }`.
+    // `query()` never sends `Accept: application/x-ndjson` - `queryStream()` (test/stream.test.ts)
+    // does, and decodes this same shape itself without going through `asQueryResponse` at all. So
+    // this shape is unreachable for THIS call, not for the client as a whole; the point of the
+    // assertion is that a buffered caller learns about a mismatch instead of silently receiving
+    // `{ result: [], limit: -1, returned: 0, truncated: false }`.
     const fetchMock = vi.fn(async () => jsonResponse({ record: { name: "a" } }, 200));
     const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
 

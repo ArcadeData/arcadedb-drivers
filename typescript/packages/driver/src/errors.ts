@@ -41,11 +41,16 @@ function parseBody(body: unknown): ArcadeDBErrorBody {
  *
  * NON-2XX IS THE COMMON CASE, NOT THE ONLY ONE. `status` is whatever the
  * exchange actually carried, and `facade/data.ts`'s `asQueryResponse` throws
- * one with `status: 200` when `/query` or `/command` answers 200 with a
- * streamed ndjson event - an encoding this client never requests. That is a
- * successful HTTP exchange whose body this client cannot honestly turn into a
- * `QueryEnvelope`, so it is reported as an error rather than as an empty
- * envelope asserting a completeness nobody claimed.
+ * one with `status: 200` when the buffered `query`/`command` calls - the ones
+ * that route through `asQueryResponse` - get back a 200 carrying a streamed
+ * ndjson event instead of the buffered envelope they asked for. (`queryStream`/
+ * `commandStream` in `facade/stream.ts` request that encoding on purpose and
+ * decode it themselves, never reaching `asQueryResponse`.) For a buffered
+ * call, that is a successful HTTP exchange whose body this client cannot
+ * honestly turn into a `QueryEnvelope`, so it is reported as an error rather
+ * than as an empty envelope asserting a completeness nobody claimed. A
+ * streaming call's own in-band `error` event raises this same class of error
+ * for a different reason - see `facade/stream.ts`'s `raiseOnErrorEvent`.
  *
  * The consequence for callers: `err.status` alone no longer classifies a
  * failure. Code shaped like `if (err.status >= 500) retry()` has a case it

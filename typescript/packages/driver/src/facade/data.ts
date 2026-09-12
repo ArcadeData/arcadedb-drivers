@@ -67,23 +67,26 @@ type NdJsonQueryEvent = components["schemas"]["NdJsonQueryEvent"];
  * these two responses - so `unwrap` now yields `QueryResponse | NdJsonQueryEvent`
  * where it used to yield `QueryResponse` alone.
  *
- * This client never sends `Accept: application/x-ndjson`, so the ndjson branch is
- * unreachable, and this function's job is to say so out loud. `{}` satisfies both
- * members (every field of both is optional), so the tie is broken by the encoding
- * that was actually requested rather than by shape: only a payload carrying a key
- * that exists ONLY on the streaming event is treated as one.
+ * `executeQuery`/`executeCommand` in this file never send `Accept: application/x-ndjson` -
+ * `queryStream`/`commandStream` in `facade/stream.ts` do, and decode the response themselves
+ * without ever reaching this function. So a real discriminator is still deciding something
+ * that, for THIS call site, can only go one way: `{}` satisfies both members (every field of
+ * both is optional), and the tie is broken by the encoding this particular call actually
+ * requested, not by shape - only a payload carrying a key that exists ONLY on the streaming
+ * event is treated as one.
  *
- * The throw is not defensive noise. Without it a stray ndjson line would flow
- * through `toEnvelope` and become `{ result: [], limit: -1, returned: 0,
- * truncated: false }` - an answer asserting completeness that nobody gave.
- *
- * When the streaming surface lands (drivers#39) this stops being an assertion and
- * becomes the real discriminator between the two encodings.
+ * The throw is not defensive noise. Without it a stray ndjson line would flow through
+ * `toEnvelope` and become `{ result: [], limit: -1, returned: 0, truncated: false }` - an
+ * answer asserting completeness that nobody gave. The reason for the throw has changed since
+ * this function was written, though: it is no longer "this client never asks for ndjson" (M7
+ * added `queryStream`/`commandStream`, which do) but "this call did not ask for it" - the
+ * buffered `query`/`command` methods want a `QueryResponse` specifically, and an ndjson event
+ * reaching them is still a protocol mismatch worth surfacing rather than silently coercing.
  */
 function asQueryResponse(data: QueryResponse | NdJsonQueryEvent): QueryResponse {
   if ("record" in data || "stats" in data || "error" in data) {
     throw new ArcadeDBError(200, {
-      error: "the server answered with a streamed ndjson event, an encoding this client never requests",
+      error: "the server answered with a streamed ndjson event, but this call requested the buffered application/json response",
     });
   }
   return data as QueryResponse;

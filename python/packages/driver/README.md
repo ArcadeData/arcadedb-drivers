@@ -91,6 +91,53 @@ has no required fields in the contract, so all four are, strictly, optional on t
 practice the server always sends all four today, but a caller relying on `truncated is False` as
 proof of completeness is trusting a client-side default, not a server guarantee.
 
+## Streaming a query or command: `query_stream`/`command_stream`
+
+`query` and `command` buffer the whole result server-side before answering. `query_stream` and
+`command_stream` are a separate pair of methods for the same two endpoints, requesting
+`application/x-ndjson` instead of a buffered JSON body and returning a generator a caller iterates
+directly (the async facade's twins are `async for`-able instead):
+
+```python
+for event in db.query_stream(language="sql", command="SELECT FROM Person"):
+    if not isinstance(event.record, Unset):
+        print(event.record.to_dict())
+    if not isinstance(event.stats, Unset):
+        print(f"returned {event.stats.returned}, truncated: {event.stats.truncated}")
+```
+
+They yield **events**, not rows. Each `NdJsonQueryEvent` carries exactly one of `record` (one
+result row, shaped like an element of `query`'s `result` list), `stats`, or `error` - never more
+than one, and a caller who only ever reads `event.record` will silently skip both of the others.
+
+`stats` is a trailer, always the last event of a complete stream, carrying the same
+`limit`/`returned`/`truncated` `QueryEnvelope` reports at the top level for the buffered path.
+Ignoring it loses exactly what ignoring `.truncated` loses above: the only way to tell a complete
+answer from one the server's row cap cut short. A caller who iterates `record` events and stops
+there has no way to know whether they saw everything.
+
+`error` is a failure the server can only report **after** the 200 status line was already sent -
+unlike the buffered path, where a failure still in progress when the response starts can be
+reported as a non-2xx status, a streamed response has committed to 200 before the first row is
+known to exist, and that status line cannot be taken back once the stream has started. That is why
+the contract puts this failure in band, as an event, rather than as an HTTP status. This client
+raises `ArcadeDBError` for it - exactly as `query`/`command` raise `ArcadeDBError` for a non-2xx
+response, with a `status` of 200 - so both paths fail the same way; any event already yielded
+before the error stays delivered to the caller.
+
+`query` and `command` themselves are unchanged: they still return `QueryEnvelope` and still send no
+`Accept` header. Streaming is two additional methods, not a mode either existing one can be put
+into.
+
+Both the sync and async versions reach the server through the generated `Client`'s own pooled
+`httpx.Client`/`httpx.AsyncClient`, via its `.stream()` context manager, rather than a hand-rolled
+request or a `httpx.Client` of their own; that is what lets them reuse the same base URL, auth
+headers, and timeout every other call on this client already goes through. Anyone adding another
+streaming endpoint to this package should do the same rather than standing up a new `httpx.Client`.
+
+Streaming `/batch` is not part of this client; see
+[#52](https://github.com/ArcadeData/arcadedb-drivers/issues/52).
+
 ## Sync and async
 
 `ArcadeDBServer` and `AsyncArcadeDBServer` expose the same methods; the async one awaits them.

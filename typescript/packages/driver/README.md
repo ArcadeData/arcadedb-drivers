@@ -80,6 +80,52 @@ fields in the generated schema, so both are, strictly, optional on the wire. In 
 server always sends both today, but a caller relying on `truncated === false` as proof of
 completeness is trusting a client-side default, not a server guarantee.
 
+## Streaming a query or command: `queryStream`/`commandStream`
+
+`query` and `command` buffer the whole result server-side before answering. `queryStream` and
+`commandStream` are a separate pair of methods for the same two endpoints, requesting
+`application/x-ndjson` instead of `application/json` and handing back an `AsyncGenerator` a caller
+`for await`s over:
+
+```ts
+for await (const event of db.queryStream({ language: "sql", command: "SELECT FROM Person" })) {
+  if (event.record) console.log(event.record);
+  if (event.stats) console.log(`returned ${event.stats.returned}, truncated: ${event.stats.truncated}`);
+}
+```
+
+They yield **events**, not rows. Each `NdJsonQueryEvent` carries exactly one of `record` (one
+result row, shaped like an element of `query`'s `result` array), `stats`, or `error` - never more
+than one, and a caller who only ever reads `event.record` will silently skip both of the others.
+
+`stats` is a trailer, always the last event of a complete stream, carrying the same
+`limit`/`returned`/`truncated` the buffered envelope reports at the top of its response. Ignoring
+it loses exactly what ignoring `truncated` loses on the buffered path above: the only way to tell a
+complete answer from one the server's row cap cut short. A caller who iterates `record` events and
+stops there has no way to know whether they saw everything.
+
+`error` is a failure the server can only report **after** the 200 status line was already sent -
+unlike the buffered path, where a failure still in progress when the response starts can be
+reported as a non-2xx status, a streamed response has committed to 200 before the first row is
+known to exist, and that status line cannot be taken back once the stream has started. That is why
+the contract puts this failure in band, as an event, rather than as an HTTP status. This client
+raises `ArcadeDBError` for it - exactly as `query`/`command` throw `ArcadeDBError` for a non-2xx
+response - so both paths fail the same way; any event already yielded before the error stays
+delivered to the caller.
+
+`query` and `command` themselves are unchanged: they still return `QueryEnvelope` and still send no
+`Accept` header. Streaming is two additional methods, not a mode either existing one can be put
+into.
+
+Both methods reach the server through the generated client's own streaming primitive -
+`client.POST(..., { parseAs: "stream" })` - rather than a hand-rolled `fetch` or a second HTTP
+client of their own; that is what lets them reuse the same base URL, auth, and error mapping every
+other call on this client already goes through. Anyone adding another streaming endpoint to this
+package should do the same rather than reaching for a bare `fetch`.
+
+Streaming `/batch` is not part of this client; see
+[#52](https://github.com/ArcadeData/arcadedb-drivers/issues/52).
+
 ## Transactions
 
 ```ts

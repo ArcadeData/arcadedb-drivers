@@ -3,6 +3,7 @@ import type { StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { basicAuth, bearerAuth, createClient } from "../packages/driver/src/index.js";
 import type { ArcadeDBServer } from "../packages/driver/src/index.js";
+import type { NdJsonQueryEvent } from "../packages/driver/src/facade/stream.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 
 // Image pin: `arcadedata/arcadedb:26.10.1-SNAPSHOT` is the release the committed OpenAPI contract was
@@ -146,6 +147,86 @@ describe("end-to-end against a real ArcadeDB server", () => {
   it("exists and listDatabases agree with what was created", async () => {
     await expect(rootServer.exists(DB_NAME)).resolves.toBe(true);
     await expect(rootServer.listDatabases()).resolves.toContain(DB_NAME);
+  });
+});
+
+// STREAM_ROW_COUNT and STREAM_PAYLOAD_SIZE were worked out empirically against a live container
+// before this describe block was written, not guessed - see task-4-report.md for the transcript
+// of chunk counts measured at increasing row counts. A handful of rows arrives from a real server
+// in a single ndjson chunk (one `reader.read()`), which would let a decoder with no cross-chunk
+// buffering at all pass this suite for the wrong reason - the exact defect `stream.test.ts`'s
+// fabricated-boundary cases target. 2000 rows of ~150 bytes each reliably splits the response
+// across dozens of real reads.
+const STREAM_TYPE = "StreamRow";
+const STREAM_ROW_COUNT = 2000;
+const STREAM_PAYLOAD = "x".repeat(100);
+
+describe("queryStream / commandStream: ndjson events over a real container", () => {
+  beforeAll(async () => {
+    const db = rootServer.db(DB_NAME);
+    await db.command({ language: "sql", command: `CREATE DOCUMENT TYPE ${STREAM_TYPE} IF NOT EXISTS` });
+    await db.command({ language: "sql", command: `CREATE PROPERTY ${STREAM_TYPE}.n INTEGER` });
+    await db.command({ language: "sql", command: `CREATE PROPERTY ${STREAM_TYPE}.payload STRING` });
+
+    const values = Array.from({ length: STREAM_ROW_COUNT }, (_, i) => `(${i},'${STREAM_PAYLOAD}')`).join(",");
+    await db.command({ language: "sql", command: `INSERT INTO ${STREAM_TYPE} (n, payload) VALUES ${values}` });
+  }, 30_000);
+
+  it("streams every row as a record event, followed by a stats trailer whose returned matches what arrived", async () => {
+    const db = rootServer.db(DB_NAME);
+    const events: NdJsonQueryEvent[] = [];
+    for await (const event of db.queryStream({ language: "sql", command: `SELECT FROM ${STREAM_TYPE}`, limit: -1 })) {
+      events.push(event);
+    }
+
+    const records = events.filter((e) => e.record !== undefined);
+    const last = events[events.length - 1];
+
+    expect(records.length).toBe(STREAM_ROW_COUNT);
+    // The trailer is the LAST event of a complete stream, not merely present somewhere in it.
+    expect(last?.stats).toBeDefined();
+    expect(last?.stats?.returned).toBe(records.length);
+    expect(last?.stats?.truncated).toBe(false);
+  });
+
+  it("a limit low enough to truncate reports truncated: true in the trailer, matching the records actually seen", async () => {
+    const db = rootServer.db(DB_NAME);
+    const cap = 500;
+    const events: NdJsonQueryEvent[] = [];
+    for await (const event of db.queryStream({ language: "sql", command: `SELECT FROM ${STREAM_TYPE}`, limit: cap })) {
+      events.push(event);
+    }
+
+    const records = events.filter((e) => e.record !== undefined);
+    const last = events[events.length - 1];
+
+    expect(records.length).toBe(cap);
+    expect(last?.stats?.returned).toBe(cap);
+    expect(last?.stats?.truncated).toBe(true);
+  });
+
+  it("the buffered query over the same data returns the same rows streaming did - streaming did not change the buffered path", async () => {
+    const db = rootServer.db(DB_NAME);
+
+    const envelope = await db.query<{ n: number }>({
+      language: "sql",
+      command: `SELECT FROM ${STREAM_TYPE}`,
+      limit: -1,
+    });
+
+    const events: NdJsonQueryEvent[] = [];
+    for await (const event of db.queryStream({ language: "sql", command: `SELECT FROM ${STREAM_TYPE}`, limit: -1 })) {
+      events.push(event);
+    }
+    const streamedNs = events
+      .filter((e) => e.record !== undefined)
+      .map((e) => (e.record as unknown as { n: number }).n)
+      .sort((a, b) => a - b);
+    const bufferedNs = envelope.result.map((row) => row.n).sort((a, b) => a - b);
+
+    expect(envelope.truncated).toBe(false);
+    expect(streamedNs).toEqual(bufferedNs);
+    expect(bufferedNs).toHaveLength(STREAM_ROW_COUNT);
   });
 });
 

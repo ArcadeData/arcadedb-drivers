@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pytest
 from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, basic_auth
+from arcadedb_driver._generated.models.nd_json_query_event import NdJsonQueryEvent
+from arcadedb_driver._generated.models.nd_json_query_event_stats import NdJsonQueryEventStats
+from arcadedb_driver._generated.types import Unset
 
 from .conftest import ROOT_PASSWORD
 
@@ -176,3 +179,102 @@ async def test_async_vector_hybrid_and_fulltext_search_all_return_non_empty_resu
     assert hybrid.fused is True
     assert isinstance(fulltext_results, list) and len(fulltext_results) > 0
     assert not hasattr(fulltext, "truncated")
+
+
+# STREAM_ROW_COUNT and STREAM_PAYLOAD were worked out empirically against a live container before
+# this fixture was written, not guessed - see task-4-report.md for the transcript of chunk counts
+# measured at increasing row counts. A handful of rows arrives from a real server in a single
+# ndjson chunk (one `iter_lines()`/`aiter_lines()` read), which would let a decoder with no
+# cross-chunk buffering at all pass this suite for the wrong reason - the exact defect
+# `test_stream.py`'s fabricated-boundary cases target. 2000 rows of ~150 bytes each reliably
+# splits the response across dozens of real reads.
+STREAM_TYPE = "StreamRow"
+STREAM_ROW_COUNT = 2000
+STREAM_PAYLOAD = "x" * 100
+
+
+@pytest.fixture(scope="module")
+def stream_rows(base_url: str, database: str) -> int:
+    """Creates `StreamRow` and inserts `STREAM_ROW_COUNT` rows once for the streaming tests below.
+
+    Module-scoped, like `test_data_plane.py`'s own `vector_index` fixture in `conftest.py`: the
+    DDL and the bulk insert run once no matter how many tests in this module use them. Returns the
+    row count so a test that wants it does not need to repeat the module constant.
+    """
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        db.command(language="sql", command=f"CREATE DOCUMENT TYPE {STREAM_TYPE} IF NOT EXISTS")
+        db.command(language="sql", command=f"CREATE PROPERTY {STREAM_TYPE}.n INTEGER")
+        db.command(language="sql", command=f"CREATE PROPERTY {STREAM_TYPE}.payload STRING")
+        values = ",".join(f"({i},'{STREAM_PAYLOAD}')" for i in range(STREAM_ROW_COUNT))
+        db.command(language="sql", command=f"INSERT INTO {STREAM_TYPE} (n, payload) VALUES {values}")
+    return STREAM_ROW_COUNT
+
+
+def _stats(event: NdJsonQueryEvent) -> NdJsonQueryEventStats:
+    assert not isinstance(event.stats, Unset)
+    return event.stats
+
+
+def test_stream_query_yields_records_and_a_stats_trailer_matching_what_arrived(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    trailer = events[-1]  # the stats trailer is always the LAST event of a complete stream
+
+    assert len(records) == stream_rows
+    stats = _stats(trailer)
+    assert stats.returned == len(records)
+    assert stats.truncated is False
+
+
+def test_stream_query_with_a_low_limit_reports_truncated_in_the_trailer(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    cap = 500
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=cap))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == cap
+    assert stats.returned == cap
+    assert stats.truncated is True
+
+
+def test_buffered_query_returns_the_same_rows_streaming_did(base_url: str, database: str, stream_rows: int) -> None:
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        buffered = db.query(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1))
+
+    streamed_ns = sorted(e.record["n"] for e in events if not isinstance(e.record, Unset))
+    buffered_ns = sorted(row["n"] for row in buffered.result)
+
+    assert buffered.truncated is False
+    assert streamed_ns == buffered_ns
+    assert len(buffered_ns) == stream_rows
+
+
+@pytest.mark.asyncio
+async def test_async_stream_query_yields_records_and_a_stats_trailer(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    async with AsyncArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = [
+            event async for event in db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1)
+        ]
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == stream_rows
+    assert stats.returned == len(records)
+    assert stats.truncated is False

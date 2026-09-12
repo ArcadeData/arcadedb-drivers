@@ -1,45 +1,13 @@
 import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
 import { ArcadeDBError } from "../errors.js";
+import { buildCommandBody, buildQueryBody, sessionHeader } from "../internal/request-body.js";
 import type { CommandOptions, QueryOptions } from "./data.js";
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
 type RawClient = Client<paths>;
 
-/** Request header carrying the session id that scopes a call to one transaction. */
-const SESSION_HEADER = "arcadedb-session-id";
-
 export type NdJsonQueryEvent = components["schemas"]["NdJsonQueryEvent"];
-
-/** Attaches the session header when `sessionId` is set; omits it otherwise. */
-function sessionHeader(sessionId: string | undefined): { [SESSION_HEADER]?: string } | undefined {
-  return sessionId === undefined ? undefined : { [SESSION_HEADER]: sessionId };
-}
-
-/**
- * Builds the JSON body for `/query`: `language`, `command`, `params` and, when supplied, `limit`.
- * Mirrors `facade/data.ts`'s `buildQueryBody`; kept separate rather than imported so this module's
- * only import from `facade/data.ts` stays the two option types, not its private helpers.
- */
-function buildQueryBody(
-  opts: QueryOptions,
-): { command: string; language: string; params?: Record<string, never>; limit?: number } {
-  return {
-    command: opts.command,
-    language: opts.language,
-    params: opts.params as Record<string, never> | undefined,
-    limit: opts.limit,
-  };
-}
-
-/** Builds the JSON body for `/command`: `language`, `command` and `params`. Mirrors `buildQueryBody` minus `limit`. */
-function buildCommandBody(opts: CommandOptions): { command: string; language: string; params?: Record<string, never> } {
-  return {
-    command: opts.command,
-    language: opts.language,
-    params: opts.params as Record<string, never> | undefined,
-  };
-}
 
 /**
  * Decodes a `ReadableStream<Uint8Array>` of newline-delimited JSON into `NdJsonQueryEvent`s.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, basic_auth
 from arcadedb_driver._generated.models.nd_json_query_event import NdJsonQueryEvent
@@ -211,9 +213,57 @@ def stream_rows(base_url: str, database: str) -> int:
     return STREAM_ROW_COUNT
 
 
+# BIG_PAYLOAD_SIZE is a second, different way to force a genuinely multi-chunk response: not many
+# ordinarily-sized rows, but ONE record whose own ndjson line is large enough that a single write
+# of it cannot be delivered to the client in one read. This matters because it is an ordinary
+# shape - a large text field, a base64 blob, a high-dimensional vector-search hit - not an exotic
+# one, and it is the case where cross-chunk buffering is load-bearing against a real server rather
+# than only against the fabricated boundaries in test_stream.py.
+#
+# The size was swept empirically against a live container (see task-4-report.md for the full
+# table), not guessed. Up to ~40,000 bytes a single record's line reliably arrived in ONE read
+# every time: ArcadeDB's response writer appears to issue one write() per output line, and TCP
+# delivers a write that size as one segment on loopback as long as it stays under the client's own
+# socket read buffer. Splitting only starts to appear past roughly 50,000-65,000 bytes, and even
+# there it was inconsistent run to run (3 splits out of 5 at 40,000 bytes) - consistent with that
+# boundary being where a single line starts to exceed the reader's read-buffer size (observed
+# chunk sizes cluster at 65536 bytes for an even larger field in the initial probe). 70,000 through
+# 95,000 bytes split on every one of 6 repeated runs against both this client's transport
+# (`httpx`) and the TypeScript client's (Node's `fetch`). 80,000 bytes sits in the middle of that
+# reliable range: comfortably past the ~64KB boundary with margin, not the 500,000 bytes used only
+# to confirm the mechanism existed in the first place.
+BIG_FIELD_TYPE = "BigFieldRow"
+BIG_PAYLOAD_SIZE = 80_000
+# A cycling digit pattern, not a repeated single character: a decoder that drops, duplicates, or
+# reorders a byte at the chunk boundary changes this string's content, not just its length, so
+# comparing the reassembled value against this exact string catches corruption a length-only or
+# all-the-same-character check would miss.
+BIG_PAYLOAD = "".join(str(i % 10) for i in range(BIG_PAYLOAD_SIZE))
+
+
+@pytest.fixture(scope="module")
+def big_field_row(base_url: str, database: str) -> str:
+    """Creates `BigFieldRow` and inserts one row carrying `BIG_PAYLOAD`, once.
+
+    A separate type from `StreamRow`, not one more row added to it: mixing this row into
+    `StreamRow` would change the row count `stream_rows`'s own tests assert on.
+    """
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        db.command(language="sql", command=f"CREATE DOCUMENT TYPE {BIG_FIELD_TYPE} IF NOT EXISTS")
+        db.command(language="sql", command=f"CREATE PROPERTY {BIG_FIELD_TYPE}.payload STRING")
+        db.command(language="sql", command=f"INSERT INTO {BIG_FIELD_TYPE} SET payload = '{BIG_PAYLOAD}'")
+    return BIG_FIELD_TYPE
+
+
 def _stats(event: NdJsonQueryEvent) -> NdJsonQueryEventStats:
     assert not isinstance(event.stats, Unset)
     return event.stats
+
+
+def _record(event: NdJsonQueryEvent) -> dict[str, Any]:
+    assert not isinstance(event.record, Unset)
+    return event.record.to_dict()
 
 
 def test_stream_query_yields_records_and_a_stats_trailer_matching_what_arrived(
@@ -277,4 +327,27 @@ async def test_async_stream_query_yields_records_and_a_stats_trailer(
 
     assert len(records) == stream_rows
     assert stats.returned == len(records)
+    assert stats.truncated is False
+
+
+def test_stream_query_reassembles_a_single_record_whose_line_spans_multiple_real_reads(
+    base_url: str, database: str, big_field_row: str
+) -> None:
+    # This is a DIFFERENT property from `stream_rows`'s tests above: those prove the response
+    # arrives across many real reads; this one proves a single ndjson LINE really spans two of
+    # them and still comes back whole. A test that only counted events here would pass against a
+    # decoder that silently truncated `payload` at the chunk boundary - the value itself has to be
+    # compared.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {big_field_row}"))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    assert len(records) == 1
+    payload = _record(records[0])["payload"]
+    assert len(payload) == BIG_PAYLOAD_SIZE
+    assert payload == BIG_PAYLOAD
+
+    stats = _stats(events[-1])
+    assert stats.returned == 1
     assert stats.truncated is False

@@ -161,6 +161,33 @@ const STREAM_TYPE = "StreamRow";
 const STREAM_ROW_COUNT = 2000;
 const STREAM_PAYLOAD = "x".repeat(100);
 
+// BIG_PAYLOAD_SIZE is a second, different way to force a genuinely multi-chunk response: not many
+// ordinarily-sized rows, but ONE record whose own ndjson line is large enough that a single write
+// of it cannot be delivered to the client in one read. This matters because it is an ordinary
+// shape - a large text field, a base64 blob, a high-dimensional vector-search hit - not an
+// exotic one, and it is the case where cross-chunk buffering is load-bearing against a real server
+// rather than only against the fabricated boundaries in stream.test.ts.
+//
+// The size was swept empirically against a live container (see task-4-report.md for the full
+// table), not guessed. Up to ~40,000 bytes a single record's line reliably arrived in ONE read
+// every time: ArcadeDB's response writer appears to issue one write() per output line, and TCP
+// delivers a write that size as one segment on loopback as long as it stays under the client's own
+// socket read buffer. Splitting only starts to appear past roughly 50,000-65,000 bytes, and even
+// there it was inconsistent run to run (3 splits out of 5 at 40,000 bytes) - consistent with that
+// boundary being where a single line starts to exceed the reader's read-buffer size (observed
+// chunk sizes cluster at 65536 bytes for an even larger field in the initial probe). 70,000 through
+// 95,000 bytes split on every one of 6 repeated runs against both this client's transport (Node's
+// `fetch`) and the Python client's (`httpx`). 80,000 bytes sits in the middle of that reliable
+// range: comfortably past the ~64KB boundary with margin, not the 500,000 bytes used only to
+// confirm the mechanism existed in the first place.
+const BIG_FIELD_TYPE = "BigFieldRow";
+const BIG_PAYLOAD_SIZE = 80_000;
+// A cycling digit pattern, not a repeated single character: a decoder that drops, duplicates, or
+// reorders a byte at the chunk boundary changes this string's content, not just its length, so
+// comparing the reassembled value against this exact string catches corruption a length-only or
+// all-the-same-character check would miss.
+const BIG_PAYLOAD = Array.from({ length: BIG_PAYLOAD_SIZE }, (_, i) => String(i % 10)).join("");
+
 describe("queryStream / commandStream: ndjson events over a real container", () => {
   beforeAll(async () => {
     const db = rootServer.db(DB_NAME);
@@ -170,6 +197,10 @@ describe("queryStream / commandStream: ndjson events over a real container", () 
 
     const values = Array.from({ length: STREAM_ROW_COUNT }, (_, i) => `(${i},'${STREAM_PAYLOAD}')`).join(",");
     await db.command({ language: "sql", command: `INSERT INTO ${STREAM_TYPE} (n, payload) VALUES ${values}` });
+
+    await db.command({ language: "sql", command: `CREATE DOCUMENT TYPE ${BIG_FIELD_TYPE} IF NOT EXISTS` });
+    await db.command({ language: "sql", command: `CREATE PROPERTY ${BIG_FIELD_TYPE}.payload STRING` });
+    await db.command({ language: "sql", command: `INSERT INTO ${BIG_FIELD_TYPE} SET payload = '${BIG_PAYLOAD}'` });
   }, 30_000);
 
   it("streams every row as a record event, followed by a stats trailer whose returned matches what arrived", async () => {
@@ -227,6 +258,29 @@ describe("queryStream / commandStream: ndjson events over a real container", () 
     expect(envelope.truncated).toBe(false);
     expect(streamedNs).toEqual(bufferedNs);
     expect(bufferedNs).toHaveLength(STREAM_ROW_COUNT);
+  });
+
+  it("reassembles a single record whose own ndjson line spans multiple real reads, intact", async () => {
+    // This is a DIFFERENT property from the 2000-row test above: that one proves the response
+    // arrives across many real reads; this one proves a single ndjson LINE really spans two of
+    // them and still comes back whole. A test that only counted events here would pass against a
+    // decoder that silently truncated `payload` at the chunk boundary - the value itself has to be
+    // compared.
+    const db = rootServer.db(DB_NAME);
+    const events: NdJsonQueryEvent[] = [];
+    for await (const event of db.queryStream({ language: "sql", command: `SELECT FROM ${BIG_FIELD_TYPE}` })) {
+      events.push(event);
+    }
+
+    const records = events.filter((e) => e.record !== undefined);
+    expect(records).toHaveLength(1);
+    const payload = (records[0]?.record as unknown as { payload: string }).payload;
+    expect(payload).toHaveLength(BIG_PAYLOAD_SIZE);
+    expect(payload).toBe(BIG_PAYLOAD);
+
+    const last = events[events.length - 1];
+    expect(last?.stats?.returned).toBe(1);
+    expect(last?.stats?.truncated).toBe(false);
   });
 });
 

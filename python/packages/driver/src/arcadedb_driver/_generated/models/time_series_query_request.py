@@ -28,7 +28,8 @@ class TimeSeriesQueryRequest:
         from_ (int | Unset): Inclusive lower bound of the timestamp range. Unbounded when omitted.
         limit (int | Unset): Maximum rows to return for a raw (non-aggregated) query. Defaults to 20000. Ignored when
             'aggregation' is present.
-        tags (TimeSeriesQueryRequestTags | Unset): Tag filter as name to value pairs. All pairs must match.
+        tags (TimeSeriesQueryRequestTags | Unset): Tag filter as name to value pairs. All pairs must match. A name that
+            is no TAG column of the type is refused with 400 rather than ignored.
         to (int | Unset): Inclusive upper bound of the timestamp range. Unbounded when omitted.
     """
 

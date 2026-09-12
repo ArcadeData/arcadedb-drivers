@@ -227,6 +227,20 @@ to *everything*, so `const n: number = hit.properties.name` used to typecheck an
 string at runtime with no warning. `hybrid` and `fulltext` hits carried the identical artifact and
 are fixed the same way.
 
+## Time series: `db.ts.query`'s `tags` is enforced server-side
+
+A name in `db.ts.query`'s `tags` body field that is not one of the type's declared TAG columns is
+not dropped from the filter - it is **refused** with a 400 response naming the offending tag and
+listing the type's declared TAG columns. Silently ignoring it would widen the query to the whole
+range, and a caller has no way to tell that result apart from a filter that legitimately matched
+everything.
+
+That rule is enforced **server-side**, the same way `efSearch` and the vector/full-text
+result-limit fields are (see "Vector, hybrid and full-text search" above): this client sends
+`tags` unchanged and does not check it against a schema it does not have, so a violation surfaces
+as an `ArcadeDBError` thrown from the server's response, not a local `throw` before the request is
+even sent.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `listDatabases`, `exists`, `serverInfo`,

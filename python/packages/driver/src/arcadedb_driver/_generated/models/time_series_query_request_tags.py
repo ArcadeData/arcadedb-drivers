@@ -11,7 +11,10 @@ T = TypeVar("T", bound="TimeSeriesQueryRequestTags")
 
 @_attrs_define
 class TimeSeriesQueryRequestTags:
-    """Tag filter as name to value pairs. All pairs must match."""
+    """Tag filter as name to value pairs. All pairs must match. A name that is no TAG column of the type is refused with
+    400 rather than ignored.
+
+    """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 

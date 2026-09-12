@@ -102,6 +102,10 @@ class TimeSeriesNamespace:
         the module docstring: the contract types this response's scalar column
         values as `"type": "object"`, which makes the generated model misparse
         (silently, for the raw shape) every realistic response.
+
+        A name in `body["tags"]` that is not one of the type's declared TAG columns
+        is refused server-side (400, naming the tag and the type's declared TAG
+        columns) rather than dropped - see the README's "Time series" section.
         """
         raw = self._client.get_httpx_client().post(f"/api/v1/ts/{quote(self._database, safe='')}/query", json=body)
         return _json_response(raw)
@@ -119,6 +123,11 @@ class TimeSeriesNamespace:
         `TimeSeriesLatestResponse` - see the module docstring: the contract types
         `latest`'s scalar values as `"type": "object"`, so the generated model
         raises `TypeError` on an ordinary response.
+
+        `tag` is refused server-side (400) when it is not in `name:value` form, or
+        when its name is not one of the type's declared TAG columns - naming the
+        tag and the type's declared TAG columns rather than skipping the filter.
+        See the README's "Time series" section.
         """
         raw = self._client.get_httpx_client().get(
             f"/api/v1/ts/{quote(self._database, safe='')}/latest", params=_latest_params(type_=type_, tag=tag)

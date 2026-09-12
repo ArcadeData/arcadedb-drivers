@@ -109,6 +109,11 @@ async def _time_series_query(
     carries a `transaction` field (issue #7370): a query naming an open transaction runs on
     that transaction's own thread and observes its uncommitted points, where a query with
     no transaction runs on a gRPC worker and sees only committed data.
+
+    `request.tags` and `request.limit` pass straight through, including their server-side
+    enforcement: an unknown tag name in `tags` and a `limit` above
+    `arcadedb.server.grpcTimeSeriesMaxResultRows` are both refused by the server, not by
+    this package - see the README's "Time series" section.
     """
     async for result in raw.TimeSeriesQuery(request, timeout=timeout):
         yield result

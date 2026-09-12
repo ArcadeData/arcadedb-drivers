@@ -60,9 +60,12 @@ Their asymmetries are intentional and documented in each package's README:
   "harmonise" these — translating one transport's error into the other's shape drops information.
 - **Browser support.** The HTTP client works in a browser; the gRPC client cannot and will not
   until the server grows a gRPC-Web or Connect handler.
-- **Admin service.** `ArcadeDbAdminService` is deliberately not wrapped by the gRPC package (it
-  authenticates from a field inside the request message, not from metadata). Admin operations live
-  on the HTTP client.
+- **Admin service.** The gRPC package exposes `ArcadeDbAdminService` as the bare generated stub
+  `rawAdmin` and deliberately wraps none of its 44 RPCs (42 of them authenticate from a
+  `credentials` field inside the request message, not from metadata, so this package's `auth`
+  option does nothing for them). Because those credentials are in the body rather than in
+  interceptor metadata, reading `rawAdmin` throws over a non-TLS `baseUrl` unless `insecure: true`
+  was passed — a guard that fires on access, not at `createClient`.
 
 ## HTTP client structure
 

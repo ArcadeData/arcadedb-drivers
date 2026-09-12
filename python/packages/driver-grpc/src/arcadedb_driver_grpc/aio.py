@@ -34,11 +34,12 @@ from .stream import (
 )
 
 if TYPE_CHECKING:
-    # `ArcadeDbServiceAsyncStub` exists ONLY in the generated .pyi - mypy-protobuf models
-    # the async stub as its own class, but grpc constructs the SAME class for both channel
-    # kinds, so the runtime .py defines no such name. Importing it here rather than at
-    # module scope is what keeps that a typing-only fiction.
-    from ._generated.arcadedb_server_pb2_grpc import ArcadeDbServiceAsyncStub
+    # `ArcadeDbServiceAsyncStub`/`ArcadeDbAdminServiceAsyncStub` exist ONLY in the
+    # generated .pyi - mypy-protobuf models each async stub as its own class, but grpc
+    # constructs the SAME runtime class for both channel kinds, so the runtime .py defines
+    # no such names. Importing them here rather than at module scope is what keeps that a
+    # typing-only fiction.
+    from ._generated.arcadedb_server_pb2_grpc import ArcadeDbAdminServiceAsyncStub, ArcadeDbServiceAsyncStub
 
 __all__ = [
     "AsyncArcadeDBGrpcClient",
@@ -569,10 +570,34 @@ class AsyncArcadeDBGrpcClient:
     facade does not wrap is reached through it, already authenticated - which is why the
     auth interceptors are attached to the CHANNEL and not passed as per-call metadata.
 
+    `raw_admin` is the generated stub for `com.arcadedb.grpc.ArcadeDbAdminService` - the
+    control plane (database lifecycle, users, groups, API tokens, settings, backups, the
+    profiler, server shutdown/cluster operations, `Health`/`Ready`). No facade wraps any
+    of its 44 RPCs: each is a one-line stub call, exactly like the data-plane RPCs `raw`
+    reaches without a wrapper.
+
+    `raw_admin` is built from the SAME `channel` as `raw`, so it shares this client's TLS
+    policy - but NOT its authentication. 42 of the 44 admin RPCs (everything but `Health`
+    and `Ready`) authenticate from a `DatabaseCredentials` field INSIDE the request
+    message, not from the channel's auth interceptor, so `bearer_auth`/`password_auth` do
+    nothing for them. Reading `raw_admin` raises `InsecureChannelError` unless
+    `allow_admin=True` was passed to this constructor: those in-body credentials would
+    otherwise travel in cleartext regardless of any auth interceptor, the same hazard
+    #5048 closed for the data plane's password auth. `create_client` computes that
+    argument for its own callers (`credentials is not None or insecure`), but a caller
+    constructing this class directly gets no such help: this class cannot inspect an
+    arbitrary `grpc.aio.Channel` for encryption, so even a channel built with genuine TLS
+    transport credentials leaves `raw_admin` blocked until `allow_admin=True` is passed
+    explicitly. The check runs on ACCESS, not in `__init__`, so a client built over an
+    insecure channel for the data plane keeps working unchanged - only reading `raw_admin`
+    requires the opt-in. `Health` and `Ready` carry no credentials at all and are
+    still refused by this guard: it protects the stub as a whole, not a per-RPC list, so
+    there is deliberately no special case carving the two credential-free RPCs back out.
+
     A `grpc.aio.Channel` must be closed, so this is an async context manager.
     """
 
-    def __init__(self, channel: grpc.aio.Channel) -> None:
+    def __init__(self, channel: grpc.aio.Channel, *, allow_admin: bool = False) -> None:
         self._channel = channel
         # ONE runtime class serves both channel kinds - grpc constructs `ArcadeDbServiceStub`
         # whether the channel is sync or async, and `ArcadeDbServiceAsyncStub` exists only in
@@ -583,6 +608,31 @@ class AsyncArcadeDBGrpcClient:
         # would be flagged redundant, besides having to spell the type as a STRING (`cast`
         # evaluates its first argument at runtime, where that name does not exist).
         self.raw: ArcadeDbServiceAsyncStub = _pb2_grpc.ArcadeDbServiceStub(channel)
+        # Same typing story as `raw` above, for the admin stub - stored privately because
+        # `raw_admin` itself is a property (see below), not a plain instance attribute.
+        self._raw_admin_stub: ArcadeDbAdminServiceAsyncStub = _pb2_grpc.ArcadeDbAdminServiceStub(channel)
+        # See `ArcadeDBGrpcClient.__init__`'s twin comment (sync `__init__.py`): the safe
+        # default blocks `raw_admin` unless `create_client` (or a direct caller) says
+        # otherwise, since this class cannot itself tell whether an arbitrary
+        # `grpc.aio.Channel` it was handed is actually encrypted.
+        self._allow_admin = allow_admin
+
+    @property
+    def raw_admin(self) -> ArcadeDbAdminServiceAsyncStub:
+        """The admin (control-plane) stub - see the class docstring. Raises
+        `InsecureChannelError` on read if `allow_admin` was not set; never raises at
+        construction time.
+        """
+        if not self._allow_admin:
+            raise InsecureChannelError(
+                "raw_admin: refusing to expose ArcadeDbAdminService over a channel that may be "
+                "insecure. 42 of its 44 RPCs (everything but Health and Ready) carry "
+                "DatabaseCredentials in the request body, which would travel in cleartext "
+                "regardless of any auth interceptor. Pass credentials=grpc.ssl_channel_credentials() "
+                "or insecure=True to create_client, or allow_admin=True to this class's "
+                "constructor if you built the channel yourself."
+            )
+        return self._raw_admin_stub
 
     async def close(self) -> None:
         """Closes the underlying channel."""
@@ -749,6 +799,12 @@ def create_client(
     The guard is written out here rather than factored into a helper shared with the sync
     `create_client`: one duplicated `if` is cheaper to read than an indirection, and this
     is the check people audit.
+
+    `raw_admin` carries its own, separate insecure-channel guard - see
+    `AsyncArcadeDBGrpcClient.raw_admin` - that fires on READING the property, not here. It
+    uses the same `credentials is not None or insecure` test this function applies to its
+    own guard above, but unconditionally on `auth`: the admin hazard is credentials inside
+    an admin RPC's request body, not anything an auth interceptor puts on the wire.
     """
     if credentials is None and not insecure and auth is not None and auth.sends_plaintext_password:
         raise InsecureChannelError(
@@ -766,4 +822,4 @@ def create_client(
         if credentials is None
         else grpc.aio.secure_channel(target, credentials, interceptors=interceptors)
     )
-    return AsyncArcadeDBGrpcClient(channel)
+    return AsyncArcadeDBGrpcClient(channel, allow_admin=credentials is not None or insecure)

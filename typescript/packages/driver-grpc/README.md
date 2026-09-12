@@ -55,9 +55,11 @@ const response = await grpc.raw.executeQuery({
 });
 ```
 
-`raw` is the generated Connect client for `ArcadeDbService` (the data plane) - every RPC the
-`.proto` contract declares is callable through it. `createClient` adds five ergonomic wrappers
-on top for the RPCs the generated client alone handles badly: `streamQuery`, `insertStream`,
+`raw` is the generated Connect client for `ArcadeDbService` (the data plane) - every RPC of that
+service is callable through it. The contract's other service, `ArcadeDbAdminService` (the control
+plane), is a separate handle, `rawAdmin` - see "The control plane: `rawAdmin`" below.
+`createClient` adds five ergonomic wrappers on top for the RPCs the generated client alone handles
+badly: `streamQuery`, `insertStream`,
 `timeSeriesQuery`, `timeSeriesWriteStream`, and `transaction`. Everything else - the unary CRUD
 calls, `vectorSearch`/`hybridSearch`/`fullTextSearch`, `insertBidirectional`, `graphBatchLoad`,
 `TimeSeriesWrite`, `TimeSeriesLatest` - is used directly through `raw` at the top level; the CRUD
@@ -431,24 +433,149 @@ the bound is enforced **server-side**. Neither `raw` nor the handle validates th
 out-of-range value surfaces as a `ConnectError` from the server's response, not as a client-side
 `throw` before the request is ever sent.
 
-## The admin service is not a supported path
+## The control plane: `rawAdmin`
 
-The `.proto` contract also defines `ArcadeDbAdminService` (`Ping`, `GetServerInfo`,
-`ListDatabases`, `ExistsDatabase`, `CreateDatabase`, `DropDatabase`, `GetDatabaseInfo`,
-`CreateUser`, `DeleteUser`). `createClient` does not wire up a client for it, and this package
-does not export one. There is no deep import that gets you one either: the `exports` map in
-`package.json` exposes only this package's own entry point, so `@arcadedb/driver-grpc/gen/...` is
-not a reachable path for an installed copy. If you need it, generate your own Connect client
-against `contracts/arcadedb-server-<version>.proto` the same way this package's own `raw` client
-is generated - the `.proto` is a plain source file, not something only this package can read.
+The `.proto` contract declares a second service alongside `ArcadeDbService`: `ArcadeDbAdminService`,
+ArcadeDB's control plane - database lifecycle, users, groups, API tokens, server and database
+settings, backups, the profiler, cluster and shutdown operations, and the two probes. `createClient`
+builds a generated Connect client for it from the **same** transport it builds `raw` from, and
+returns it as `rawAdmin`:
 
-The reason is its auth model, not an oversight: every `ArcadeDbAdminService` RPC authenticates
-from a `credentials` field inside the request message itself, rather than from gRPC metadata the
-way every data-plane call in this package does. Wrapping it here would mean this package's
-`auth` option meant one thing for `raw` and `streamQuery`/`insertStream`/`transaction`, and
-something else again for admin calls. `@arcadedb/driver` already covers the admin service's
-actual job - server discovery and database lifecycle (`listDatabases`, `exists`, create/drop) -
-over HTTP, so there is no gap this package needs to fill.
+```ts
+const grpc = createClient({ baseUrl: "https://localhost:50051" });
+
+const info = await grpc.rawAdmin.getServerInfo({
+  credentials: { username: "root", password: "playwithdata" },
+});
+```
+
+There is no facade over it, and that is the design rather than an omission. `streamQuery`,
+`insertStream`, `timeSeriesWriteStream` and `transaction` exist because the generated client alone
+handles those four RPCs badly - batches to flatten, envelope bookkeeping to get right, a
+begin/commit/rollback sequence to hold together. 41 of the admin service's 44 RPCs are plain unary
+calls: build a request message, await one response message. A wrapper around any of those would be
+a renamed passthrough, which is the bar `vectorSearch` and `timeSeriesWrite` are already held to
+above.
+
+### The 44 RPCs
+
+Every backticked name between the two markers below is one RPC of `ArcadeDbAdminService`, and a
+test asserts that this set equals the generated stub's own method set. A hand-written list of 44
+names is exactly the kind of prose that rots on the next contract bump, and a stale list is worse
+than no list, because a reader trusts it.
+
+<!-- admin-rpcs:begin -->
+
+| Group | RPCs |
+| --- | --- |
+| Databases | `CreateDatabase`, `DropDatabase`, `OpenDatabase`, `CloseDatabase`, `AlignDatabase`, `ExistsDatabase`, `GetDatabaseInfo`, `GetProgress` |
+| Discovery and probes | `Ping`, `GetServerInfo`, `ListDatabases`, `Health`, `Ready` |
+| Security | `CreateUser`, `UpdateUser`, `DeleteUser`, `ListUsers`, `ListGroups`, `SaveGroup`, `DeleteGroup`, `ListApiTokens`, `CreateApiToken`, `DeleteApiToken` |
+| Settings | `SetServerSetting`, `SetDatabaseSetting` |
+| Backup | `GetBackupConfig`, `SetBackupConfig`, `ListBackups`, `TriggerBackup`, `DeleteBackup` |
+| Profiler | `ProfilerStart`, `ProfilerStop`, `ProfilerReset`, `ProfilerResults`, `ProfilerList`, `ProfilerLoad` |
+| Server and cluster | `GetServerEvents`, `Shutdown`, `DisconnectCluster`, `ConnectCluster`, `ListSessions` |
+| Restore and import (server-streaming) | `RestoreBackup`, `RestoreDatabase`, `ImportDatabase` |
+
+<!-- admin-rpcs:end -->
+
+Authorization is the server's business, not this client's, and it is not uniform across that table:
+`Ping`, `GetServerInfo`, `ListDatabases`, `ExistsDatabase` and `GetDatabaseInfo` need only a valid
+account, `GetProgress` needs an account granted the database it names, and everything else needs
+the server-admin (root) principal. `CreateDatabase`, `DropDatabase`, `CreateUser`, `DeleteUser`,
+`RestoreBackup`, `RestoreDatabase` and `ImportDatabase` are additionally refused on a cluster
+follower with `FAILED_PRECONDITION` and the leader's address on the `arcadedb-leader-*` trailers -
+gRPC has no request proxy, so the caller redirects itself rather than being forwarded.
+
+### The three server-streaming RPCs
+
+`RestoreBackup`, `RestoreDatabase` and `ImportDatabase` return `stream RestoreProgress` /
+`stream ImportProgress` instead of a single response, and that shape is deliberate: a restore or an
+import can run for minutes, so the server reports progress as it goes and the call stays cancellable
+throughout rather than being a single opaque await that either returns or times out.
+
+They are also the three the bare stub drives least comfortably. A unary admin call is one line; a
+server-streaming one is a `for await` loop that has to decide what to do with each progress message,
+and has to treat an abandoned loop as a cancellation that leaves the restore's fate up to the
+server. Nothing in this package smooths that over - if these three ever earn a wrapper, they are the
+candidates, on the same grounds `streamQuery` earned its own.
+
+### `Health` and `Ready` take empty request messages
+
+`HealthRequest` and `ReadyRequest` declare no fields at all - not even `credentials`. They are
+exempt from the server's auth interceptor exactly as `GET /health` and `GET /ready` are
+unauthenticated over HTTP, so a container orchestrator can probe a node without an account.
+`grpc.rawAdmin.health({})` is the entire call; there is nothing left for a facade to simplify.
+
+### `auth` does nothing for the admin service
+
+42 of the 44 RPCs above authenticate from a `DatabaseCredentials` field **inside the request
+message** - the `credentials: { username, password }` in the example at the top of this section, set
+per call - rather than from gRPC metadata, the way every data-plane call in this package does. This
+is a property of the contract, not of this client, and it is the single most surprising thing about
+`rawAdmin`: `bearerAuth` and `passwordAuth` authenticate the **data plane** only. Pass one as `auth`
+and its metadata is still sent on an admin call, and the server still authenticates that call from
+the request body and ignores it. (`Health` and `Ready` are the other two, and they carry no
+credentials because they are not authenticated at all.)
+
+That placement also defeats the plaintext-password guard described under "Authentication" above.
+That check keys on an internal marker attached to the `Interceptor` value `passwordAuth` returned,
+so it can only ever see a password an interceptor is about to put in metadata; a password sitting in
+a request body is invisible to it. `rawAdmin` therefore carries its **own** guard against the same
+hazard:
+
+```ts
+const grpc = createClient({ baseUrl: "http://localhost:50051" });
+await grpc.raw.executeQuery({ database: "mydb", query: "SELECT 1", language: "sql" }); // fine
+
+grpc.rawAdmin;
+// throws: refusing to expose ArcadeDbAdminService over insecure baseUrl "http://localhost:50051"
+
+createClient({ baseUrl: "http://localhost:50051", insecure: true }).rawAdmin; // fine - you opted in
+createClient({ baseUrl: "https://localhost:50051" }).rawAdmin; // fine - TLS, nothing to opt into
+```
+
+Four things about that guard are deliberate:
+
+- **It fires when `rawAdmin` is read, not when `createClient` is called.** A caller who only ever
+  touches the data plane over a plain `http://` baseUrl is entirely unaffected: their client is
+  constructed exactly as it always was, and nothing about exposing the admin stub can throw at them.
+- **It is unconditional on `auth`.** The credentials at risk are in the request body, not in
+  anything an interceptor puts on the wire, so the refusal is identical with `bearerAuth`, with
+  `passwordAuth`, and with no `auth` at all.
+- **`Health` and `Ready` are refused too**, even though they carry no credentials. The guard
+  protects the stub as a whole rather than a per-RPC list, and carving those two back out would mean
+  wrapping the other 42 - the facade this package deliberately does not have. Probing health over a
+  plaintext channel costs one `insecure: true`, and that is the cheaper end of the trade.
+- **It throws a plain `Error`**, consistent with the plaintext-password guard beside it
+  (`createClient` throws the same way under "Authentication" above). The Python sibling raises an
+  exported, catchable `InsecureChannelError` for its equivalent guard - that is not an oversight
+  here: this package's guards are all plain `Error`, and its one *named* error type, `ConnectError`,
+  belongs to Connect and models an RPC failure returned by a server, not an argument this package
+  refuses locally before any call is made.
+
+The check is `protocol !== "https:"`, not `=== "http:"`, for the reason "Authentication" gives:
+`new URL("localhost:50051").protocol` is `"localhost:"`, so a strict `http:` comparison would wave
+through exactly the schemeless `baseUrl` a caller who forgot the scheme would write.
+
+### `CreateApiToken` returns secret material, and nothing here reads it
+
+`CreateApiTokenResponse.token` is a freshly minted API token in cleartext - the only time the server
+will ever show it, which is why `DeleteApiToken` revokes by hash and refuses to accept the token
+itself. The server enforces that independently of anything in this package: `CreateApiToken` is
+refused with `FAILED_PRECONDITION` over a cleartext channel to a remote host, and answered only over
+TLS or from a loopback peer. `insecure: true` does not reach that check - it lifts this client's own
+guard on `rawAdmin`, not the server's separate one on this single RPC, so a caller who opted in to
+unblock `rawAdmin` over a plaintext baseUrl to a remote host can still watch `CreateApiToken` refuse
+to mint anything. This package never touches that response. Both auth interceptors set request headers and
+`return next(req)` without looking at what comes back; they are request-side by construction, and
+this package's hand-written source contains no logging at all - no `console.*`, nothing. A token
+cannot reach a log sink through this client, which is the property
+[ArcadeData/arcadedb#7309](https://github.com/ArcadeData/arcadedb/issues/7309) argues for
+server-side. That is pinned by a test rather than left as a reading of the source, so an interceptor
+that started inspecting responses, or a stray `console.log`, fails the suite - the test scans `src/`
+and deliberately skips `src/gen/`, generated code this package never hand-edits and so can never be
+the source of a leak.
 
 ## Errors: `ConnectError`, not `ArcadeDBError`
 

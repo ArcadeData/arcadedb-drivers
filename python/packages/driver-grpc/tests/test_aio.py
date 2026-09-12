@@ -7,10 +7,16 @@ from collections.abc import AsyncIterator, Iterator
 import grpc
 import pytest
 from arcadedb_driver_grpc import InsecureChannelError, InsertStreamRequest, TimeSeriesWriteStreamRequest, messages
-from arcadedb_driver_grpc.aio import _envelope_chunks, _envelope_time_series_chunks, create_client
+from arcadedb_driver_grpc._generated import arcadedb_server_pb2_grpc as _pb2_grpc
+from arcadedb_driver_grpc.aio import (
+    AsyncArcadeDBGrpcClient,
+    _envelope_chunks,
+    _envelope_time_series_chunks,
+    create_client,
+)
 from arcadedb_driver_grpc.auth import bearer_auth, password_auth
 
-from .conftest import RecordingServicer
+from .conftest import RecordingAdminServicer, RecordingServicer
 
 pytestmark = pytest.mark.asyncio
 
@@ -65,9 +71,129 @@ async def test_auth_reaches_every_rpc_shape_not_only_unary_unary(
 
 async def test_password_auth_over_an_insecure_channel_is_refused() -> None:
     # The async facade carries the same #5048 guard as the sync one; a facade that
-    # quietly dropped it would be the easier of the two to reach by accident.
+    # quietly dropped it would be the easier of the two to reach by accident. Also pins
+    # that adding `raw_admin` did not move it: it still runs BEFORE any client - and
+    # therefore before any `raw_admin` - exists.
     with pytest.raises(InsecureChannelError):
         create_client("127.0.0.1:50051", auth=password_auth("root", "playwithdata"))
+
+
+async def test_raw_admin_reaches_the_server(async_fake_admin_server: tuple[str, RecordingAdminServicer]) -> None:
+    # insecure=True: this test is about reaching the admin server, not the insecure-channel
+    # guard on `raw_admin` itself - which is covered separately below.
+    target, servicer = async_fake_admin_server
+    async with create_client(target, insecure=True) as client:
+        await client.raw_admin.Ping(messages.PingRequest())
+    assert servicer.calls == ["Ping"]
+
+
+async def test_channel_auth_metadata_also_reaches_an_admin_rpc(
+    async_fake_admin_server: tuple[str, RecordingAdminServicer],
+) -> None:
+    # Channel metadata arrives at an admin RPC same as a data-plane one - it just doesn't
+    # authenticate the RPC, since 42 of 44 admin RPCs check `DatabaseCredentials` in the
+    # request body instead. Asserts on `servicer.metadata`, not on anything in the request.
+    target, servicer = async_fake_admin_server
+    async with create_client(target, auth=bearer_auth("t0ken"), insecure=True) as client:
+        await client.raw_admin.Ping(messages.PingRequest())
+    assert ("authorization", "Bearer t0ken") in servicer.metadata
+
+
+async def test_raw_and_raw_admin_are_built_from_the_same_channel(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Same property, same reasoning as the sync client's twin test in test_client.py:
+    # "both exist" is not enough - this proves the shared channel by recording the exact
+    # `channel` object each generated stub constructor received.
+    real_stub = _pb2_grpc.ArcadeDbServiceStub
+    real_admin_stub = _pb2_grpc.ArcadeDbAdminServiceStub
+    channels_seen: list[grpc.aio.Channel] = []
+
+    def spy_stub(channel: grpc.aio.Channel) -> _pb2_grpc.ArcadeDbServiceStub:
+        channels_seen.append(channel)
+        return real_stub(channel)
+
+    def spy_admin_stub(channel: grpc.aio.Channel) -> _pb2_grpc.ArcadeDbAdminServiceStub:
+        channels_seen.append(channel)
+        return real_admin_stub(channel)
+
+    monkeypatch.setattr(_pb2_grpc, "ArcadeDbServiceStub", spy_stub)
+    monkeypatch.setattr(_pb2_grpc, "ArcadeDbAdminServiceStub", spy_admin_stub)
+
+    # insecure=True: this test is about the shared channel/transport, not the
+    # insecure-channel guard on `raw_admin` itself - which needs `client.raw_admin` to be
+    # reachable in order to compare it against `client.raw` below.
+    client = create_client("127.0.0.1:50051", insecure=True)
+    try:
+        assert len(channels_seen) == 2
+        assert channels_seen[0] is channels_seen[1]
+        # Different generated stub classes, so mypy sees no possible overlap between
+        # them - this identity check is exactly the point, hence the ignore.
+        assert client.raw is not client.raw_admin  # type: ignore[comparison-overlap]
+    finally:
+        await client.close()
+
+
+async def test_close_closes_the_channel_raw_admin_shares_with_raw(
+    async_fake_admin_server: tuple[str, RecordingAdminServicer],
+) -> None:
+    target, _ = async_fake_admin_server
+    client = create_client(target, insecure=True)
+    await client.raw_admin.Ping(messages.PingRequest())  # works before close
+    await client.close()
+    await client.close()  # idempotent
+    with pytest.raises(Exception, match="closed"):
+        await client.raw_admin.Ping(messages.PingRequest())
+
+
+async def test_raw_admin_over_an_insecure_channel_is_refused_without_opt_in() -> None:
+    # Construction itself must NOT raise - only READING `raw_admin` does. This is the
+    # regression guard for "the guard moved to the wrong place."
+    client = create_client("127.0.0.1:50051")  # must not raise
+    try:
+        with pytest.raises(InsecureChannelError, match=r"credentials|insecure"):
+            client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+    finally:
+        await client.close()
+
+
+async def test_raw_admin_over_an_insecure_channel_is_allowed_when_opted_into(
+    async_fake_admin_server: tuple[str, RecordingAdminServicer],
+) -> None:
+    target, _ = async_fake_admin_server
+    client = create_client(target, insecure=True)
+    assert client.raw_admin is not None
+    await client.close()
+
+
+async def test_raw_admin_over_a_secure_channel_is_not_refused() -> None:
+    client = create_client("127.0.0.1:50051", credentials=grpc.ssl_channel_credentials())
+    assert client.raw_admin is not None
+    await client.close()
+
+
+async def test_raw_admin_is_blocked_by_default_on_direct_construction_even_over_a_secure_channel() -> None:
+    # Async twin of the sync client's test of the same name. `AsyncArcadeDBGrpcClient(channel)`
+    # bypasses `create_client` entirely, so nothing computed `credentials is not None or
+    # insecure` on this caller's behalf, and this class cannot inspect an arbitrary
+    # `grpc.aio.Channel` for encryption - so even a channel built with genuine TLS
+    # credentials, as here, stays blocked until `allow_admin=True` is passed explicitly.
+    channel = grpc.aio.secure_channel("127.0.0.1:50051", grpc.ssl_channel_credentials())
+    client = AsyncArcadeDBGrpcClient(channel)
+    try:
+        with pytest.raises(InsecureChannelError, match="allow_admin"):
+            client.raw_admin  # noqa: B018 - accessing the property IS the assertion
+    finally:
+        await client.close()
+
+
+async def test_raw_still_works_over_an_insecure_channel_with_no_auth(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The over-guarding regression check: a caller who never touches `raw_admin` must not
+    # be newly broken by this guard. `raw` keeps working over plain HTTP exactly as before.
+    target, servicer = async_fake_server
+    async with create_client(target) as client:
+        await client.raw.ExecuteCommand(messages.ExecuteCommandRequest(database="db", command="SELECT 1"))
+    assert servicer.calls == ["ExecuteCommand"]
 
 
 async def test_stream_query_flattens_batches(

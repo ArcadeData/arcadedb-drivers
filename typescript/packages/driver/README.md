@@ -118,6 +118,16 @@ delivered to the caller.
 `Accept` header. Streaming is two additional methods, not a mode either existing one can be put
 into.
 
+`commandStream` only ever succeeds for a **read-only** statement. A mutating one - `UPDATE`,
+`INSERT`, DDL, `UPDATE ... RETURN AFTER` included - is refused before it produces a single row,
+because a streamed response starts sending rows to the caller before the surrounding transaction
+commits, and that commit can still roll back; the server will not let you observe rows from a
+write that might never actually happen. Use the buffered `command` for a mutating statement -
+it is unaffected by any of this. As with the `efSearch`/result-limit bounds above, this rule is
+enforced **server-side** and this client does not pre-empt it by inspecting the statement first, so
+the rejection surfaces as an `ArcadeDBError` from the server's response (HTTP 400), not a local
+`throw` before the request is even sent.
+
 Both methods reach the server through the generated client's own streaming primitive -
 `client.POST(..., { parseAs: "stream" })` - rather than a hand-rolled `fetch` or a second HTTP
 client of their own; that is what lets them reuse the same base URL, auth, and error mapping every

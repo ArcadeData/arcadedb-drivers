@@ -129,6 +129,16 @@ before the error stays delivered to the caller.
 `Accept` header. Streaming is two additional methods, not a mode either existing one can be put
 into.
 
+`command_stream` only ever succeeds for a **read-only** statement. A mutating one - `UPDATE`,
+`INSERT`, DDL, `UPDATE ... RETURN AFTER` included - is refused before it produces a single row,
+because a streamed response starts sending rows to the caller before the surrounding transaction
+commits, and that commit can still roll back; the server will not let you observe rows from a
+write that might never actually happen. Use the buffered `command` for a mutating statement - it
+is unaffected by any of this. As with the `ef_search`/result-limit bounds above, this rule is
+enforced **server-side** and this client does not pre-empt it by inspecting the statement first, so
+the rejection surfaces as an `ArcadeDBError` raised from the server's response (HTTP 400), not a
+local exception before the request is even sent.
+
 Both the sync and async versions reach the server through the generated `Client`'s own pooled
 `httpx.Client`/`httpx.AsyncClient`, via its `.stream()` context manager, rather than a hand-rolled
 request or a `httpx.Client` of their own; that is what lets them reuse the same base URL, auth

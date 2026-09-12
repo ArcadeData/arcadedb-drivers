@@ -124,7 +124,11 @@ export async function* queryStream(
   yield* streamEvents(client, "/api/v1/query/{database}", database, sessionId, buildQueryBody(opts));
 }
 
-/** Streams `POST /api/v1/command/{database}` as `application/x-ndjson`, yielding one event per line. */
+/**
+ * Streams `POST /api/v1/command/{database}` as `application/x-ndjson`, yielding one event per
+ * line. Only a read-only statement can stream; see `ArcadeDBDatabase.commandStream`'s doc comment
+ * for why a mutating one is refused.
+ */
 export async function* commandStream(
   client: RawClient,
   database: string,

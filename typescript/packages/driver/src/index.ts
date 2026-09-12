@@ -244,7 +244,13 @@ export class ArcadeDBDatabase {
     return queryStream(this.client, this.name, this.sessionId, opts);
   }
 
-  /** Streams a command as `application/x-ndjson`. As {@link ArcadeDBDatabase.queryStream}, but for `/command`. */
+  /**
+   * Streams a command as `application/x-ndjson`. As {@link ArcadeDBDatabase.queryStream}, but for
+   * `/command`. Only a READ-ONLY statement can stream: a mutating one (`UPDATE`, `INSERT`, DDL,
+   * `RETURN AFTER` included) is refused with an `ArcadeDBError` (HTTP 400) before it produces a
+   * row, because a streamed response starts sending rows before the transaction commits, and that
+   * commit can still roll back. Use `command` for a mutating statement.
+   */
   commandStream(opts: CommandOptions): AsyncGenerator<NdJsonQueryEvent> {
     return commandStream(this.client, this.name, this.sessionId, opts);
   }

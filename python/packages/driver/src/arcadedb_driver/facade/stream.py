@@ -161,7 +161,9 @@ def stream_command(
     params: dict[str, Any] | None = None,
 ) -> Generator[NdJsonQueryEvent, None, None]:
     """Streams `POST /api/v1/command/{database}` as `application/x-ndjson`, one event per line -
-    see the module docstring for what an event carries and why an in-band `error` raises."""
+    see the module docstring for what an event carries and why an in-band `error` raises. Only a
+    read-only statement can stream; see `ArcadeDBDatabase.command_stream`'s docstring for why a
+    mutating one is refused."""
     body = build_command_request(language=language, command=command, params=params).to_dict()
     return _stream_events(client, _command_url(database), body, session_id)
 

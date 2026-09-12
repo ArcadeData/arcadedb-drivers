@@ -162,7 +162,13 @@ class ArcadeDBDatabase:
     ) -> Generator[NdJsonQueryEvent, None, None]:
         """Streams `POST /api/v1/command/{database}` as `application/x-ndjson` - the `command`
         twin of `query_stream`; see its docstring for what an event carries and why an in-band
-        `error` raises `ArcadeDBError`."""
+        `error` raises `ArcadeDBError`.
+
+        Only a READ-ONLY statement can stream: a mutating one (`UPDATE`, `INSERT`, DDL,
+        `RETURN AFTER` included) is refused with an `ArcadeDBError` (HTTP 400) before it produces a
+        row, because a streamed response starts sending rows before the transaction commits, and
+        that commit can still roll back. Use `command` for a mutating statement.
+        """
         return stream_command(
             self._client, self.name, self._session_id, language=language, command=command, params=params
         )

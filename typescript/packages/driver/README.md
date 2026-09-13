@@ -174,10 +174,13 @@ nothing fails until a query months later looks for a field that was never writte
 spelled exactly as the contract spells them. An option you leave unset is omitted from the URL
 rather than sent empty, so the server applies its own default instead of parsing `""`.
 
-The ndjson line format itself is in no schema - the contract declares all three request media
-types as `{"type": "string"}` - so `src/internal/batch-rows.ts` owns it, established against a
-live server and reported upstream as
-[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570). That is why
+`src/internal/batch-rows.ts` owns the ndjson line format. It was established against a live server
+and reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570) when no schema
+described it; the contract now declares it as `BatchLine` and the two agree field for field. The
+module is still needed, because `BatchLine` types one *line* while the body is a newline-delimited
+sequence of them - openapi-typescript therefore types the request body as a single line object,
+which is not what the endpoint is sent. `text/csv` still has no schema at all. That is why
 `VertexRow`/`EdgeRow` are the only way in: hand-built payload strings are not a supported input.
 
 ### A batch is not atomic

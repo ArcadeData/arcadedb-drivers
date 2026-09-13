@@ -2,9 +2,11 @@
 bulk graph-load endpoint.
 
 HAND-WRITTEN, and unlike `facade/stream.py`'s `query_stream`/`command_stream` there is no
-generated request model to ride even for the buffered path: `openapi-python-client` cannot model
-this endpoint's body at all - the contract declares it `{"type": "string"}` for jsonl/ndjson/csv
-alike, not a JSON schema - so it prints a warning, skips the operation entirely, and exits 0.
+generated request model to ride even for the buffered path. The contract now schematizes the
+jsonl/ndjson body as `BatchLine` (ArcadeData/arcadedb#7570), but that schema describes ONE LINE
+rather than the newline-delimited body - the contract says so itself - and `text/csv` still has no
+schema at all, so `openapi-python-client` cannot model the request: it prints a warning, skips the
+operation entirely, and exits 0.
 `_generated/api/batch/__init__.py` is an empty stub, and `POST /api/v1/batch/{database}` is one of
 the four entries `scripts/check_codegen_skips.py` pins in `EXPECTED_SKIPS`. `facade/timeseries.py`'s
 hand-written `write` is the closer relative: both issue a raw request through the generated

@@ -23,7 +23,8 @@ def async_server() -> AsyncArcadeDBServer:
 # test asserted on. The generated models' `from_dict` now raises `KeyError` for a missing
 # required field, which is what made seven tests here fail on the refresh.
 #
-# The contract is right and the fixtures were thin: `python/e2e/test_vector.py` passes against a
+# The contract is right and the fixtures were thin: `python/e2e/test_data_plane.py`'s vector cases
+# (`test_vector_search_returns_a_non_empty_nearest_first_result` and its siblings) pass against a
 # live 26.10.1-SNAPSHOT container, so the server really does send all of them. That check mattered
 # - a field declared required and not always sent would have been a contract defect breaking every
 # real call, the third of its kind in this package (see the module docstring in facade/vector.py).

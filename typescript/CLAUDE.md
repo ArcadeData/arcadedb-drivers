@@ -75,10 +75,13 @@ Their asymmetries are intentional and documented in each package's README:
 throwing facade. `unwrap` lives in `internal/` rather than being re-exported from `index.ts`
 specifically to break the `index.ts` ↔ `facade/*.ts` import cycle.
 
-`POST /api/v1/batch/{database}` is wrapped by hand in `src/facade/batch.ts`: openapi-typescript
-types the route but declares its body `string` for all three media types, so `batchLoad` rides the
-generated client with a per-request `bodySerializer` override rather than a second transport, and
-`src/internal/batch-rows.ts` owns the ndjson line format the contract does not describe.
+`POST /api/v1/batch/{database}` is wrapped by hand in `src/facade/batch.ts`: the contract
+schematizes one *line* of the payload (`BatchLine`, a union over `BatchVertexLine` and
+`BatchEdgeLine`) but not the newline-delimited body that is actually sent, so openapi-typescript
+types the request body as a single line object. `batchLoad` therefore rides the generated client
+with a per-request `bodySerializer` override rather than a second transport, and
+`src/internal/batch-rows.ts` owns the line format - which the contract now documents too, matching
+this client field for field (ArcadeData/arcadedb#7570).
 
 All four namespaces load their implementation with a **dynamic `import()`**. That is a
 tree-shaking contract, not a style choice: `test/treeshake.test.ts` bundles a data-plane-only

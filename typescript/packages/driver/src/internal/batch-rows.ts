@@ -1,9 +1,14 @@
 /**
  * Turning structured rows into ArcadeDB's GraphBatch ndjson line format.
  *
- * The line format is NOT in the OpenAPI contract - all three request media types are declared
- * `{"type": "string"}` with a one-line description. It was established against a live
- * 26.10.1-SNAPSHOT server and reported upstream as ArcadeData/arcadedb#7570:
+ * This format was established against a live 26.10.1-SNAPSHOT server and reported upstream as
+ * ArcadeData/arcadedb#7570, because no contract described it. The contract now DOES describe it -
+ * the jsonl and ndjson bodies are `BatchLine`, a union over `BatchVertexLine` and `BatchEdgeLine` -
+ * and it matches what this module already emitted, field for field. That does not make this module
+ * redundant: `BatchLine` types ONE LINE, not the body. The contract says so outright - "The JSON
+ * schema below describes ONE LINE: the body is a sequence of them" - so openapi-typescript types
+ * the request body as a single line object rather than the newline-delimited payload actually sent,
+ * and `text/csv` still carries no schema at all:
  *
  *     {"@type":"vertex","@class":"Person","@id":"p1","name":"Alice"}
  *     {"@type":"edge","@class":"Knows","@from":"p1","@to":"p2","since":2020}

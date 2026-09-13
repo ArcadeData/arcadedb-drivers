@@ -60,7 +60,10 @@ fails CI.
 Two of those four skipped endpoints are wrapped by hand anyway - `facade/timeseries.py`'s `write`
 and `facade/batch.py`'s `batch_load`/`batch_load_stream` - each issuing its request through the
 generated `Client`'s own pooled httpx client, with `_internal/batch_rows.py` owning the ndjson
-line format the contract declares only as `{"type": "string"}`.
+line format. The contract now declares that format - `BatchLine`, a union over `BatchVertexLine`
+and `BatchEdgeLine` (ArcadeData/arcadedb#7570) - and it matches what the module emits, but it
+describes ONE LINE rather than the body, so the generator still cannot build the call and `/batch`
+stays on the `EXPECTED_SKIPS` list.
 
 ## gRPC generation
 

@@ -161,8 +161,9 @@ streaming endpoint to this package should do the same rather than standing up a 
 ## Batch loading: `batch_load`/`batch_load_stream`
 
 `POST /api/v1/batch/{database}` bulk-loads vertices and edges from one ndjson payload. The
-contract declares its request body `{"type": "string"}` for all three of the jsonl/ndjson/csv
-media types it accepts, not a JSON schema `openapi-python-client` can generate a model from, so -
+contract schematizes a single *line* of that payload - `BatchLine`, a union over `BatchVertexLine`
+and `BatchEdgeLine` - but not the body, which is a newline-delimited sequence of them; `text/csv`
+has no schema at all. So there is nothing `openapi-python-client` can generate a call from, and -
 like `db.ts.write` above - both `batch_load` and `batch_load_stream` are hand-written, issuing
 their request through the same generated `Client`'s own pooled `httpx.Client`/`httpx.AsyncClient`
 rather than a `httpx.Client` of their own:
@@ -190,10 +191,12 @@ named exactly as the contract names them and sent only when present: an option a
 set is left off the URL entirely rather than sent as an empty value, so the server applies its own
 default instead of parsing `""`.
 
-The line format the rows are serialized into is in no schema - the contract declares all three of
-the endpoint's request media types as `{"type": "string"}` - so `_internal/batch_rows.py` owns it,
-established against a live server and reported upstream as
-[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570). `VertexRow` and
+`_internal/batch_rows.py` owns the line format the rows are serialized into. It was established
+against a live server and reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570) when no schema
+described it; the contract now declares it as `BatchLine` and the two agree field for field. That
+schema covers one line rather than the whole body, so it does not remove the need for this module -
+but it does mean the format is now documented upstream rather than only here. `VertexRow` and
 `EdgeRow` are consequently the only way in: a hand-built payload string is not a supported input
 to either method.
 

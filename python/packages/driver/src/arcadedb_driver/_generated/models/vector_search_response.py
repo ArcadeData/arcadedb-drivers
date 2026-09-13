@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 if TYPE_CHECKING:
     from ..models.vector_search_response_results_item import VectorSearchResponseResultsItem
 
@@ -20,26 +18,25 @@ class VectorSearchResponse:
     """Ranked neighbors of the query vector
 
     Attributes:
-        candidate_limit (int | Unset): Size of the candidate window the search inspected, which a filter over-fetches
-            into
-        count (int | Unset): Number of results returned
-        index_name (str | Unset): Index that was searched
-        results (list[VectorSearchResponseResultsItem] | Unset): Hits, nearest or highest-scoring first
-        scoring (str | Unset): Which direction is better and how it was computed, e.g. 'distance_lower_is_better:COSINE'
-            or 'score_higher_is_better:dot_product'. Read it rather than assuming, because the two paths rank in opposite
+        candidate_limit (int): Size of the candidate window the search inspected, which a filter over-fetches into
+        count (int): Number of results returned
+        index_name (str): Index that was searched
+        results (list[VectorSearchResponseResultsItem]): Hits, nearest or highest-scoring first
+        scoring (str): Which direction is better and how it was computed, e.g. 'distance_lower_is_better:COSINE' or
+            'score_higher_is_better:dot_product'. Read it rather than assuming, because the two paths rank in opposite
             directions.
-        sparse (bool | Unset): Whether the sparse path was taken
-        truncated (bool | Unset): True when the result window was filled, so further matches may exist. False for a
-            short result: the search already returned every match it could find within 'candidateLimit'.
+        sparse (bool): Whether the sparse path was taken
+        truncated (bool): True when the result window was filled, so further matches may exist. False for a short
+            result: the search already returned every match it could find within 'candidateLimit'.
     """
 
-    candidate_limit: int | Unset = UNSET
-    count: int | Unset = UNSET
-    index_name: str | Unset = UNSET
-    results: list[VectorSearchResponseResultsItem] | Unset = UNSET
-    scoring: str | Unset = UNSET
-    sparse: bool | Unset = UNSET
-    truncated: bool | Unset = UNSET
+    candidate_limit: int
+    count: int
+    index_name: str
+    results: list[VectorSearchResponseResultsItem]
+    scoring: str
+    sparse: bool
+    truncated: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -49,12 +46,10 @@ class VectorSearchResponse:
 
         index_name = self.index_name
 
-        results: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.results, Unset):
-            results = []
-            for results_item_data in self.results:
-                results_item = results_item_data.to_dict()
-                results.append(results_item)
+        results = []
+        for results_item_data in self.results:
+            results_item = results_item_data.to_dict()
+            results.append(results_item)
 
         scoring = self.scoring
 
@@ -64,21 +59,17 @@ class VectorSearchResponse:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if candidate_limit is not UNSET:
-            field_dict["candidateLimit"] = candidate_limit
-        if count is not UNSET:
-            field_dict["count"] = count
-        if index_name is not UNSET:
-            field_dict["indexName"] = index_name
-        if results is not UNSET:
-            field_dict["results"] = results
-        if scoring is not UNSET:
-            field_dict["scoring"] = scoring
-        if sparse is not UNSET:
-            field_dict["sparse"] = sparse
-        if truncated is not UNSET:
-            field_dict["truncated"] = truncated
+        field_dict.update(
+            {
+                "candidateLimit": candidate_limit,
+                "count": count,
+                "indexName": index_name,
+                "results": results,
+                "scoring": scoring,
+                "sparse": sparse,
+                "truncated": truncated,
+            }
+        )
 
         return field_dict
 
@@ -87,26 +78,24 @@ class VectorSearchResponse:
         from ..models.vector_search_response_results_item import VectorSearchResponseResultsItem
 
         d = dict(src_dict)
-        candidate_limit = d.pop("candidateLimit", UNSET)
+        candidate_limit = d.pop("candidateLimit")
 
-        count = d.pop("count", UNSET)
+        count = d.pop("count")
 
-        index_name = d.pop("indexName", UNSET)
+        index_name = d.pop("indexName")
 
-        _results = d.pop("results", UNSET)
-        results: list[VectorSearchResponseResultsItem] | Unset = UNSET
-        if _results is not UNSET:
-            results = []
-            for results_item_data in _results:
-                results_item = VectorSearchResponseResultsItem.from_dict(results_item_data)
+        results = []
+        _results = d.pop("results")
+        for results_item_data in _results:
+            results_item = VectorSearchResponseResultsItem.from_dict(results_item_data)
 
-                results.append(results_item)
+            results.append(results_item)
 
-        scoring = d.pop("scoring", UNSET)
+        scoring = d.pop("scoring")
 
-        sparse = d.pop("sparse", UNSET)
+        sparse = d.pop("sparse")
 
-        truncated = d.pop("truncated", UNSET)
+        truncated = d.pop("truncated")
 
         vector_search_response = cls(
             candidate_limit=candidate_limit,

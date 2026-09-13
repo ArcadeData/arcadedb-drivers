@@ -63,6 +63,11 @@ def _parse_response(
 
         return response_500
 
+    if response.status_code == 504:
+        response_504 = ErrorResponse.from_dict(response.json())
+
+        return response_504
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -91,9 +96,11 @@ def sync_detailed(
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
     align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
-    implemented by the current HA implementation and always fails; use the cluster configuration to join
-    nodes
+    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
+    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
+    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
+    this server is not running an HA implementation that supports runtime membership
 
     Args:
         body (CommandRequest): Command request object
@@ -128,9 +135,11 @@ def sync(
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
     align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
-    implemented by the current HA implementation and always fails; use the cluster configuration to join
-    nodes
+    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
+    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
+    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
+    this server is not running an HA implementation that supports runtime membership
 
     Args:
         body (CommandRequest): Command request object
@@ -160,9 +169,11 @@ async def asyncio_detailed(
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
     align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
-    implemented by the current HA implementation and always fails; use the cluster configuration to join
-    nodes
+    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
+    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
+    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
+    this server is not running an HA implementation that supports runtime membership
 
     Args:
         body (CommandRequest): Command request object
@@ -195,9 +206,11 @@ async def asyncio(
     database, drop database, open database, close database, restore database <name> <url>, import
     database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
     align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not
-    implemented by the current HA implementation and always fails; use the cluster configuration to join
-    nodes
+    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
+    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
+    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
+    this server is not running an HA implementation that supports runtime membership
 
     Args:
         body (CommandRequest): Command request object

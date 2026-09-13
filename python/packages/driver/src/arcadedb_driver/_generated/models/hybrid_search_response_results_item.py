@@ -20,28 +20,36 @@ class HybridSearchResponseResultsItem:
     """One fused hit
 
     Attributes:
+        properties (HybridSearchResponseResultsItemProperties): The record's properties. An open map: besides the type's
+            own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized
+            document.
+        rid (str): Record id of the hit
+        sources (list[str]): Which legs contributed this hit: vector, fulltext, expand
         depth (int | Unset): Hops from the seed, for a hit the expansion leg contributed
         distance (float | Unset): Vector distance, present instead of 'fusedScore' on an unfused dense response
         fused_score (float | Unset): Fused score, higher is better. Present when 'fused' is true
         path (list[str] | Unset): Record ids from the seed to this hit, seed included
-        properties (HybridSearchResponseResultsItemProperties | Unset): The record's properties
-        rid (str | Unset): Record id of the hit
         score (float | Unset): Sparse or full-text score, present instead of 'fusedScore' on an unfused sparse or full-
             text response
-        sources (list[str] | Unset): Which legs contributed this hit: vector, fulltext, expand
     """
 
+    properties: HybridSearchResponseResultsItemProperties
+    rid: str
+    sources: list[str]
     depth: int | Unset = UNSET
     distance: float | Unset = UNSET
     fused_score: float | Unset = UNSET
     path: list[str] | Unset = UNSET
-    properties: HybridSearchResponseResultsItemProperties | Unset = UNSET
-    rid: str | Unset = UNSET
     score: float | Unset = UNSET
-    sources: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        properties = self.properties.to_dict()
+
+        rid = self.rid
+
+        sources = self.sources
+
         depth = self.depth
 
         distance = self.distance
@@ -52,21 +60,17 @@ class HybridSearchResponseResultsItem:
         if not isinstance(self.path, Unset):
             path = self.path
 
-        properties: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.properties, Unset):
-            properties = self.properties.to_dict()
-
-        rid = self.rid
-
         score = self.score
-
-        sources: list[str] | Unset = UNSET
-        if not isinstance(self.sources, Unset):
-            sources = self.sources
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "properties": properties,
+                "rid": rid,
+                "sources": sources,
+            }
+        )
         if depth is not UNSET:
             field_dict["depth"] = depth
         if distance is not UNSET:
@@ -75,14 +79,8 @@ class HybridSearchResponseResultsItem:
             field_dict["fusedScore"] = fused_score
         if path is not UNSET:
             field_dict["path"] = path
-        if properties is not UNSET:
-            field_dict["properties"] = properties
-        if rid is not UNSET:
-            field_dict["rid"] = rid
         if score is not UNSET:
             field_dict["score"] = score
-        if sources is not UNSET:
-            field_dict["sources"] = sources
 
         return field_dict
 
@@ -91,6 +89,12 @@ class HybridSearchResponseResultsItem:
         from ..models.hybrid_search_response_results_item_properties import HybridSearchResponseResultsItemProperties
 
         d = dict(src_dict)
+        properties = HybridSearchResponseResultsItemProperties.from_dict(d.pop("properties"))
+
+        rid = d.pop("rid")
+
+        sources = cast(list[str], d.pop("sources"))
+
         depth = d.pop("depth", UNSET)
 
         distance = d.pop("distance", UNSET)
@@ -99,28 +103,17 @@ class HybridSearchResponseResultsItem:
 
         path = cast(list[str], d.pop("path", UNSET))
 
-        _properties = d.pop("properties", UNSET)
-        properties: HybridSearchResponseResultsItemProperties | Unset
-        if isinstance(_properties, Unset):
-            properties = UNSET
-        else:
-            properties = HybridSearchResponseResultsItemProperties.from_dict(_properties)
-
-        rid = d.pop("rid", UNSET)
-
         score = d.pop("score", UNSET)
 
-        sources = cast(list[str], d.pop("sources", UNSET))
-
         hybrid_search_response_results_item = cls(
+            properties=properties,
+            rid=rid,
+            sources=sources,
             depth=depth,
             distance=distance,
             fused_score=fused_score,
             path=path,
-            properties=properties,
-            rid=rid,
             score=score,
-            sources=sources,
         )
 
         hybrid_search_response_results_item.additional_properties = d

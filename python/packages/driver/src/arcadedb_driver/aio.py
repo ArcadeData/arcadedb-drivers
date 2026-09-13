@@ -10,7 +10,7 @@ call style it uses. The duplication that remains is mechanical and deliberate;
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from functools import cached_property
 from types import TracebackType
 from typing import Any, Literal
@@ -30,8 +30,10 @@ from ._generated.models.nd_json_query_event import NdJsonQueryEvent
 from ._generated.models.query_response import QueryResponse
 from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
+from ._internal.batch_rows import EdgeRow, VertexRow
 from ._internal.unwrap import is_success, unwrap
 from .errors import ArcadeDBError
+from .facade.batch import BatchOptions, abatch_load, abatch_load_stream
 from .facade.dashboards import AsyncGrafanaNamespace, AsyncPromQLNamespace
 from .facade.data import (
     SESSION_HEADER,
@@ -231,6 +233,46 @@ class AsyncArcadeDBDatabase:
         return astream_command(
             self._client, self.name, self._session_id, language=language, command=command, params=params
         )
+
+    async def batch_load(
+        self,
+        *,
+        vertices: Iterable[VertexRow] = (),
+        edges: Iterable[EdgeRow] = (),
+        options: BatchOptions | None = None,
+    ) -> dict[str, Any]:
+        """Bulk-loads vertices and edges via `POST /api/v1/batch/{database}`, buffering the
+        whole response before returning. `serialize_rows` (via `vertices`/`edges`) always emits
+        every vertex before any edge, because the server resolves an edge's `from_`/`to` against
+        temporary ids declared earlier in the SAME payload only.
+
+        A load is NOT atomic: the server commits every `options["commitEvery"]` records, so a
+        failure partway through leaves earlier chunks durably committed - `ArcadeDBError` raised
+        from a failed load still corresponds to real, already-durable data. Because temporary ids
+        are not keys, retrying the whole payload after such a failure duplicates whatever already
+        committed rather than resuming cleanly. Use `batch_load_stream` when the caller needs to
+        see how far a load got before it failed.
+        """
+        return await abatch_load(self._client, self.name, vertices=vertices, edges=edges, options=options)
+
+    def batch_load_stream(
+        self,
+        *,
+        vertices: Iterable[VertexRow] = (),
+        edges: Iterable[EdgeRow] = (),
+        options: BatchOptions | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a
+        `progress` event at every vertex commit and every `options["commitEvery"]` edges, then
+        exactly one `summary` or `error` event carrying the same object the buffered call would
+        otherwise have returned. An in-band `error` event raises `ArcadeDBError` instead of being
+        yielded - see `facade/batch.py`'s `_raise_on_error_event` for why the two ways a load can
+        fail (before vs. after the first acknowledgement) both end up on this one throwing path.
+        A `progress` event's `idMapping` is only the fragment that chunk resolved - it is never
+        merged across events, so a caller that needs the whole mapping must concatenate it
+        themselves as they receive it.
+        """
+        return abatch_load_stream(self._client, self.name, vertices=vertices, edges=edges, options=options)
 
     def transaction(self) -> AsyncTransaction:
         """Runs a block inside a server-side transaction; see `AsyncTransaction`."""

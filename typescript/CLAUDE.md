@@ -75,6 +75,11 @@ Their asymmetries are intentional and documented in each package's README:
 throwing facade. `unwrap` lives in `internal/` rather than being re-exported from `index.ts`
 specifically to break the `index.ts` ↔ `facade/*.ts` import cycle.
 
+`POST /api/v1/batch/{database}` is wrapped by hand in `src/facade/batch.ts`: openapi-typescript
+types the route but declares its body `string` for all three media types, so `batchLoad` rides the
+generated client with a per-request `bodySerializer` override rather than a second transport, and
+`src/internal/batch-rows.ts` owns the ndjson line format the contract does not describe.
+
 All four namespaces load their implementation with a **dynamic `import()`**. That is a
 tree-shaking contract, not a style choice: `test/treeshake.test.ts` bundles a data-plane-only
 entry with esbuild `splitting` and asserts all four route markers - time-series, Grafana, PromQL

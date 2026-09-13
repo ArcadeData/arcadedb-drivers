@@ -58,8 +58,9 @@ inside a JSON string*: the JSON grammar requires escaping only `"`, `\\` and the
 Jackson (the server's serialiser) emits them raw. So one record carrying any of the three - scraped
 web text, JavaScript-sourced content, Windows-1252 mojibake that decodes to U+0085 - is cut in half
 mid-string by `iter_lines()`, and the caller gets a bare `json.JSONDecodeError` partway through an
-otherwise healthy stream instead of an `ArcadeDBError`. `_iter_ndjson_lines` below splits on `"\\n"`
-and nothing else, carrying a `remainder` across chunks, which is exactly what `facade/stream.ts`'s
+otherwise healthy stream instead of an `ArcadeDBError`. `iter_ndjson_lines` (in
+`_internal/ndjson.py`, alongside `raise_for_status`/`araise_for_status`) splits on `"\\n"` and
+nothing else, carrying a `remainder` across chunks, which is exactly what `facade/stream.ts`'s
 decoder does; the two languages now agree line for line. `test_stream.py` asserts both the
 split-line case and the U+2028 case, sync and async - the second is the regression this hand-rolled
 loop exists to prevent, so anyone tempted to "simplify" it back to `iter_lines()` meets a red test.
@@ -74,16 +75,15 @@ functions take `str` chunks and never touch bytes.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, AsyncIterator, Generator, Iterator
+from collections.abc import AsyncGenerator, Generator
 from typing import Any
 from urllib.parse import quote
-
-import httpx
 
 from .._generated.client import Client
 from .._generated.models.nd_json_query_event import NdJsonQueryEvent
 from .._generated.types import Unset
-from ..errors import REQUEST_ID_HEADER, ArcadeDBError
+from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
+from ..errors import ArcadeDBError
 from .data import SESSION_HEADER, QueryLanguage, build_command_request, build_query_request
 
 
@@ -113,58 +113,12 @@ def _parse_event(line: str) -> NdJsonQueryEvent:
     return event
 
 
-def _raise_for_status(response: httpx.Response) -> None:
-    """Raises `ArcadeDBError` unless the server answered 2xx.
-
-    Reads the body first: a streaming response has not been read yet, and `ArcadeDBError` needs
-    the body for the server's detail.
-    """
-    if not response.is_success:
-        response.read()
-        raise ArcadeDBError(response.status_code, response.content, response.headers.get(REQUEST_ID_HEADER))
-
-
-async def _araise_for_status(response: httpx.Response) -> None:
-    """The async twin of `_raise_for_status`."""
-    if not response.is_success:
-        await response.aread()
-        raise ArcadeDBError(response.status_code, response.content, response.headers.get(REQUEST_ID_HEADER))
-
-
-def _iter_ndjson_lines(chunks: Iterator[str]) -> Iterator[str]:
-    """Splits already-decoded text chunks into ndjson lines on `"\\n"` and nothing else.
-
-    See the module docstring for why `iter_lines()` cannot be used for this. A `remainder` carries
-    whatever the last chunk left unterminated into the next one, and is emitted after the stream
-    ends so a final line with no trailing newline is not dropped.
-    """
-    remainder = ""
-    for chunk in chunks:
-        remainder += chunk
-        *lines, remainder = remainder.split("\n")
-        yield from lines
-    if remainder:
-        yield remainder
-
-
-async def _aiter_ndjson_lines(chunks: AsyncIterator[str]) -> AsyncIterator[str]:
-    """The async twin of `_iter_ndjson_lines`."""
-    remainder = ""
-    async for chunk in chunks:
-        remainder += chunk
-        *lines, remainder = remainder.split("\n")
-        for line in lines:
-            yield line
-    if remainder:
-        yield remainder
-
-
 def _stream_events(
     client: Client, url: str, body: dict[str, Any], session_id: str | None
 ) -> Generator[NdJsonQueryEvent, None, None]:
     with client.get_httpx_client().stream("POST", url, json=body, headers=_headers(session_id)) as response:
-        _raise_for_status(response)
-        for line in _iter_ndjson_lines(response.iter_text()):
+        raise_for_status(response)
+        for line in iter_ndjson_lines(response.iter_text()):
             if not line.strip():
                 continue
             yield _parse_event(line)
@@ -174,8 +128,8 @@ async def _astream_events(
     client: Client, url: str, body: dict[str, Any], session_id: str | None
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
     async with client.get_async_httpx_client().stream("POST", url, json=body, headers=_headers(session_id)) as response:
-        await _araise_for_status(response)
-        async for line in _aiter_ndjson_lines(response.aiter_text()):
+        await araise_for_status(response)
+        async for line in aiter_ndjson_lines(response.aiter_text()):
             if not line.strip():
                 continue
             yield _parse_event(line)

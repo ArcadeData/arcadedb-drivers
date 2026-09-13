@@ -1,32 +1,26 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-if TYPE_CHECKING:
-    from ..models.full_text_search_response_results_item import FullTextSearchResponseResultsItem
-
-
-T = TypeVar("T", bound="FullTextSearchResponse")
+T = TypeVar("T", bound="HybridSearchResponseLegsFulltext")
 
 
 @_attrs_define
-class FullTextSearchResponse:
-    """Documents matching the full-text query
+class HybridSearchResponseLegsFulltext:
+    """The full-text leg, present whenever it ran - including when it matched nothing
 
     Attributes:
-        count (int): Number of results returned
-        index_name (str): Index that was searched
-        results (list[FullTextSearchResponseResultsItem]): Hits, highest score first
-        similarity (str): Similarity function the index scores with, e.g. BM25
+        count (int): Rows the full-text leg contributed to fusion
+        index_name (str): Full-text index that was searched
+        similarity (str): Similarity function that index scores with, e.g. BM25
     """
 
     count: int
     index_name: str
-    results: list[FullTextSearchResponseResultsItem]
     similarity: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -34,11 +28,6 @@ class FullTextSearchResponse:
         count = self.count
 
         index_name = self.index_name
-
-        results = []
-        for results_item_data in self.results:
-            results_item = results_item_data.to_dict()
-            results.append(results_item)
 
         similarity = self.similarity
 
@@ -48,7 +37,6 @@ class FullTextSearchResponse:
             {
                 "count": count,
                 "indexName": index_name,
-                "results": results,
                 "similarity": similarity,
             }
         )
@@ -57,31 +45,21 @@ class FullTextSearchResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.full_text_search_response_results_item import FullTextSearchResponseResultsItem
-
         d = dict(src_dict)
         count = d.pop("count")
 
         index_name = d.pop("indexName")
 
-        results = []
-        _results = d.pop("results")
-        for results_item_data in _results:
-            results_item = FullTextSearchResponseResultsItem.from_dict(results_item_data)
-
-            results.append(results_item)
-
         similarity = d.pop("similarity")
 
-        full_text_search_response = cls(
+        hybrid_search_response_legs_fulltext = cls(
             count=count,
             index_name=index_name,
-            results=results,
             similarity=similarity,
         )
 
-        full_text_search_response.additional_properties = d
-        return full_text_search_response
+        hybrid_search_response_legs_fulltext.additional_properties = d
+        return hybrid_search_response_legs_fulltext
 
     @property
     def additional_keys(self) -> list[str]:

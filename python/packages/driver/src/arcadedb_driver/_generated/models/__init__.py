@@ -18,9 +18,13 @@ from .ai_chat_response_commands_item import AiChatResponseCommandsItem
 from .ai_chat_response_tool_calls_item import AiChatResponseToolCallsItem
 from .ai_config import AiConfig
 from .ai_protocol_error import AiProtocolError
+from .batch_edge_line import BatchEdgeLine
+from .batch_edge_line_type import BatchEdgeLineType
 from .batch_error import BatchError
 from .batch_response import BatchResponse
 from .batch_response_id_mapping import BatchResponseIdMapping
+from .batch_vertex_line import BatchVertexLine
+from .batch_vertex_line_type import BatchVertexLineType
 from .bootstrap_state_response import BootstrapStateResponse
 from .bootstrap_state_response_databases_item import BootstrapStateResponseDatabasesItem
 from .cluster_action_response import ClusterActionResponse
@@ -92,6 +96,9 @@ from .hybrid_search_request_expand import HybridSearchRequestExpand
 from .hybrid_search_request_weights import HybridSearchRequestWeights
 from .hybrid_search_response import HybridSearchResponse
 from .hybrid_search_response_legs import HybridSearchResponseLegs
+from .hybrid_search_response_legs_expand import HybridSearchResponseLegsExpand
+from .hybrid_search_response_legs_fulltext import HybridSearchResponseLegsFulltext
+from .hybrid_search_response_legs_vector import HybridSearchResponseLegsVector
 from .hybrid_search_response_results_item import HybridSearchResponseResultsItem
 from .hybrid_search_response_results_item_properties import HybridSearchResponseResultsItemProperties
 from .invoke_mcp_body import InvokeMcpBody
@@ -187,9 +194,13 @@ __all__ = (
     "AiChatResponseToolCallsItem",
     "AiConfig",
     "AiProtocolError",
+    "BatchEdgeLine",
+    "BatchEdgeLineType",
     "BatchError",
     "BatchResponse",
     "BatchResponseIdMapping",
+    "BatchVertexLine",
+    "BatchVertexLineType",
     "BootstrapStateResponse",
     "BootstrapStateResponseDatabasesItem",
     "ClusterActionResponse",
@@ -249,6 +260,9 @@ __all__ = (
     "HybridSearchRequestWeights",
     "HybridSearchResponse",
     "HybridSearchResponseLegs",
+    "HybridSearchResponseLegsExpand",
+    "HybridSearchResponseLegsFulltext",
+    "HybridSearchResponseLegsVector",
     "HybridSearchResponseResultsItem",
     "HybridSearchResponseResultsItemProperties",
     "InvokeMcpBody",

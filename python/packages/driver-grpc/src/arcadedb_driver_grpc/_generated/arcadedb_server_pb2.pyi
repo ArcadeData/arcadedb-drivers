@@ -5424,10 +5424,12 @@ class ConnectClusterRequest(_message.Message):
     CREDENTIALS_FIELD_NUMBER: _builtins.int
     SERVER_ADDRESS_FIELD_NUMBER: _builtins.int
     server_address: _builtins.str
-    """The `<host>:<port>` of the server to join, as the HTTP verb's `connect cluster <address>`
-    argument. Not validated here: the HTTP verb accepts an empty argument too and the shared
-    implementation refuses before reading it, so rejecting it on this transport alone would make
-    the two disagree on the same input.
+    """The server to join, as the HTTP verb's `connect cluster <address>` argument: one entry of
+    arcadedb.ha.serverList - `host`, `host:raftPort`, the longer positional forms or the
+    `host:{raft:..,http:..}` object form, optionally prefixed `name@`. Not validated here: the shared
+    implementation validates it for both transports, so an extra gate on this one would make them
+    disagree on the same input. An empty value is INVALID_ARGUMENT, the status that matches the 400
+    the HTTP verb answers for a bare `connect cluster` (issue #7401).
     """
     @_builtins.property
     def credentials(self) -> Global___DatabaseCredentials: ...

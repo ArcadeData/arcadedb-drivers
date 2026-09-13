@@ -272,6 +272,41 @@
         },
         "type": "object"
       },
+      "BatchEdgeLine": {
+        "additionalProperties": {
+          "description": "One property of the record, keyed by its name. Any JSON scalar, array or nested object; a nested object is stored as an embedded document. The name may not start with '@' - that prefix is reserved for the control keys - and a property named 'properties' may not carry an object, because that is the nested-form misreading rather than data."
+        },
+        "description": "An edge line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400.",
+        "properties": {
+          "@class": {
+            "description": "Edge type to create the record in. The type must already exist: a bulk load creates records, never types.",
+            "type": "string"
+          },
+          "@from": {
+            "description": "Source vertex. Under refMode=id (the default) this is the '@id' a vertex declared EARLIER IN THIS PAYLOAD, or an existing RID in #bucket:position form; each request resolves only the ids of its own payload. Under refMode=ordinal it is the vertex's 0-based position, offset by 'ordinalBase'.",
+            "type": "string"
+          },
+          "@to": {
+            "description": "Destination vertex, named the same way as '@from'",
+            "type": "string"
+          },
+          "@type": {
+            "description": "Discriminator. 'e' is accepted as a synonym of 'edge'",
+            "enum": [
+              "edge",
+              "e"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "@class",
+          "@from",
+          "@to",
+          "@type"
+        ],
+        "type": "object"
+      },
       "BatchError": {
         "description": "Failed bulk load. Carries how much of the payload was attempted, because a batch is not atomic and the caller has to reconcile before retrying.",
         "properties": {
@@ -318,6 +353,26 @@
         },
         "type": "object"
       },
+      "BatchLine": {
+        "description": "One line of the JSON batch encoding. Vertices must appear before the edges that reference them.",
+        "discriminator": {
+          "mapping": {
+            "e": "#/components/schemas/BatchEdgeLine",
+            "edge": "#/components/schemas/BatchEdgeLine",
+            "v": "#/components/schemas/BatchVertexLine",
+            "vertex": "#/components/schemas/BatchVertexLine"
+          },
+          "propertyName": "@type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BatchVertexLine"
+          },
+          {
+            "$ref": "#/components/schemas/BatchEdgeLine"
+          }
+        ]
+      },
       "BatchResponse": {
         "description": "Result of a bulk load",
         "properties": {
@@ -362,6 +417,35 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "BatchVertexLine": {
+        "additionalProperties": {
+          "description": "One property of the record, keyed by its name. Any JSON scalar, array or nested object; a nested object is stored as an embedded document. The name may not start with '@' - that prefix is reserved for the control keys - and a property named 'properties' may not carry an object, because that is the nested-form misreading rather than data."
+        },
+        "description": "A vertex line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400.",
+        "properties": {
+          "@class": {
+            "description": "Vertex type to create the record in. The type must already exist: a bulk load creates records, never types.",
+            "type": "string"
+          },
+          "@id": {
+            "description": "Temporary id, resolved only against the edges of THIS request. Optional - a vertex needs one only if an edge in the same payload references it, and one that declares none is counted in 'verticesWithoutId'. Ignored under refMode=ordinal, where an edge names a vertex by its 0-based position instead.",
+            "type": "string"
+          },
+          "@type": {
+            "description": "Discriminator. 'v' is accepted as a synonym of 'vertex'",
+            "enum": [
+              "vertex",
+              "v"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "@class",
+          "@type"
+        ],
         "type": "object"
       },
       "BootstrapStateResponse": {
@@ -770,7 +854,8 @@
                   "type": "number"
                 },
                 "properties": {
-                  "description": "The record's properties",
+                  "additionalProperties": true,
+                  "description": "The record's properties. An open map: besides the type's own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized document.",
                   "type": "object"
                 },
                 "rid": {
@@ -782,6 +867,10 @@
                   "type": "number"
                 }
               },
+              "required": [
+                "properties",
+                "rid"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -791,6 +880,12 @@
             "type": "string"
           }
         },
+        "required": [
+          "count",
+          "indexName",
+          "results",
+          "similarity"
+        ],
         "type": "object"
       },
       "GrafanaHealth": {
@@ -1105,7 +1200,28 @@
             "type": "string"
           },
           "weights": {
+            "additionalProperties": false,
             "description": "Per-leg weight applied to every rank contribution. The only accepted keys are 'vector', 'fulltext' and 'expand', and a weight for a leg the request does not ask for is refused rather than ignored.",
+            "properties": {
+              "expand": {
+                "default": 0.5,
+                "description": "Weight of the graph expansion leg. Refused unless the request also carries 'expand'",
+                "minimum": 0,
+                "type": "number"
+              },
+              "fulltext": {
+                "default": 1.0,
+                "description": "Weight of the full-text leg. Refused unless the request also carries 'fulltextQuery'/'fulltextIndexName'",
+                "minimum": 0,
+                "type": "number"
+              },
+              "vector": {
+                "default": 1.0,
+                "description": "Weight of the vector leg",
+                "minimum": 0,
+                "type": "number"
+              }
+            },
             "type": "object"
           }
         },
@@ -1135,7 +1251,94 @@
             "type": "string"
           },
           "legs": {
-            "description": "Per-leg accounting: how many rows each leg contributed, and whether the expansion hit its seed or fan-out cap",
+            "description": "Per-leg accounting: how many rows each leg contributed, and whether the expansion hit its seed or fan-out cap.",
+            "properties": {
+              "expand": {
+                "description": "The graph expansion leg, present whenever the request carried 'expand'",
+                "properties": {
+                  "count": {
+                    "description": "Rows the expansion leg contributed to fusion",
+                    "type": "integer"
+                  },
+                  "direction": {
+                    "description": "Direction walked: out, in or both",
+                    "type": "string"
+                  },
+                  "edgeTypes": {
+                    "description": "Edge types walked; empty when the request named none, which walks them all",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "maxDepth": {
+                    "description": "Hops walked from a seed",
+                    "type": "integer"
+                  },
+                  "seedCount": {
+                    "description": "Seeds the retrieval legs supplied",
+                    "type": "integer"
+                  },
+                  "seedsTruncated": {
+                    "description": "True when the seed budget capped the seed list, so a thin neighborhood is the cap's doing rather than the graph's.",
+                    "type": "boolean"
+                  },
+                  "truncated": {
+                    "description": "True when the expansion hit its fan-out cap",
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "count",
+                  "direction",
+                  "edgeTypes",
+                  "maxDepth",
+                  "seedCount",
+                  "seedsTruncated",
+                  "truncated"
+                ],
+                "type": "object"
+              },
+              "fulltext": {
+                "description": "The full-text leg, present whenever it ran - including when it matched nothing",
+                "properties": {
+                  "count": {
+                    "description": "Rows the full-text leg contributed to fusion",
+                    "type": "integer"
+                  },
+                  "indexName": {
+                    "description": "Full-text index that was searched",
+                    "type": "string"
+                  },
+                  "similarity": {
+                    "description": "Similarity function that index scores with, e.g. BM25",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "count",
+                  "indexName",
+                  "similarity"
+                ],
+                "type": "object"
+              },
+              "vector": {
+                "description": "The vector leg, which every hybrid search runs",
+                "properties": {
+                  "count": {
+                    "description": "Rows the vector leg contributed to fusion",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "count"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "vector"
+            ],
             "type": "object"
           },
           "results": {
@@ -1163,7 +1366,8 @@
                   "type": "array"
                 },
                 "properties": {
-                  "description": "The record's properties",
+                  "additionalProperties": true,
+                  "description": "The record's properties. An open map: besides the type's own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized document.",
                   "type": "object"
                 },
                 "rid": {
@@ -1182,6 +1386,11 @@
                   "type": "array"
                 }
               },
+              "required": [
+                "properties",
+                "rid",
+                "sources"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1203,6 +1412,16 @@
             "type": "string"
           }
         },
+        "required": [
+          "count",
+          "fused",
+          "legs",
+          "results",
+          "scoring",
+          "sparse",
+          "truncated",
+          "vectorIndexName"
+        ],
         "type": "object"
       },
       "LoginResponse": {
@@ -2126,7 +2345,8 @@
                   "type": "number"
                 },
                 "properties": {
-                  "description": "The record's properties",
+                  "additionalProperties": true,
+                  "description": "The record's properties. An open map: besides the type's own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized document.",
                   "type": "object"
                 },
                 "rid": {
@@ -2138,6 +2358,10 @@
                   "type": "number"
                 }
               },
+              "required": [
+                "properties",
+                "rid"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -2155,6 +2379,15 @@
             "type": "boolean"
           }
         },
+        "required": [
+          "candidateLimit",
+          "count",
+          "indexName",
+          "results",
+          "scoring",
+          "sparse",
+          "truncated"
+        ],
         "type": "object"
       },
       "VerifyDatabaseResponse": {
@@ -3580,25 +3813,26 @@
         "requestBody": {
           "content": {
             "application/jsonl": {
+              "example": "{\"@type\":\"vertex\",\"@class\":\"Person\",\"@id\":\"p1\",\"name\":\"Alice\"}\n{\"@type\":\"vertex\",\"@class\":\"Person\",\"@id\":\"p2\",\"name\":\"Bob\"}\n{\"@type\":\"edge\",\"@class\":\"Knows\",\"@from\":\"p1\",\"@to\":\"p2\",\"since\":2020}",
               "schema": {
-                "description": "One JSON object per line",
-                "type": "string"
+                "$ref": "#/components/schemas/BatchLine"
               }
             },
             "application/x-ndjson": {
+              "example": "{\"@type\":\"vertex\",\"@class\":\"Person\",\"@id\":\"p1\",\"name\":\"Alice\"}\n{\"@type\":\"vertex\",\"@class\":\"Person\",\"@id\":\"p2\",\"name\":\"Bob\"}\n{\"@type\":\"edge\",\"@class\":\"Knows\",\"@from\":\"p1\",\"@to\":\"p2\",\"since\":2020}",
               "schema": {
-                "description": "One JSON object per line",
-                "type": "string"
+                "$ref": "#/components/schemas/BatchLine"
               }
             },
             "text/csv": {
+              "example": "@type,@class,@id,name\nvertex,Person,p1,Alice\nvertex,Person,p2,Bob\n---\n@type,@class,@from,@to,since\nedge,Knows,p1,p2,2020",
               "schema": {
-                "description": "Header row followed by data rows",
+                "description": "A header row naming the columns, then one data row per record. The control keys are column names: @type and @class are required, @id names a vertex's temporary id, and @from and @to name an edge's endpoints. Every other column is a property, and the '@' prefix is reserved there too - an unrecognised '@' column is refused with a 400. A '---' row separates the vertex section from the edge section, and a new header row follows it. Values are typed by inspection: 'true'/'false' become booleans, numeric text becomes a number, an empty field sets no property at all. Quoting follows RFC 4180, single-line fields only.",
                 "type": "string"
               }
             }
           },
-          "description": "Vertices first, then edges. JSONL sends one JSON record per line; CSV sends a header row followed by data rows. Vertices may declare a temporary '@id' that edges reference through '@from' and '@to', or be referenced by position when refMode=ordinal. Edges may also reference existing RIDs in #bucket:position form.",
+          "description": "Vertices first, then edges. JSONL sends one JSON record per line; CSV sends a header row followed by data rows. Vertices may declare a temporary '@id' that edges reference through '@from' and '@to', or be referenced by position when refMode=ordinal. Edges may also reference existing RIDs in #bucket:position form.\n\nThe JSON schema below describes ONE LINE: the body is a sequence of them separated by newlines, not a JSON array, and a line that is an array is refused as such.\n\nProperties sit FLAT beside the control keys - {\"@type\":\"vertex\",\"@class\":\"Person\",\"name\":\"Alice\"} - and are NOT nested under a 'properties' object. The '@' prefix is reserved: a key starting with '@' that is not one of @type, @class, @id, @from or @to is refused with a 400 naming the line, and so is a 'properties' key carrying an object, because both can only ever be a misread of this encoding.\n\nThe control keys and the '@type' values are matched case-sensitively: '@Type' is not '@type' and is refused as an unknown control key, and 'Vertex' is not 'vertex'. Only the CSV boolean literals 'true' and 'false' are matched ignoring case.\n\nA temporary id is resolved only within the request that declared it, and only if the vertex appeared earlier in the same payload: a vertex loaded by an EARLIER request has to be referenced by RID (#bucket:position). Under refMode=ordinal, use 'ordinalBase' to keep one position counter across a load split into several requests.",
           "required": true
         },
         "responses": {
@@ -3630,7 +3864,7 @@
                 }
               }
             },
-            "description": "Client-input failure, with the counts attempted before it",
+            "description": "Client-input failure, with the counts attempted before it. Also the answer to a line that used a reserved key: an '@'-prefixed key outside the five control keys, or a 'properties' key carrying an object.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -4506,7 +4740,7 @@
     },
     "/api/v1/cluster/peer": {
       "post": {
-        "description": "Adds a peer to the Raft configuration. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "description": "Adds a peer to the Raft configuration, then seeds it with the three security documents (server-users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not carry.\n\nA 503 means the membership change succeeded and at least one of those seeds did not commit within arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
         "operationId": "addClusterPeer",
         "requestBody": {
           "content": {
@@ -4528,7 +4762,7 @@
                 }
               }
             },
-            "description": "Peer added",
+            "description": "Peer added and seeded",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -4589,6 +4823,21 @@
               }
             },
             "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service unavailable",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -5054,7 +5303,7 @@
     },
     "/api/v1/command/{database}": {
       "post": {
-        "description": "Executes a database command",
+        "description": "Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.",
         "operationId": "executeCommand",
         "parameters": [
           {
@@ -6296,7 +6545,7 @@
     },
     "/api/v1/query/{database}": {
       "post": {
-        "description": "Executes a query using POST method with query in request body",
+        "description": "Executes a query using POST method with query in request body. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.",
         "operationId": "executeQueryPost",
         "parameters": [
           {
@@ -6471,7 +6720,7 @@
     },
     "/api/v1/query/{database}/{language}/{command}": {
       "get": {
-        "description": "Executes a query using GET method with parameters in URL",
+        "description": "Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.",
         "operationId": "executeQueryGet",
         "parameters": [
           {
@@ -6844,7 +7093,7 @@
         ]
       },
       "post": {
-        "description": "Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not implemented by the current HA implementation and always fails; use the cluster configuration to join nodes",
+        "description": "Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when this server is not running an HA implementation that supports runtime membership",
         "operationId": "executeServerCommand",
         "requestBody": {
           "content": {
@@ -6942,6 +7191,21 @@
               }
             },
             "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -7612,6 +7876,21 @@
                 "$ref": "#/components/headers/RequestIdHeader"
               }
             }
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
           }
         },
         "summary": "Delete user",
@@ -7793,6 +8072,21 @@
                 "$ref": "#/components/headers/RequestIdHeader"
               }
             }
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
           }
         },
         "summary": "Create user",
@@ -7895,6 +8189,21 @@
               }
             },
             "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"

@@ -102,7 +102,11 @@ def sync_detailed(
 ) -> Response[ErrorResponse | QueryResponse]:
     """Execute command
 
-     Executes a database command
+     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
+    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
+    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
+    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
+    through. Request the buffered 'application/json' encoding for it instead.
 
     Args:
         database (str):
@@ -142,7 +146,11 @@ def sync(
 ) -> ErrorResponse | QueryResponse | None:
     """Execute command
 
-     Executes a database command
+     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
+    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
+    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
+    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
+    through. Request the buffered 'application/json' encoding for it instead.
 
     Args:
         database (str):
@@ -177,7 +185,11 @@ async def asyncio_detailed(
 ) -> Response[ErrorResponse | QueryResponse]:
     """Execute command
 
-     Executes a database command
+     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
+    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
+    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
+    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
+    through. Request the buffered 'application/json' encoding for it instead.
 
     Args:
         database (str):
@@ -215,7 +227,11 @@ async def asyncio(
 ) -> ErrorResponse | QueryResponse | None:
     """Execute command
 
-     Executes a database command
+     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
+    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
+    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
+    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
+    through. Request the buffered 'application/json' encoding for it instead.
 
     Args:
         database (str):

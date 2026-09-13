@@ -376,9 +376,9 @@ class ArcadeDbAdminServiceStub:
     ConnectCluster: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ConnectClusterRequest, _arcadedb_server_pb2.ConnectClusterResponse]
     """The other half of the cluster pair (issue #7400). A thin adapter over the same
     ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
-    cannot answer the verb differently. The current HA stack does not implement a client-initiated
-    join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
-    issue #7401.
+    cannot answer the verb differently. Issue #7401 made that shared method join the named server to
+    the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
+    membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
     """
     ListSessions: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListSessionsRequest, _arcadedb_server_pb2.ListSessionsResponse]
     """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
@@ -473,9 +473,9 @@ class ArcadeDbAdminServiceAsyncStub(ArcadeDbAdminServiceStub):
     ConnectCluster: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ConnectClusterRequest, _arcadedb_server_pb2.ConnectClusterResponse]  # type: ignore[assignment]
     """The other half of the cluster pair (issue #7400). A thin adapter over the same
     ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
-    cannot answer the verb differently. The current HA stack does not implement a client-initiated
-    join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
-    issue #7401.
+    cannot answer the verb differently. Issue #7401 made that shared method join the named server to
+    the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
+    membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
     """
     ListSessions: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListSessionsRequest, _arcadedb_server_pb2.ListSessionsResponse]  # type: ignore[assignment]
     """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
@@ -813,9 +813,9 @@ class ArcadeDbAdminServiceServicer(metaclass=_abc_1.ABCMeta):
     ) -> _typing.Union[_arcadedb_server_pb2.ConnectClusterResponse, _abc.Awaitable[_arcadedb_server_pb2.ConnectClusterResponse]]:
         """The other half of the cluster pair (issue #7400). A thin adapter over the same
         ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
-        cannot answer the verb differently. The current HA stack does not implement a client-initiated
-        join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
-        issue #7401.
+        cannot answer the verb differently. Issue #7401 made that shared method join the named server to
+        the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
+        membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
         """
 
     @_abc_1.abstractmethod

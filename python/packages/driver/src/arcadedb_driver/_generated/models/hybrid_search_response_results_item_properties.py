@@ -11,7 +11,10 @@ T = TypeVar("T", bound="HybridSearchResponseResultsItemProperties")
 
 @_attrs_define
 class HybridSearchResponseResultsItemProperties:
-    """The record's properties"""
+    """The record's properties. An open map: besides the type's own properties it carries the record's '@rid' and '@type',
+    which JsonSerializer writes into every serialized document.
+
+    """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 

@@ -20,38 +20,39 @@ class VectorSearchResponseResultsItem:
     """One hit
 
     Attributes:
+        properties (VectorSearchResponseResultsItemProperties): The record's properties. An open map: besides the type's
+            own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized
+            document.
+        rid (str): Record id of the hit
         distance (float | Unset): Dense vector distance, lower is better. Absent on a scored hit
-        properties (VectorSearchResponseResultsItemProperties | Unset): The record's properties
-        rid (str | Unset): Record id of the hit
         score (float | Unset): Sparse or full-text score, higher is better. Absent on a distance hit
     """
 
+    properties: VectorSearchResponseResultsItemProperties
+    rid: str
     distance: float | Unset = UNSET
-    properties: VectorSearchResponseResultsItemProperties | Unset = UNSET
-    rid: str | Unset = UNSET
     score: float | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        distance = self.distance
-
-        properties: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.properties, Unset):
-            properties = self.properties.to_dict()
+        properties = self.properties.to_dict()
 
         rid = self.rid
+
+        distance = self.distance
 
         score = self.score
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "properties": properties,
+                "rid": rid,
+            }
+        )
         if distance is not UNSET:
             field_dict["distance"] = distance
-        if properties is not UNSET:
-            field_dict["properties"] = properties
-        if rid is not UNSET:
-            field_dict["rid"] = rid
         if score is not UNSET:
             field_dict["score"] = score
 
@@ -62,23 +63,18 @@ class VectorSearchResponseResultsItem:
         from ..models.vector_search_response_results_item_properties import VectorSearchResponseResultsItemProperties
 
         d = dict(src_dict)
+        properties = VectorSearchResponseResultsItemProperties.from_dict(d.pop("properties"))
+
+        rid = d.pop("rid")
+
         distance = d.pop("distance", UNSET)
-
-        _properties = d.pop("properties", UNSET)
-        properties: VectorSearchResponseResultsItemProperties | Unset
-        if isinstance(_properties, Unset):
-            properties = UNSET
-        else:
-            properties = VectorSearchResponseResultsItemProperties.from_dict(_properties)
-
-        rid = d.pop("rid", UNSET)
 
         score = d.pop("score", UNSET)
 
         vector_search_response_results_item = cls(
-            distance=distance,
             properties=properties,
             rid=rid,
+            distance=distance,
             score=score,
         )
 

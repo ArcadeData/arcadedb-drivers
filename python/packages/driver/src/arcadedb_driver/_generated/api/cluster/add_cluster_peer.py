@@ -58,6 +58,11 @@ def _parse_response(
 
         return response_500
 
+    if response.status_code == 503:
+        response_503 = ErrorResponse.from_dict(response.json())
+
+        return response_503
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -82,8 +87,15 @@ def sync_detailed(
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Add a peer to the cluster
 
-     Adds a peer to the Raft configuration. Requires RaftHAPlugin: the route is registered on every
-    server, but answers only where high availability is configured.
+     Adds a peer to the Raft configuration, then seeds it with the three security documents (server-
+    users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not
+    carry.
+
+    A 503 means the membership change succeeded and at least one of those seeds did not commit within
+    arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
+    own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
+    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    registered on every server, but answers only where high availability is configured.
 
     Args:
         body (AddPeerRequest): Peer to add
@@ -114,8 +126,15 @@ def sync(
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Add a peer to the cluster
 
-     Adds a peer to the Raft configuration. Requires RaftHAPlugin: the route is registered on every
-    server, but answers only where high availability is configured.
+     Adds a peer to the Raft configuration, then seeds it with the three security documents (server-
+    users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not
+    carry.
+
+    A 503 means the membership change succeeded and at least one of those seeds did not commit within
+    arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
+    own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
+    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    registered on every server, but answers only where high availability is configured.
 
     Args:
         body (AddPeerRequest): Peer to add
@@ -141,8 +160,15 @@ async def asyncio_detailed(
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Add a peer to the cluster
 
-     Adds a peer to the Raft configuration. Requires RaftHAPlugin: the route is registered on every
-    server, but answers only where high availability is configured.
+     Adds a peer to the Raft configuration, then seeds it with the three security documents (server-
+    users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not
+    carry.
+
+    A 503 means the membership change succeeded and at least one of those seeds did not commit within
+    arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
+    own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
+    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    registered on every server, but answers only where high availability is configured.
 
     Args:
         body (AddPeerRequest): Peer to add
@@ -171,8 +197,15 @@ async def asyncio(
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Add a peer to the cluster
 
-     Adds a peer to the Raft configuration. Requires RaftHAPlugin: the route is registered on every
-    server, but answers only where high availability is configured.
+     Adds a peer to the Raft configuration, then seeds it with the three security documents (server-
+    users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not
+    carry.
+
+    A 503 means the membership change succeeded and at least one of those seeds did not commit within
+    arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
+    own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
+    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    registered on every server, but answers only where high availability is configured.
 
     Args:
         body (AddPeerRequest): Peer to add

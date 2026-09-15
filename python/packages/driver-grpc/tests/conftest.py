@@ -174,6 +174,66 @@ def fake_server() -> Iterator[tuple[str, RecordingServicer]]:
         server.stop(grace=None)
 
 
+class RecordingAdminServicer(pb2_grpc.ArcadeDbAdminServiceServicer):
+    """Records what each RPC received, for the ADMIN (control-plane) service.
+
+    Separate from `RecordingServicer` above rather than one class implementing both:
+    `ArcadeDbServiceServicer` and `ArcadeDbAdminServiceServicer` are two distinct generated
+    base classes, so nothing could inherit from both and dispatch correctly to
+    `add_..._to_server` for each. `Ping` is the only RPC implemented here - the fixtures
+    below exist to prove the data plane's auth interceptors and shared channel also reach
+    the admin service, not to re-test every one of its 44 RPCs (that is the bare stub's
+    job, not this fixture's).
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.metadata: list[tuple[str, str | bytes]] = []
+
+    def _record(self, name: str, context: grpc.ServicerContext) -> None:
+        self.calls.append(name)
+        self.metadata = [(k, v) for k, v in context.invocation_metadata()]
+
+    def Ping(self, request: pb2.PingRequest, context: grpc.ServicerContext) -> pb2.PingResponse:
+        self._record("Ping", context)
+        return pb2.PingResponse(ok=True)
+
+
+@pytest.fixture
+def fake_admin_server() -> Iterator[tuple[str, RecordingAdminServicer]]:
+    """Yields `(target, servicer)` for a server hosting only `ArcadeDbAdminService`.
+
+    A real ArcadeDB server hosts both `ArcadeDbService` and `ArcadeDbAdminService` on one
+    port; this fixture hosts only the admin one because nothing in this suite needs the
+    combination - each test drives whichever plane it is exercising.
+    """
+    servicer = RecordingAdminServicer()  # type: ignore[abstract]
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    pb2_grpc.add_ArcadeDbAdminServiceServicer_to_server(servicer, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    server.start()
+    try:
+        yield f"127.0.0.1:{port}", servicer
+    finally:
+        server.stop(grace=None)
+
+
+@pytest_asyncio.fixture
+async def async_fake_admin_server() -> AsyncIterator[tuple[str, RecordingAdminServicer]]:
+    """The `grpc.aio` twin of `fake_admin_server`. See `async_fake_server`'s docstring for
+    why this needs `@pytest_asyncio.fixture` rather than the plain decorator.
+    """
+    servicer = RecordingAdminServicer()  # type: ignore[abstract]
+    server = grpc.aio.server()
+    pb2_grpc.add_ArcadeDbAdminServiceServicer_to_server(servicer, server)
+    port = server.add_insecure_port("127.0.0.1:0")
+    await server.start()
+    try:
+        yield f"127.0.0.1:{port}", servicer
+    finally:
+        await server.stop(grace=None)
+
+
 @pytest_asyncio.fixture
 async def async_fake_server() -> AsyncIterator[tuple[str, RecordingServicer]]:
     """The `grpc.aio` twin of `fake_server`, yielding `(target, servicer)`.

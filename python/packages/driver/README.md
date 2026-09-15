@@ -91,6 +91,194 @@ has no required fields in the contract, so all four are, strictly, optional on t
 practice the server always sends all four today, but a caller relying on `truncated is False` as
 proof of completeness is trusting a client-side default, not a server guarantee.
 
+## Streaming a query or command: `query_stream`/`command_stream`
+
+`query` and `command` buffer the whole result server-side before answering. `query_stream` and
+`command_stream` are a separate pair of methods for the same two endpoints, requesting
+`application/x-ndjson` instead of a buffered JSON body and returning a generator a caller iterates
+directly (the async facade's twins are `async for`-able instead):
+
+```python
+for event in db.query_stream(language="sql", command="SELECT FROM Person"):
+    if not isinstance(event.record, Unset):
+        print(event.record.to_dict())
+    if not isinstance(event.stats, Unset):
+        print(f"returned {event.stats.returned}, truncated: {event.stats.truncated}")
+```
+
+They yield **events**, not rows. Each `NdJsonQueryEvent` carries exactly one of `record` (one
+result row, shaped like an element of `query`'s `result` list), `stats`, or `error` - never more
+than one, and a caller who only ever reads `event.record` will silently skip both of the others.
+
+`stats` is a trailer, always the last event of a complete stream, carrying the same
+`limit`/`returned`/`truncated` `QueryEnvelope` reports at the top level for the buffered path.
+Ignoring it loses exactly what ignoring `.truncated` loses above: the only way to tell a complete
+answer from one the server's row cap cut short. A caller who iterates `record` events and stops
+there has no way to know whether they saw everything.
+
+`error` is a failure the server can only report **after** the 200 status line was already sent -
+unlike the buffered path, where a failure still in progress when the response starts can be
+reported as a non-2xx status, a streamed response has committed to 200 before the first row is
+known to exist, and that status line cannot be taken back once the stream has started. That is why
+the contract puts this failure in band, as an event, rather than as an HTTP status. This client
+raises `ArcadeDBError` for it - exactly as `query`/`command` raise `ArcadeDBError` for a non-2xx
+response, with a `status` of 200 - so both paths fail the same way; any event already yielded
+before the error stays delivered to the caller.
+
+`query` and `command` themselves are unchanged: they still return `QueryEnvelope` and still send no
+`Accept` header. Streaming is two additional methods, not a mode either existing one can be put
+into.
+
+`command_stream` only ever succeeds for a **read-only** statement. A mutating one - `UPDATE`,
+`INSERT`, DDL, `UPDATE ... RETURN AFTER` included - is refused before it produces a single row,
+because a streamed response starts sending rows to the caller before the surrounding transaction
+commits, and that commit can still roll back; the server will not let you observe rows from a
+write that might never actually happen. Use the buffered `command` for a mutating statement - it
+is unaffected by any of this. As with the `ef_search`/result-limit bounds above, this rule is
+enforced **server-side** and this client does not pre-empt it by inspecting the statement first, so
+the rejection surfaces as an `ArcadeDBError` raised from the server's response (HTTP 400), not a
+local exception before the request is even sent.
+
+You are free to stop early, and that is most of the point of a streaming API. `break`ing out of
+the loop, or calling the generator's `.close()`/`.aclose()`, **closes the response**: `httpx`'s
+`.stream()` context manager lives inside the generator body, so the `GeneratorExit` that
+abandonment throws into the suspended `yield` unwinds through it and releases the connection.
+`@arcadedb/driver` gives the same guarantee through its own idiom, an explicit `reader.cancel()`.
+
+Line splitting is hand-rolled here rather than delegated to `httpx`'s `iter_lines()`, and that is
+load-bearing: `iter_lines()` follows `str.splitlines()`, which breaks on U+0085, U+2028 and U+2029
+as well as `\n` - and all three are legal raw characters inside a JSON string, which ArcadeDB does
+not escape. A record carrying one would be cut in half and surface as a bare `json.JSONDecodeError`
+partway through an otherwise healthy stream. This client splits on `\n` alone, exactly as
+`@arcadedb/driver` does, so such a record arrives intact.
+
+Both the sync and async versions reach the server through the generated `Client`'s own pooled
+`httpx.Client`/`httpx.AsyncClient`, via its `.stream()` context manager, rather than a hand-rolled
+request or a `httpx.Client` of their own; that is what lets them reuse the same base URL, auth
+headers, and timeout every other call on this client already goes through. Anyone adding another
+streaming endpoint to this package should do the same rather than standing up a new `httpx.Client`.
+
+## Batch loading: `batch_load`/`batch_load_stream`
+
+`POST /api/v1/batch/{database}` bulk-loads vertices and edges from one ndjson payload. The
+contract schematizes a single *line* of that payload - `BatchLine`, a union over `BatchVertexLine`
+and `BatchEdgeLine` - but not the body, which is a newline-delimited sequence of them; `text/csv`
+has no schema at all. So there is nothing `openapi-python-client` can generate a call from, and -
+like `db.ts.write` above - both `batch_load` and `batch_load_stream` are hand-written, issuing
+their request through the same generated `Client`'s own pooled `httpx.Client`/`httpx.AsyncClient`
+rather than a `httpx.Client` of their own:
+
+```python
+from arcadedb_driver import VertexRow, EdgeRow
+
+vertices: list[VertexRow] = [{"type": "Person", "id": "p1", "properties": {"name": "Alice"}}]
+edges: list[EdgeRow] = [{"type": "Knows", "from_": "p1", "to": "#1:7"}]
+
+summary = db.batch_load(vertices=vertices, edges=edges, options={"commitEvery": 5000})
+```
+
+`EdgeRow`'s source endpoint is spelled `from_`, not `from`, because `from` is a Python keyword and
+cannot be a `TypedDict` key. Properties live in their own `properties` dict rather than being
+merged into the row: the server accepts a top-level key literally named `properties` and stores it
+as an ordinary property, silently, so keeping structure and data apart in the type is what makes
+that mistake impossible to make by construction. Every vertex is always sent before any edge,
+regardless of the order passed in - the server resolves an edge's `from_`/`to` only against ids
+declared earlier in the SAME payload, and this client enforces that ordering unconditionally
+rather than exposing a way to get it wrong.
+
+`options` is `BatchOptions`, the 17 tuning parameters the contract accepts as query parameters,
+named exactly as the contract names them and sent only when present: an option a caller does not
+set is left off the URL entirely rather than sent as an empty value, so the server applies its own
+default instead of parsing `""`.
+
+`_internal/batch_rows.py` owns the line format the rows are serialized into. It was established
+against a live server and reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570) when no schema
+described it; the contract now declares it as `BatchLine` and the two agree field for field. That
+schema covers one line rather than the whole body, so it does not remove the need for this module -
+but it does mean the format is now documented upstream rather than only here. `VertexRow` and
+`EdgeRow` are consequently the only way in: a hand-built payload string is not a supported input
+to either method.
+
+### A load is not atomic
+
+This is the paragraph to read before using either method. The server commits every
+`options["commitEvery"]` records, so a load that fails partway through leaves every chunk before
+the failure **durably committed** - an `ArcadeDBError` raised from a failed `batch_load` still
+corresponds to real, already-durable data, not to a load that undid itself. Because temporary ids
+are not keys, **retrying the whole payload duplicates every vertex that already committed** rather
+than resuming cleanly; there is no server-side idempotency to lean on, and this client does not
+invent one. The counters that come back with a 400 (`verticesCreated` and `edgesCreated`, beside a
+`partialCommit` flag) are records *attempted* before the failure - an upper bound on what is
+durable, not a count of it, and the two do not even overshoot by the same rule: vertices are
+committed as the load flushes, while edges are buffered and written when it ends. Treat a failed
+load as something to inspect and reconcile against the database, never as something to re-send.
+
+Temporary ids are **request-scoped**, which is the other half of the same design. An id means
+something only to the payload that declared it, so a vertex loaded by an earlier call cannot be
+referenced by its temp id from a later one - the server will not resolve it, and `"#1:7"` in the
+example above is the alternative: a vertex already in the database is referenced by its RID,
+`#bucket:position`, which is exactly what the summary's `idMapping` returns a temp id for.
+
+`bytesRead` on the summary is how a caller verifies that a chunked upload arrived whole: compare
+it against the bytes sent. A body that ends before its announced length is answered **408** with
+the same partial-commit counters, never a 200 carrying a truncated count - so a short `bytesRead`
+on a 200 means the server consumed less than you believe you sent, not that it quietly accepted a
+half-load.
+
+### Streaming: what the summary carries, and what it does not
+
+`batch_load_stream` streams the same load as `application/x-ndjson` instead: a `progress` event as
+the load proceeds, then exactly one `summary` event carrying the same fields the buffered call
+returns, plus `idMappingStreamed: true` - a field `BatchResponse`, the buffered shape it otherwise
+matches, does not declare, because a buffered load never sends it. The field is not missing from
+the contract entirely, though: the TypeScript client's generated schema declares it on
+`NdJsonBatchEvent["summary"]`, the streaming path's own type - this client just has no generated
+model of either shape to declare it on (see above). `idMappingStreamed` is sent only on a streamed
+load and is distinct from `idMappingOmitted` (*omitted* means too large to return; *streamed*
+means already delivered, piecemeal, in the `progress` events that preceded the summary). Each
+`progress` event's `idMapping` is only the fragment that chunk resolved and is never merged across
+events - accumulating it here would reintroduce, client-side, the memory cost streaming a
+million-vertex load exists to avoid. An in-band `error` event raises `ArcadeDBError` instead of
+being yielded, exactly like `query_stream`/`command_stream` above: a failure after the stream has
+started cannot be reported as an HTTP status, because the 200 status line is already on the wire,
+so it travels in band instead and fails the caller the same way a failure before the stream started
+does. Any event already yielded before the error stays delivered - a partial commit is durable, and
+those progress counts are how a caller learns what may have landed.
+
+The two encodings therefore disagree about the mapping, deliberately: `batch_load`'s summary
+carries `idMapping`, the whole temp-id-to-RID map in one dict, while the streamed `summary` event
+carries `idMappingStreamed: true` and `idMappingSize`, with **no map at all**. A caller who
+genuinely needs the whole mapping from a streamed load accumulates the fragments as they arrive -
+checking the total against `idMappingSize`, since a mapping delivered in pieces can lose one to a
+truncated response without any single piece looking wrong - or calls `batch_load` and accepts the
+memory cost, which is a good trade right up until the map stops fitting.
+
+When a streamed `error` event's `statusMapped` is `False`, its `status` is an unclassified 500
+fallback rather than the status the buffered encoding would have chosen - an engine failure raised
+after the stream had already started. Key on `exception` there, not on `status`; the raised
+`ArcadeDBError` carries `exception` and its `detail` says why. `error` and `exception` are two
+more fields the server sends that no schema declares (the contract's streamed error object
+declares only `commitIndex`, `status` and `statusMapped`), read off the raw event here and
+reported upstream on the same issue as `idMappingStreamed`,
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570).
+
+### This is `batch_load`, not `bulk_insert`
+
+[`arcadedb-driver-grpc`](../driver-grpc/README.md)'s `bulk_insert` is a **different operation** -
+it inserts records into one target type and knows nothing about edges or temporary ids. The gRPC
+counterpart of the endpoint documented here is `GraphBatchLoad`, which that package reaches
+through `raw` and wraps nowhere.
+
+### `text/csv` is not exposed
+
+The endpoint accepts `application/jsonl`, `application/x-ndjson` and `text/csv`. Both methods
+always send `application/x-ndjson` - the contract makes `application/jsonl` identical in meaning,
+so there is nothing to choose between them - and neither exposes CSV. Its dialect is as
+undocumented as the ndjson line format, and a rows-in API has nowhere to put a header row. Convert
+a CSV file into `VertexRow`/`EdgeRow` yourself, or post the bytes through `srv.raw`'s pooled httpx
+client.
+
 ## Sync and async
 
 `ArcadeDBServer` and `AsyncArcadeDBServer` expose the same methods; the async one awaits them.
@@ -231,6 +419,22 @@ docstring). `openapi-typescript` does the opposite: it emits a property carrying
 a hand-written widening back to optional (`WithOptionalDefaults` in `facade/vector.ts`) that this
 client never needed.
 
+## Time series: `db.ts.query`'s `tags` and `db.ts.latest`'s `tag` are enforced server-side
+
+A name in `db.ts.query`'s `tags` body field, or in `db.ts.latest`'s `tag` parameter, that is not
+one of the type's declared TAG columns is not dropped from the filter - it is **refused** with a
+400 response naming the offending tag and listing the type's declared TAG columns. Silently
+ignoring it would widen the query to the whole range, and a caller has no way to tell that result
+apart from a filter that legitimately matched everything. `db.ts.latest`'s `tag` is also refused
+the same way when it is not in `name:value` form - a missing `:` separator is an error, not a
+skipped filter.
+
+Both rules are enforced **server-side**, the same way `ef_search` and the vector/full-text
+result-limit parameters are (see "Vector, hybrid and full-text search" above): this client sends
+`tags`/`tag` unchanged and does not check either against a schema it does not have, so a violation
+surfaces as an `ArcadeDBError` raised from the server's response, not a local exception before the
+request is even sent.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `list_databases`, `exists`, `server_info`,
@@ -283,19 +487,21 @@ absent; it only means "not visible to this caller right now."
 Two distinct things are true about parts of the contract, and they should not be confused with
 each other.
 
-**Not wrapped at all.** `POST /api/v1/batch/{database}` (a jsonl/ndjson/csv body),
-`POST /api/v1/ts/{database}/prom/read` and `POST /api/v1/ts/{database}/prom/write` (protobuf
-bodies) are endpoints the generator cannot model - it has no way to describe a non-JSON request
-body, so it prints a warning, skips the endpoint entirely, and exits 0. Nothing downstream notices
-on its own: a skipped endpoint leaves no trace in the generated tree for `git diff` to flag. This
-package pins the exact skip set in `scripts/check_codegen_skips.py`, which re-runs the generator
-against the committed contract and fails if the set of skipped operations changes - so a future
-contract that starts describing `batch` in a way the generator *can* model, or drops one of these
-endpoints, cannot pass unnoticed.
+**Not wrapped at all.** `POST /api/v1/ts/{database}/prom/read` and
+`POST /api/v1/ts/{database}/prom/write` (protobuf bodies) are endpoints the generator cannot model -
+it has no way to describe a non-JSON request body, so it prints a warning, skips the endpoint
+entirely, and exits 0. Nothing downstream notices on its own: a skipped endpoint leaves no trace in
+the generated tree for `git diff` to flag. This package pins the exact skip set in
+`scripts/check_codegen_skips.py`, which re-runs the generator against the committed contract and
+fails if the set of skipped operations changes - so a future contract that starts describing either
+endpoint in a way the generator *can* model, or drops one of them, cannot pass unnoticed.
 
-`db.ts.write` (`POST /api/v1/ts/{database}/write`, InfluxDB line protocol as `text/plain`) has the
-same generator limitation but is hand-written rather than left unwrapped, because a time-series
-namespace that could query samples but never ingest any would be an odd thing to ship.
+`db.ts.write` (`POST /api/v1/ts/{database}/write`, InfluxDB line protocol as `text/plain`) and
+`batch_load`/`batch_load_stream` (`POST /api/v1/batch/{database}`, a jsonl/ndjson/csv body) have
+the same generator limitation - both endpoints are also in `EXPECTED_SKIPS` above - but both are
+hand-written rather than left unwrapped: a time-series namespace that could query samples but never
+ingest any, or a client with no way to bulk-load a graph at all, would be an odd thing to ship. See
+"Batch loading" above for `batch_load`/`batch_load_stream`.
 
 `POST /api/v1/server` (administrative commands) is likewise not wrapped by the facade, and reached
 through `.raw` returns a body that does not conform to its declared `QueryResponse` schema

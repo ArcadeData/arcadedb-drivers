@@ -5,7 +5,13 @@ import { unwrap } from "../internal/unwrap.js";
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
 type RawClient = Client<paths>;
 
-/** Query definition accepted by `db.ts.query()`. Confirmed against the generated `TimeSeriesQueryRequest` schema. */
+/**
+ * Query definition accepted by `db.ts.query()`. Confirmed against the generated `TimeSeriesQueryRequest` schema.
+ *
+ * A name in `tags` that is not one of the type's declared TAG columns is refused server-side (400,
+ * naming the tag and the type's declared TAG columns) rather than dropped - see the README's
+ * "Time series" section.
+ */
 export type TimeSeriesQueryOptions = components["schemas"]["TimeSeriesQueryRequest"];
 
 /**

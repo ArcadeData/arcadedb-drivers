@@ -1,7 +1,8 @@
 # arcadedb-drivers
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci.yml)
+[![TypeScript CI](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci.yml)
+[![Python CI](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci-python.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci-python.yml)
 [![Contract Watch](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/contract-watch.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/contract-watch.yml)
 
 Language clients for [ArcadeDB](https://arcadedb.com)'s HTTP and gRPC APIs, generated from shared

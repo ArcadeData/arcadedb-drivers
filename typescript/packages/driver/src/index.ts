@@ -5,6 +5,10 @@ import { ArcadeDBError } from "./errors.js";
 import { unwrap } from "./internal/unwrap.js";
 import { beginTransaction, commitTransaction, executeCommand, executeQuery, rollbackTransaction } from "./facade/data.js";
 import type { CommandOptions, QueryEnvelope, QueryOptions } from "./facade/data.js";
+import { commandStream, queryStream } from "./facade/stream.js";
+import type { NdJsonQueryEvent } from "./facade/stream.js";
+import { batchLoad, batchLoadStream } from "./facade/batch.js";
+import type { BatchLoadArgs, BatchSummary, NdJsonBatchEvent } from "./facade/batch.js";
 import type {
   GrafanaQueryOptions,
   GrafanaQueryResponse,
@@ -29,6 +33,9 @@ export { ArcadeDBError } from "./errors.js";
 export { basicAuth, bearerAuth } from "./auth.js";
 export type { Middleware } from "openapi-fetch";
 export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions } from "./facade/data.js";
+export type { NdJsonQueryEvent } from "./facade/stream.js";
+export type { BatchLoadArgs, BatchOptions, BatchSummary, NdJsonBatchEvent } from "./facade/batch.js";
+export type { EdgeRow, VertexRow } from "./internal/batch-rows.js";
 export type {
   GrafanaQueryOptions,
   GrafanaQueryResponse,
@@ -228,6 +235,59 @@ export class ArcadeDBDatabase {
   /** Executes a command and returns the whole result envelope - not just `result`. */
   async command<T = unknown>(opts: CommandOptions): Promise<QueryEnvelope<T>> {
     return executeCommand<T>(this.client, this.name, this.sessionId, opts);
+  }
+
+  /**
+   * Streams a read-or-write query as `application/x-ndjson` instead of buffering the whole
+   * result server-side first. Yields one `NdJsonQueryEvent` per line - `record` rows in order,
+   * then a `stats` trailer carrying the same `limit`/`returned`/`truncated` `query` reports at
+   * the top of its envelope. An in-band `error` event raises `ArcadeDBError` instead of being
+   * yielded; see `facade/stream.ts` for why the contract puts that failure in band.
+   */
+  queryStream(opts: QueryOptions): AsyncGenerator<NdJsonQueryEvent> {
+    return queryStream(this.client, this.name, this.sessionId, opts);
+  }
+
+  /**
+   * Streams a command as `application/x-ndjson`. As {@link ArcadeDBDatabase.queryStream}, but for
+   * `/command`. Only a READ-ONLY statement can stream: a mutating one (`UPDATE`, `INSERT`, DDL,
+   * `RETURN AFTER` included) is refused with an `ArcadeDBError` (HTTP 400) before it produces a
+   * row, because a streamed response starts sending rows before the transaction commits, and that
+   * commit can still roll back. Use `command` for a mutating statement.
+   */
+  commandStream(opts: CommandOptions): AsyncGenerator<NdJsonQueryEvent> {
+    return commandStream(this.client, this.name, this.sessionId, opts);
+  }
+
+  /**
+   * Bulk-loads vertices and edges via `POST /api/v1/batch/{database}`, buffering the whole
+   * response before returning. `serializeRows` (via `args.vertices`/`args.edges`) always emits
+   * every vertex before any edge, because the server resolves an edge's `from`/`to` against
+   * temporary ids declared earlier in the SAME payload only.
+   *
+   * A load is NOT atomic: the server commits every `options.commitEvery` records, so a failure
+   * partway through leaves earlier chunks durably committed - `ArcadeDBError` thrown from a
+   * failed load still corresponds to real, already-durable data. Because temporary ids are not
+   * keys, retrying the whole payload after such a failure duplicates whatever already committed
+   * rather than resuming cleanly. Use `batchLoadStream` when the caller needs to see how far a
+   * load got before it failed.
+   */
+  async batchLoad(args: BatchLoadArgs): Promise<BatchSummary> {
+    return batchLoad(this.client, this.name, args);
+  }
+
+  /**
+   * Streams the same bulk load as `batchLoad`, but as `application/x-ndjson`: a `progress` event
+   * at every vertex commit and every `options.commitEvery` edges, then exactly one `summary` or
+   * `error` event carrying the same object the buffered call would otherwise have returned. An
+   * in-band `error` event raises `ArcadeDBError` instead of being yielded - see `facade/batch.ts`'s
+   * `raiseOnErrorEvent` for why the two ways a load can fail (before vs. after the first
+   * acknowledgement) both end up on this one throwing path. A `progress` event's `idMapping` is
+   * only the fragment that chunk resolved - it is never merged across events, so a caller that
+   * needs the whole mapping must concatenate it themselves as they receive it.
+   */
+  batchLoadStream(args: BatchLoadArgs): AsyncGenerator<NdJsonBatchEvent> {
+    return batchLoadStream(this.client, this.name, args);
   }
 
   /**

@@ -80,6 +80,205 @@ fields in the generated schema, so both are, strictly, optional on the wire. In 
 server always sends both today, but a caller relying on `truncated === false` as proof of
 completeness is trusting a client-side default, not a server guarantee.
 
+## Streaming a query or command: `queryStream`/`commandStream`
+
+`query` and `command` buffer the whole result server-side before answering. `queryStream` and
+`commandStream` are a separate pair of methods for the same two endpoints, requesting
+`application/x-ndjson` instead of `application/json` and handing back an `AsyncGenerator` a caller
+`for await`s over:
+
+```ts
+for await (const event of db.queryStream({ language: "sql", command: "SELECT FROM Person" })) {
+  if (event.record) console.log(event.record);
+  if (event.stats) console.log(`returned ${event.stats.returned}, truncated: ${event.stats.truncated}`);
+}
+```
+
+They yield **events**, not rows. Each `NdJsonQueryEvent` carries exactly one of `record` (one
+result row, shaped like an element of `query`'s `result` array), `stats`, or `error` - never more
+than one, and a caller who only ever reads `event.record` will silently skip both of the others.
+
+`stats` is a trailer, always the last event of a complete stream, carrying the same
+`limit`/`returned`/`truncated` the buffered envelope reports at the top of its response. Ignoring
+it loses exactly what ignoring `truncated` loses on the buffered path above: the only way to tell a
+complete answer from one the server's row cap cut short. A caller who iterates `record` events and
+stops there has no way to know whether they saw everything.
+
+`error` is a failure the server can only report **after** the 200 status line was already sent -
+unlike the buffered path, where a failure still in progress when the response starts can be
+reported as a non-2xx status, a streamed response has committed to 200 before the first row is
+known to exist, and that status line cannot be taken back once the stream has started. That is why
+the contract puts this failure in band, as an event, rather than as an HTTP status. This client
+raises `ArcadeDBError` for it, with a `status` of 200 - honest, since that is the status the
+exchange actually carried - exactly as `query`/`command` throw `ArcadeDBError` for a non-2xx
+response, so both paths fail the same way; any event already yielded before the error stays
+delivered to the caller.
+
+`query` and `command` themselves are unchanged: they still return `QueryEnvelope` and still send no
+`Accept` header. Streaming is two additional methods, not a mode either existing one can be put
+into.
+
+`commandStream` only ever succeeds for a **read-only** statement. A mutating one - `UPDATE`,
+`INSERT`, DDL, `UPDATE ... RETURN AFTER` included - is refused before it produces a single row,
+because a streamed response starts sending rows to the caller before the surrounding transaction
+commits, and that commit can still roll back; the server will not let you observe rows from a
+write that might never actually happen. Use the buffered `command` for a mutating statement -
+it is unaffected by any of this. As with the `efSearch`/result-limit bounds above, this rule is
+enforced **server-side** and this client does not pre-empt it by inspecting the statement first, so
+the rejection surfaces as an `ArcadeDBError` from the server's response (HTTP 400), not a local
+`throw` before the request is even sent.
+
+You are free to stop early, and that is most of the point of a streaming API. `break`ing out of
+the `for await` loop (or calling the generator's `.return()`) **cancels the response body**, not
+just the loop: the transfer is torn down and the connection goes back to the pool instead of
+hanging mid-response. That takes an explicit `reader.cancel()` inside the decoder - a generator's
+`finally` releasing its reader's lock is *not* cancelling, and a released-but-uncancelled body sits
+there until garbage collection notices. `arcadedb-driver` (Python) gives the same guarantee through
+its own idiom, `httpx`'s `.stream()` context manager unwinding on `GeneratorExit`.
+
+Both methods reach the server through the generated client's own streaming primitive -
+`client.POST(..., { parseAs: "stream" })` - rather than a hand-rolled `fetch` or a second HTTP
+client of their own; that is what lets them reuse the same base URL, auth, and error mapping every
+other call on this client already goes through. Anyone adding another streaming endpoint to this
+package should do the same rather than reaching for a bare `fetch`.
+
+## Bulk-loading a graph: `batchLoad`/`batchLoadStream`
+
+`POST /api/v1/batch/{database}` loads vertices and edges from one ndjson payload. `batchLoad`
+waits for the buffered summary; `batchLoadStream` asks the same load for `application/x-ndjson`
+and hands back an `AsyncGenerator` that reports progress while the upload is still going:
+
+```ts
+const summary = await db.batchLoad({
+  vertices: [
+    { type: "Person", id: "p1", properties: { name: "Alice" } },
+    { type: "Person", id: "p2", properties: { name: "Bob" } },
+  ],
+  edges: [{ type: "Knows", from: "p1", to: "p2", properties: { since: 2020 } }],
+  options: { commitEvery: 5000 },
+});
+
+console.log(summary.verticesCreated, summary.edgesCreated, summary.idMapping);
+```
+
+Vertices and edges arrive as two arguments rather than one interleaved array because the server
+resolves an edge's `from`/`to` against temporary ids declared **earlier in the same payload**, and
+answers 400 for anything else. Two arguments let the serializer emit every vertex before any edge
+unconditionally, which turns that ordering rule from something this README asks you to remember
+into something the argument shape cannot express a violation of. `properties` is its own object
+for the same kind of reason: flattened into the row it would be indistinguishable from a record
+field literally named `properties`, which the server accepts, answers 200 for, and stores - so
+nothing fails until a query months later looks for a field that was never written.
+
+`options` is `BatchOptions`, the 17 tuning parameters the endpoint takes as query parameters,
+spelled exactly as the contract spells them. An option you leave unset is omitted from the URL
+rather than sent empty, so the server applies its own default instead of parsing `""`.
+
+`src/internal/batch-rows.ts` owns the ndjson line format. It was established against a live server
+and reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570) when no schema
+described it; the contract now declares it as `BatchLine` and the two agree field for field. The
+module is still needed, because `BatchLine` types one *line* while the body is a newline-delimited
+sequence of them - openapi-typescript therefore types the request body as a single line object,
+which is not what the endpoint is sent. `text/csv` still has no schema at all. That is why
+`VertexRow`/`EdgeRow` are the only way in: hand-built payload strings are not a supported input.
+
+### A batch is not atomic
+
+Read this paragraph before you use either method. The server commits every `commitEvery` records,
+so a load that fails halfway leaves every chunk before the failure **durably committed**. The
+`ArcadeDBError` thrown by a failed `batchLoad` describes real data that is already in the
+database, not a load that undid itself. And because temporary ids are not keys, **retrying the
+whole payload duplicates every vertex that already committed** - there is no server-side
+idempotency to lean on, and this client does not invent one. The counters that come back on a 400
+(`verticesCreated` and `edgesCreated`, beside a `partialCommit` flag) are records *attempted*
+before the failure: an upper bound on what is durable, not a count of it. The two counters do not
+even overshoot by the same rule - vertices are committed as the load flushes, while edges are
+buffered and written when it ends. A failed load is something to inspect and reconcile against the
+database, not something to re-send.
+
+Temporary ids are **request-scoped**, which is the other half of the same design. An id means
+something only for the payload that declared it: a vertex loaded by an earlier call cannot be
+referenced by its temp id from a later one, and the server will not resolve it. Reference it by
+its RID (`#bucket:position`) instead - which is exactly what the summary's `idMapping` returns
+temp ids for.
+
+`bytesRead` is how you verify a chunked upload arrived whole: compare it against the bytes you
+sent. A body that ends before its announced length is answered **408** with the same
+partial-commit counters, never a 200 carrying a truncated count, so `bytesRead` falling short on a
+200 means the server consumed less than you believe you sent - not that it quietly accepted a
+short load.
+
+### Streaming: what the summary carries, and what it does not
+
+```ts
+for await (const event of db.batchLoadStream({ vertices, edges })) {
+  if (event.progress) console.log(event.progress.phase, event.progress.verticesCreated);
+  if (event.summary) console.log(event.summary.idMappingSize, event.summary.idMappingStreamed);
+}
+```
+
+A `progress` event arrives at every vertex commit and every `commitEvery` edges, then exactly one
+`summary`. The two encodings disagree about the temp-id mapping, deliberately. `batchLoad`'s
+summary carries `idMapping`, the whole temp-id-to-RID map in one object. A streamed load puts that
+map on the wire in fragments - each `progress` event's `idMapping` is only what that chunk
+resolved - and its `summary` carries `idMappingStreamed: true` and `idMappingSize` with **no map
+at all**.
+
+This client yields progress events exactly as it receives them and never merges those fragments.
+Accumulating them here would rebuild, client-side, the million-entry map that streaming exists to
+avoid holding: the buffered encoding's size cap on `idMapping` is a symptom of the server having
+to build the whole map before it can answer anything, and streaming removes that on both ends. A
+caller who genuinely needs the whole mapping concatenates the fragments as they arrive - checking
+the total against `idMappingSize`, since a map delivered in pieces can lose one to a truncated
+response without any single piece looking wrong - or calls `batchLoad` and accepts the memory
+cost, which is a perfectly good trade right up until the map stops fitting.
+
+`idMappingStreamed` is a different condition from `idMappingOmitted`: *omitted* means the map was
+too large to return, *streamed* means it was already delivered, piecemeal, in the progress events.
+`BatchResponse` - the shape `batchLoad` returns - correctly has no `idMappingStreamed`, because a
+buffered load never sends it; but the generator does declare the field where it belongs, on
+`NdJsonBatchEvent["summary"]`, the streaming path's own type, alongside `commitIndex` and
+`idMappingSize`. `BatchSummary` is a plain alias for `BatchResponse` and carries no widening.
+`NdJsonBatchEvent`'s error object is the one genuine gap: it declares only `commitIndex`, `status`
+and `statusMapped`, not the `error` message and `exception` the server actually sends with them,
+so `NdJsonBatchEvent` is widened here by exactly those two fields. That widening was established
+against a live 26.10.1-SNAPSHOT server, is reported upstream as
+[ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570), and should be
+narrowed back to the generated type once the contract declares the fields.
+
+### Both ways a load can fail throw the same thing
+
+A failure **before** the first acknowledgement is reported as a real HTTP status with the buffered
+error body - nothing has been written to the response yet, so the status line is still free. A
+failure **after** the first progress line cannot be: the 200 is already on the wire and cannot be
+taken back, so it travels in band as an `error` event carrying the status the buffered encoding
+would have used. `batchLoadStream` throws `ArcadeDBError` for both, so a `for await` loop fails
+identically whichever channel carried the failure; *when* the load failed is the only difference
+between them, and it is not something a caller can branch on usefully. Every event already yielded
+stays delivered - and per the non-atomicity paragraph above, those progress counters are the best
+record you will get of what may already be durable.
+
+One field on that error event is worth branching on. When `statusMapped` is `false`, `status` is
+an unclassified 500 fallback rather than the status the buffered encoding would have chosen (an
+engine failure raised after the stream had already started). Key on `exception` there, not on
+`status`; the thrown `ArcadeDBError` carries `exception` and its `detail` says why.
+
+### This is `batchLoad`, not `bulkInsert`
+
+[`@arcadedb/driver-grpc`](../driver-grpc/README.md)'s `bulkInsert` is a **different operation** -
+it inserts records into one target type and knows nothing about edges or temporary ids. The gRPC
+counterpart of the endpoint documented here is `GraphBatchLoad`, which that package exposes
+through `raw` and wraps nowhere.
+
+### `text/csv` is not exposed
+
+The endpoint accepts `application/jsonl`, `application/x-ndjson` and `text/csv`. This client always
+sends `application/x-ndjson` (the contract makes `application/jsonl` identical in meaning, so there
+is nothing to choose between them) and does not expose CSV. The CSV dialect is as undocumented as
+the ndjson line format, and a rows-in API has nowhere to put a header row. Convert a CSV file into
+`VertexRow`/`EdgeRow` yourself, or send the bytes through `server.raw`.
+
 ## Transactions
 
 ```ts
@@ -161,6 +360,20 @@ generic parameter itself) is what closes the historical hazard here: the contrac
 to *everything*, so `const n: number = hit.properties.name` used to typecheck and hand back a
 string at runtime with no warning. `hybrid` and `fulltext` hits carried the identical artifact and
 are fixed the same way.
+
+## Time series: `db.ts.query`'s `tags` is enforced server-side
+
+A name in `db.ts.query`'s `tags` body field that is not one of the type's declared TAG columns is
+not dropped from the filter - it is **refused** with a 400 response naming the offending tag and
+listing the type's declared TAG columns. Silently ignoring it would widen the query to the whole
+range, and a caller has no way to tell that result apart from a filter that legitimately matched
+everything.
+
+That rule is enforced **server-side**, the same way `efSearch` and the vector/full-text
+result-limit fields are (see "Vector, hybrid and full-text search" above): this client sends
+`tags` unchanged and does not check it against a schema it does not have, so a violation surfaces
+as an `ArcadeDBError` thrown from the server's response, not a local `throw` before the request is
+even sent.
 
 ## Two error models
 

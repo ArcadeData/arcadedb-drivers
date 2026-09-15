@@ -57,6 +57,14 @@ decision to leave it unwrapped or hand-written - never a way to quiet the check.
 that makes the generator skip something *not* on the list, or stops skipping something that *is*,
 fails CI.
 
+Two of those four skipped endpoints are wrapped by hand anyway - `facade/timeseries.py`'s `write`
+and `facade/batch.py`'s `batch_load`/`batch_load_stream` - each issuing its request through the
+generated `Client`'s own pooled httpx client, with `_internal/batch_rows.py` owning the ndjson
+line format. The contract now declares that format - `BatchLine`, a union over `BatchVertexLine`
+and `BatchEdgeLine` (ArcadeData/arcadedb#7570) - and it matches what the module emits, but it
+describes ONE LINE rather than the body, so the generator still cannot build the call and `/batch`
+stays on the `EXPECTED_SKIPS` list.
+
 ## gRPC generation
 
 `scripts/generate-grpc.sh` runs `grpc_tools.protoc` against the contract located by
@@ -116,10 +124,22 @@ request object first. That override is the safety mechanism, not an incidental d
 what makes transaction hijack, silent data loss, and leaked transactions
 (ArcadeData/arcadedb#5040-#5042) unrepeatable through the handle, the gRPC-specific way
 `arcadedb-driver`'s second `ArcadeDBDatabase` handle (see "The transaction contract" below) keeps a
-transaction's calls separated from the outer handle's. Only three RPCs are ever reachable solely
-through `raw` with no wrapper at any level: `BulkInsert`, `InsertBidirectional`, and
-`GraphBatchLoad`. See `packages/driver-grpc/README.md` for its own sync/async split and its
-transaction and streaming wrappers; it is not duplicated here.
+transaction's calls separated from the outer handle's. Only three data-plane RPCs are ever
+reachable solely through `raw` with no wrapper at any level: `BulkInsert`, `InsertBidirectional`,
+and `GraphBatchLoad` - `raw_admin`'s 44 control-plane RPCs are all reachable only through a bare
+stub call the same way, since no facade wraps any of them (see `ArcadeDBGrpcClient`'s class
+docstring in `__init__.py`).
+
+`raw_admin` also carries its own security story, independent of `raw`'s. 42 of its 44 RPCs
+authenticate from a `DatabaseCredentials` field inside the request message rather than from
+channel metadata, so `bearer_auth`/`password_auth` - passed as this package's `auth` - do nothing
+for them; a caller who thinks `auth` covers the admin service is wrong, silently, unless they read
+this. Because that placement also puts a password outside what the #5048 plaintext-password guard
+can see (it keys on `Auth`, not on request bodies), `raw_admin` carries a **second**, independent
+guard: reading the property (not constructing the client) raises `InsecureChannelError` unless
+`insecure=True` was passed or the channel carries real transport credentials. See
+`packages/driver-grpc/README.md`'s "The control plane: `raw_admin`" section for the full account,
+including why `Health`/`Ready` are deliberately exempt; it is not duplicated here.
 
 ## Deliberate asymmetries
 

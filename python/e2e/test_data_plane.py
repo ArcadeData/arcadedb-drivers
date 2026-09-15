@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, basic_auth
+from arcadedb_driver._generated.models.nd_json_query_event import NdJsonQueryEvent
+from arcadedb_driver._generated.models.nd_json_query_event_stats import NdJsonQueryEventStats
+from arcadedb_driver._generated.types import Unset
 
 from .conftest import ROOT_PASSWORD
 
@@ -176,3 +181,235 @@ async def test_async_vector_hybrid_and_fulltext_search_all_return_non_empty_resu
     assert hybrid.fused is True
     assert isinstance(fulltext_results, list) and len(fulltext_results) > 0
     assert not hasattr(fulltext, "truncated")
+
+
+# STREAM_ROW_COUNT and STREAM_PAYLOAD were worked out empirically against a live container before
+# this fixture was written, not guessed - see task-4-report.md for the transcript of chunk counts
+# measured at increasing row counts. A handful of rows arrives from a real server in a single
+# ndjson chunk (one read of the decoder), which would let a decoder with no
+# cross-chunk buffering at all pass this suite for the wrong reason - the exact defect
+# `test_stream.py`'s fabricated-boundary cases target. 2000 rows of ~150 bytes each reliably
+# splits the response across dozens of real reads.
+STREAM_TYPE = "StreamRow"
+STREAM_ROW_COUNT = 2000
+STREAM_PAYLOAD = "x" * 100
+
+
+@pytest.fixture(scope="module")
+def stream_rows(base_url: str, database: str) -> int:
+    """Creates `StreamRow` and inserts `STREAM_ROW_COUNT` rows once for the streaming tests below.
+
+    Module-scoped, like `test_data_plane.py`'s own `vector_index` fixture in `conftest.py`: the
+    DDL and the bulk insert run once no matter how many tests in this module use them. Returns the
+    row count so a test that wants it does not need to repeat the module constant.
+    """
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        db.command(language="sql", command=f"CREATE DOCUMENT TYPE {STREAM_TYPE} IF NOT EXISTS")
+        db.command(language="sql", command=f"CREATE PROPERTY {STREAM_TYPE}.n INTEGER")
+        db.command(language="sql", command=f"CREATE PROPERTY {STREAM_TYPE}.payload STRING")
+        values = ",".join(f"({i},'{STREAM_PAYLOAD}')" for i in range(STREAM_ROW_COUNT))
+        db.command(language="sql", command=f"INSERT INTO {STREAM_TYPE} (n, payload) VALUES {values}")
+    return STREAM_ROW_COUNT
+
+
+# BIG_PAYLOAD_SIZE is a second, different way to force a genuinely multi-chunk response: not many
+# ordinarily-sized rows, but ONE record whose own ndjson line is large enough that a single write
+# of it cannot be delivered to the client in one read. This matters because a large text field or
+# a base64 blob big enough to land here is an ordinary shape, not an exotic one - a caller could
+# plausibly store either - even though most rows are nowhere near this size and never take this
+# path. The point of this test is not that the split is common; it is that the decoder must still
+# reassemble it correctly on the rows where it does happen, which is the case where cross-chunk
+# buffering is load-bearing against a real server rather than only against the fabricated
+# boundaries in test_stream.py.
+#
+# The size was swept empirically against a live container (see task-4-report.md for the full
+# table), not guessed. Payload sizes from 1,000 through 32,000 bytes never split across a real
+# read, not once in repeated probing: ArcadeDB's response writer appears to issue one write() per
+# output line, and TCP delivers a write that size as one segment on loopback as long as it stays
+# under the client's own socket read buffer, so the record's line and the stats trailer always
+# arrived as two whole chunks. Splitting starts to appear at 40,000 bytes, but unreliably - 2 of 5
+# repeated runs split there against this client's transport (`httpx`), 3 of 5 against the
+# TypeScript client's (Node's `fetch`) - and the whole 40,000-65,000-byte band is non-deterministic
+# run to run, consistent with the boundary being the client's own socket read-buffer size (chunk
+# sizes cluster at 65536 bytes once a field is large enough to force several full buffers, matching
+# what the 500,000-byte field used to first confirm the mechanism showed). Past that band,
+# splitting becomes reliable: 70,000 and 80,000 bytes split on every one of 6 repeated runs against
+# both this client's transport and the TypeScript client's; 90,000 and 95,000 bytes were
+# additionally confirmed 6-for-6 against the TypeScript client's transport alone. 80,000 bytes sits
+# in the middle of that reliable range: comfortably clear of the non-deterministic band with margin
+# for a CI runner whose buffering differs slightly from this machine's, and nowhere near the
+# 500,000 bytes it took to first confirm the mechanism existed.
+BIG_FIELD_TYPE = "BigFieldRow"
+BIG_PAYLOAD_SIZE = 80_000
+# A cycling digit pattern, not a repeated single character: a decoder that drops, duplicates, or
+# reorders a byte at the chunk boundary changes this string's content, not just its length, so
+# comparing the reassembled value against this exact string catches corruption a length-only or
+# all-the-same-character check would miss.
+BIG_PAYLOAD = "".join(str(i % 10) for i in range(BIG_PAYLOAD_SIZE))
+
+
+@pytest.fixture(scope="module")
+def big_field_row(base_url: str, database: str) -> str:
+    """Creates `BigFieldRow` and inserts one row carrying `BIG_PAYLOAD`, once.
+
+    A separate type from `StreamRow`, not one more row added to it: mixing this row into
+    `StreamRow` would change the row count `stream_rows`'s own tests assert on.
+    """
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        db.command(language="sql", command=f"CREATE DOCUMENT TYPE {BIG_FIELD_TYPE} IF NOT EXISTS")
+        db.command(language="sql", command=f"CREATE PROPERTY {BIG_FIELD_TYPE}.payload STRING")
+        db.command(language="sql", command=f"INSERT INTO {BIG_FIELD_TYPE} SET payload = '{BIG_PAYLOAD}'")
+    return BIG_FIELD_TYPE
+
+
+def _stats(event: NdJsonQueryEvent) -> NdJsonQueryEventStats:
+    assert not isinstance(event.stats, Unset)
+    return event.stats
+
+
+def _record(event: NdJsonQueryEvent) -> dict[str, Any]:
+    assert not isinstance(event.record, Unset)
+    return event.record.to_dict()
+
+
+def test_stream_query_yields_records_and_a_stats_trailer_matching_what_arrived(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    trailer = events[-1]  # the stats trailer is always the LAST event of a complete stream
+
+    assert len(records) == stream_rows
+    stats = _stats(trailer)
+    assert stats.returned == len(records)
+    assert stats.truncated is False
+
+
+def test_stream_query_with_a_low_limit_reports_truncated_in_the_trailer(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    cap = 500
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=cap))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == cap
+    assert stats.returned == cap
+    assert stats.truncated is True
+
+
+def test_buffered_query_returns_the_same_rows_streaming_did(base_url: str, database: str, stream_rows: int) -> None:
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        buffered = db.query(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1))
+
+    # Compare the FULL row shape (both "n" and "payload"), not just "n" - StreamRow carries both
+    # fields, and the property under test is that streaming did not change what the buffered path
+    # returns, not merely that the two sides agree on one column.
+    streamed_rows = sorted((_record(e) for e in events if not isinstance(e.record, Unset)), key=lambda r: r["n"])
+    buffered_rows = sorted(buffered.result, key=lambda r: r["n"])
+
+    assert buffered.truncated is False
+    assert streamed_rows == buffered_rows
+    assert len(buffered_rows) == stream_rows
+
+
+def test_command_stream_also_streams_ndjson_from_a_real_server_for_a_read_only_command(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    # The property under test is server-side, not client-side: `test_stream.py` already proves this
+    # client sends the right Accept header and parses whatever it is handed, against a MOCKED
+    # response - it cannot prove ArcadeDB actually honors that header on `/command` rather than
+    # silently answering with a buffered `QueryResponse` regardless. If the server did that,
+    # nothing else in this repository would catch it, since the unit tests never talk to a real
+    # server. Asserting a `record` + `stats` shape here - not just "a list came back" - is what
+    # rules that failure mode out: a buffered JSON body would not decode into these events at all.
+    #
+    # This does NOT use a mutating statement, unlike the read-only-vs-write asymmetry one might
+    # expect a "command" test to cover. Verified empirically against a live container (see
+    # task-4-report.md): ArcadeDB rejects `Accept: application/x-ndjson` on `/command` for any
+    # non-read-only statement with 400 "The streaming encoding is available only for a read-only
+    # statement, because its rows reach the client before the transaction commits: run this one
+    # with 'Accept: application/json'" - a deliberate server-side rule (rows cannot stream to the
+    # client ahead of a commit that might still roll back), not a gap in this client. A read-only
+    # SELECT run through /command is the only statement shape /command can stream at all.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.command_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE} WHERE n < 5"))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == 5
+    assert stats.returned == 5
+
+
+@pytest.mark.asyncio
+async def test_async_command_stream_also_streams_ndjson_from_a_real_server_for_a_read_only_command(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    # The async twin of the sync test above - nearly free given `stream_rows` already does its
+    # setup once and is reusable by both sync and async tests, and worth having since Task 3 shipped
+    # a real async transport (`httpx.AsyncClient.stream()`), not just a sync one, for exactly this
+    # endpoint.
+    async with AsyncArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = [
+            event async for event in db.command_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE} WHERE n < 5")
+        ]
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == 5
+    assert stats.returned == 5
+
+
+@pytest.mark.asyncio
+async def test_async_stream_query_yields_records_and_a_stats_trailer(
+    base_url: str, database: str, stream_rows: int
+) -> None:
+    async with AsyncArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = [
+            event async for event in db.query_stream(language="sql", command=f"SELECT FROM {STREAM_TYPE}", limit=-1)
+        ]
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    stats = _stats(events[-1])
+
+    assert len(records) == stream_rows
+    assert stats.returned == len(records)
+    assert stats.truncated is False
+
+
+def test_stream_query_reassembles_a_single_record_whose_line_spans_multiple_real_reads(
+    base_url: str, database: str, big_field_row: str
+) -> None:
+    # This is a DIFFERENT property from `stream_rows`'s tests above: those prove the response
+    # arrives across many real reads; this one proves a single ndjson LINE really spans two of
+    # them and still comes back whole. A test that only counted events here would pass against a
+    # decoder that silently truncated `payload` at the chunk boundary - the value itself has to be
+    # compared.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        events = list(db.query_stream(language="sql", command=f"SELECT FROM {big_field_row}"))
+
+    records = [e for e in events if not isinstance(e.record, Unset)]
+    assert len(records) == 1
+    payload = _record(records[0])["payload"]
+    assert len(payload) == BIG_PAYLOAD_SIZE
+    assert payload == BIG_PAYLOAD
+
+    stats = _stats(events[-1])
+    assert stats.returned == 1
+    assert stats.truncated is False

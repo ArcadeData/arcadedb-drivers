@@ -60,9 +60,12 @@ Their asymmetries are intentional and documented in each package's README:
   "harmonise" these — translating one transport's error into the other's shape drops information.
 - **Browser support.** The HTTP client works in a browser; the gRPC client cannot and will not
   until the server grows a gRPC-Web or Connect handler.
-- **Admin service.** `ArcadeDbAdminService` is deliberately not wrapped by the gRPC package (it
-  authenticates from a field inside the request message, not from metadata). Admin operations live
-  on the HTTP client.
+- **Admin service.** The gRPC package exposes `ArcadeDbAdminService` as the bare generated stub
+  `rawAdmin` and deliberately wraps none of its 44 RPCs (42 of them authenticate from a
+  `credentials` field inside the request message, not from metadata, so this package's `auth`
+  option does nothing for them). Because those credentials are in the body rather than in
+  interceptor metadata, reading `rawAdmin` throws over a non-TLS `baseUrl` unless `insecure: true`
+  was passed — a guard that fires on access, not at `createClient`.
 
 ## HTTP client structure
 
@@ -71,6 +74,14 @@ Their asymmetries are intentional and documented in each package's README:
 `src/internal/unwrap.ts` is the single bridge from openapi-fetch's `{ data, error }` to the
 throwing facade. `unwrap` lives in `internal/` rather than being re-exported from `index.ts`
 specifically to break the `index.ts` ↔ `facade/*.ts` import cycle.
+
+`POST /api/v1/batch/{database}` is wrapped by hand in `src/facade/batch.ts`: the contract
+schematizes one *line* of the payload (`BatchLine`, a union over `BatchVertexLine` and
+`BatchEdgeLine`) but not the newline-delimited body that is actually sent, so openapi-typescript
+types the request body as a single line object. `batchLoad` therefore rides the generated client
+with a per-request `bodySerializer` override rather than a second transport, and
+`src/internal/batch-rows.ts` owns the line format - which the contract now documents too, matching
+this client field for field (ArcadeData/arcadedb#7570).
 
 All four namespaces load their implementation with a **dynamic `import()`**. That is a
 tree-shaking contract, not a style choice: `test/treeshake.test.ts` bundles a data-plane-only

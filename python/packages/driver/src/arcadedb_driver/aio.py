@@ -10,7 +10,7 @@ call style it uses. The duplication that remains is mechanical and deliberate;
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from functools import cached_property
 from types import TracebackType
 from typing import Any, Literal
@@ -26,11 +26,14 @@ from ._generated.api.transaction import begin_transaction as begin_op
 from ._generated.api.transaction import commit_transaction as commit_op
 from ._generated.api.transaction import rollback_transaction as rollback_op
 from ._generated.client import Client
+from ._generated.models.nd_json_query_event import NdJsonQueryEvent
 from ._generated.models.query_response import QueryResponse
 from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
+from ._internal.batch_rows import EdgeRow, VertexRow
 from ._internal.unwrap import is_success, unwrap
 from .errors import ArcadeDBError
+from .facade.batch import BatchOptions, abatch_load, abatch_load_stream
 from .facade.dashboards import AsyncGrafanaNamespace, AsyncPromQLNamespace
 from .facade.data import (
     SESSION_HEADER,
@@ -41,6 +44,7 @@ from .facade.data import (
     session_kwarg,
     to_envelope,
 )
+from .facade.stream import astream_command, astream_query
 from .facade.timeseries import AsyncTimeSeriesNamespace
 from .facade.vector import AsyncVectorNamespace
 
@@ -172,6 +176,103 @@ class AsyncArcadeDBDatabase:
         data = unwrap(response)
         assert isinstance(data, QueryResponse)
         return to_envelope(data)
+
+    def query_stream(
+        self,
+        *,
+        language: QueryLanguage,
+        command: str,
+        params: dict[str, Any] | None = None,
+        limit: int | None = None,
+    ) -> AsyncGenerator[NdJsonQueryEvent, None]:
+        """Streams `POST /api/v1/query/{database}` as `application/x-ndjson` instead of a single
+        buffered `QueryEnvelope`, yielding one `NdJsonQueryEvent` per line.
+
+        Each event carries exactly one of `record` (one result row), `stats` (a trailer carrying
+        the same `limit`/`returned`/`truncated` `query`'s `QueryEnvelope` reports at top level -
+        always the last event of a complete stream), or `error`. Ignoring `stats` loses the same
+        information ignoring `QueryEnvelope.truncated` loses on the buffered path: a caller cannot
+        tell a complete result from one the server's row cap cut short.
+
+        `error` is a failure the server can only report after the 200 status line was already
+        sent - the status cannot be taken back once the stream has started, which is why the
+        contract reports it in band rather than as an HTTP status. This method raises
+        `ArcadeDBError` for it, exactly as `query` raises for a non-2xx response, so both paths
+        fail the same way. Any event already yielded before the error stays delivered; the
+        `ArcadeDBError` is raised from the iterator at the point the `error` event arrives.
+
+        `query` itself is unaffected: it keeps returning `QueryEnvelope` and sending no `Accept`
+        header. This is a separate method, not a mode.
+        """
+        return astream_query(
+            self._client,
+            self.name,
+            self._session_id,
+            language=language,
+            command=command,
+            params=params,
+            limit=limit,
+        )
+
+    def command_stream(
+        self,
+        *,
+        language: QueryLanguage,
+        command: str,
+        params: dict[str, Any] | None = None,
+    ) -> AsyncGenerator[NdJsonQueryEvent, None]:
+        """Streams `POST /api/v1/command/{database}` as `application/x-ndjson` - the `command`
+        twin of `query_stream`; see its docstring for what an event carries and why an in-band
+        `error` raises `ArcadeDBError`.
+
+        Only a READ-ONLY statement can stream: a mutating one (`UPDATE`, `INSERT`, DDL,
+        `RETURN AFTER` included) is refused with an `ArcadeDBError` (HTTP 400) before it produces a
+        row, because a streamed response starts sending rows before the transaction commits, and
+        that commit can still roll back. Use `command` for a mutating statement.
+        """
+        return astream_command(
+            self._client, self.name, self._session_id, language=language, command=command, params=params
+        )
+
+    async def batch_load(
+        self,
+        *,
+        vertices: Iterable[VertexRow] = (),
+        edges: Iterable[EdgeRow] = (),
+        options: BatchOptions | None = None,
+    ) -> dict[str, Any]:
+        """Bulk-loads vertices and edges via `POST /api/v1/batch/{database}`, buffering the
+        whole response before returning. `serialize_rows` (via `vertices`/`edges`) always emits
+        every vertex before any edge, because the server resolves an edge's `from_`/`to` against
+        temporary ids declared earlier in the SAME payload only.
+
+        A load is NOT atomic: the server commits every `options["commitEvery"]` records, so a
+        failure partway through leaves earlier chunks durably committed - `ArcadeDBError` raised
+        from a failed load still corresponds to real, already-durable data. Because temporary ids
+        are not keys, retrying the whole payload after such a failure duplicates whatever already
+        committed rather than resuming cleanly. Use `batch_load_stream` when the caller needs to
+        see how far a load got before it failed.
+        """
+        return await abatch_load(self._client, self.name, vertices=vertices, edges=edges, options=options)
+
+    def batch_load_stream(
+        self,
+        *,
+        vertices: Iterable[VertexRow] = (),
+        edges: Iterable[EdgeRow] = (),
+        options: BatchOptions | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a
+        `progress` event at every vertex commit and every `options["commitEvery"]` edges, then
+        exactly one `summary` or `error` event carrying the same object the buffered call would
+        otherwise have returned. An in-band `error` event raises `ArcadeDBError` instead of being
+        yielded - see `facade/batch.py`'s `_raise_on_error_event` for why the two ways a load can
+        fail (before vs. after the first acknowledgement) both end up on this one throwing path.
+        A `progress` event's `idMapping` is only the fragment that chunk resolved - it is never
+        merged across events, so a caller that needs the whole mapping must concatenate it
+        themselves as they receive it.
+        """
+        return abatch_load_stream(self._client, self.name, vertices=vertices, edges=edges, options=options)
 
     def transaction(self) -> AsyncTransaction:
         """Runs a block inside a server-side transaction; see `AsyncTransaction`."""

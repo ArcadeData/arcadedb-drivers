@@ -4,7 +4,8 @@ from collections.abc import Mapping
 from typing import Any, TypeVar
 
 from attrs import define as _attrs_define
-from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="HybridSearchRequestWeights")
 
@@ -14,37 +15,50 @@ class HybridSearchRequestWeights:
     """Per-leg weight applied to every rank contribution. The only accepted keys are 'vector', 'fulltext' and 'expand', and
     a weight for a leg the request does not ask for is refused rather than ignored.
 
+        Attributes:
+            expand (float | Unset): Weight of the graph expansion leg. Refused unless the request also carries 'expand'
+                Default: 0.5.
+            fulltext (float | Unset): Weight of the full-text leg. Refused unless the request also carries
+                'fulltextQuery'/'fulltextIndexName' Default: 1.0.
+            vector (float | Unset): Weight of the vector leg Default: 1.0.
     """
 
-    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+    expand: float | Unset = 0.5
+    fulltext: float | Unset = 1.0
+    vector: float | Unset = 1.0
 
     def to_dict(self) -> dict[str, Any]:
+        expand = self.expand
+
+        fulltext = self.fulltext
+
+        vector = self.vector
 
         field_dict: dict[str, Any] = {}
-        field_dict.update(self.additional_properties)
+
+        field_dict.update({})
+        if expand is not UNSET:
+            field_dict["expand"] = expand
+        if fulltext is not UNSET:
+            field_dict["fulltext"] = fulltext
+        if vector is not UNSET:
+            field_dict["vector"] = vector
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        hybrid_search_request_weights = cls()
+        expand = d.pop("expand", UNSET)
 
-        hybrid_search_request_weights.additional_properties = d
+        fulltext = d.pop("fulltext", UNSET)
+
+        vector = d.pop("vector", UNSET)
+
+        hybrid_search_request_weights = cls(
+            expand=expand,
+            fulltext=fulltext,
+            vector=vector,
+        )
+
         return hybrid_search_request_weights
-
-    @property
-    def additional_keys(self) -> list[str]:
-        return list(self.additional_properties.keys())
-
-    def __getitem__(self, key: str) -> Any:
-        return self.additional_properties[key]
-
-    def __setitem__(self, key: str, value: Any) -> None:
-        self.additional_properties[key] = value
-
-    def __delitem__(self, key: str) -> None:
-        del self.additional_properties[key]
-
-    def __contains__(self, key: str) -> bool:
-        return key in self.additional_properties

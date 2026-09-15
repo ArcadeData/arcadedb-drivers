@@ -1510,9 +1510,9 @@ class ArcadeDbAdminServiceServicer:
     def ConnectCluster(self, request, context):
         """The other half of the cluster pair (issue #7400). A thin adapter over the same
         ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
-        cannot answer the verb differently. The current HA stack does not implement a client-initiated
-        join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
-        issue #7401.
+        cannot answer the verb differently. Issue #7401 made that shared method join the named server to
+        the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
+        membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

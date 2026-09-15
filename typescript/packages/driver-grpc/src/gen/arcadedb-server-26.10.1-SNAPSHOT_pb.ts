@@ -2859,7 +2859,9 @@ export const TimeSeriesWriteSummarySchema: GenMessage<TimeSeriesWriteSummary> = 
 /**
  * Conjunction of tag equality predicates. Values are coerced to the tag column's declared type, so a tag
  * declared INTEGER matches whether the client sent int32_value or string_value. A name that is not a TAG
- * column of the type contributes no predicate.
+ * column of the type is REFUSED with INVALID_ARGUMENT naming it and listing the type's TAG columns: dropping
+ * it instead would widen the query to every series, which a caller cannot tell apart from a filter that
+ * legitimately matched everything (issue #7334).
  *
  * @generated from message com.arcadedb.grpc.TimeSeriesTagFilter
  */
@@ -2973,8 +2975,10 @@ export type TimeSeriesQueryRequest = Message<"com.arcadedb.grpc.TimeSeriesQueryR
   tags?: TimeSeriesTagFilter | undefined;
 
   /**
-   * Maximum rows returned across the whole stream. Non-positive means the server default; the server-side
-   * hard ceiling (arcadedb.server.httpQueryMaxResultRows) still applies and cannot be widened from here.
+   * Maximum rows - or aggregation buckets - returned across the whole stream. Non-positive means no limit of
+   * the client's own. The server-side hard ceiling (arcadedb.server.grpcTimeSeriesMaxResultRows) still applies
+   * and cannot be widened from here: a limit above it is refused with RESOURCE_EXHAUSTED BEFORE the first
+   * message, so a partial series is never delivered as if it were complete (issue #7390).
    *
    * @generated from field: int32 limit = 8;
    */
@@ -5217,10 +5221,12 @@ export type ConnectClusterRequest = Message<"com.arcadedb.grpc.ConnectClusterReq
   credentials?: DatabaseCredentials | undefined;
 
   /**
-   * The `<host>:<port>` of the server to join, as the HTTP verb's `connect cluster <address>`
-   * argument. Not validated here: the HTTP verb accepts an empty argument too and the shared
-   * implementation refuses before reading it, so rejecting it on this transport alone would make
-   * the two disagree on the same input.
+   * The server to join, as the HTTP verb's `connect cluster <address>` argument: one entry of
+   * arcadedb.ha.serverList - `host`, `host:raftPort`, the longer positional forms or the
+   * `host:{raft:..,http:..}` object form, optionally prefixed `name@`. Not validated here: the shared
+   * implementation validates it for both transports, so an extra gate on this one would make them
+   * disagree on the same input. An empty value is INVALID_ARGUMENT, the status that matches the 400
+   * the HTTP verb answers for a bare `connect cluster` (issue #7401).
    *
    * @generated from field: string server_address = 2;
    */
@@ -6225,9 +6231,9 @@ export const ArcadeDbAdminService: GenService<{
   /**
    * The other half of the cluster pair (issue #7400). A thin adapter over the same
    * ServerControlPlane.connectCluster the HTTP `connect cluster` verb calls, so the two transports
-   * cannot answer the verb differently. The current HA stack does not implement a client-initiated
-   * join, so today the shared implementation refuses and this answers FAILED_PRECONDITION - see
-   * issue #7401.
+   * cannot answer the verb differently. Issue #7401 made that shared method join the named server to
+   * the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
+   * membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
    *
    * @generated from rpc com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster
    */

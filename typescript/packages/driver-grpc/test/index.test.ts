@@ -39,6 +39,11 @@ describe("createClient", () => {
   });
 
   it("throws when passwordAuth is paired with an http:// baseUrl without opting in", () => {
+    // Also pins that exposing `rawAdmin` did not move this #5048 guard. The guard runs
+    // BEFORE any client (or transport) is constructed, so there is no `rawAdmin` for a
+    // caller to fall back on when this throws - the only way to reach the admin service
+    // insecurely would be building a second transport by hand, which is exactly the
+    // hazard this task closes off.
     expect(() => createClient({ baseUrl: "http://example.com:50051", auth: passwordAuth("root", "pw") })).toThrow(/insecure/i);
   });
 

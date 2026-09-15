@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 if TYPE_CHECKING:
     from ..models.full_text_search_response_results_item import FullTextSearchResponseResultsItem
 
@@ -20,16 +18,16 @@ class FullTextSearchResponse:
     """Documents matching the full-text query
 
     Attributes:
-        count (int | Unset): Number of results returned
-        index_name (str | Unset): Index that was searched
-        results (list[FullTextSearchResponseResultsItem] | Unset): Hits, highest score first
-        similarity (str | Unset): Similarity function the index scores with, e.g. BM25
+        count (int): Number of results returned
+        index_name (str): Index that was searched
+        results (list[FullTextSearchResponseResultsItem]): Hits, highest score first
+        similarity (str): Similarity function the index scores with, e.g. BM25
     """
 
-    count: int | Unset = UNSET
-    index_name: str | Unset = UNSET
-    results: list[FullTextSearchResponseResultsItem] | Unset = UNSET
-    similarity: str | Unset = UNSET
+    count: int
+    index_name: str
+    results: list[FullTextSearchResponseResultsItem]
+    similarity: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -37,26 +35,23 @@ class FullTextSearchResponse:
 
         index_name = self.index_name
 
-        results: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.results, Unset):
-            results = []
-            for results_item_data in self.results:
-                results_item = results_item_data.to_dict()
-                results.append(results_item)
+        results = []
+        for results_item_data in self.results:
+            results_item = results_item_data.to_dict()
+            results.append(results_item)
 
         similarity = self.similarity
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if count is not UNSET:
-            field_dict["count"] = count
-        if index_name is not UNSET:
-            field_dict["indexName"] = index_name
-        if results is not UNSET:
-            field_dict["results"] = results
-        if similarity is not UNSET:
-            field_dict["similarity"] = similarity
+        field_dict.update(
+            {
+                "count": count,
+                "indexName": index_name,
+                "results": results,
+                "similarity": similarity,
+            }
+        )
 
         return field_dict
 
@@ -65,20 +60,18 @@ class FullTextSearchResponse:
         from ..models.full_text_search_response_results_item import FullTextSearchResponseResultsItem
 
         d = dict(src_dict)
-        count = d.pop("count", UNSET)
+        count = d.pop("count")
 
-        index_name = d.pop("indexName", UNSET)
+        index_name = d.pop("indexName")
 
-        _results = d.pop("results", UNSET)
-        results: list[FullTextSearchResponseResultsItem] | Unset = UNSET
-        if _results is not UNSET:
-            results = []
-            for results_item_data in _results:
-                results_item = FullTextSearchResponseResultsItem.from_dict(results_item_data)
+        results = []
+        _results = d.pop("results")
+        for results_item_data in _results:
+            results_item = FullTextSearchResponseResultsItem.from_dict(results_item_data)
 
-                results.append(results_item)
+            results.append(results_item)
 
-        similarity = d.pop("similarity", UNSET)
+        similarity = d.pop("similarity")
 
         full_text_search_response = cls(
             count=count,

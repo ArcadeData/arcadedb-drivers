@@ -2891,7 +2891,9 @@ Global___TimeSeriesWriteSummary: _TypeAlias = TimeSeriesWriteSummary  # noqa: Y0
 class TimeSeriesTagFilter(_message.Message):
     """Conjunction of tag equality predicates. Values are coerced to the tag column's declared type, so a tag
     declared INTEGER matches whether the client sent int32_value or string_value. A name that is not a TAG
-    column of the type contributes no predicate.
+    column of the type is REFUSED with INVALID_ARGUMENT naming it and listing the type's TAG columns: dropping
+    it instead would widen the query to every series, which a caller cannot tell apart from a filter that
+    legitimately matched everything (issue #7334).
     """
 
     DESCRIPTOR: _descriptor.Descriptor
@@ -3005,8 +3007,10 @@ class TimeSeriesQueryRequest(_message.Message):
     """
     to_timestamp: _builtins.int
     limit: _builtins.int
-    """Maximum rows returned across the whole stream. Non-positive means the server default; the server-side
-    hard ceiling (arcadedb.server.httpQueryMaxResultRows) still applies and cannot be widened from here.
+    """Maximum rows - or aggregation buckets - returned across the whole stream. Non-positive means no limit of
+    the client's own. The server-side hard ceiling (arcadedb.server.grpcTimeSeriesMaxResultRows) still applies
+    and cannot be widened from here: a limit above it is refused with RESOURCE_EXHAUSTED BEFORE the first
+    message, so a partial series is never delivered as if it were complete (issue #7390).
     """
     batch_size: _builtins.int
     """Rows (or buckets) per streamed message. 0 lets the server choose."""
@@ -5420,10 +5424,12 @@ class ConnectClusterRequest(_message.Message):
     CREDENTIALS_FIELD_NUMBER: _builtins.int
     SERVER_ADDRESS_FIELD_NUMBER: _builtins.int
     server_address: _builtins.str
-    """The `<host>:<port>` of the server to join, as the HTTP verb's `connect cluster <address>`
-    argument. Not validated here: the HTTP verb accepts an empty argument too and the shared
-    implementation refuses before reading it, so rejecting it on this transport alone would make
-    the two disagree on the same input.
+    """The server to join, as the HTTP verb's `connect cluster <address>` argument: one entry of
+    arcadedb.ha.serverList - `host`, `host:raftPort`, the longer positional forms or the
+    `host:{raft:..,http:..}` object form, optionally prefixed `name@`. Not validated here: the shared
+    implementation validates it for both transports, so an extra gate on this one would make them
+    disagree on the same input. An empty value is INVALID_ARGUMENT, the status that matches the 400
+    the HTTP verb answers for a bare `connect cluster` (issue #7401).
     """
     @_builtins.property
     def credentials(self) -> Global___DatabaseCredentials: ...

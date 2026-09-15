@@ -343,7 +343,9 @@ export interface paths {
         put?: never;
         /**
          * Add a peer to the cluster
-         * @description Adds a peer to the Raft configuration. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         * @description Adds a peer to the Raft configuration, then seeds it with the three security documents (server-users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not carry.
+         *
+         *     A 503 means the membership change succeeded and at least one of those seeds did not commit within arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["addClusterPeer"];
         delete?: never;
@@ -443,7 +445,7 @@ export interface paths {
         put?: never;
         /**
          * Execute command
-         * @description Executes a database command
+         * @description Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.
          */
         post: operations["executeCommand"];
         delete?: never;
@@ -697,7 +699,7 @@ export interface paths {
         put?: never;
         /**
          * Execute query via POST
-         * @description Executes a query using POST method with query in request body
+         * @description Executes a query using POST method with query in request body. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.
          */
         post: operations["executeQueryPost"];
         delete?: never;
@@ -715,7 +717,7 @@ export interface paths {
         };
         /**
          * Execute query via GET
-         * @description Executes a query using GET method with parameters in URL
+         * @description Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.
          */
         get: operations["executeQueryGet"];
         put?: never;
@@ -781,7 +783,7 @@ export interface paths {
         put?: never;
         /**
          * Execute server command
-         * @description Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster is dispatched but not implemented by the current HA implementation and always fails; use the cluster configuration to join nodes
+         * @description Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when this server is not running an HA implementation that supports runtime membership
          */
         post: operations["executeServerCommand"];
         delete?: never;
@@ -1363,6 +1365,22 @@ export interface components {
             /** @description Every version this server accepts */
             supportedProtocolVersions?: number[];
         };
+        /** @description An edge line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. */
+        BatchEdgeLine: {
+            /** @description Edge type to create the record in. The type must already exist: a bulk load creates records, never types. */
+            "@class": string;
+            /** @description Source vertex. Under refMode=id (the default) this is the '@id' a vertex declared EARLIER IN THIS PAYLOAD, or an existing RID in #bucket:position form; each request resolves only the ids of its own payload. Under refMode=ordinal it is the vertex's 0-based position, offset by 'ordinalBase'. */
+            "@from": string;
+            /** @description Destination vertex, named the same way as '@from' */
+            "@to": string;
+            /**
+             * @description Discriminator. 'e' is accepted as a synonym of 'edge' (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            "@type": "e" | "edge";
+        } & {
+            [key: string]: unknown;
+        };
         /** @description Failed bulk load. Carries how much of the payload was attempted, because a batch is not atomic and the caller has to reconcile before retrying. */
         BatchError: {
             /** @description Bytes of the upload the server consumed, so a client can verify its whole file arrived - and, on a truncated load, how far the server got. Never more than the client sent. */
@@ -1386,6 +1404,8 @@ export interface components {
             /** @description Vertices created without an '@id' under refMode=id. They are loaded and durable, but no edge can reference them. Absent when zero. */
             verticesWithoutId?: number;
         };
+        /** @description One line of the JSON batch encoding. Vertices must appear before the edges that reference them. */
+        BatchLine: components["schemas"]["BatchVertexLine"] | components["schemas"]["BatchEdgeLine"];
         /** @description Result of a bulk load */
         BatchResponse: {
             /** @description Bytes of the upload the server consumed, so a client can verify its whole file arrived - and, on a truncated load, how far the server got. Never more than the client sent. */
@@ -1408,6 +1428,20 @@ export interface components {
             verticesCreated?: number;
             /** @description Vertices created without an '@id' under refMode=id. They are loaded and durable, but no edge can reference them. Absent when zero. */
             verticesWithoutId?: number;
+        };
+        /** @description A vertex line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. */
+        BatchVertexLine: {
+            /** @description Vertex type to create the record in. The type must already exist: a bulk load creates records, never types. */
+            "@class": string;
+            /** @description Temporary id, resolved only against the edges of THIS request. Optional - a vertex needs one only if an edge in the same payload references it, and one that declares none is counted in 'verticesWithoutId'. Ignored under refMode=ordinal, where an edge names a vertex by its 0-based position instead. */
+            "@id"?: string;
+            /**
+             * @description Discriminator. 'v' is accepted as a synonym of 'vertex' (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            "@type": "v" | "vertex";
+        } & {
+            [key: string]: unknown;
         };
         /** @description Per-database bootstrap state of one peer */
         BootstrapStateResponse: {
@@ -1590,22 +1624,24 @@ export interface components {
         /** @description Documents matching the full-text query */
         FullTextSearchResponse: {
             /** @description Number of results returned */
-            count?: number;
+            count: number;
             /** @description Index that was searched */
-            indexName?: string;
+            indexName: string;
             /** @description Hits, highest score first */
-            results?: {
+            results: {
                 /** @description Dense vector distance, lower is better. Absent on a scored hit */
                 distance?: number;
-                /** @description The record's properties */
-                properties?: Record<string, never>;
+                /** @description The record's properties. An open map: besides the type's own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized document. */
+                properties: {
+                    [key: string]: unknown;
+                };
                 /** @description Record id of the hit */
-                rid?: string;
+                rid: string;
                 /** @description Sparse or full-text score, higher is better. Absent on a distance hit */
                 score?: number;
             }[];
             /** @description Similarity function the index scores with, e.g. BM25 */
-            similarity?: string;
+            similarity: string;
         };
         /** @description Data source health */
         GrafanaHealth: {
@@ -1738,22 +1774,70 @@ export interface components {
             /** @description Name of an LSM_VECTOR or LSM_SPARSE_VECTOR index */
             vectorIndexName: string;
             /** @description Per-leg weight applied to every rank contribution. The only accepted keys are 'vector', 'fulltext' and 'expand', and a weight for a leg the request does not ask for is refused rather than ignored. */
-            weights?: Record<string, never>;
+            weights?: {
+                /**
+                 * @description Weight of the graph expansion leg. Refused unless the request also carries 'expand'
+                 * @default 0.5
+                 */
+                expand: number;
+                /**
+                 * @description Weight of the full-text leg. Refused unless the request also carries 'fulltextQuery'/'fulltextIndexName'
+                 * @default 1
+                 */
+                fulltext: number;
+                /**
+                 * @description Weight of the vector leg
+                 * @default 1
+                 */
+                vector: number;
+            };
         };
         /** @description Fused results and per-leg accounting */
         HybridSearchResponse: {
             /** @description Number of results returned */
-            count?: number;
+            count: number;
             /** @description Full-text index that was searched, present whenever the full-text leg ran - including when it matched nothing */
             fulltextIndexName?: string;
             /** @description False when only one leg produced rows: fusion needs at least two sources, so the response carries that leg's native distance or score instead of a fused one. */
-            fused?: boolean;
+            fused: boolean;
             /** @description Strategy actually applied; absent when 'fused' is false */
             fusionStrategy?: string;
-            /** @description Per-leg accounting: how many rows each leg contributed, and whether the expansion hit its seed or fan-out cap */
-            legs?: Record<string, never>;
+            /** @description Per-leg accounting: how many rows each leg contributed, and whether the expansion hit its seed or fan-out cap. */
+            legs: {
+                /** @description The graph expansion leg, present whenever the request carried 'expand' */
+                expand?: {
+                    /** @description Rows the expansion leg contributed to fusion */
+                    count: number;
+                    /** @description Direction walked: out, in or both */
+                    direction: string;
+                    /** @description Edge types walked; empty when the request named none, which walks them all */
+                    edgeTypes: string[];
+                    /** @description Hops walked from a seed */
+                    maxDepth: number;
+                    /** @description Seeds the retrieval legs supplied */
+                    seedCount: number;
+                    /** @description True when the seed budget capped the seed list, so a thin neighborhood is the cap's doing rather than the graph's. */
+                    seedsTruncated: boolean;
+                    /** @description True when the expansion hit its fan-out cap */
+                    truncated: boolean;
+                };
+                /** @description The full-text leg, present whenever it ran - including when it matched nothing */
+                fulltext?: {
+                    /** @description Rows the full-text leg contributed to fusion */
+                    count: number;
+                    /** @description Full-text index that was searched */
+                    indexName: string;
+                    /** @description Similarity function that index scores with, e.g. BM25 */
+                    similarity: string;
+                };
+                /** @description The vector leg, which every hybrid search runs */
+                vector: {
+                    /** @description Rows the vector leg contributed to fusion */
+                    count: number;
+                };
+            };
             /** @description Fused hits, best first */
-            results?: {
+            results: {
                 /** @description Hops from the seed, for a hit the expansion leg contributed */
                 depth?: number;
                 /** @description Vector distance, present instead of 'fusedScore' on an unfused dense response */
@@ -1762,23 +1846,25 @@ export interface components {
                 fusedScore?: number;
                 /** @description Record ids from the seed to this hit, seed included */
                 path?: string[];
-                /** @description The record's properties */
-                properties?: Record<string, never>;
+                /** @description The record's properties. An open map: besides the type's own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized document. */
+                properties: {
+                    [key: string]: unknown;
+                };
                 /** @description Record id of the hit */
-                rid?: string;
+                rid: string;
                 /** @description Sparse or full-text score, present instead of 'fusedScore' on an unfused sparse or full-text response */
                 score?: number;
                 /** @description Which legs contributed this hit: vector, fulltext, expand */
-                sources?: string[];
+                sources: string[];
             }[];
             /** @description Scoring direction of the vector leg */
-            scoring?: string;
+            scoring: string;
             /** @description Whether the vector leg took the sparse path */
-            sparse?: boolean;
+            sparse: boolean;
             /** @description True when the result window was filled */
-            truncated?: boolean;
+            truncated: boolean;
             /** @description Vector index that was searched */
-            vectorIndexName?: string;
+            vectorIndexName: string;
         };
         /** @description Newly created session */
         LoginResponse: {
@@ -2102,7 +2188,7 @@ export interface components {
             from?: number;
             /** @description Maximum rows to return for a raw (non-aggregated) query. Defaults to 20000. Ignored when 'aggregation' is present. */
             limit?: number;
-            /** @description Tag filter as name to value pairs. All pairs must match. */
+            /** @description Tag filter as name to value pairs. All pairs must match. A name that is no TAG column of the type is refused with 400 rather than ignored. */
             tags?: Record<string, never>;
             /** @description Inclusive upper bound of the timestamp range. Unbounded when omitted. */
             to?: number;
@@ -2167,28 +2253,30 @@ export interface components {
         /** @description Ranked neighbors of the query vector */
         VectorSearchResponse: {
             /** @description Size of the candidate window the search inspected, which a filter over-fetches into */
-            candidateLimit?: number;
+            candidateLimit: number;
             /** @description Number of results returned */
-            count?: number;
+            count: number;
             /** @description Index that was searched */
-            indexName?: string;
+            indexName: string;
             /** @description Hits, nearest or highest-scoring first */
-            results?: {
+            results: {
                 /** @description Dense vector distance, lower is better. Absent on a scored hit */
                 distance?: number;
-                /** @description The record's properties */
-                properties?: Record<string, never>;
+                /** @description The record's properties. An open map: besides the type's own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized document. */
+                properties: {
+                    [key: string]: unknown;
+                };
                 /** @description Record id of the hit */
-                rid?: string;
+                rid: string;
                 /** @description Sparse or full-text score, higher is better. Absent on a distance hit */
                 score?: number;
             }[];
             /** @description Which direction is better and how it was computed, e.g. 'distance_lower_is_better:COSINE' or 'score_higher_is_better:dot_product'. Read it rather than assuming, because the two paths rank in opposite directions. */
-            scoring?: string;
+            scoring: string;
             /** @description Whether the sparse path was taken */
-            sparse?: boolean;
+            sparse: boolean;
             /** @description True when the result window was filled, so further matches may exist. False for a short result: the search already returned every match it could find within 'candidateLimit'. */
-            truncated?: boolean;
+            truncated: boolean;
         };
         /** @description Per-file checksums of one database. A follower response carries only its own 'localChecksums', 'files' and 'localServer'; the leader instead returns only 'result', nesting a cluster-wide comparison against every other peer. */
         VerifyDatabaseResponse: {
@@ -3021,11 +3109,39 @@ export interface operations {
             };
             cookie?: never;
         };
-        /** @description Vertices first, then edges. JSONL sends one JSON record per line; CSV sends a header row followed by data rows. Vertices may declare a temporary '@id' that edges reference through '@from' and '@to', or be referenced by position when refMode=ordinal. Edges may also reference existing RIDs in #bucket:position form. */
+        /**
+         * @description Vertices first, then edges. JSONL sends one JSON record per line; CSV sends a header row followed by data rows. Vertices may declare a temporary '@id' that edges reference through '@from' and '@to', or be referenced by position when refMode=ordinal. Edges may also reference existing RIDs in #bucket:position form.
+         *
+         *     The JSON schema below describes ONE LINE: the body is a sequence of them separated by newlines, not a JSON array, and a line that is an array is refused as such.
+         *
+         *     Properties sit FLAT beside the control keys - {"@type":"vertex","@class":"Person","name":"Alice"} - and are NOT nested under a 'properties' object. The '@' prefix is reserved: a key starting with '@' that is not one of @type, @class, @id, @from or @to is refused with a 400 naming the line, and so is a 'properties' key carrying an object, because both can only ever be a misread of this encoding.
+         *
+         *     The control keys and the '@type' values are matched case-sensitively: '@Type' is not '@type' and is refused as an unknown control key, and 'Vertex' is not 'vertex'. Only the CSV boolean literals 'true' and 'false' are matched ignoring case.
+         *
+         *     A temporary id is resolved only within the request that declared it, and only if the vertex appeared earlier in the same payload: a vertex loaded by an EARLIER request has to be referenced by RID (#bucket:position). Under refMode=ordinal, use 'ordinalBase' to keep one position counter across a load split into several requests.
+         */
         requestBody: {
             content: {
-                "application/jsonl": string;
-                "application/x-ndjson": string;
+                /**
+                 * @example {"@type":"vertex","@class":"Person","@id":"p1","name":"Alice"}
+                 *     {"@type":"vertex","@class":"Person","@id":"p2","name":"Bob"}
+                 *     {"@type":"edge","@class":"Knows","@from":"p1","@to":"p2","since":2020}
+                 */
+                "application/jsonl": components["schemas"]["BatchLine"];
+                /**
+                 * @example {"@type":"vertex","@class":"Person","@id":"p1","name":"Alice"}
+                 *     {"@type":"vertex","@class":"Person","@id":"p2","name":"Bob"}
+                 *     {"@type":"edge","@class":"Knows","@from":"p1","@to":"p2","since":2020}
+                 */
+                "application/x-ndjson": components["schemas"]["BatchLine"];
+                /**
+                 * @example @type,@class,@id,name
+                 *     vertex,Person,p1,Alice
+                 *     vertex,Person,p2,Bob
+                 *     ---
+                 *     @type,@class,@from,@to,since
+                 *     edge,Knows,p1,p2,2020
+                 */
                 "text/csv": string;
             };
         };
@@ -3041,7 +3157,7 @@ export interface operations {
                     "application/x-ndjson": components["schemas"]["NdJsonBatchEvent"];
                 };
             };
-            /** @description Client-input failure, with the counts attempted before it */
+            /** @description Client-input failure, with the counts attempted before it. Also the answer to a line that used a reserved key: an '@'-prefixed key outside the five control keys, or a 'properties' key carrying an object. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -3644,7 +3760,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Peer added */
+            /** @description Peer added and seeded */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -3686,6 +3802,16 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service unavailable */
+            503: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -5199,6 +5325,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     listApiTokens: {
@@ -5713,6 +5849,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     createUser: {
@@ -5779,6 +5925,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     deleteUser: {
@@ -5835,6 +5991,16 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -6128,7 +6294,7 @@ export interface operations {
             query: {
                 /** @description Time-series type name */
                 type: string;
-                /** @description Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match. */
+                /** @description Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match. An occurrence that carries no ':' separator, or whose name is no TAG column of the type, is refused with 400 rather than ignored. */
                 tag?: string[];
             };
             header?: never;
@@ -6150,7 +6316,7 @@ export interface operations {
                     "application/json": components["schemas"]["TimeSeriesLatestResponse"];
                 };
             };
-            /** @description Bad request */
+            /** @description Bad request. A 'tag' occurrence not in 'name:value' form, or whose name is no TAG column of the type, is refused here, naming it and listing the type's declared TAG columns. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6782,7 +6948,7 @@ export interface operations {
                     "application/json": components["schemas"]["TimeSeriesRawResponse"] | components["schemas"]["TimeSeriesAggregatedResponse"];
                 };
             };
-            /** @description Bad request */
+            /** @description Bad request. A name in 'tags' that is no TAG column of the type is refused here, naming it and listing the type's declared TAG columns: dropping it would widen the query to the whole range, which is indistinguishable from a filter that matched everything. */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];

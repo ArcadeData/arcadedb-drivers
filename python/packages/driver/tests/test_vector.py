@@ -1,4 +1,5 @@
 import json as _json
+from typing import Any
 
 import httpx
 import pytest
@@ -17,10 +18,85 @@ def async_server() -> AsyncArcadeDBServer:
     return AsyncArcadeDBServer(base_url=BASE_URL, auth=basic_auth("root", "playwithdata"))
 
 
+# The three vector response schemas gained a `required` list in the 26.10.1-SNAPSHOT refresh -
+# they had none before, so every field was optional and these fixtures carried only what the
+# test asserted on. The generated models' `from_dict` now raises `KeyError` for a missing
+# required field, which is what made seven tests here fail on the refresh.
+#
+# The contract is right and the fixtures were thin: `python/e2e/test_data_plane.py`'s vector cases
+# (`test_vector_search_returns_a_non_empty_nearest_first_result` and its siblings) pass against a
+# live 26.10.1-SNAPSHOT container, so the server really does send all of them. That check mattered
+# - a field declared required and not always sent would have been a contract defect breaking every
+# real call, the third of its kind in this package (see the module docstring in facade/vector.py).
+#
+# Each helper returns a complete body and takes overrides, so a test states only the fields it
+# cares about and the next required field added upstream is one edit here rather than seven.
+#
+# `_hit` is the shape the server ACTUALLY sends, captured from a live container:
+#
+#     {"rid": "#1:2", "properties": {"@rid": ..., "@type": ..., <the record's own fields>},
+#      "distance": 0.45227742}
+#
+# The fixtures here previously modelled a hit as `{"@rid": ..., "score": ...}` - an id spelled
+# with an `@` and no `properties` wrapper - which the server has never sent. Nothing caught it
+# because every field was optional until the refresh: `@rid` landed in `additional_properties`
+# and the absent `rid`/`properties` cost nothing. The new `required` lists turned a test that
+# asserted fiction into a test that fails, which is the good outcome.
+
+
+def _hit(rid: str = "#1:0", **overrides: Any) -> dict[str, Any]:
+    """One result row: `rid` (no `@`), a `properties` object carrying the record, and whichever
+    of `distance`/`score` the search produced. `rid` and `properties` are both required."""
+    return {"rid": rid, "properties": {"@rid": rid, "@type": "VectorItem", "name": "blue-car"}, **overrides}
+
+
+def _vector_body(**overrides: Any) -> dict[str, Any]:
+    """A complete `VectorSearchResponse`: candidateLimit, count, indexName, results, scoring,
+    sparse, truncated."""
+    return {
+        "results": [],
+        "count": 0,
+        "indexName": "v_idx",
+        "candidateLimit": 100,
+        "scoring": "cosine",
+        "sparse": False,
+        "truncated": False,
+        **overrides,
+    }
+
+
+def _hybrid_body(**overrides: Any) -> dict[str, Any]:
+    """A complete `HybridSearchResponse`: count, fused, legs, results, scoring, sparse,
+    truncated, vectorIndexName. `legs` is now a typed object (per-leg accounting) rather than the
+    bare `object` it was before the refresh; an empty one is legal and says no leg reported."""
+    return {
+        "results": [],
+        "count": 0,
+        "fused": True,
+        "legs": {"vector": {"count": 0}},
+        "scoring": "cosine",
+        "sparse": False,
+        "truncated": False,
+        "vectorIndexName": "v_idx",
+        **overrides,
+    }
+
+
+def _fulltext_body(**overrides: Any) -> dict[str, Any]:
+    """A complete `FullTextSearchResponse`: count, indexName, results, similarity."""
+    return {
+        "results": [],
+        "count": 0,
+        "indexName": "ft_idx",
+        "similarity": "bm25",
+        **overrides,
+    }
+
+
 @respx.mock
 def test_search_posts_the_request_body() -> None:
     route = respx.post(f"{BASE_URL}/api/v1/vector/mydb/search").mock(
-        return_value=httpx.Response(200, json={"results": [], "count": 0, "truncated": False})
+        return_value=httpx.Response(200, json=_vector_body())
     )
     with server() as srv:
         srv.db("mydb").vector.search(index_name="v_idx", query_vector=[0.1, 0.2], k=5)
@@ -37,13 +113,11 @@ def test_search_returns_the_whole_response_not_just_results() -> None:
     respx.post(f"{BASE_URL}/api/v1/vector/mydb/search").mock(
         return_value=httpx.Response(
             200,
-            json={
-                "results": [{"@rid": "#1:0", "score": 0.91}],
-                "count": 1,
-                "truncated": True,
-                "scoring": "cosine",
-                "indexName": "v_idx",
-            },
+            json=_vector_body(
+                results=[_hit(score=0.91)],
+                count=1,
+                truncated=True,
+            ),
         )
     )
     with server() as srv:
@@ -53,19 +127,19 @@ def test_search_returns_the_whole_response_not_just_results() -> None:
     assert result.truncated is True
     assert result.scoring == "cosine"
     # `results` stays the generated per-element model, not stripped down to a plain
-    # dict - matching "returns the parsed response model unaltered". `@rid` is not a
-    # field the contract names on the item (only `rid`, `score`, `distance`,
-    # `properties` are), so it round-trips through `additional_properties` rather
-    # than a typed attribute; `.to_dict()` is what re-flattens it for comparison.
+    # dict - matching "returns the parsed response model unaltered". `.to_dict()` is
+    # what flattens it back for comparison. Note the row's id is `rid`; the `@rid`
+    # inside `properties` is the record's own, which is a different thing - the
+    # record carries `@rid`/`@type`/`@cat` alongside its real fields.
     results = result.results
     assert not isinstance(results, Unset)
-    assert [item.to_dict() for item in results] == [{"@rid": "#1:0", "score": 0.91}]
+    assert [item.to_dict() for item in results] == [_hit(score=0.91)]
 
 
 @respx.mock
 def test_search_percent_encodes_the_database_name() -> None:
     route = respx.post(f"{BASE_URL}/api/v1/vector/od%2Fdb/search").mock(
-        return_value=httpx.Response(200, json={"results": []})
+        return_value=httpx.Response(200, json=_vector_body())
     )
     with server() as srv:
         srv.db("od/db").vector.search(index_name="v_idx", query_vector=[0.1])
@@ -88,7 +162,7 @@ def test_search_raises_arcadedb_error_with_a_request_id() -> None:
 @respx.mock
 def test_hybrid_posts_to_the_hybrid_endpoint() -> None:
     route = respx.post(f"{BASE_URL}/api/v1/vector/mydb/hybrid").mock(
-        return_value=httpx.Response(200, json={"results": [], "count": 0, "fused": True})
+        return_value=httpx.Response(200, json=_hybrid_body())
     )
     with server() as srv:
         result = srv.db("mydb").vector.hybrid(vector_index_name="v_idx", query_vector=[0.1], fulltext_query="cat")
@@ -100,7 +174,7 @@ def test_hybrid_posts_to_the_hybrid_endpoint() -> None:
 @respx.mock
 def test_fulltext_posts_to_the_fulltext_endpoint() -> None:
     route = respx.post(f"{BASE_URL}/api/v1/vector/mydb/fulltext").mock(
-        return_value=httpx.Response(200, json={"results": [{"@rid": "#2:1"}], "count": 1, "similarity": "bm25"})
+        return_value=httpx.Response(200, json=_fulltext_body(results=[_hit("#2:1")], count=1))
     )
     with server() as srv:
         result = srv.db("mydb").vector.fulltext(query_text="cat")
@@ -114,7 +188,7 @@ def test_fulltext_posts_to_the_fulltext_endpoint() -> None:
 @pytest.mark.asyncio
 async def test_async_search_returns_the_whole_response() -> None:
     respx.post(f"{BASE_URL}/api/v1/vector/mydb/search").mock(
-        return_value=httpx.Response(200, json={"results": [], "count": 0, "truncated": True})
+        return_value=httpx.Response(200, json=_vector_body(truncated=True))
     )
     async with async_server() as srv:
         result = await srv.db("mydb").vector.search(index_name="v_idx", query_vector=[0.1])
@@ -126,10 +200,10 @@ async def test_async_search_returns_the_whole_response() -> None:
 @pytest.mark.asyncio
 async def test_async_hybrid_and_fulltext_reach_their_endpoints() -> None:
     hybrid = respx.post(f"{BASE_URL}/api/v1/vector/mydb/hybrid").mock(
-        return_value=httpx.Response(200, json={"results": []})
+        return_value=httpx.Response(200, json=_hybrid_body())
     )
     fulltext = respx.post(f"{BASE_URL}/api/v1/vector/mydb/fulltext").mock(
-        return_value=httpx.Response(200, json={"results": []})
+        return_value=httpx.Response(200, json=_fulltext_body())
     )
     async with async_server() as srv:
         await srv.db("mydb").vector.hybrid(vector_index_name="v_idx", query_vector=[0.1])

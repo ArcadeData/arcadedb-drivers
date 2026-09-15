@@ -2,12 +2,10 @@ import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
 import { ArcadeDBError } from "../errors.js";
 import { unwrap } from "../internal/unwrap.js";
+import { SESSION_HEADER, buildCommandBody, buildQueryBody, sessionHeader } from "../internal/request-body.js";
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
 type RawClient = Client<paths>;
-
-/** Request header carrying the session id that scopes a call to one transaction. */
-const SESSION_HEADER = "arcadedb-session-id";
 
 /** Query/command language, as accepted by the `/query` and `/command` endpoints. */
 export type QueryLanguage = "sql" | "cypher" | "gremlin" | "graphql" | "mongo";
@@ -67,23 +65,26 @@ type NdJsonQueryEvent = components["schemas"]["NdJsonQueryEvent"];
  * these two responses - so `unwrap` now yields `QueryResponse | NdJsonQueryEvent`
  * where it used to yield `QueryResponse` alone.
  *
- * This client never sends `Accept: application/x-ndjson`, so the ndjson branch is
- * unreachable, and this function's job is to say so out loud. `{}` satisfies both
- * members (every field of both is optional), so the tie is broken by the encoding
- * that was actually requested rather than by shape: only a payload carrying a key
- * that exists ONLY on the streaming event is treated as one.
+ * `executeQuery`/`executeCommand` in this file never send `Accept: application/x-ndjson` -
+ * `queryStream`/`commandStream` in `facade/stream.ts` do, and decode the response themselves
+ * without ever reaching this function. So a real discriminator is still deciding something
+ * that, for THIS call site, can only go one way: `{}` satisfies both members (every field of
+ * both is optional), and the tie is broken by the encoding this particular call actually
+ * requested, not by shape - only a payload carrying a key that exists ONLY on the streaming
+ * event is treated as one.
  *
- * The throw is not defensive noise. Without it a stray ndjson line would flow
- * through `toEnvelope` and become `{ result: [], limit: -1, returned: 0,
- * truncated: false }` - an answer asserting completeness that nobody gave.
- *
- * When the streaming surface lands (drivers#39) this stops being an assertion and
- * becomes the real discriminator between the two encodings.
+ * The throw is not defensive noise. Without it a stray ndjson line would flow through
+ * `toEnvelope` and become `{ result: [], limit: -1, returned: 0, truncated: false }` - an
+ * answer asserting completeness that nobody gave. The reason for the throw has changed since
+ * this function was written, though: it is no longer "this client never asks for ndjson" (M7
+ * added `queryStream`/`commandStream`, which do) but "this call did not ask for it" - the
+ * buffered `query`/`command` methods want a `QueryResponse` specifically, and an ndjson event
+ * reaching them is still a protocol mismatch worth surfacing rather than silently coercing.
  */
 function asQueryResponse(data: QueryResponse | NdJsonQueryEvent): QueryResponse {
   if ("record" in data || "stats" in data || "error" in data) {
     throw new ArcadeDBError(200, {
-      error: "the server answered with a streamed ndjson event, an encoding this client never requests",
+      error: "the server answered with a streamed ndjson event, but this call requested the buffered application/json response",
     });
   }
   return data as QueryResponse;
@@ -96,39 +97,6 @@ function toEnvelope<T>(data: QueryResponse): QueryEnvelope<T> {
     returned: data.returned ?? 0,
     truncated: data.truncated ?? false,
   };
-}
-
-/**
- * Builds the JSON body for `/command`. Only `params` is cast: it is typed `Record<string, never>`
- * in the generated schema (an openapi-typescript artifact for "untyped object", not a real
- * restriction), so a caller-supplied `Record<string, unknown>` needs a narrow cast to satisfy it.
- * `command` and `language` are passed through with their real types and are NOT cast, so a type
- * change to, or removal of, either required field still fails `tsc` here instead of only failing
- * on the wire.
- *
- * This does NOT extend to a field being removed from the contract outright: this function has an
- * annotated return type, so the object literal handed to `body:` at each call site is not checked
- * as a fresh literal, and excess-property checking never fires for a stray field that no longer
- * exists on the target type.
- */
-function buildCommandBody(opts: CommandOptions): { command: string; language: string; params?: Record<string, never> } {
-  return {
-    command: opts.command,
-    language: opts.language,
-    params: opts.params as Record<string, never> | undefined,
-  };
-}
-
-/** Builds the JSON body for `/query`: `buildCommandBody`'s fields plus `limit`, sent only when supplied. */
-function buildQueryBody(
-  opts: QueryOptions,
-): { command: string; language: string; params?: Record<string, never>; limit?: number } {
-  return { ...buildCommandBody(opts), limit: opts.limit };
-}
-
-/** Attaches the session header when `sessionId` is set; omits it otherwise. */
-function sessionHeader(sessionId: string | undefined): { [SESSION_HEADER]?: string } | undefined {
-  return sessionId === undefined ? undefined : { [SESSION_HEADER]: sessionId };
 }
 
 /** Executes `POST /api/v1/query/{database}`. Returns the whole result envelope, unaltered. */

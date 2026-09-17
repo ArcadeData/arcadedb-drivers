@@ -137,3 +137,25 @@ describe("rawAdmin's insecure-channel guard", () => {
     expect(typeof client.raw.executeCommand).toBe("function");
   });
 });
+
+describe("the client object's shape", () => {
+  it("holds raw as a data property and rawAdmin as an accessor - the mechanism the guard rests on", () => {
+    // The structural twin of `python/packages/driver-grpc/tests/test_public_surface.py`'s
+    // `test_raw_is_an_instance_attribute_and_raw_admin_is_a_guarded_property`. Every other
+    // test in this file observes the guard through its BEHAVIOUR: it throws when read, it
+    // does not throw at `createClient`. That behaviour is a consequence of `rawAdmin` being
+    // an accessor rather than a value, and a refactor that resolved it eagerly back into a
+    // plain property would keep the happy-path assertions passing while silently moving
+    // every throw to construction time - breaking the data-plane-only caller the
+    // over-guarding check above exists to protect. This pins the mechanism itself.
+    const client = createClient({ baseUrl: "https://example.com:50051" });
+
+    const rawDescriptor = Object.getOwnPropertyDescriptor(client, "raw");
+    const rawAdminDescriptor = Object.getOwnPropertyDescriptor(client, "rawAdmin");
+
+    expect(rawDescriptor?.get).toBeUndefined();
+    expect(rawDescriptor?.value).toBeDefined();
+    expect(typeof rawAdminDescriptor?.get).toBe("function");
+    expect(rawAdminDescriptor?.value).toBeUndefined();
+  });
+});

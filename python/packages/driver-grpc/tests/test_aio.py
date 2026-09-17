@@ -6,7 +6,13 @@ from collections.abc import AsyncIterator, Iterator
 
 import grpc
 import pytest
-from arcadedb_driver_grpc import InsecureChannelError, InsertStreamRequest, TimeSeriesWriteStreamRequest, messages
+from arcadedb_driver_grpc import (
+    ArcadeDBGrpcClient,
+    InsecureChannelError,
+    InsertStreamRequest,
+    TimeSeriesWriteStreamRequest,
+    messages,
+)
 from arcadedb_driver_grpc._generated import arcadedb_server_pb2_grpc as _pb2_grpc
 from arcadedb_driver_grpc.aio import (
     AsyncArcadeDBGrpcClient,
@@ -994,8 +1000,6 @@ async def test_the_sync_and_async_guard_messages_are_byte_identical() -> None:
     #
     # It lives in the async suite rather than the sync one because building the
     # `grpc.aio.Channel` half needs a running event loop.
-    from arcadedb_driver_grpc import ArcadeDBGrpcClient
-
     sync_channel = grpc.insecure_channel("127.0.0.1:50051")
     async_channel = grpc.aio.insecure_channel("127.0.0.1:50051")
     try:

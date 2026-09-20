@@ -128,6 +128,22 @@ describes the contract itself and a future Python or Go client reads the same mo
   tests, or this file (a policy edit must re-run the gate it changes), plus weekly and on demand.
   The weekly run is not redundant with the path filters: a package can be relicensed on a version
   already pinned in a lockfile, which changes no manifest for the path filters to catch.
+- `dependabot-auto-merge.yml` — merges an approved Dependabot PR against `main`, ported from
+  ArcadeData/arcadedb. It is **not** byte-identical to its copy there, and differs in exactly two
+  places. arcadedb guards `native/pom.xml`, whose GraalVM pin has to move in lockstep with a
+  builder JDK Dependabot cannot see; the equivalent invariant here is this file's own first rule,
+  so the guard refuses instead to auto-merge anything touching `contracts/` or generated output —
+  a bump that edits either is not a bump, it is drift or a contract move, and a human adopts those
+  with `adopt-contract-version.sh`. And arcadedb merges on one approval with no CI condition at
+  all, inherited from the Mergify rule it replaced; this one refuses on a failing or still-running
+  check, because the drift gates are the only thing that catches a generator bump changing
+  generated output and `main` has no branch protection behind them. An **empty** check rollup still
+  merges, deliberately: `ci.yml` and `ci-python.yml` are `paths`-filtered, so a github-actions
+  bump — which only ever edits files under `.github/workflows/` — legitimately runs nothing, and
+  failing that case closed would deadlock every such PR, since nothing re-fires the workflow once
+  the approval is in. The merge is pinned to the commit the guard inspected
+  (`--match-head-commit`), so a Dependabot force-push mid-run fails the run rather than merging a
+  commit no guard saw.
 - `claude.yml` — answers an `@claude` mention on an issue, a PR review, or a review comment. Ported
   from ArcadeData/arcadedb and deliberately kept byte-identical to its copy there, so a fix to one
   can be copied to the other without a merge. Its tool allow-list is read-only `gh` plus

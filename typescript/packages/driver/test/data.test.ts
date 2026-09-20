@@ -24,6 +24,20 @@ describe("ArcadeDBDatabase.query", () => {
     expect(envelope).toEqual({ result: [{ name: "a" }], limit: 100, returned: 1, truncated: true });
   });
 
+  it("rejects a graph-serializer result object instead of passing it off as rows", async () => {
+    // 26.10.1-SNAPSHOT widened QueryResponse.result into `rows[] | { vertices, edges }`.
+    // `toEnvelope`'s `as T[]` cast satisfies the compiler on either arm, so without an explicit
+    // check the object would reach the caller wearing an array's type and blow up at their first
+    // `.map`. This client never sends `serializer`, so the shape is unreachable today - the test
+    // pins the failure mode for the day it is not.
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ result: { vertices: [], edges: [] }, limit: 100, returned: 0, truncated: false }, 200),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(server.db("mydb").query({ language: "sql", command: "SELECT FROM V" })).rejects.toThrow(ArcadeDBError);
+  });
+
   it("POSTs to /api/v1/query/{database} with language, command and params in the body", async () => {
     let capturedRequest: Request | undefined;
     const fetchMock = vi.fn(async (request: Request) => {

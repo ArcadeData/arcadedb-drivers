@@ -90,9 +90,32 @@ function asQueryResponse(data: QueryResponse | NdJsonQueryEvent): QueryResponse 
   return data as QueryResponse;
 }
 
+/**
+ * 26.10.1-SNAPSHOT widened `result` into a union: an array of rows under the default `record`
+ * serializer, and one `{ vertices, edges }` object - plus `records` under `studio` - under the two
+ * graph serializers. `QueryEnvelope.result` is `T[]` and cannot represent the second shape.
+ *
+ * The `as T[]` cast below would hide that on its own: it satisfies the compiler on either arm, so
+ * a graph object would reach a caller wearing an array's type and fail at their first `.map`. The
+ * Python sibling got a compile error from the same contract change - `openapi-python-client` emits
+ * a real union where `openapi-typescript` emits one this cast erases - so the check is written out
+ * here rather than inherited from the typechecker.
+ *
+ * `buildQueryBody` never sends `serializer`, so the server always picks `record` and the graph arm
+ * cannot arrive. That is a property of today's request builder, not of the contract, which is why
+ * this throws rather than asserts.
+ */
 function toEnvelope<T>(data: QueryResponse): QueryEnvelope<T> {
+  const rows = data.result ?? [];
+  if (!Array.isArray(rows)) {
+    throw new ArcadeDBError(200, {
+      error: "the server answered with a graph-serializer result object, but this call expected rows",
+      detail:
+        "QueryResponse.result is { vertices, edges }, which QueryEnvelope cannot represent. This client never asks for a graph serializer - it sends no 'serializer' field.",
+    });
+  }
   return {
-    result: (data.result ?? []) as T[],
+    result: rows as T[],
     limit: data.limit ?? -1,
     returned: data.returned ?? 0,
     truncated: data.truncated ?? false,

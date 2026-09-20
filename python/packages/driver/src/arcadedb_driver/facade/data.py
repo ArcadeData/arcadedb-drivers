@@ -56,10 +56,28 @@ class QueryEnvelope:
 def to_envelope(data: QueryResponse) -> QueryEnvelope:
     """Normalises a generated `QueryResponse` into the public envelope.
 
-    Also flattens each row out of `QueryResponseResultItem`'s additional-properties
+    Also flattens each row out of `QueryResponseResultType0Item`'s additional-properties
     wrapper into the plain dict a caller expects.
+
+    26.10.1-SNAPSHOT widened `result` into a union: an array of rows under the default
+    `record` serializer, and a single `{vertices, edges}` object - plus `records` under
+    `studio` - under the two graph serializers. `QueryEnvelope.result` is a list of rows
+    and cannot represent the second shape.
+
+    `build_query_request` never sends `serializer`, so the server always picks `record`
+    and the graph arm cannot arrive here. The check below is nonetheless a raise rather
+    than a cast: "unreachable" is a property of today's request builder, not of the
+    contract, and the day `serializer` becomes a parameter this has to fail with a
+    sentence explaining why rather than with `TypeError: 'QueryResponseResultType1'
+    object is not iterable` from inside a comprehension.
     """
     rows = _or(data.result, [])
+    if not isinstance(rows, list):
+        raise TypeError(
+            "QueryResponse.result is a graph object, not a list of rows: the response "
+            "came from a graph serializer. QueryEnvelope cannot represent it, and this "
+            "client never asks for one - it sends no 'serializer' field."
+        )
     return QueryEnvelope(
         result=[row.to_dict() for row in rows],
         limit=_or(data.limit, -1),

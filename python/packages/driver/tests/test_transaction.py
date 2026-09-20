@@ -16,7 +16,9 @@ def mock_begin(session_id: str = SESSION) -> None:
 @respx.mock
 def test_commits_on_a_clean_exit_and_threads_the_session_id() -> None:
     mock_begin()
-    command = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(return_value=httpx.Response(200, json={"result": []}))
+    command = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(
+        return_value=httpx.Response(200, json={"result": [], "limit": 20000, "returned": 0, "truncated": False})
+    )
     commit = respx.post(f"{BASE_URL}/api/v1/commit/mydb").mock(return_value=httpx.Response(204))
     rollback = respx.post(f"{BASE_URL}/api/v1/rollback/mydb").mock(return_value=httpx.Response(204))
 
@@ -31,7 +33,9 @@ def test_commits_on_a_clean_exit_and_threads_the_session_id() -> None:
 @respx.mock
 def test_calls_outside_the_handle_do_not_join_the_transaction() -> None:
     mock_begin()
-    command = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(return_value=httpx.Response(200, json={"result": []}))
+    command = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(
+        return_value=httpx.Response(200, json={"result": [], "limit": 20000, "returned": 0, "truncated": False})
+    )
     respx.post(f"{BASE_URL}/api/v1/commit/mydb").mock(return_value=httpx.Response(204))
 
     with ArcadeDBServer(base_url=BASE_URL) as srv:

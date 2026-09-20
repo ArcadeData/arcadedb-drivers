@@ -35,7 +35,9 @@ async def test_a_non_2xx_raises_arcadedb_error() -> None:
 
 @respx.mock
 async def test_list_databases_and_ready() -> None:
-    respx.get(f"{BASE_URL}/api/v1/databases").mock(return_value=httpx.Response(200, json={"result": ["one"]}))
+    respx.get(f"{BASE_URL}/api/v1/databases").mock(
+        return_value=httpx.Response(200, json={"result": ["one"], "user": "root", "version": "26.10.1-SNAPSHOT"})
+    )
     respx.get(f"{BASE_URL}/api/v1/ready").mock(return_value=httpx.Response(503))
     async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:
         assert await srv.list_databases() == ["one"]
@@ -47,7 +49,9 @@ async def test_commits_on_a_clean_exit() -> None:
     respx.post(f"{BASE_URL}/api/v1/begin/mydb").mock(
         return_value=httpx.Response(204, headers={"arcadedb-session-id": SESSION})
     )
-    command = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(return_value=httpx.Response(200, json={"result": []}))
+    command = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(
+        return_value=httpx.Response(200, json={"result": [], "limit": 20000, "returned": 0, "truncated": False})
+    )
     commit = respx.post(f"{BASE_URL}/api/v1/commit/mydb").mock(return_value=httpx.Response(204))
 
     async with AsyncArcadeDBServer(base_url=BASE_URL) as srv, srv.db("mydb").transaction() as tx:

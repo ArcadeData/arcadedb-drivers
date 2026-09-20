@@ -15,7 +15,8 @@ T = TypeVar("T", bound="BatchVertexLine")
 @_attrs_define
 class BatchVertexLine:
     """A vertex line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT
-    nested under a 'properties' key, and sending one carrying an object is refused with a 400.
+    nested under a 'properties' key, and sending one carrying an object is refused with a 400. '@from' and '@to' name an
+    edge's endpoints and a vertex has none: carrying either here is refused with a 400 naming the line, not dropped.
 
         Attributes:
             class_ (str): Vertex type to create the record in. The type must already exist: a bulk load creates records,

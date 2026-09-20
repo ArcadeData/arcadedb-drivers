@@ -7,7 +7,6 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 from ..models.prom_ql_data_response_data_result_type import PromQLDataResponseDataResultType
-from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.prom_ql_data_response_data_result_type_0_item import PromQLDataResponseDataResultType0Item
@@ -22,24 +21,20 @@ class PromQLDataResponseData:
     """Evaluation result
 
     Attributes:
-        result (list[Any] | list[PromQLDataResponseDataResultType0Item] | list[PromQLDataResponseDataResultType1Item] |
-            Unset): Evaluation result, shaped by 'resultType': an array of instant samples when 'vector', an array of range
-            series when 'matrix', and a single [timestamp, value] pair when 'scalar'.
-        result_type (PromQLDataResponseDataResultType | Unset): Shape of 'result': a vector of instant samples, a matrix
-            of range samples, or a scalar
+        result (list[Any] | list[PromQLDataResponseDataResultType0Item] | list[PromQLDataResponseDataResultType1Item]):
+            Evaluation result, shaped by 'resultType': an array of instant samples when 'vector', an array of range series
+            when 'matrix', and a single [timestamp, value] pair when 'scalar'.
+        result_type (PromQLDataResponseDataResultType): Shape of 'result': a vector of instant samples, a matrix of
+            range samples, or a scalar
     """
 
-    result: (
-        list[Any] | list[PromQLDataResponseDataResultType0Item] | list[PromQLDataResponseDataResultType1Item] | Unset
-    ) = UNSET
-    result_type: PromQLDataResponseDataResultType | Unset = UNSET
+    result: list[Any] | list[PromQLDataResponseDataResultType0Item] | list[PromQLDataResponseDataResultType1Item]
+    result_type: PromQLDataResponseDataResultType
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        result: list[Any] | list[dict[str, Any]] | Unset
-        if isinstance(self.result, Unset):
-            result = UNSET
-        elif isinstance(self.result, list):
+        result: list[Any] | list[dict[str, Any]]
+        if isinstance(self.result, list):
             result = []
             for result_type_0_item_data in self.result:
                 result_type_0_item = result_type_0_item_data.to_dict()
@@ -54,17 +49,16 @@ class PromQLDataResponseData:
         else:
             result = self.result
 
-        result_type: str | Unset = UNSET
-        if not isinstance(self.result_type, Unset):
-            result_type = self.result_type.value
+        result_type = self.result_type.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if result is not UNSET:
-            field_dict["result"] = result
-        if result_type is not UNSET:
-            field_dict["resultType"] = result_type
+        field_dict.update(
+            {
+                "result": result,
+                "resultType": result_type,
+            }
+        )
 
         return field_dict
 
@@ -77,14 +71,7 @@ class PromQLDataResponseData:
 
         def _parse_result(
             data: object,
-        ) -> (
-            list[Any]
-            | list[PromQLDataResponseDataResultType0Item]
-            | list[PromQLDataResponseDataResultType1Item]
-            | Unset
-        ):
-            if isinstance(data, Unset):
-                return data
+        ) -> list[Any] | list[PromQLDataResponseDataResultType0Item] | list[PromQLDataResponseDataResultType1Item]:
             try:
                 if not isinstance(data, list):
                     raise TypeError()
@@ -117,14 +104,9 @@ class PromQLDataResponseData:
 
             return result_type_2
 
-        result = _parse_result(d.pop("result", UNSET))
+        result = _parse_result(d.pop("result"))
 
-        _result_type = d.pop("resultType", UNSET)
-        result_type: PromQLDataResponseDataResultType | Unset
-        if isinstance(_result_type, Unset):
-            result_type = UNSET
-        else:
-            result_type = PromQLDataResponseDataResultType(_result_type)
+        result_type = PromQLDataResponseDataResultType(d.pop("resultType"))
 
         prom_ql_data_response_data = cls(
             result=result,

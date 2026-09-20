@@ -6,8 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="DatabaseExists")
 
 
@@ -16,12 +14,12 @@ class DatabaseExists:
     """Database existence check result
 
     Attributes:
-        result (bool | Unset): True when the database exists and is among the authenticated user's authorized databases.
-            False both when the database does not exist and when it exists but the caller is not authorized to see it, since
-            the response does not distinguish the two cases.
+        result (bool): True when the database exists and is among the authenticated user's authorized databases. False
+            both when the database does not exist and when it exists but the caller is not authorized to see it, since the
+            response does not distinguish the two cases.
     """
 
-    result: bool | Unset = UNSET
+    result: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -29,16 +27,18 @@ class DatabaseExists:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if result is not UNSET:
-            field_dict["result"] = result
+        field_dict.update(
+            {
+                "result": result,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        result = d.pop("result", UNSET)
+        result = d.pop("result")
 
         database_exists = cls(
             result=result,

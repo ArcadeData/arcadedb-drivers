@@ -18,7 +18,11 @@ def _get_kwargs(
     match: list[str],
     start: str | Unset = UNSET,
     end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(arcadedb_session_id, Unset):
+        headers["arcadedb-session-id"] = arcadedb_session_id
 
     params: dict[str, Any] = {}
 
@@ -40,6 +44,7 @@ def _get_kwargs(
         "params": params,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -100,6 +105,7 @@ def sync_detailed(
     match: list[str],
     start: str | Unset = UNSET,
     end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLErrorResponse | PromQLSeriesResponse]:
     """Find series matching selectors
 
@@ -113,6 +119,7 @@ def sync_detailed(
         match (list[str]):
         start (str | Unset):
         end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -127,6 +134,7 @@ def sync_detailed(
         match=match,
         start=start,
         end=end,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -143,6 +151,7 @@ def sync(
     match: list[str],
     start: str | Unset = UNSET,
     end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLErrorResponse | PromQLSeriesResponse | None:
     """Find series matching selectors
 
@@ -156,6 +165,7 @@ def sync(
         match (list[str]):
         start (str | Unset):
         end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -171,6 +181,7 @@ def sync(
         match=match,
         start=start,
         end=end,
+        arcadedb_session_id=arcadedb_session_id,
     ).parsed
 
 
@@ -181,6 +192,7 @@ async def asyncio_detailed(
     match: list[str],
     start: str | Unset = UNSET,
     end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLErrorResponse | PromQLSeriesResponse]:
     """Find series matching selectors
 
@@ -194,6 +206,7 @@ async def asyncio_detailed(
         match (list[str]):
         start (str | Unset):
         end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -208,6 +221,7 @@ async def asyncio_detailed(
         match=match,
         start=start,
         end=end,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -222,6 +236,7 @@ async def asyncio(
     match: list[str],
     start: str | Unset = UNSET,
     end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLErrorResponse | PromQLSeriesResponse | None:
     """Find series matching selectors
 
@@ -235,6 +250,7 @@ async def asyncio(
         match (list[str]):
         start (str | Unset):
         end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -251,5 +267,6 @@ async def asyncio(
             match=match,
             start=start,
             end=end,
+            arcadedb_session_id=arcadedb_session_id,
         )
     ).parsed

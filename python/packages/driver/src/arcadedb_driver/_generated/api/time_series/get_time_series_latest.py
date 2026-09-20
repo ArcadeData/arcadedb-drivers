@@ -16,7 +16,11 @@ def _get_kwargs(
     *,
     type_: str,
     tag: list[str] | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(arcadedb_session_id, Unset):
+        headers["arcadedb-session-id"] = arcadedb_session_id
 
     params: dict[str, Any] = {}
 
@@ -38,6 +42,7 @@ def _get_kwargs(
         "params": params,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -97,6 +102,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     type_: str,
     tag: list[str] | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | TimeSeriesLatestResponse]:
     """Read the most recent sample of a series
 
@@ -108,6 +114,7 @@ def sync_detailed(
         database (str):
         type_ (str):
         tag (list[str] | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -121,6 +128,7 @@ def sync_detailed(
         database=database,
         type_=type_,
         tag=tag,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -136,6 +144,7 @@ def sync(
     client: AuthenticatedClient | Client,
     type_: str,
     tag: list[str] | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | TimeSeriesLatestResponse | None:
     """Read the most recent sample of a series
 
@@ -147,6 +156,7 @@ def sync(
         database (str):
         type_ (str):
         tag (list[str] | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -161,6 +171,7 @@ def sync(
         client=client,
         type_=type_,
         tag=tag,
+        arcadedb_session_id=arcadedb_session_id,
     ).parsed
 
 
@@ -170,6 +181,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     type_: str,
     tag: list[str] | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | TimeSeriesLatestResponse]:
     """Read the most recent sample of a series
 
@@ -181,6 +193,7 @@ async def asyncio_detailed(
         database (str):
         type_ (str):
         tag (list[str] | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -194,6 +207,7 @@ async def asyncio_detailed(
         database=database,
         type_=type_,
         tag=tag,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -207,6 +221,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     type_: str,
     tag: list[str] | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | TimeSeriesLatestResponse | None:
     """Read the most recent sample of a series
 
@@ -218,6 +233,7 @@ async def asyncio(
         database (str):
         type_ (str):
         tag (list[str] | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -233,5 +249,6 @@ async def asyncio(
             client=client,
             type_=type_,
             tag=tag,
+            arcadedb_session_id=arcadedb_session_id,
         )
     ).parsed

@@ -16,57 +16,59 @@ class ClusterActionResponse:
     """Outcome of a cluster management action
 
     Attributes:
+        result (str): Human-readable outcome
         database (str | Unset): Database the action applied to. Present on resync.
         leader_id (str | Unset): Leader after the action. Present on leadership transfer.
         local_server (str | Unset): Server that performed the action. Present on resync.
-        result (str | Unset): Human-readable outcome
     """
 
+    result: str
     database: str | Unset = UNSET
     leader_id: str | Unset = UNSET
     local_server: str | Unset = UNSET
-    result: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        result = self.result
+
         database = self.database
 
         leader_id = self.leader_id
 
         local_server = self.local_server
 
-        result = self.result
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "result": result,
+            }
+        )
         if database is not UNSET:
             field_dict["database"] = database
         if leader_id is not UNSET:
             field_dict["leaderId"] = leader_id
         if local_server is not UNSET:
             field_dict["localServer"] = local_server
-        if result is not UNSET:
-            field_dict["result"] = result
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        result = d.pop("result")
+
         database = d.pop("database", UNSET)
 
         leader_id = d.pop("leaderId", UNSET)
 
         local_server = d.pop("localServer", UNSET)
 
-        result = d.pop("result", UNSET)
-
         cluster_action_response = cls(
+            result=result,
             database=database,
             leader_id=leader_id,
             local_server=local_server,
-            result=result,
         )
 
         cluster_action_response.additional_properties = d

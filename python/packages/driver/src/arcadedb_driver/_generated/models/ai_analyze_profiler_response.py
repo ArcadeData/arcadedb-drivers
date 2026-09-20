@@ -9,7 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.ai_analyze_profiler_response_commands_item import AiAnalyzeProfilerResponseCommandsItem
+    from ..models.ai_command import AiCommand
 
 
 T = TypeVar("T", bound="AiAnalyzeProfilerResponse")
@@ -20,16 +20,17 @@ class AiAnalyzeProfilerResponse:
     """Profiler analysis
 
     Attributes:
-        commands (list[AiAnalyzeProfilerResponseCommandsItem] | Unset): Commands the assistant proposes. Absent when it
-            proposes none.
-        response (str | Unset): Assistant analysis
+        response (str): Assistant analysis
+        commands (list[AiCommand] | Unset): Commands the assistant proposes. Absent when it proposes none.
     """
 
-    commands: list[AiAnalyzeProfilerResponseCommandsItem] | Unset = UNSET
-    response: str | Unset = UNSET
+    response: str
+    commands: list[AiCommand] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        response = self.response
+
         commands: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.commands, Unset):
             commands = []
@@ -37,37 +38,37 @@ class AiAnalyzeProfilerResponse:
                 commands_item = commands_item_data.to_dict()
                 commands.append(commands_item)
 
-        response = self.response
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "response": response,
+            }
+        )
         if commands is not UNSET:
             field_dict["commands"] = commands
-        if response is not UNSET:
-            field_dict["response"] = response
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.ai_analyze_profiler_response_commands_item import AiAnalyzeProfilerResponseCommandsItem
+        from ..models.ai_command import AiCommand
 
         d = dict(src_dict)
+        response = d.pop("response")
+
         _commands = d.pop("commands", UNSET)
-        commands: list[AiAnalyzeProfilerResponseCommandsItem] | Unset = UNSET
+        commands: list[AiCommand] | Unset = UNSET
         if _commands is not UNSET:
             commands = []
             for commands_item_data in _commands:
-                commands_item = AiAnalyzeProfilerResponseCommandsItem.from_dict(commands_item_data)
+                commands_item = AiCommand.from_dict(commands_item_data)
 
                 commands.append(commands_item)
 
-        response = d.pop("response", UNSET)
-
         ai_analyze_profiler_response = cls(
-            commands=commands,
             response=response,
+            commands=commands,
         )
 
         ai_analyze_profiler_response.additional_properties = d

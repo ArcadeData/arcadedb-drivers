@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 if TYPE_CHECKING:
     from ..models.bootstrap_state_response_databases_item import BootstrapStateResponseDatabasesItem
 
@@ -20,31 +18,30 @@ class BootstrapStateResponse:
     """Per-database bootstrap state of one peer
 
     Attributes:
-        databases (list[BootstrapStateResponseDatabasesItem] | Unset): Databases on this peer
-        peer_id (str | Unset): Peer that reported the state
+        databases (list[BootstrapStateResponseDatabasesItem]): Databases on this peer. Empty when it holds none
+        peer_id (str): Peer that reported the state
     """
 
-    databases: list[BootstrapStateResponseDatabasesItem] | Unset = UNSET
-    peer_id: str | Unset = UNSET
+    databases: list[BootstrapStateResponseDatabasesItem]
+    peer_id: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        databases: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.databases, Unset):
-            databases = []
-            for databases_item_data in self.databases:
-                databases_item = databases_item_data.to_dict()
-                databases.append(databases_item)
+        databases = []
+        for databases_item_data in self.databases:
+            databases_item = databases_item_data.to_dict()
+            databases.append(databases_item)
 
         peer_id = self.peer_id
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if databases is not UNSET:
-            field_dict["databases"] = databases
-        if peer_id is not UNSET:
-            field_dict["peerId"] = peer_id
+        field_dict.update(
+            {
+                "databases": databases,
+                "peerId": peer_id,
+            }
+        )
 
         return field_dict
 
@@ -53,16 +50,14 @@ class BootstrapStateResponse:
         from ..models.bootstrap_state_response_databases_item import BootstrapStateResponseDatabasesItem
 
         d = dict(src_dict)
-        _databases = d.pop("databases", UNSET)
-        databases: list[BootstrapStateResponseDatabasesItem] | Unset = UNSET
-        if _databases is not UNSET:
-            databases = []
-            for databases_item_data in _databases:
-                databases_item = BootstrapStateResponseDatabasesItem.from_dict(databases_item_data)
+        databases = []
+        _databases = d.pop("databases")
+        for databases_item_data in _databases:
+            databases_item = BootstrapStateResponseDatabasesItem.from_dict(databases_item_data)
 
-                databases.append(databases_item)
+            databases.append(databases_item)
 
-        peer_id = d.pop("peerId", UNSET)
+        peer_id = d.pop("peerId")
 
         bootstrap_state_response = cls(
             databases=databases,

@@ -5,15 +5,15 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_or_update_group_body import CreateOrUpdateGroupBody
-from ...models.create_or_update_group_response_200 import CreateOrUpdateGroupResponse200
 from ...models.error_response import ErrorResponse
+from ...models.save_group_request import SaveGroupRequest
+from ...models.security_admin_result import SecurityAdminResult
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: CreateOrUpdateGroupBody,
+    body: SaveGroupRequest,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -32,9 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CreateOrUpdateGroupResponse200 | ErrorResponse | None:
+) -> ErrorResponse | SecurityAdminResult | None:
     if response.status_code == 200:
-        response_200 = CreateOrUpdateGroupResponse200.from_dict(response.json())
+        response_200 = SecurityAdminResult.from_dict(response.json())
 
         return response_200
 
@@ -66,7 +66,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CreateOrUpdateGroupResponse200 | ErrorResponse]:
+) -> Response[ErrorResponse | SecurityAdminResult]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -78,21 +78,23 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateOrUpdateGroupBody,
-) -> Response[CreateOrUpdateGroupResponse200 | ErrorResponse]:
+    body: SaveGroupRequest,
+) -> Response[ErrorResponse | SecurityAdminResult]:
     """Create or update group
 
      Creates or updates a security group (root only)
 
     Args:
-        body (CreateOrUpdateGroupBody):
+        body (SaveGroupRequest): A group to create or replace. Replaces any group of the same name
+            on the same database outright - the members are not merged into the existing definition -
+            and refreshes the cached permissions of every open database it applies to.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateOrUpdateGroupResponse200 | ErrorResponse]
+        Response[ErrorResponse | SecurityAdminResult]
     """
 
     kwargs = _get_kwargs(
@@ -109,21 +111,23 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateOrUpdateGroupBody,
-) -> CreateOrUpdateGroupResponse200 | ErrorResponse | None:
+    body: SaveGroupRequest,
+) -> ErrorResponse | SecurityAdminResult | None:
     """Create or update group
 
      Creates or updates a security group (root only)
 
     Args:
-        body (CreateOrUpdateGroupBody):
+        body (SaveGroupRequest): A group to create or replace. Replaces any group of the same name
+            on the same database outright - the members are not merged into the existing definition -
+            and refreshes the cached permissions of every open database it applies to.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateOrUpdateGroupResponse200 | ErrorResponse
+        ErrorResponse | SecurityAdminResult
     """
 
     return sync_detailed(
@@ -135,21 +139,23 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateOrUpdateGroupBody,
-) -> Response[CreateOrUpdateGroupResponse200 | ErrorResponse]:
+    body: SaveGroupRequest,
+) -> Response[ErrorResponse | SecurityAdminResult]:
     """Create or update group
 
      Creates or updates a security group (root only)
 
     Args:
-        body (CreateOrUpdateGroupBody):
+        body (SaveGroupRequest): A group to create or replace. Replaces any group of the same name
+            on the same database outright - the members are not merged into the existing definition -
+            and refreshes the cached permissions of every open database it applies to.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateOrUpdateGroupResponse200 | ErrorResponse]
+        Response[ErrorResponse | SecurityAdminResult]
     """
 
     kwargs = _get_kwargs(
@@ -164,21 +170,23 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateOrUpdateGroupBody,
-) -> CreateOrUpdateGroupResponse200 | ErrorResponse | None:
+    body: SaveGroupRequest,
+) -> ErrorResponse | SecurityAdminResult | None:
     """Create or update group
 
      Creates or updates a security group (root only)
 
     Args:
-        body (CreateOrUpdateGroupBody):
+        body (SaveGroupRequest): A group to create or replace. Replaces any group of the same name
+            on the same database outright - the members are not merged into the existing definition -
+            and refreshes the cached permissions of every open database it applies to.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateOrUpdateGroupResponse200 | ErrorResponse
+        ErrorResponse | SecurityAdminResult
     """
 
     return (

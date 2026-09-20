@@ -6,8 +6,6 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="PeerCapabilitiesResponse")
 
 
@@ -16,21 +14,20 @@ class PeerCapabilitiesResponse:
     """The wire-format sections one peer can decode
 
     Attributes:
-        capabilities (list[str] | Unset): Capability tokens this peer can decode, sorted
-        peer_id (str | Unset): Peer that answered. A caller must check this against the peer it meant to ask: on a
-            cluster that declares no explicit 'http' ports several peers can resolve to one address.
-        version (str | Unset): Server version of the answering peer, for operators; nothing decides on it
+        capabilities (list[str]): Capability tokens this peer can decode, sorted. Empty when it can decode none, never
+            absent
+        peer_id (str): Peer that answered. A caller must check this against the peer it meant to ask: on a cluster that
+            declares no explicit 'http' ports several peers can resolve to one address.
+        version (str): Server version of the answering peer, for operators; nothing decides on it
     """
 
-    capabilities: list[str] | Unset = UNSET
-    peer_id: str | Unset = UNSET
-    version: str | Unset = UNSET
+    capabilities: list[str]
+    peer_id: str
+    version: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        capabilities: list[str] | Unset = UNSET
-        if not isinstance(self.capabilities, Unset):
-            capabilities = self.capabilities
+        capabilities = self.capabilities
 
         peer_id = self.peer_id
 
@@ -38,24 +35,24 @@ class PeerCapabilitiesResponse:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if capabilities is not UNSET:
-            field_dict["capabilities"] = capabilities
-        if peer_id is not UNSET:
-            field_dict["peerId"] = peer_id
-        if version is not UNSET:
-            field_dict["version"] = version
+        field_dict.update(
+            {
+                "capabilities": capabilities,
+                "peerId": peer_id,
+                "version": version,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        capabilities = cast(list[str], d.pop("capabilities", UNSET))
+        capabilities = cast(list[str], d.pop("capabilities"))
 
-        peer_id = d.pop("peerId", UNSET)
+        peer_id = d.pop("peerId")
 
-        version = d.pop("version", UNSET)
+        version = d.pop("version")
 
         peer_capabilities_response = cls(
             capabilities=capabilities,

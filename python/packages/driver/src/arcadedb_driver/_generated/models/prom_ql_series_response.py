@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
+from ..models.prom_ql_series_response_status import PromQLSeriesResponseStatus
 
 if TYPE_CHECKING:
     from ..models.prom_ql_series_response_data_item import PromQLSeriesResponseDataItem
@@ -20,31 +20,30 @@ class PromQLSeriesResponse:
     """Prometheus series response
 
     Attributes:
-        data (list[PromQLSeriesResponseDataItem] | Unset): Matching series
-        status (str | Unset): Always 'success' on a 200
+        data (list[PromQLSeriesResponseDataItem]): Matching series. Empty when nothing matched
+        status (PromQLSeriesResponseStatus): Always 'success' on a 200. The error envelope carries 'error' here instead
     """
 
-    data: list[PromQLSeriesResponseDataItem] | Unset = UNSET
-    status: str | Unset = UNSET
+    data: list[PromQLSeriesResponseDataItem]
+    status: PromQLSeriesResponseStatus
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        data: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.data, Unset):
-            data = []
-            for data_item_data in self.data:
-                data_item = data_item_data.to_dict()
-                data.append(data_item)
+        data = []
+        for data_item_data in self.data:
+            data_item = data_item_data.to_dict()
+            data.append(data_item)
 
-        status = self.status
+        status = self.status.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if data is not UNSET:
-            field_dict["data"] = data
-        if status is not UNSET:
-            field_dict["status"] = status
+        field_dict.update(
+            {
+                "data": data,
+                "status": status,
+            }
+        )
 
         return field_dict
 
@@ -53,16 +52,14 @@ class PromQLSeriesResponse:
         from ..models.prom_ql_series_response_data_item import PromQLSeriesResponseDataItem
 
         d = dict(src_dict)
-        _data = d.pop("data", UNSET)
-        data: list[PromQLSeriesResponseDataItem] | Unset = UNSET
-        if _data is not UNSET:
-            data = []
-            for data_item_data in _data:
-                data_item = PromQLSeriesResponseDataItem.from_dict(data_item_data)
+        data = []
+        _data = d.pop("data")
+        for data_item_data in _data:
+            data_item = PromQLSeriesResponseDataItem.from_dict(data_item_data)
 
-                data.append(data_item)
+            data.append(data_item)
 
-        status = d.pop("status", UNSET)
+        status = PromQLSeriesResponseStatus(d.pop("status"))
 
         prom_ql_series_response = cls(
             data=data,

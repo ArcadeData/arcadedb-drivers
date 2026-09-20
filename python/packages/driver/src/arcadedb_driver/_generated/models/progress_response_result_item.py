@@ -6,8 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="ProgressResponseResultItem")
 
 
@@ -16,30 +14,30 @@ class ProgressResponseResultItem:
     """One in-progress operation
 
     Attributes:
-        database (str | Unset): Database the operation runs on
-        done (int | Unset): Units completed in the current step
-        elapsed_ms (int | Unset): Elapsed time in milliseconds
-        id (int | Unset): Operation identifier
-        operation (str | Unset): Operation name, for example CHECK DATABASE
-        percentage (int | Unset): Completion percentage of the current step, -1 when the total is unknown
-        started_on (int | Unset): Start time as epoch milliseconds
-        step_index (int | Unset): Current step, 0-based
-        step_name (str | Unset): Current step name
-        total (int | Unset): Units in the current step, -1 when unknown
-        total_steps (int | Unset): Total number of steps
+        database (str): Database the operation runs on
+        done (int): Units completed in the current step
+        elapsed_ms (int): Elapsed time in milliseconds
+        id (int): Operation identifier
+        operation (str): Operation name, for example CHECK DATABASE
+        percentage (int): Completion percentage of the current step, -1 when the total is unknown
+        started_on (int): Start time as epoch milliseconds
+        step_index (int): Current step, 0-based
+        step_name (str): Current step name
+        total (int): Units in the current step, -1 when unknown
+        total_steps (int): Total number of steps
     """
 
-    database: str | Unset = UNSET
-    done: int | Unset = UNSET
-    elapsed_ms: int | Unset = UNSET
-    id: int | Unset = UNSET
-    operation: str | Unset = UNSET
-    percentage: int | Unset = UNSET
-    started_on: int | Unset = UNSET
-    step_index: int | Unset = UNSET
-    step_name: str | Unset = UNSET
-    total: int | Unset = UNSET
-    total_steps: int | Unset = UNSET
+    database: str
+    done: int
+    elapsed_ms: int
+    id: int
+    operation: str
+    percentage: int
+    started_on: int
+    step_index: int
+    step_name: str
+    total: int
+    total_steps: int
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,56 +65,48 @@ class ProgressResponseResultItem:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if database is not UNSET:
-            field_dict["database"] = database
-        if done is not UNSET:
-            field_dict["done"] = done
-        if elapsed_ms is not UNSET:
-            field_dict["elapsedMs"] = elapsed_ms
-        if id is not UNSET:
-            field_dict["id"] = id
-        if operation is not UNSET:
-            field_dict["operation"] = operation
-        if percentage is not UNSET:
-            field_dict["percentage"] = percentage
-        if started_on is not UNSET:
-            field_dict["startedOn"] = started_on
-        if step_index is not UNSET:
-            field_dict["stepIndex"] = step_index
-        if step_name is not UNSET:
-            field_dict["stepName"] = step_name
-        if total is not UNSET:
-            field_dict["total"] = total
-        if total_steps is not UNSET:
-            field_dict["totalSteps"] = total_steps
+        field_dict.update(
+            {
+                "database": database,
+                "done": done,
+                "elapsedMs": elapsed_ms,
+                "id": id,
+                "operation": operation,
+                "percentage": percentage,
+                "startedOn": started_on,
+                "stepIndex": step_index,
+                "stepName": step_name,
+                "total": total,
+                "totalSteps": total_steps,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        database = d.pop("database", UNSET)
+        database = d.pop("database")
 
-        done = d.pop("done", UNSET)
+        done = d.pop("done")
 
-        elapsed_ms = d.pop("elapsedMs", UNSET)
+        elapsed_ms = d.pop("elapsedMs")
 
-        id = d.pop("id", UNSET)
+        id = d.pop("id")
 
-        operation = d.pop("operation", UNSET)
+        operation = d.pop("operation")
 
-        percentage = d.pop("percentage", UNSET)
+        percentage = d.pop("percentage")
 
-        started_on = d.pop("startedOn", UNSET)
+        started_on = d.pop("startedOn")
 
-        step_index = d.pop("stepIndex", UNSET)
+        step_index = d.pop("stepIndex")
 
-        step_name = d.pop("stepName", UNSET)
+        step_name = d.pop("stepName")
 
-        total = d.pop("total", UNSET)
+        total = d.pop("total")
 
-        total_steps = d.pop("totalSteps", UNSET)
+        total_steps = d.pop("totalSteps")
 
         progress_response_result_item = cls(
             database=database,

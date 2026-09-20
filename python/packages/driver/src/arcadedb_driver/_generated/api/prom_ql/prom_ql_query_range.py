@@ -20,7 +20,11 @@ def _get_kwargs(
     end: str,
     step: str,
     lookback_delta: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(arcadedb_session_id, Unset):
+        headers["arcadedb-session-id"] = arcadedb_session_id
 
     params: dict[str, Any] = {}
 
@@ -44,6 +48,7 @@ def _get_kwargs(
         "params": params,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -106,6 +111,7 @@ def sync_detailed(
     end: str,
     step: str,
     lookback_delta: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLDataResponse | PromQLErrorResponse]:
     """Evaluate a PromQL expression over a time range
 
@@ -119,6 +125,7 @@ def sync_detailed(
         end (str):
         step (str):
         lookback_delta (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -135,6 +142,7 @@ def sync_detailed(
         end=end,
         step=step,
         lookback_delta=lookback_delta,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -153,6 +161,7 @@ def sync(
     end: str,
     step: str,
     lookback_delta: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLDataResponse | PromQLErrorResponse | None:
     """Evaluate a PromQL expression over a time range
 
@@ -166,6 +175,7 @@ def sync(
         end (str):
         step (str):
         lookback_delta (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -183,6 +193,7 @@ def sync(
         end=end,
         step=step,
         lookback_delta=lookback_delta,
+        arcadedb_session_id=arcadedb_session_id,
     ).parsed
 
 
@@ -195,6 +206,7 @@ async def asyncio_detailed(
     end: str,
     step: str,
     lookback_delta: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLDataResponse | PromQLErrorResponse]:
     """Evaluate a PromQL expression over a time range
 
@@ -208,6 +220,7 @@ async def asyncio_detailed(
         end (str):
         step (str):
         lookback_delta (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -224,6 +237,7 @@ async def asyncio_detailed(
         end=end,
         step=step,
         lookback_delta=lookback_delta,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -240,6 +254,7 @@ async def asyncio(
     end: str,
     step: str,
     lookback_delta: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLDataResponse | PromQLErrorResponse | None:
     """Evaluate a PromQL expression over a time range
 
@@ -253,6 +268,7 @@ async def asyncio(
         end (str):
         step (str):
         lookback_delta (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -271,5 +287,6 @@ async def asyncio(
             end=end,
             step=step,
             lookback_delta=lookback_delta,
+            arcadedb_session_id=arcadedb_session_id,
         )
     ).parsed

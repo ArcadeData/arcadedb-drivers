@@ -79,6 +79,8 @@ export interface paths {
          * Send a message to the AI assistant, streaming the reply
          * @description Sends one message in the context of a database, optionally continuing an existing chat by 'chatId', using a client-orchestrated streaming protocol so the AI gateway never has to open an inbound connection into the caller's network: the gateway emits 'tool_call' events on the response stream, the server executes each tool locally, and posts the result back to the gateway to resume the loop. The 200 response is always 'text/event-stream', never a JSON body; the closing 'done' event carries the same 'response', 'commands', and 'chatId' fields as POST /api/v1/ai/chat's JSON response. For a single non-streaming JSON reply instead, use POST /api/v1/ai/chat.
          *
+         *     The gateway's own 'session' and 'tool_call' events are NOT forwarded: this server consumes both - the first to learn where to post tool results, the second to run the tool - and emits a 'tool_start'/'tool_end' pair around each run in their place. See AiChatStreamEvent.
+         *
          *     The assistant is a remote dependency: 503 means the gateway was unreachable and 504 that it did not answer in time. Both are retryable. A rejected subscription token answers 502, remapped from the gateway's own 401 or 403 so it cannot be mistaken for this request's own authentication failing.
          */
         post: operations["streamChatWithAi"];
@@ -176,6 +178,10 @@ export interface paths {
          *     Send 'Accept: application/x-ndjson' to be acknowledged while you are still uploading. The answer is then a newline-delimited stream: a 'progress' line at every vertex commit and every 'commitEvery' edges, then exactly one 'summary' or 'error' line carrying the same object this endpoint would otherwise have returned. That is the HTTP counterpart of the per-chunk acknowledgement of the gRPC InsertBidirectional RPC. A progress line counts records attempted, the same upper bound the partial-commit counters carry. Anything else in Accept, including an absent header, returns the buffered object unchanged.
          *
          *     A load that fails before it has acknowledged anything still answers with its real status code and the buffered error body, because the status line has not been sent yet: the 400 and 408 below apply to a streaming request too. Only a failure raised after the first progress line is reported in band under a 200.
+         *
+         *     Read the answer while you upload. The streamed answer grows with the size of the load and is written over the same connection the body arrives on, so a client that sends everything before reading anything can fill the socket buffers and stall both directions. A response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' therefore closes the connection and fails the load rather than holding the server thread.
+         *
+         *     This endpoint is NOT idempotent, in either encoding: an 'X-Request-Id' is echoed and logged but gives no replay protection here, because the body is never buffered and so cannot be part of the replay key. Two loads sharing one correlation id are two loads.
          */
         post: operations["executeBatch"];
         delete?: never;
@@ -345,7 +351,11 @@ export interface paths {
          * Add a peer to the cluster
          * @description Adds a peer to the Raft configuration, then seeds it with the three security documents (server-users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not carry.
          *
-         *     A 503 means the membership change succeeded and at least one of those seeds did not commit within arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         *     A 503 means the membership change succeeded and at least one of those seeds did not commit within arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to reissue the seed - the membership change is idempotent.
+         *
+         *     The optional 'priority' carries the peer's Raft leader-election priority, which before it could only be declared in arcadedb.ha.serverList at startup: a peer added at runtime always got the default and a witness admitted this way could be elected leader.
+         *
+         *     Note the direction: this grows the cluster the SERVER SERVING THIS REQUEST belongs to, with the peer named in the body. It never makes that server join another cluster, so it has to be issued against a member of the target cluster. An address that resolves to the serving node's own peer id is answered 400 rather than accepted: it used to report the peer as added while doing nothing, because a peer already in the committed configuration is an idempotent no-op.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["addClusterPeer"];
         delete?: never;
@@ -388,6 +398,32 @@ export interface paths {
          * @description Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses to run on the leader itself. Answers 503 when no leader is currently reachable.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["resyncClusterDatabase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cluster/security-seed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Have the leader replicate the cluster security documents
+         * @description Asks the Raft LEADER to submit server-users.jsonl, server-groups.json and server-api-tokens.json to the cluster, and answers with the ones that did not commit.
+         *
+         *     Two callers need it, and both are cluster-internal. A node that has just admitted a peer reads the outcome here instead of running a seed of its own, so an admission is seeded once rather than from two nodes under two different monitors (issue #7834). A node that came back while it was still a Raft member - a rolling restart, a drain and reschedule, a pod whose ordinal is in the static server list - sends the fingerprints of the documents it holds, and is re-seeded only if they differ from the leader's (issue #7833); the three documents live outside the database directory, so no snapshot install carries them.
+         *
+         *     Answered 409 by a node that is not the leader, naming the one it believes leads. Answered 503 with the failedSeeds array when the seed ran but a document did not commit, which is the same contract POST /api/v1/cluster/peer answers with.
+         *
+         *     Restricted to the root user; peers satisfy this by forwarding as root with the cluster token.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         */
+        post: operations["seedClusterSecurityDocuments"];
         delete?: never;
         options?: never;
         head?: never;
@@ -445,7 +481,9 @@ export interface paths {
         put?: never;
         /**
          * Execute command
-         * @description Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.
+         * @description Executes a database command. INSERT INTO a TIMESERIES type is NOT atomic with the transaction that contains it: the samples are committed as they are appended and a rollback does not take them back. Every other INSERT target behaves normally. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.
+         *
+         *     EXPLAIN is refused on the stream for a different reason and with its own 400 ("EXPLAIN produces a plan, not a row stream"): it is read-only and passes the gate above, but its answer is a plan rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and 'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation reached neither rule and answered the plan as a result row instead.
          */
         post: operations["executeCommand"];
         delete?: never;
@@ -700,6 +738,8 @@ export interface paths {
         /**
          * Execute query via POST
          * @description Executes a query using POST method with query in request body. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.
+         *
+         *     EXPLAIN is refused on the stream for a different reason and with its own 400 ("EXPLAIN produces a plan, not a row stream"): it is read-only and passes the gate above, but its answer is a plan rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and 'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation reached neither rule and answered the plan as a result row instead.
          */
         post: operations["executeQueryPost"];
         delete?: never;
@@ -718,6 +758,8 @@ export interface paths {
         /**
          * Execute query via GET
          * @description Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.
+         *
+         *     EXPLAIN is refused on the stream for a different reason and with its own 400 ("EXPLAIN produces a plan, not a row stream"): it is read-only and passes the gate above, but its answer is a plan rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and 'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation reached neither rule and answered the plan as a result row instead.
          */
         get: operations["executeQueryGet"];
         put?: never;
@@ -777,13 +819,13 @@ export interface paths {
         };
         /**
          * Get server information
-         * @description Retrieves server status, version, and configuration information
+         * @description Retrieves this server's identity and, depending on 'mode', its metrics and settings or its cluster state. The identity members - user, version, serverName, languages - are on every answer.
          */
         get: operations["getServerInfo"];
         put?: never;
         /**
          * Execute server command
-         * @description Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when this server is not running an HA implementation that supports runtime membership
+         * @description Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this server is not running an HA implementation that supports runtime membership, and 503 when the server joined but one of the three security documents could not be seeded to it - the same answer POST /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join itself stands in that case; re-running the command is idempotent on the membership change and reissues the seed. Note the direction: it never makes THIS server join another cluster, and an address that resolves to this server is answered 400 rather than accepted as a no-op. To make a running server join a cluster it is not configured for, issue this same command on a server that is already a member of that cluster, or declare arcadedb.ha.serverList and restart
          */
         post: operations["executeServerCommand"];
         delete?: never;
@@ -989,7 +1031,7 @@ export interface paths {
         };
         /**
          * List the values of one label
-         * @description Lists every value of one label name, sorted. Compatible with the Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns every time-series type name instead of scanning a tag column. Takes no filtering parameters: unlike Prometheus itself, this endpoint does not accept 'start', 'end', or 'match[]'.
+         * @description Lists the values of one label name, sorted, over the requested time range. Compatible with the Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns the time-series type names instead of scanning a tag column. 'start' and 'end' are optional and default to the whole series: when either is supplied, the answer is restricted to the values - and, for '__name__', the types - carried by a sample in that range; with neither, every time-series type is named, one holding no sample at all included. Unlike Prometheus itself, this endpoint does not accept 'match[]'.
          */
         get: operations["promQLLabelValues"];
         put?: never;
@@ -1156,6 +1198,8 @@ export interface paths {
          * @description Ingests one or more samples expressed in InfluxDB Line Protocol. The measurement name selects the time-series type, tags select the series, and fields carry the values.
          *
          *     The body may be gzip-compressed by sending Content-Encoding: gzip. A fully accepted request answers 204 with no body; a request whose samples could not all be applied answers 400 with the counts of what was written and dropped, so a client can tell a total rejection from a partial one.
+         *
+         *     An ingest is NOT atomic, with this request or with any transaction around it. Each measurement's batch commits its own storage transaction as it is appended, so a failure part-way leaves the measurements before it durable - which is what those counts report - and a rollback of the transaction named by 'arcadedb-session-id' does not take the appended samples back. Retry the dropped measurements rather than the whole body: the samples already written stay written. The same applies to INSERT INTO a TIMESERIES type through /api/v1/command/{database}.
          */
         post: operations["writeTimeSeries"];
         delete?: never;
@@ -1264,6 +1308,11 @@ export interface components {
             name?: string;
             /** @description Peer identifier */
             peerId: string;
+            /**
+             * @description Raft leader-election priority, a non-negative integer. Defaults to 0, which is Ratis's own default and leaves the peer as electable as every other peer on a cluster where nobody names a priority. Once ANY peer carries a positive priority the priority-0 ones become witnesses that are never elected and are skipped as step-down targets, so 0 is how a witness is declared and a higher value how a preferred leader is. A fractional value or one that does not fit in a 32-bit integer is refused rather than rounded, because the value it would round to declares a witness. The same field the 'priority' of an arcadedb.ha.serverList entry sets.
+             * @default 0
+             */
+            priority: number | null;
         };
         /** @description Activation request */
         AiActivateRequest: {
@@ -1273,53 +1322,58 @@ export interface components {
         /** @description Activation result */
         AiActivateResponse: {
             /** @description Always true on a 200 */
-            activated?: boolean;
+            activated: boolean;
         };
         /** @description Profiler analysis request */
         AiAnalyzeProfilerRequest: {
-            /** @description Profiler snapshot to analyse */
-            profilerData: Record<string, never>;
+            /** @description Profiler snapshot to analyse. An open map: the server forwards it to the assistant as it stands and derives the schema of every database named inside it, rather than reading a fixed set of keys out of it - so the shape follows whatever the profiler produced. */
+            profilerData: {
+                [key: string]: unknown;
+            };
         };
         /** @description Profiler analysis */
         AiAnalyzeProfilerResponse: {
             /** @description Commands the assistant proposes. Absent when it proposes none. */
-            commands?: Record<string, never>[];
+            commands?: components["schemas"]["AiCommand"][];
             /** @description Assistant analysis */
-            response?: string;
+            response: string;
         };
         /** @description One chat transcript. GET /api/v1/ai/chats returns this shape without 'messages'; GET /api/v1/ai/chats/{id} returns it in full. */
         AiChat: {
             /** @description ISO-8601 instant the chat was created */
-            created?: string;
+            created: string;
             /** @description Database this chat is about */
-            database?: string;
+            database: string;
             /** @description Chat identifier */
-            id?: string;
+            id: string;
             /** @description Messages, oldest first. Omitted from the /chats list response. */
             messages?: {
                 /** @description SQL commands the assistant proposed with this reply. Present only on an assistant message that proposed at least one. */
-                commands?: Record<string, never>[];
+                commands?: components["schemas"]["AiCommand"][];
                 /** @description Message text */
-                content?: string;
-                /** @description 'user' or the assistant role */
-                role?: string;
+                content: string;
+                /**
+                 * @description Who wrote the message
+                 * @enum {string}
+                 */
+                role: "user" | "assistant";
                 /** @description ISO-8601 instant */
-                timestamp?: string;
+                timestamp: string;
             }[];
             /** @description Chat title, generated from the first user message */
-            title?: string;
+            title: string;
             /** @description ISO-8601 instant of the last change */
-            updated?: string;
+            updated: string;
         };
         /** @description Deletion result */
         AiChatDeleted: {
             /** @description Always true on a 200 */
-            deleted?: boolean;
+            deleted: boolean;
         };
         /** @description Stored chats */
         AiChatList: {
-            /** @description Stored chat transcripts, metadata only (no 'messages') */
-            chats?: components["schemas"]["AiChat"][];
+            /** @description Stored chat transcripts, metadata only (no 'messages'). Empty when this user has stored none */
+            chats: components["schemas"]["AiChat"][];
         };
         /** @description Chat message */
         AiChatRequest: {
@@ -1335,24 +1389,55 @@ export interface components {
         /** @description Assistant reply */
         AiChatResponse: {
             /** @description Chat this exchange belongs to, for continuing the conversation */
-            chatId?: string;
+            chatId: string;
             /** @description SQL commands the assistant proposes. Absent when it proposes none. */
-            commands?: Record<string, never>[];
+            commands?: components["schemas"]["AiCommand"][];
             /** @description Assistant message */
-            response?: string;
+            response: string;
             /** @description Tools the assistant invoked while answering. Absent when it invoked none. */
-            toolCalls?: Record<string, never>[];
+            toolCalls?: components["schemas"]["AiToolCall"][];
+        };
+        /** @description One event of the chat stream. 'type' says which one; the other members below belong to the kinds their descriptions name, and an event carries only its own. */
+        AiChatStreamEvent: {
+            /** @description Arguments the assistant passed to the tool, echoed identically on 'tool_start' and 'tool_end'. An open map: the keys are the tool's own parameters. */
+            args?: {
+                [key: string]: unknown;
+            };
+            /** @description Chat this exchange belongs to, on 'done'. Added by this server, not by the gateway, and the chat is persisted before this event is written - so a client that has seen it can read the chat back immediately. */
+            chatId?: string;
+            /** @description SQL commands the assistant proposes, on 'done'. Absent or empty when it proposes none */
+            commands?: components["schemas"]["AiCommand"][];
+            /** @description Why the tool failed, on 'tool_end' only, and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller. */
+            error?: string;
+            /** @description The assistant's reply, on 'done'. The same value POST /api/v1/ai/chat returns under this name */
+            response?: string;
+            /** @description Name of the tool being run, on 'tool_start' and 'tool_end'. The same name appears on both, which is how a consumer pairs them */
+            tool?: string;
+            /**
+             * @description Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
+             * @enum {string}
+             */
+            type: "tool_start" | "tool_end" | "done";
+        };
+        /** @description One command the assistant proposes. Proposed only: the server never runs it, the caller does */
+        AiCommand: {
+            /** @description The statement text */
+            command: string;
+            /** @description Query language the statement is written in. Treated as 'sql' when absent */
+            language?: string;
+            /** @description One line saying what the statement is for, shown above it. Absent when the assistant gave none */
+            purpose?: string;
         };
         /** @description AI assistant configuration */
         AiConfig: {
             /** @description True once a subscription has been activated */
-            configured?: boolean;
+            configured: boolean;
             /** @description Protocol version this server prefers */
-            currentProtocolVersion?: number;
+            currentProtocolVersion: number;
             /** @description AI gateway endpoint */
-            gatewayUrl?: string;
+            gatewayUrl: string;
             /** @description Every version this server accepts */
-            supportedProtocolVersions?: number[];
+            supportedProtocolVersions: number[];
         };
         /** @description Rejected chat request. Carries the negotiation fields when the protocol version is at fault. */
         AiProtocolError: {
@@ -1361,11 +1446,48 @@ export interface components {
             /** @description Protocol version this server prefers */
             currentProtocolVersion?: number;
             /** @description Why the request was rejected */
-            error?: string;
+            error: string;
             /** @description Every version this server accepts */
             supportedProtocolVersions?: number[];
         };
-        /** @description An edge line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. */
+        /** @description One tool invocation, reported after the fact. The same pair of members the stream's 'tool_start' carries */
+        AiToolCall: {
+            /** @description Arguments it was run with, keyed by the tool's own parameter names */
+            args?: {
+                [key: string]: unknown;
+            };
+            /** @description Why it failed. Absent on a run that succeeded */
+            error?: string;
+            /** @description Name of the tool that was run */
+            tool: string;
+        };
+        /** @description Every issued API token */
+        ApiTokenList: {
+            /** @description Number of tokens returned */
+            count: number;
+            /** @description Tokens, metadata only */
+            result: {
+                /** @description Issue time as epoch milliseconds */
+                createdAt: number;
+                /** @description Database the token is scoped to. '*' means every database */
+                database: string;
+                /** @description Whether this token's expiry has passed. Carried by the listing only. An expired token authenticates nobody, but it stays listed until the next token change retires it */
+                expired?: boolean;
+                /** @description Expiry as epoch milliseconds. 0 means the token does not expire */
+                expiresAt: number;
+                /** @description Token name, unique among issued tokens */
+                name: string;
+                /** @description Permissions the token carries, in the same shape a group's 'types' map takes */
+                permissions: {
+                    [key: string]: unknown;
+                };
+                /** @description SHA-256 hex of the token. The handle DELETE names; the only one the server keeps */
+                tokenHash: string;
+                /** @description Last characters of the plaintext token, so an operator can tell two entries apart */
+                tokenSuffix: string;
+            }[];
+        };
+        /** @description An edge line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. '@id' is a vertex's temporary id and an edge is never referenced by one: carrying it here is refused with a 400 naming the line, not dropped. */
         BatchEdgeLine: {
             /** @description Edge type to create the record in. The type must already exist: a bulk load creates records, never types. */
             "@class": string;
@@ -1384,23 +1506,23 @@ export interface components {
         /** @description Failed bulk load. Carries how much of the payload was attempted, because a batch is not atomic and the caller has to reconcile before retrying. */
         BatchError: {
             /** @description Bytes of the upload the server consumed, so a client can verify its whole file arrived - and, on a truncated load, how far the server got. Never more than the client sent. */
-            bytesRead?: number;
+            bytesRead: number;
             /** @description Edges attempted before the failure, with the same upper-bound caveat as 'verticesCreated'. */
-            edgesCreated?: number;
+            edgesCreated: number;
             /** @description Why the load failed. Carries the offending location, such as a line number or a temporary id, because a batch failure echoes client input rather than engine internals. */
-            error?: string;
-            /** @description Exception class name, for distinguishing failure classes programmatically */
+            error: string;
+            /** @description Exception class name, for distinguishing failure classes programmatically. On the 400 it is always present; on the 408 it is absent when nothing threw - a body that simply ended before its announced length, or a malformed record that turned out to be a cut upload. Key on the status for that distinction, not on this member. */
             exception?: string;
             /** @description Lines the parser read, so 'linesRead' minus 'linesSkipped' can be checked against the records created */
-            linesRead?: number;
+            linesRead: number;
             /** @description Lines that carried no record: blank lines, plus CSV headers and '---' separators */
-            linesSkipped?: number;
+            linesSkipped: number;
             /** @description True when earlier chunks are durably committed. Retrying the whole payload then duplicates the already-committed vertices, because temporary ids are not keys. */
-            partialCommit?: boolean;
+            partialCommit: boolean;
             /** @description Correlation id echoing X-Request-Id, for cross-referencing the failure against the server log. Absent when the request carried no correlation id. */
             requestId?: string;
             /** @description Vertices attempted before the failure. An upper bound on what is durable: records handled since the last commit boundary were rolled back. */
-            verticesCreated?: number;
+            verticesCreated: number;
             /** @description Vertices created without an '@id' under refMode=id. They are loaded and durable, but no edge can reference them. Absent when zero. */
             verticesWithoutId?: number;
         };
@@ -1409,27 +1531,29 @@ export interface components {
         /** @description Result of a bulk load */
         BatchResponse: {
             /** @description Bytes of the upload the server consumed, so a client can verify its whole file arrived - and, on a truncated load, how far the server got. Never more than the client sent. */
-            bytesRead?: number;
+            bytesRead: number;
             /** @description Edges created */
-            edgesCreated?: number;
+            edgesCreated: number;
             /** @description Elapsed time in milliseconds */
-            elapsedMs?: number;
+            elapsedMs: number;
             /** @description Temporary id to RID mapping, present only when temporary ids were used and the mapping was small enough to echo */
-            idMapping?: Record<string, never>;
+            idMapping?: {
+                [key: string]: string;
+            };
             /** @description True when the mapping was too large to return */
             idMappingOmitted?: boolean;
             /** @description Number of entries in the omitted mapping */
             idMappingSize?: number;
             /** @description Lines the parser read, so 'linesRead' minus 'linesSkipped' can be checked against the records created */
-            linesRead?: number;
+            linesRead: number;
             /** @description Lines that carried no record: blank lines, plus CSV headers and '---' separators */
-            linesSkipped?: number;
+            linesSkipped: number;
             /** @description Vertices created */
-            verticesCreated?: number;
+            verticesCreated: number;
             /** @description Vertices created without an '@id' under refMode=id. They are loaded and durable, but no edge can reference them. Absent when zero. */
             verticesWithoutId?: number;
         };
-        /** @description A vertex line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. */
+        /** @description A vertex line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. '@from' and '@to' name an edge's endpoints and a vertex has none: carrying either here is refused with a 400 naming the line, not dropped. */
         BatchVertexLine: {
             /** @description Vertex type to create the record in. The type must already exist: a bulk load creates records, never types. */
             "@class": string;
@@ -1445,19 +1569,19 @@ export interface components {
         };
         /** @description Per-database bootstrap state of one peer */
         BootstrapStateResponse: {
-            /** @description Databases on this peer */
-            databases?: {
+            /** @description Databases on this peer. Empty when it holds none */
+            databases: {
                 /** @description Why the database could not be read. Absent on success. */
                 error?: string;
                 /** @description Content fingerprint, empty when the database could not be read */
-                fingerprint?: string;
+                fingerprint: string;
                 /** @description Last transaction id, -1 when the database could not be read */
-                lastTxId?: number;
+                lastTxId: number;
                 /** @description Database name */
-                name?: string;
+                name: string;
             }[];
             /** @description Peer that reported the state */
-            peerId?: string;
+            peerId: string;
         };
         /** @description Outcome of a cluster management action */
         ClusterActionResponse: {
@@ -1468,34 +1592,68 @@ export interface components {
             /** @description Server that performed the action. Present on resync. */
             localServer?: string;
             /** @description Human-readable outcome */
-            result?: string;
+            result: string;
         };
         /** @description A session token and the action to apply to it */
         ClusterAuthSessionRequest: {
-            /** @description 'validate' (default) or 'revoke' */
-            action?: string;
+            /**
+             * @description What to do with the token. 'validate' answers with the session the issuer holds; 'revoke' drops it. Defaults to 'validate'. Anything else is refused with a 400 naming it.
+             * @enum {string}
+             */
+            action?: "validate" | "revoke";
             /** @description The session token, 'AU-<server name>-<uuid>' */
             token: string;
         };
         /** @description The session as held by the node that issued it */
         ClusterAuthSessionResponse: {
             /** @description Creation time, epoch milliseconds */
-            createdAt?: number;
+            createdAt: number;
             /** @description The principal the session belongs to */
-            user?: string;
+            user: string;
         };
         /** @description Cluster and replication status */
         ClusterStatus: {
-            /** @description Conditions worth an operator's attention */
-            alerts?: Record<string, never>[];
+            /** @description Conditions worth an operator's attention. Empty when the cluster is healthy: an absent array is not a state this endpoint produces */
+            alerts: {
+                /** @description The condition's own data - the peers involved, the databases behind, the lag figures. An open map because each 'id' carries its own keys; read it against the 'id', not blind. */
+                details: {
+                    [key: string]: unknown;
+                };
+                /** @description Stable identifier of the condition, e.g. 'lagging-followers' or 'local-resync-in-progress'. Key a monitoring rule on this rather than on 'title', which is prose and may be reworded. */
+                id: string;
+                /** @description What is wrong, in full sentences */
+                message: string;
+                /** @description What an operator should do about it */
+                recommendation: string;
+                /**
+                 * @description How urgent the condition is. 'critical' means this node or the cluster is not serving correctly right now, 'warning' that it will not keep serving correctly, 'info' that a declared configuration and the live one differ without consequence yet.
+                 * @enum {string}
+                 */
+                severity: "info" | "warning" | "critical";
+                /** @description One line naming the condition, for a dashboard row */
+                title: string;
+            }[];
             /** @description Optional wire-format sections THIS node can decode, sorted (issue #7219) */
-            capabilities?: string[];
+            capabilities: string[];
             /** @description Configured cluster name */
-            clusterName?: string;
-            /** @description Which peer holds which database. Present only when this server is the leader and the request set '?presence=true'. */
-            databasePresence?: Record<string, never>;
+            clusterName: string;
+            /** @description True once the health monitor has given up restarting this node's HA layer (issue #7622). The liveness counterpart of the two above: this is what makes '/api/v1/health' answer unhealthy. */
+            crashLoopEscalated: boolean;
+            /** @description Why this node's replication state machine halted, or null while it is applying entries. Present on every answer. A non-null value means this node's databases are frozen at 'index' and will not advance again in this process: restart it. */
+            criticalHalt: {
+                /** @description The Raft index being applied when the halt tripped, or -1 when the entry carried none */
+                index: number;
+                /** @description One line naming what could not be applied. 'unknown Raft log entry type' means a newer peer is writing a format this build cannot read, and the answer is to upgrade this node; anything else is a bug. Raw exception text, so it is shown to the root user only: another caller reads a placeholder here while still getting 'index' and 'timestamp' */
+                reason: string;
+                /** @description When it tripped, as epoch milliseconds */
+                timestamp: number;
+            } | null;
+            /** @description Which peer holds which database, keyed by database name. Present only when this server is the leader and the request set '?presence=true'. */
+            databasePresence?: {
+                [key: string]: string[];
+            };
             /** @description Replicated databases */
-            databases?: {
+            databases: {
                 /** @description Why the last acquisition failed. Absent on success. */
                 acquireError?: string;
                 /** @description State of the last acquisition attempt. Absent when none was made. */
@@ -1507,36 +1665,65 @@ export interface components {
                 /** @description Last transaction id recorded at bootstrap. Absent when no baseline exists. */
                 bootstrapLastTxId?: number;
                 /** @description Database name */
-                name?: string;
+                name: string;
             }[];
             /** @description Elections observed since start */
-            electionCount?: number;
+            electionCount: number;
             /** @description Always 'raft' */
-            implementation?: string;
+            implementation: string;
             /** @description True when this server is the leader */
-            isLeader?: boolean;
+            isLeader: boolean;
             /** @description Last election as epoch milliseconds */
-            lastElectionTime?: number;
+            lastElectionTime: number;
             /** @description Leader HTTP address, null when unknown */
-            leaderHttpAddress?: string | null;
+            leaderHttpAddress: string | null;
             /** @description Current leader, null when unknown */
-            leaderId?: string | null;
+            leaderId: string | null;
             /** @description True when the leader has finished the work that makes it safe to serve writes */
-            leaderReady?: boolean;
+            leaderReady: boolean;
+            /** @description Last Raft index this node has applied. -1 when the division cannot be read, e.g. during an in-place restart */
+            localAppliedIndex: number;
+            /** @description Last Raft index this node knows to be committed. -1 under the same condition */
+            localCommitIndex: number;
             /** @description This server's peer identifier */
-            localPeerId?: string;
+            localPeerId: string;
+            /** @description Entries this node has yet to apply: 'localCommitIndex' minus 'localAppliedIndex'. -1 rather than a fabricated difference whenever either side is unknown */
+            localReplicationLag: number;
+            /** @description This node's resync state. Present on every answer. The database names it carries are reduced to the ones the caller is authorized on, so a caller scoped to one database cannot learn another tenant's database name from a status poll. */
+            localResync: {
+                /** @description Per-database applied floor, keyed by database name */
+                databaseAppliedFloors: {
+                    [key: string]: number;
+                };
+                /** @description Databases quarantined because this node's WAL diverged from the leader's */
+                divergedDatabases: string[];
+                /** @description Why each quarantined database was quarantined, keyed by database name. Same keys as 'divergedDatabases' */
+                divergenceCauses: {
+                    [key: string]: "WAL_VERSION_GAP" | "UNDECODABLE_LOG_ENTRY" | "APPLY_ERROR" | "SNAPSHOT_INSTALL_INCOMPLETE";
+                };
+                /** @description True while a resync is holding this node out of the ready set. NOT the whole answer '/api/v1/ready' gives: a node halted by a critical error or wedged by a log-write failure has this false and answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872). */
+                inProgress: boolean;
+                /** @description Raft index the last installed snapshot brought this node to */
+                snapshotAppliedFloor: number;
+                /** @description A snapshot is being installed now */
+                snapshotDownloadInProgress: boolean;
+                /** @description A snapshot install is waiting to start */
+                snapshotDownloadQueued: boolean;
+            };
             /** @description Known peers */
-            peers?: {
+            peers: {
                 /** @description Peer address */
-                address?: string;
+                address: string;
                 /** @description Optional wire-format sections this peer can decode, as last observed by the leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'. */
                 capabilities?: string[];
+                /** @description Why 'capabilities' is absent for this peer, when the leader knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the capability route or was never asked because its address identifies no single peer, and the two have nothing alike as remedies (issue #7256). Written by the leader only. */
+                capabilitiesUnknownReason?: string;
                 /** @description Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved. */
                 httpAddress?: string;
                 /** @description True when the HTTP endpoint above does not identify this peer alone: two or more peers resolve to it, which is what happens when 'http' ports are not declared in arcadedb.ha.serverList and the nodes differ by port rather than by host. Peer-to-peer operations (snapshot resync, cluster verify) refuse to dial such a peer. Absent when the address is unambiguous. */
                 httpAddressAmbiguous?: boolean;
                 /** @description Peer identifier */
-                id?: string;
+                id: string;
                 /** @description True when the lag exceeds the configured warning threshold. Absent for the leader's own entry and until a health sample exists. */
                 lagging?: boolean;
                 /** @description How long this peer has been lagging, in milliseconds. Absent for the leader's own entry and until a health sample exists. */
@@ -1556,14 +1743,23 @@ export interface components {
                 /** @description 99th percentile replication round-trip time. Absent when no sample exists. */
                 replicationRttP99Ms?: number;
                 /** @description LEADER or FOLLOWER */
-                role?: string;
+                role: string;
                 /** @description Server version this peer reported alongside its capabilities. Absent when the leader has no fresh answer from it. */
                 version?: string;
             }[];
+            /** @description The persistent Raft log-write failure wedging this node, or null while the log writer is healthy. Present on every answer. A non-null value means Ratis is rejecting every append, so the node can neither catch up nor become caught up; the usual cause is a full Raft storage volume, and it clears by itself once the health monitor restarts the writer in place. */
+            raftLogFailure: {
+                /** @description The failure Ratis reported, as its own text, which routinely names the Raft storage path - so it is shown to the root user only: another caller reads a placeholder here while still getting 'index' and 'timestamp' */
+                cause: string;
+                /** @description The Raft index of the entry whose write failed, or -1 when the failure was on a log segment */
+                index: number;
+                /** @description When it was first reported, as epoch milliseconds */
+                timestamp: number;
+            } | null;
             /** @description Raft lifecycle state */
-            raftState?: string;
+            raftState: string;
             /** @description Milliseconds since the Raft server started */
-            uptime?: number;
+            uptime: number;
         };
         /** @description Command request object */
         CommandRequest: {
@@ -1580,29 +1776,85 @@ export interface components {
              */
             limit?: number;
             /** @description Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip). */
-            params?: Record<string, never>;
+            params?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description A token to issue */
+        CreateApiTokenRequest: {
+            /** @description Database to scope the token to. Defaults to '*', every database, which an empty value also means */
+            database?: string;
+            /** @description Expiry as epoch milliseconds. Defaults to 0, which does not expire */
+            expiresAt?: number;
+            /** @description Token name. Must not already be in use */
+            name: string;
+            /** @description Permissions to grant, in the same shape a group's 'types' map takes. Defaults to none */
+            permissions?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Result of issuing an API token */
+        CreateApiTokenResponse: {
+            /** @description The issued token: every field the listing carries, plus the plaintext 'token'. Read it now - the server stores only the hash, so this is the one and only time that value exists outside the caller's hands. */
+            result: {
+                /** @description Issue time as epoch milliseconds */
+                createdAt: number;
+                /** @description Database the token is scoped to. '*' means every database */
+                database: string;
+                /** @description Whether this token's expiry has passed. Carried by the listing only. An expired token authenticates nobody, but it stays listed until the next token change retires it */
+                expired?: boolean;
+                /** @description Expiry as epoch milliseconds. 0 means the token does not expire */
+                expiresAt: number;
+                /** @description Token name, unique among issued tokens */
+                name: string;
+                /** @description Permissions the token carries, in the same shape a group's 'types' map takes */
+                permissions: {
+                    [key: string]: unknown;
+                };
+                /** @description The plaintext token, presented as a bearer credential. Returned exactly once, here; it cannot be read back from the listing and cannot be recovered if lost. */
+                token: string;
+                /** @description SHA-256 hex of the token. The handle DELETE names; the only one the server keeps */
+                tokenHash: string;
+                /** @description Last characters of the plaintext token, so an operator can tell two entries apart */
+                tokenSuffix: string;
+            };
+        };
+        /** @description A user to create */
+        CreateUserRequest: {
+            /** @description Database assignments, keyed by database name. '*' means every database */
+            databases?: {
+                [key: string]: string[];
+            };
+            /** @description User name. Must not be blank and must not start with 'apitoken:', which is the prefix reserved for the synthetic principals API tokens authenticate as. */
+            name: string;
+            /** @description Plaintext password, hashed by the server before it is stored */
+            password: string;
         };
         /** @description Database existence check result */
         DatabaseExists: {
             /** @description True when the database exists and is among the authenticated user's authorized databases. False both when the database does not exist and when it exists but the caller is not authorized to see it, since the response does not distinguish the two cases. */
-            result?: boolean;
+            result: boolean;
         };
         /** @description Database list response */
         DatabaseList: {
-            /** @description List of database names */
-            result?: string[];
+            /** @description The databases this caller is authorized on, not every database installed. A database the caller cannot see is indistinguishable here from one that does not exist. */
+            result: string[];
+            /** @description The authenticated caller */
+            user: string;
+            /** @description Server version */
+            version: string;
         };
         /** @description Error response object */
         ErrorResponse: {
-            /** @description Error details */
+            /** @description Error details, including the cause chain when there is one. Absent when there is nothing to add */
             detail?: string;
-            /** @description Error message */
-            error?: string;
-            /** @description Exception class name */
+            /** @description Error message. The one member every error body carries */
+            error: string;
+            /** @description Exception class name, for distinguishing failure classes programmatically. Absent when the failure was raised as a plain message rather than from an exception */
             exception?: string;
-            /** @description Exception arguments */
+            /** @description Exception arguments, when the exception class carries any */
             exceptionArgs?: string;
-            /** @description Help information */
+            /** @description What to do about it, when the server can say */
             help?: string;
         };
         /** @description Full-text search over a FULL_TEXT index */
@@ -1640,37 +1892,40 @@ export interface components {
                 /** @description Sparse or full-text score, higher is better. Absent on a distance hit */
                 score?: number;
             }[];
-            /** @description Similarity function the index scores with, e.g. BM25 */
-            similarity: string;
+            /**
+             * @description Similarity function the index scores with
+             * @enum {string}
+             */
+            similarity: "BM25" | "CLASSIC";
         };
         /** @description Data source health */
         GrafanaHealth: {
             /** @description Database the check ran against */
-            database?: string;
+            database: string;
             /** @description Always 'ok' when the database is reachable */
-            status?: string;
+            status: string;
         };
         /** @description Queryable metadata */
         GrafanaMetadata: {
             /** @description Supported aggregation functions */
-            aggregationTypes?: string[];
+            aggregationTypes: string[];
             /** @description Queryable time-series types */
-            types?: {
+            types: {
                 /** @description Value columns */
-                fields?: {
+                fields: {
                     /** @description ArcadeDB column data type */
-                    dataType?: string;
+                    dataType: string;
                     /** @description Column name */
-                    name?: string;
+                    name: string;
                 }[];
                 /** @description Type name */
-                name?: string;
+                name: string;
                 /** @description Tag columns available as filters */
-                tags?: {
+                tags: {
                     /** @description ArcadeDB column data type */
-                    dataType?: string;
+                    dataType: string;
                     /** @description Column name */
-                    name?: string;
+                    name: string;
                 }[];
             }[];
         };
@@ -1684,26 +1939,31 @@ export interface components {
             targets: {
                 /** @description Bucketed aggregation. Omit for raw samples. */
                 aggregation?: {
-                    /** @description Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and the time range when omitted. */
+                    /** @description Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and the time range when omitted. When stated it must be positive: a value of zero or less is refused with an error frame for this target rather than replaced by a derived interval. */
                     bucketInterval?: number;
-                    /** @description Aggregations to compute */
-                    requests?: {
+                    /** @description Aggregations to compute. Must name at least one; an empty array is refused with an error frame. */
+                    requests: {
                         /** @description Output field name. Defaults to the field name suffixed with the lower-cased aggregation type. */
                         alias?: string;
                         /** @description Field name to aggregate */
-                        field?: string;
-                        /** @description Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively. A value that matches none is reported as an error frame on this target, leaving the other targets served. */
-                        type?: string;
+                        field: string;
+                        /**
+                         * @description Aggregation function, matched case-insensitively. A value that matches none is reported as an error frame on this target, leaving the other targets served.
+                         * @enum {string}
+                         */
+                        type: "SUM" | "AVG" | "MIN" | "MAX" | "COUNT";
                     }[];
                 };
-                /** @description Fields to project on a raw (non-aggregated) query. All fields when omitted. Ignored when 'aggregation' is present. */
+                /** @description Fields to project on a raw (non-aggregated) query. All fields when omitted. Ignored when 'aggregation' is present. A name that is no column of the type is refused with an error frame for this target rather than ignored. */
                 fields?: string[];
                 /** @description Identifier echoed back as the result key. Defaults to 'A'. */
                 refId?: string;
-                /** @description Tag filter as name to value pairs */
-                tags?: Record<string, never>;
+                /** @description Tag filter as name to value pairs. All pairs must match */
+                tags?: {
+                    [key: string]: string;
+                };
                 /** @description Time-series type name */
-                type?: string;
+                type: string;
             }[];
             /** @description Inclusive upper bound of the timestamp range. Unbounded when omitted. */
             to?: number;
@@ -1711,29 +1971,65 @@ export interface components {
         /** @description Grafana DataFrame response */
         GrafanaQueryResponse: {
             /** @description Results keyed by target refId */
-            results?: {
+            results: {
                 [key: string]: {
                     /** @description Why the target could not be resolved. Present only when it failed; 'frames' is then empty. */
                     error?: string;
                     /** @description Frames produced by the target */
-                    frames?: {
+                    frames: {
                         /** @description Frame data */
-                        data?: {
+                        data: {
                             /** @description Column-major values, one array per field */
-                            values?: Record<string, never>[][];
+                            values: unknown[][];
                         };
                         /** @description Frame schema */
-                        schema?: {
+                        schema: {
                             /** @description Fields, positionally aligned with the value arrays */
-                            fields?: {
+                            fields: {
                                 /** @description Field name, 'time' for the time column */
-                                name?: string;
+                                name: string;
                                 /** @description Grafana field type, for example time or number */
-                                type?: string;
+                                type: string;
                             }[];
                         };
                     }[];
                 };
+            };
+        };
+        /** @description One group's permissions on one database. Stored normalized: a member the request omitted is written with the default below rather than left absent, so a group read back always carries all four. */
+        GroupDefinition: {
+            /** @description Server-level rights the group grants. Empty when it grants none */
+            access: string[];
+            /**
+             * @description Maximum milliseconds a member's read may take. -1 for no limit
+             * @example -1
+             */
+            readTimeout: number;
+            /**
+             * @description Maximum rows a member of this group may read in one result. -1 for no limit
+             * @example -1
+             */
+            resultSetLimit: number;
+            /** @description Per-type permissions, keyed by type name. '*' is a legal key and covers every type. An open map because the keys are the schema's own type names. */
+            types: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Every security group, grouped by database */
+        GroupList: {
+            /** @description The group document as stored */
+            result: {
+                /** @description Group definitions per database, keyed by database name. '*' is a legal key and covers every database */
+                databases: {
+                    [key: string]: {
+                        /** @description The database's groups, keyed by group name */
+                        groups: {
+                            [key: string]: components["schemas"]["GroupDefinition"];
+                        };
+                    };
+                };
+                /** @description Schema version of the group document */
+                version: number;
             };
         };
         /** @description Fused vector, full-text and graph-expansion search */
@@ -1742,8 +2038,11 @@ export interface components {
             efSearch?: number;
             /** @description Optional graph expansion leg, seeded from the union of the retrieval legs and ranked by breadth-first discovery order. */
             expand?: {
-                /** @description out, in, or both */
-                direction?: string;
+                /**
+                 * @description Which way to walk the edges. Defaults to 'out'
+                 * @enum {string}
+                 */
+                direction?: "out" | "in" | "both";
                 /** @description Edge types to walk */
                 edgeTypes?: string[];
                 /**
@@ -1758,8 +2057,11 @@ export interface components {
             fulltextIndexName?: string;
             /** @description Lucene-syntax query for the full-text leg. Goes together with 'fulltextIndexName': half a leg is refused rather than silently dropped. Omit both to search without a full-text leg. */
             fulltextQuery?: string;
-            /** @description How the legs are combined. Only RRF can consume the graph expansion leg, which is ranked by traversal order */
-            fusionStrategy?: string;
+            /**
+             * @description How the legs are combined. Matched case-insensitively on input and echoed upper-cased. Only RRF can consume the graph expansion leg, which is ranked by traversal order and carries no score, so naming another strategy alongside 'expand' is refused. Defaults to RRF when omitted
+             * @enum {string}
+             */
+            fusionStrategy?: "RRF" | "DBSF" | "LINEAR";
             /**
              * @description Maximum number of fused results to return
              * @default 10
@@ -1800,16 +2102,22 @@ export interface components {
             fulltextIndexName?: string;
             /** @description False when only one leg produced rows: fusion needs at least two sources, so the response carries that leg's native distance or score instead of a fused one. */
             fused: boolean;
-            /** @description Strategy actually applied; absent when 'fused' is false */
-            fusionStrategy?: string;
+            /**
+             * @description Strategy actually applied, upper-cased; absent when 'fused' is false
+             * @enum {string}
+             */
+            fusionStrategy?: "RRF" | "DBSF" | "LINEAR";
             /** @description Per-leg accounting: how many rows each leg contributed, and whether the expansion hit its seed or fan-out cap. */
             legs: {
                 /** @description The graph expansion leg, present whenever the request carried 'expand' */
                 expand?: {
                     /** @description Rows the expansion leg contributed to fusion */
                     count: number;
-                    /** @description Direction walked: out, in or both */
-                    direction: string;
+                    /**
+                     * @description Direction walked, echoed from the request
+                     * @enum {string}
+                     */
+                    direction: "out" | "in" | "both";
                     /** @description Edge types walked; empty when the request named none, which walks them all */
                     edgeTypes: string[];
                     /** @description Hops walked from a seed */
@@ -1827,8 +2135,11 @@ export interface components {
                     count: number;
                     /** @description Full-text index that was searched */
                     indexName: string;
-                    /** @description Similarity function that index scores with, e.g. BM25 */
-                    similarity: string;
+                    /**
+                     * @description Similarity function that index scores with
+                     * @enum {string}
+                     */
+                    similarity: "BM25" | "CLASSIC";
                 };
                 /** @description The vector leg, which every hybrid search runs */
                 vector: {
@@ -1854,8 +2165,8 @@ export interface components {
                 rid: string;
                 /** @description Sparse or full-text score, present instead of 'fusedScore' on an unfused sparse or full-text response */
                 score?: number;
-                /** @description Which legs contributed this hit: vector, fulltext, expand */
-                sources: string[];
+                /** @description Which legs contributed this hit. Never empty: a hit is in the list because some leg produced it */
+                sources: ("vector" | "fulltext" | "expand")[];
             }[];
             /** @description Scoring direction of the vector leg */
             scoring: string;
@@ -1866,15 +2177,101 @@ export interface components {
             /** @description Vector index that was searched */
             vectorIndexName: string;
         };
+        /** @description One JSON-RPC 2.0 message, or a batch of them as a top-level array. A batch request is answered by a batch of responses. */
+        JsonRpcMessage: ({
+            /** @description A JSON-RPC error, on a failed response */
+            error?: {
+                /** @description JSON-RPC error code */
+                code: number;
+                /** @description Further detail, when the method provides any */
+                data?: unknown;
+                /** @description Short description of the error */
+                message: string;
+            };
+            /** @description Correlation id, a string or a number. Absent on a notification, which is precisely what says this server must not answer it. */
+            id?: unknown;
+            /**
+             * @description Always '2.0'
+             * @enum {string}
+             */
+            jsonrpc: "2.0";
+            /** @description Method being invoked. Present on a request and on a notification, absent on a response */
+            method?: string;
+            /** @description Method arguments, shaped by the method */
+            params?: unknown;
+            /** @description The method's result, on a successful response. Mutually exclusive with 'error' */
+            result?: unknown;
+        } & {
+            [key: string]: unknown;
+        }) | ({
+            /** @description A JSON-RPC error, on a failed response */
+            error?: {
+                /** @description JSON-RPC error code */
+                code: number;
+                /** @description Further detail, when the method provides any */
+                data?: unknown;
+                /** @description Short description of the error */
+                message: string;
+            };
+            /** @description Correlation id, a string or a number. Absent on a notification, which is precisely what says this server must not answer it. */
+            id?: unknown;
+            /**
+             * @description Always '2.0'
+             * @enum {string}
+             */
+            jsonrpc: "2.0";
+            /** @description Method being invoked. Present on a request and on a notification, absent on a response */
+            method?: string;
+            /** @description Method arguments, shaped by the method */
+            params?: unknown;
+            /** @description The method's result, on a successful response. Mutually exclusive with 'error' */
+            result?: unknown;
+        } & {
+            [key: string]: unknown;
+        })[];
         /** @description Newly created session */
         LoginResponse: {
             /** @description Session token prefixed 'AU-', presented as a bearer token */
-            token?: string;
+            token: string;
             /** @description Authenticated user name */
-            user?: string;
+            user: string;
         };
-        /** @description MCP server configuration */
+        /** @description MCP server configuration, as GET and POST both answer with it */
         McpConfig: {
+            /** @description Permit administrative operations */
+            allowAdmin: boolean;
+            /** @description Permit deletes */
+            allowDelete: boolean;
+            /** @description Permit inserts */
+            allowInsert: boolean;
+            /** @description Permit read operations */
+            allowReads: boolean;
+            /** @description Permit schema changes */
+            allowSchemaChange: boolean;
+            /** @description Permit updates */
+            allowUpdate: boolean;
+            /** @description Extra browser origins permitted for the HTTP transport, beyond loopback addresses which are always allowed. The value '*' permits any origin, disabling the anti-DNS-rebinding check. */
+            allowedOrigins: string[];
+            /** @description Users permitted to reach the MCP server. The value '*' permits any authenticated user. */
+            allowedUsers: string[];
+            /** @description Per-database permission overrides, keyed by database name. Present only when at least one override is configured. */
+            databases?: {
+                [key: string]: components["schemas"]["McpDatabaseOverride"];
+            };
+            /** @description Whether the MCP server answers requests */
+            enabled: boolean;
+            /** @description Tool profile assigned per principal (user or API token) name. Present only when at least one is configured. */
+            principalProfiles?: {
+                [key: string]: "all" | "rag" | "admin";
+            };
+            /**
+             * @description Default tool profile, applied to a principal that 'principalProfiles' does not name
+             * @enum {string}
+             */
+            profile: "all" | "rag" | "admin";
+        };
+        /** @description A partial MCP server configuration. Send only the fields to change; an omitted one keeps its current value, so nothing here is required. The update is all-or-nothing: every field is parsed and validated before the first one is assigned. */
+        McpConfigUpdate: {
             /** @description Permit administrative operations */
             allowAdmin?: boolean;
             /** @description Permit deletes */
@@ -1899,10 +2296,13 @@ export interface components {
             enabled?: boolean;
             /** @description Tool profile assigned per principal (user or API token) name. Present only when at least one is configured. */
             principalProfiles?: {
-                [key: string]: string;
+                [key: string]: "all" | "rag" | "admin";
             };
-            /** @description Default tool profile: 'all', 'rag', or 'admin' */
-            profile?: string;
+            /**
+             * @description Default tool profile, applied to a principal that 'principalProfiles' does not name
+             * @enum {string}
+             */
+            profile?: "all" | "rag" | "admin";
         };
         /** @description Per-database permission override. Every field is optional; an omitted field inherits the server-wide value. A permission set to true here still requires the corresponding global permission to be true, so an override can only narrow access, never widen it. 'allowedUsers' is intersected with the global 'allowedUsers', not a replacement for it. */
         McpDatabaseOverride: {
@@ -1939,7 +2339,9 @@ export interface components {
                 /** @description Edges attempted so far */
                 edgesCreated?: number;
                 /** @description Temporary id to RID mapping of the vertices this chunk resolved, and only of those: the mapping is handed back one committed chunk at a time so neither end ever holds the whole load's worth of it (issue #7353). Concatenate the 'idMapping' of every line, in order, to obtain what the buffered encoding returns in one object, and check the total against 'idMappingSize' on the terminal line. Absent on an edge-phase acknowledgement, on a chunk whose vertices declared no @id under refMode=tempId, and when the request sent idMapping=false. */
-                idMapping?: Record<string, never>;
+                idMapping?: {
+                    [key: string]: string;
+                };
                 /** @description Lines the parser read, so 'linesRead' minus 'linesSkipped' can be checked against the records created */
                 linesRead?: number;
                 /** @description Lines that carried no record: blank lines, plus CSV headers and '---' separators */
@@ -1968,8 +2370,10 @@ export interface components {
                 /** @description Why the stream failed */
                 message?: string;
             };
-            /** @description One result row, identical to an element of the 'result' array of the buffered application/json response. */
-            record?: Record<string, never>;
+            /** @description One result row, identical to an element of the 'result' array of the buffered application/json response. An open map: a row's keys are the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record. */
+            record?: {
+                [key: string]: unknown;
+            };
             /** @description Trailer, always the last line of a complete stream. Carries the same three numbers the buffered response reports at top level. */
             stats?: {
                 /** @description Effective row cap applied while streaming, -1 when uncapped */
@@ -1982,47 +2386,47 @@ export interface components {
         };
         /** @description The wire-format sections one peer can decode */
         PeerCapabilitiesResponse: {
-            /** @description Capability tokens this peer can decode, sorted */
-            capabilities?: string[];
+            /** @description Capability tokens this peer can decode, sorted. Empty when it can decode none, never absent */
+            capabilities: string[];
             /** @description Peer that answered. A caller must check this against the peer it meant to ask: on a cluster that declares no explicit 'http' ports several peers can resolve to one address. */
-            peerId?: string;
+            peerId: string;
             /** @description Server version of the answering peer, for operators; nothing decides on it */
-            version?: string;
+            version: string;
         };
         /** @description In-progress maintenance operations */
         ProgressResponse: {
-            /** @description In-progress operations */
-            result?: {
+            /** @description In-progress operations. Empty when nothing is running */
+            result: {
                 /** @description Database the operation runs on */
-                database?: string;
+                database: string;
                 /** @description Units completed in the current step */
-                done?: number;
+                done: number;
                 /** @description Elapsed time in milliseconds */
-                elapsedMs?: number;
+                elapsedMs: number;
                 /** @description Operation identifier */
-                id?: number;
+                id: number;
                 /** @description Operation name, for example CHECK DATABASE */
-                operation?: string;
+                operation: string;
                 /** @description Completion percentage of the current step, -1 when the total is unknown */
-                percentage?: number;
+                percentage: number;
                 /** @description Start time as epoch milliseconds */
-                startedOn?: number;
+                startedOn: number;
                 /** @description Current step, 0-based */
-                stepIndex?: number;
+                stepIndex: number;
                 /** @description Current step name */
-                stepName?: string;
+                stepName: string;
                 /** @description Units in the current step, -1 when unknown */
-                total?: number;
+                total: number;
                 /** @description Total number of steps */
-                totalSteps?: number;
+                totalSteps: number;
             }[];
         };
         /** @description Prometheus query response */
         PromQLDataResponse: {
             /** @description Evaluation result */
-            data?: {
+            data: {
                 /** @description Evaluation result, shaped by 'resultType': an array of instant samples when 'vector', an array of range series when 'matrix', and a single [timestamp, value] pair when 'scalar'. */
-                result?: {
+                result: {
                     /** @description Label map, including the '__name__' label */
                     metric: {
                         [key: string]: string;
@@ -2041,33 +2445,47 @@ export interface components {
                  * @description Shape of 'result': a vector of instant samples, a matrix of range samples, or a scalar
                  * @enum {string}
                  */
-                resultType?: "vector" | "matrix" | "scalar";
+                resultType: "vector" | "matrix" | "scalar";
             };
-            /** @description Always 'success' on a 200 */
-            status?: string;
+            /**
+             * @description Always 'success' on a 200. The error envelope carries 'error' here instead
+             * @enum {string}
+             */
+            status: "success";
         };
         /** @description Prometheus error envelope */
         PromQLErrorResponse: {
             /** @description Human-readable message */
-            error?: string;
+            error: string;
             /** @description Prometheus error class, for example 'bad_data' */
-            errorType?: string;
-            /** @description Always 'error' */
-            status?: string;
+            errorType: string;
+            /**
+             * @description Always 'error'
+             * @enum {string}
+             */
+            status: "error";
         };
         /** @description Prometheus label response */
         PromQLLabelsResponse: {
-            /** @description Sorted names or values */
-            data?: string[];
-            /** @description Always 'success' on a 200 */
-            status?: string;
+            /** @description Sorted names or values. Empty when nothing matched */
+            data: string[];
+            /**
+             * @description Always 'success' on a 200. The error envelope carries 'error' here instead
+             * @enum {string}
+             */
+            status: "success";
         };
         /** @description Prometheus series response */
         PromQLSeriesResponse: {
-            /** @description Matching series */
-            data?: Record<string, never>[];
-            /** @description Always 'success' on a 200 */
-            status?: string;
+            /** @description Matching series. Empty when nothing matched */
+            data: {
+                [key: string]: string;
+            }[];
+            /**
+             * @description Always 'success' on a 200. The error envelope carries 'error' here instead
+             * @enum {string}
+             */
+            status: "success";
         };
         /** @description Query request object */
         QueryRequest: {
@@ -2084,7 +2502,9 @@ export interface components {
              */
             limit?: number;
             /** @description Query parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip). */
-            params?: Record<string, never>;
+            params?: {
+                [key: string]: unknown;
+            };
             /**
              * @description Response serializer
              * @example json
@@ -2093,103 +2513,203 @@ export interface components {
         };
         /** @description Query response object */
         QueryResponse: {
+            /** @description The execution plan as indented text, one line per step. Present on an EXPLAIN or PROFILE statement, and on any statement run with 'profileExecution'; absent otherwise. 'result' is then empty: the plan is the answer, and it is not also repeated as a row. */
+            explain?: string;
+            /** @description The same plan in structured form, for a caller that reads the steps rather than prints them. Present exactly when 'explain' is. */
+            explainPlan?: {
+                [key: string]: unknown;
+            };
             /** @description Effective row cap applied while serializing, -1 when uncapped. This is the serializer's cap, not the query's own LIMIT: a query stating a LIMIT below the server default reports the default here, and 'returned' with 'truncated' describe what the response actually carries. */
-            limit?: number;
-            /** @description Query results */
-            result?: Record<string, never>[];
+            limit: number;
+            /** @description The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers. */
+            result?: {
+                [key: string]: unknown;
+            }[] | {
+                /** @description Edges, deduplicated */
+                edges: {
+                    [key: string]: unknown;
+                }[];
+                /** @description Non-element rows. Written by the 'studio' serializer only */
+                records?: {
+                    [key: string]: unknown;
+                }[];
+                /** @description Vertices, deduplicated */
+                vertices: {
+                    [key: string]: unknown;
+                }[];
+            };
             /** @description Number of rows carried by this response. With the 'graph' serializer, whose cap counts graph elements rather than rows, it is the number of serialized vertices plus edges, and it can exceed 'limit': a single row can expand into several elements, and the expansion of the row that reaches the cap is not cut in half. */
-            returned?: number;
+            returned: number;
             /** @description True when the cap stopped the serialization with rows still pending, so the response is incomplete */
-            truncated?: boolean;
+            truncated: boolean;
         };
-        /** @description Server information object */
+        /** @description A group to create or replace. Replaces any group of the same name on the same database outright - the members are not merged into the existing definition - and refreshes the cached permissions of every open database it applies to. */
+        SaveGroupRequest: {
+            /** @description Server-level rights the group grants. Defaults to none */
+            access?: string[];
+            /** @description Database the group applies to. '*' means every database */
+            database: string;
+            /** @description Group name */
+            name: string;
+            /** @description Maximum milliseconds a member's read may take. Defaults to -1, no limit */
+            readTimeout?: number;
+            /** @description Maximum rows a member may read in one result. Defaults to -1, no limit */
+            resultSetLimit?: number;
+            /** @description Per-type permissions, keyed by type name. Defaults to none */
+            types?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Outcome of an administrative change, as one human-readable sentence. There is nothing else to report: the change either applied or the call failed. */
+        SecurityAdminResult: {
+            /** @description What was done, e.g. "User 'alice' created" */
+            result: string;
+        };
+        /** @description What the caller wants seeded, and what it already holds */
+        SecuritySeedRequest: {
+            /** @description True when the caller is a node repairing ITSELF after coming back, false (or absent) for a node reporting on an admission it performed. What it changes is REUSE: a catch-up is never answered by a seed that completed for somebody else, while an admission may be, since its request follows the membership change that already seeded for it. A catch-up can still complete without anything being submitted - that is what the fingerprint comparison is for, and it answers upToDate before any seeder is asked. */
+            catchUp?: boolean;
+            /** @description The caller's own document digests. When all three match the leader's, nothing is submitted and the answer is upToDate. Omit them to have every document seeded, which is what an admission does - the admitting node does not hold the joining peer's copies. */
+            fingerprints?: {
+                /** @description Digest of server-api-tokens.json as the caller holds it */
+                apiTokens?: string;
+                /** @description Digest of server-groups.json as the caller holds it */
+                groups?: string;
+                /** @description Digest of server-users.jsonl as the caller holds it */
+                users?: string;
+            };
+            /** @description Why the seed was asked for, for the leader's log line. Optional. */
+            reason?: string;
+        };
+        /** @description What the leader did about the request */
+        SecuritySeedResponse: {
+            /** @description Why the seed could not be run or its outcome could not be read. Present only on the 503 that carries no failedSeeds, since in that case which documents failed is exactly what is not known. */
+            error?: string;
+            /** @description The documents that did not commit, empty when all of them did */
+            failedSeeds?: string[];
+            /** @description True when the documents were submitted to the cluster */
+            seeded: boolean;
+            /** @description True when the caller's fingerprints already matched the leader's and nothing was submitted */
+            upToDate?: boolean;
+        };
+        /** @description Server information. The first four members are on every answer; which of the rest appear is decided by the 'mode' query parameter. */
         ServerInfo: {
-            /** @description Server mode */
-            mode?: string;
-            /** @description Server status */
-            status?: string;
-            /** @description Server uptime in milliseconds */
-            uptime?: number;
+            /**
+             * @description Cluster topology and per-database replication state. Present with mode=cluster only, and only when this server runs an HA implementation. The per-database rows are scoped to the caller's authorized databases; the topology members are not.
+             *
+             *     Its 'securityRefresh' member says whether the replicated group changes THIS node received have been enforced here, not merely received: entriesApplied, refreshesRequested, refreshesCoalesced, sweepsCompleted, sweepsFailed, databasesRefreshed, databaseRefreshFailures, and the epoch-millisecond lastEntryAppliedAt / lastSweepAt. entriesApplied rising while sweepsCompleted does not is a node enforcing permissions it has already been told to replace; the same numbers are scrapable as the arcadedb.ha.security.* meters.
+             */
+            ha?: {
+                [key: string]: unknown;
+            };
+            /** @description Query languages this build can run, e.g. sql, sqlscript, cypher, gremlin */
+            languages: string[];
+            /** @description Profiler counters, request meters, executor pools and sparse-vector index statistics. Present with mode=default only. An open map: the counter set follows the build and the plugins loaded. */
+            metrics?: {
+                [key: string]: unknown;
+            };
+            /** @description This server's configured name */
+            serverName: string;
+            /** @description Every server setting with its current and default value. Present with mode=default only. A setting marked hidden reports '*****' for both, and so does any setting whose key contains 'password'. */
+            settings?: {
+                /** @description Default value, masked the same way as 'value' */
+                default: unknown;
+                /** @description What the setting does */
+                description: string;
+                /** @description Setting key, e.g. 'arcadedb.server.httpQueryMaxResultRows' */
+                key: string;
+                /** @description True when this server's context overrides the default rather than inheriting it */
+                overridden: boolean;
+                /** @description Current value, or '*****' when the setting is hidden or its key names a password */
+                value: unknown;
+            }[];
+            /** @description The authenticated caller. Null on a request that carried no principal */
+            user: string | null;
             /** @description Server version */
-            version?: string;
+            version: string;
         };
         /** @description Active authentication sessions */
         SessionList: {
             /** @description Number of active sessions */
-            count?: number;
-            /** @description Active sessions */
-            result?: {
-                /** @description City reported by the proxy, when available */
-                city?: string;
-                /** @description Country reported by the proxy, when available */
-                country?: string;
+            count: number;
+            /** @description Active sessions. Empty when this server holds none */
+            result: {
+                /** @description City reported by the proxy. Null when no proxy reported one */
+                city: string | null;
+                /** @description Country reported by the proxy. Null when no proxy reported one */
+                country: string | null;
                 /** @description Creation time as epoch milliseconds */
-                createdAt?: number;
+                createdAt: number;
                 /** @description Milliseconds since last use */
-                elapsedMs?: number;
+                elapsedMs: number;
                 /** @description Name of the cluster node that issued the session, when this node holds a copy of it; absent for a session this node issued */
                 issuer?: string;
                 /** @description Last use as epoch milliseconds */
-                lastUpdate?: number;
-                /** @description Client address */
-                sourceIp?: string;
+                lastUpdate: number;
+                /** @description Client address, as this server saw it */
+                sourceIp: string | null;
                 /** @description Session token */
-                token?: string;
+                token: string;
                 /** @description User the session belongs to */
-                user?: string;
-                /** @description Client user agent */
-                userAgent?: string;
+                user: string;
+                /** @description Client user agent. Null when the request carried none */
+                userAgent: string | null;
             }[];
         };
         /** @description Aggregated samples */
         TimeSeriesAggregatedResponse: {
             /** @description Aliases of the computed aggregations, in bucket value order */
-            aggregations?: string[];
+            aggregations: string[];
             /** @description Buckets, ordered by timestamp */
-            buckets?: {
+            buckets: {
                 /** @description Bucket start timestamp */
-                timestamp?: number;
+                timestamp: number;
                 /** @description Aggregated values, positionally aligned with 'aggregations' */
-                values?: Record<string, never>[];
+                values: unknown[];
             }[];
             /** @description Number of buckets returned */
-            count?: number;
+            count: number;
             /** @description Time-series type name */
-            type?: string;
+            type: string;
         };
         /** @description Most recent sample of a series */
         TimeSeriesLatestResponse: {
             /** @description Column names, in sample value order */
-            columns?: string[];
+            columns: string[];
             /** @description Most recent sample, positionally aligned with 'columns'. Null when the series is empty. */
-            latest?: Record<string, never>[] | null;
+            latest: unknown[] | null;
             /** @description Time-series type name */
-            type?: string;
+            type: string;
         };
         /** @description Time-series query definition */
         TimeSeriesQueryRequest: {
             /** @description Bucketed aggregation. Present only when the caller wants buckets rather than raw rows. */
             aggregation?: {
-                /** @description Bucket width in the same unit as the timestamps */
-                bucketInterval?: number;
-                /** @description Aggregations to compute */
-                requests?: {
+                /** @description Bucket width in the same unit as the timestamps. Required, and must be a positive WHOLE number: a value of zero or less is refused with 400 rather than read as a single bucket over the whole range, and one with a fractional part is refused rather than truncated, because a bucket width is exactly the sort of value a client computes by division. */
+                bucketInterval: number;
+                /** @description Aggregations to compute. Must name at least one; an empty array is refused with 400. */
+                requests: {
                     /** @description Output name. Defaults to the field name suffixed with the lower-cased aggregation type. */
                     alias?: string;
                     /** @description Field name to aggregate */
-                    field?: string;
-                    /** @description Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively. */
-                    type?: string;
+                    field: string;
+                    /**
+                     * @description Aggregation function, matched case-insensitively. The same vocabulary the Grafana query endpoint accepts, because both resolve it through the same parser.
+                     * @enum {string}
+                     */
+                    type: "SUM" | "AVG" | "MIN" | "MAX" | "COUNT";
                 }[];
             };
-            /** @description Fields to project. All fields when omitted. */
+            /** @description Fields to project. All fields when omitted. A name that is no column of the type is refused with 400 rather than ignored. */
             fields?: string[];
             /** @description Inclusive lower bound of the timestamp range. Unbounded when omitted. */
             from?: number;
             /** @description Maximum rows to return for a raw (non-aggregated) query. Defaults to 20000. Ignored when 'aggregation' is present. */
             limit?: number;
             /** @description Tag filter as name to value pairs. All pairs must match. A name that is no TAG column of the type is refused with 400 rather than ignored. */
-            tags?: Record<string, never>;
+            tags?: {
+                [key: string]: string;
+            };
             /** @description Inclusive upper bound of the timestamp range. Unbounded when omitted. */
             to?: number;
             /** @description Time-series type name */
@@ -2198,20 +2718,20 @@ export interface components {
         /** @description Raw samples */
         TimeSeriesRawResponse: {
             /** @description Column names, in the order the row values appear */
-            columns?: string[];
+            columns: string[];
             /** @description Number of rows returned */
-            count?: number;
+            count: number;
             /** @description Rows, each positionally aligned with 'columns' */
-            rows?: Record<string, never>[][];
+            rows: unknown[][];
             /** @description Time-series type name */
-            type?: string;
+            type: string;
         };
         /** @description Rejected ingestion, with partial counts */
         TimeSeriesWriteError: {
             /** @description Samples discarded */
-            dropped?: number;
+            dropped: number;
             /** @description Why the request was rejected */
-            error?: string;
+            error: string;
             /** @description Measurements naming a type that exists but is not a time-series type */
             nonTimeSeriesTypes?: string[];
             /** @description Correlation id echoing X-Request-Id, for matching against server logs */
@@ -2221,7 +2741,7 @@ export interface components {
             /** @description Measurements naming a type that does not exist */
             unknownTypes?: string[];
             /** @description Samples successfully ingested */
-            written?: number;
+            written: number;
         };
         /** @description Transfer target. Send an empty object to let Raft choose. Unknown fields are rejected. */
         TransferLeaderRequest: {
@@ -2229,6 +2749,27 @@ export interface components {
             peerId?: string;
             /** @description How long to wait for the transfer to complete, in milliseconds. Defaults to 30000. */
             timeoutMs?: number;
+        };
+        /** @description Changes to apply to an existing user, named by the 'name' QUERY parameter rather than by the body. Both members are optional and an omitted one is left alone; a body carrying neither is accepted and changes nothing. */
+        UpdateUserRequest: {
+            /** @description Database assignments, keyed by database name. '*' means every database */
+            databases?: {
+                [key: string]: string[];
+            };
+            /** @description New plaintext password. Omit to leave the current one in place */
+            password?: string;
+        };
+        /** @description Every server user */
+        UserList: {
+            /** @description Users, one entry each */
+            result: {
+                /** @description Database assignments, keyed by database name. '*' means every database */
+                databases: {
+                    [key: string]: string[];
+                };
+                /** @description User name */
+                name: string;
+            }[];
         };
         /** @description kNN search over a dense or sparse vector index */
         VectorSearchRequest: {
@@ -2278,74 +2819,90 @@ export interface components {
             /** @description True when the result window was filled, so further matches may exist. False for a short result: the search already returned every match it could find within 'candidateLimit'. */
             truncated: boolean;
         };
-        /** @description Per-file checksums of one database. A follower response carries only its own 'localChecksums', 'files' and 'localServer'; the leader instead returns only 'result', nesting a cluster-wide comparison against every other peer. */
-        VerifyDatabaseResponse: {
-            /** @description Files with size and category. Present on a follower response. */
-            files?: {
-                /** @description CRC of the file's contents */
-                checksum?: number;
-                /** @description File name */
-                name?: string;
-                /** @description File size in bytes */
-                size?: number;
-                /** @description File category */
-                type?: string;
-            }[];
-            /** @description File name to checksum map, for a quick cross-peer comparison. Present on a follower response. */
-            localChecksums?: Record<string, never>;
-            /** @description Server the checksums were taken on. Present on a follower response. */
-            localServer?: string;
-            /** @description Leader-only cluster-wide comparison, fanned out to every peer */
-            result?: {
-                /** @description Database name */
-                database?: string;
-                /** @description The leader's files with size and category */
-                files?: {
-                    /** @description CRC of the file's contents */
-                    checksum?: number;
-                    /** @description File name */
-                    name?: string;
-                    /** @description File size in bytes */
-                    size?: number;
-                    /** @description File category */
-                    type?: string;
-                }[];
-                /** @description Leader's file name to checksum map */
-                localChecksums?: Record<string, never>;
-                /** @description Leader's peer identifier */
-                localPeerId?: string;
-                /** @description Leader server name */
-                localServer?: string;
-                /** @description ALL_CONSISTENT when every peer was compared and agreed, INCONSISTENCY_DETECTED when a compared peer differs, VERIFICATION_INCOMPLETE when nothing diverged but at least one peer could not be verified */
-                overallStatus?: string;
-                /** @description Every other peer's comparison result */
-                peers?: {
-                    /** @description Why the peer could not be queried or compared. Absent on a completed comparison. */
-                    error?: string;
-                    /** @description Peer HTTP address */
-                    httpAddress?: string;
-                    /** @description Files whose checksum matches. Absent when the peer could not be queried. */
-                    matchingFiles?: number;
-                    /** @description Files whose checksum differs. Absent when the peer could not be queried. */
-                    mismatchedFiles?: number;
-                    /** @description Present only when mismatchedFiles is greater than zero */
-                    mismatches?: {
-                        /** @description File name */
-                        file?: string;
-                        /** @description Leader's CRC for the file */
-                        localChecksum?: number;
-                        /** @description Peer's CRC for the file, or 'MISSING' when the peer does not have it */
-                        remoteChecksum?: string;
-                        /** @description File category */
-                        type?: string;
-                    }[];
-                    /** @description Peer identifier */
-                    peerId?: string;
-                    /** @description CONSISTENT, INCONSISTENT, or ERROR */
-                    status?: string;
-                }[];
-            };
+        /** @description A leader's cluster-wide comparison, fanned out to every peer */
+        VerifyDatabaseClusterResponse: {
+            result: components["schemas"]["VerifyDatabaseClusterResult"];
         };
+        /** @description Leader-only cluster-wide comparison, fanned out to every peer */
+        VerifyDatabaseClusterResult: {
+            /** @description Database name */
+            database: string;
+            /** @description The leader's files with size and category */
+            files: {
+                /** @description CRC of the file's contents */
+                checksum: number;
+                /** @description File name */
+                name: string;
+                /** @description File size in bytes */
+                size: number;
+                /** @description File category */
+                type: string;
+            }[];
+            /** @description Present and true when the LEADER's own answer was short of a sealed store, so no peer comparison can be complete: the leader compares its own keys. Absent when its coverage was complete. */
+            incompleteSealedStores?: boolean;
+            /** @description Leader's file name to checksum map */
+            localChecksums: {
+                [key: string]: number;
+            };
+            /** @description Leader's peer identifier */
+            localPeerId: string;
+            /** @description Leader server name */
+            localServer: string;
+            /** @description ALL_CONSISTENT when every peer was compared and agreed, INCONSISTENCY_DETECTED when a compared peer differs, VERIFICATION_INCOMPLETE when nothing diverged but at least one peer could not be verified */
+            overallStatus: string;
+            /** @description Every other peer's comparison result */
+            peers: {
+                /** @description Why the peer could not be queried or compared. Absent on a completed comparison. */
+                error?: string;
+                /** @description Peer HTTP address */
+                httpAddress: string;
+                /** @description Files whose checksum matches. Absent when the peer could not be queried. */
+                matchingFiles?: number;
+                /** @description Files whose checksum differs. Absent when the peer could not be queried. */
+                mismatchedFiles?: number;
+                /** @description Present only when mismatchedFiles is greater than zero */
+                mismatches?: {
+                    /** @description File name */
+                    file: string;
+                    /** @description Leader's CRC for the file */
+                    localChecksum: number;
+                    /** @description Peer's CRC for the file, or 'MISSING' when the peer does not have it */
+                    remoteChecksum: string;
+                    /** @description File category */
+                    type: string;
+                }[];
+                /** @description Peer identifier */
+                peerId: string;
+                /** @description CONSISTENT, INCONSISTENT, or ERROR */
+                status: string;
+            }[];
+        };
+        /** @description One node's own checksums, for the leader to compare against. Answered by a follower, and by a leader whose request carried the already-forwarded marker. */
+        VerifyDatabaseLocalResponse: {
+            /** @description Files with size and category */
+            files: {
+                /** @description CRC of the file's contents */
+                checksum: number;
+                /** @description File name */
+                name: string;
+                /** @description File size in bytes */
+                size: number;
+                /** @description File category */
+                type: string;
+            }[];
+            /** @description File name to checksum map, for a quick cross-peer comparison */
+            localChecksums: {
+                [key: string]: number;
+            };
+            /** @description Server the checksums were taken on */
+            localServer: string;
+            /** @description Present and false when this answer did NOT cover every sealed store - an unreadable file, or a compaction pause the node could not take. Absent when coverage was complete. */
+            sealedStoresComplete?: boolean;
+            /** @description True when this build checksums the TimeSeries sealed stores as well (issue #7338). A peer on an older build omits the flag, and the leader then leaves its sealed files out of the comparison rather than reporting every one of them MISSING - a rolling upgrade must not make the divergence detector cry divergence over a file the other side was never asked to checksum. Stays true even when 'sealedStoresComplete' is false: "my build checksums them" and "this answer covers them" are different statements. */
+            sealedStoresIncluded: boolean;
+        };
+        /** @description Per-file checksums of one database, in one of two shapes. A follower - and a leader answering a request a peer already forwarded - answers the local shape, carrying only its own checksums. A leader answering a first-hand request fans out to every peer and answers the cluster shape, carrying only 'result'. The two share no member, so read 'result' to tell them apart. */
+        VerifyDatabaseResponse: components["schemas"]["VerifyDatabaseLocalResponse"] | components["schemas"]["VerifyDatabaseClusterResponse"];
     };
     responses: never;
     parameters: never;
@@ -2660,14 +3217,21 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Server-Sent Events stream of 'session', 'tool_call', 'tool_start', 'tool_end', and 'done' events. */
+            /** @description Server-Sent Events stream. Each event is one 'data: ' line carrying a JSON object, followed by a blank line; the schema below is the schema of that object. A complete stream ends with a 'done' event, and exactly one: a stream that ends without it was cut short, and the reply it would have carried was never persisted. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "text/event-stream": string;
+                    /**
+                     * @example data: {"type":"tool_start","tool":"query","args":{"database":"demo","query":"SELECT FROM Person"}}
+                     *
+                     *     data: {"type":"tool_end","tool":"query","args":{"database":"demo","query":"SELECT FROM Person"}}
+                     *
+                     *     data: {"type":"done","response":"There are 42 people.","commands":[],"chatId":"c-17"}
+                     */
+                    "text/event-stream": components["schemas"]["AiChatStreamEvent"];
                 };
             };
             /** @description Bad request: the assistant is not configured, the body or a required field is missing, or the requested protocol version is unsupported. On a version mismatch the body carries 'code' set to 'protocol_unsupported' plus the versions this server accepts; the other causes carry only 'error'. */
@@ -3118,6 +3682,8 @@ export interface operations {
          *
          *     The control keys and the '@type' values are matched case-sensitively: '@Type' is not '@type' and is refused as an unknown control key, and 'Vertex' is not 'vertex'. Only the CSV boolean literals 'true' and 'false' are matched ignoring case.
          *
+         *     A control key the encoding DOES understand, carrying a value on the kind of line that cannot use it, is refused the same way: '@id' on an edge line, '@from' or '@to' on a vertex line. It used to be dropped in silence, so a client that models both line shapes with one struct - which the gRPC sibling GraphBatchRecord invites, since it carries temp_id for both kinds - got a load that looked clean. A key carrying nothing is still accepted, so JSON null and the empty string are ignored and a single CSV header naming all five control columns across both sections keeps working, as long as the inapplicable columns are left empty.
+         *
          *     A temporary id is resolved only within the request that declared it, and only if the vertex appeared earlier in the same payload: a vertex loaded by an EARLIER request has to be referenced by RID (#bucket:position). Under refMode=ordinal, use 'ordinalBase' to keep one position counter across a load split into several requests.
          */
         requestBody: {
@@ -3268,6 +3834,8 @@ export interface operations {
             204: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
                     /** @description Session id identifying the transaction just opened. Present it on the 'arcadedb-session-id' request header of every subsequent call that belongs to this transaction. */
                     "arcadedb-session-id"?: string;
                     [name: string]: unknown;
@@ -3973,6 +4541,92 @@ export interface operations {
             };
         };
     };
+    seedClusterSecurityDocuments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What to seed, and what the caller already holds */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SecuritySeedRequest"];
+            };
+        };
+        responses: {
+            /** @description The seed outcome */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecuritySeedResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description This node is not the Raft leader; the answer names the one it believes leads */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The seed ran but one or more documents did not commit (see failedSeeds), or it could not be run at all (see error) */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecuritySeedResponse"];
+                };
+            };
+        };
+    };
     stepDownClusterLeader: {
         parameters: {
             query?: never;
@@ -4230,6 +4884,8 @@ export interface operations {
             204: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -4457,14 +5113,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Per-file checksums */
+            /** @description Per-file checksums, keyed by file name. No envelope: the map IS the body */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: number;
+                    };
                 };
             };
             /** @description Bad request */
@@ -4658,7 +5316,7 @@ export interface operations {
         /** @description JSON-RPC 2.0 request, notification, or response, or a batch of them as a top-level array */
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["JsonRpcMessage"];
             };
         };
         responses: {
@@ -4669,7 +5327,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["JsonRpcMessage"];
                 };
             };
             /** @description Accepted, no body. The request carried only notifications and/or JSON-RPC responses, which this server never answers. */
@@ -4697,7 +5355,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["JsonRpcMessage"];
                 };
             };
             /** @description Method not allowed, reported as a JSON-RPC error envelope. This endpoint accepts POST only. */
@@ -4707,7 +5365,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["JsonRpcMessage"];
                 };
             };
             /** @description Internal server error */
@@ -4727,7 +5385,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["JsonRpcMessage"];
                 };
             };
         };
@@ -4803,7 +5461,7 @@ export interface operations {
         /** @description Partial configuration. Omitted fields keep their current value. */
         requestBody: {
             content: {
-                "application/json": components["schemas"]["McpConfig"];
+                "application/json": components["schemas"]["McpConfigUpdate"];
             };
         };
         responses: {
@@ -5053,6 +5711,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5164,6 +5824,8 @@ export interface operations {
             204: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -5212,7 +5874,10 @@ export interface operations {
     };
     getServerInfo: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Which optional sections to include. 'default' adds 'metrics' and 'settings', 'cluster' adds 'ha', 'basic' adds nothing and is the cheapest form. An unrecognised value behaves like 'basic'. */
+                mode?: "default" | "basic" | "cluster";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -5325,6 +5990,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description 'connect cluster' joined the server, but one or more of the cluster's security documents could not be seeded to it. The new peer is a committed cluster member enforcing its own copy of them. The 'failedSeeds' array names the documents; re-run the command to reissue the seed. */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
             504: {
                 headers: {
@@ -5353,7 +6028,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ApiTokenList"];
                 };
             };
             /** @description Bad request */
@@ -5408,7 +6083,7 @@ export interface operations {
         /** @description Token creation with name, database, expiresAt, and permissions */
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["CreateApiTokenRequest"];
             };
         };
         responses: {
@@ -5419,7 +6094,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CreateApiTokenResponse"];
                 };
             };
             /** @description Bad request */
@@ -5444,6 +6119,16 @@ export interface operations {
             };
             /** @description Forbidden - root user required */
             403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server */
+            412: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -5483,7 +6168,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SecurityAdminResult"];
                 };
             };
             /** @description Bad request */
@@ -5544,7 +6229,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["GroupList"];
                 };
             };
             /** @description Bad request */
@@ -5599,7 +6284,7 @@ export interface operations {
         /** @description Group configuration with database, name, and access permissions */
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["SaveGroupRequest"];
             };
         };
         responses: {
@@ -5610,7 +6295,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SecurityAdminResult"];
                 };
             };
             /** @description Bad request */
@@ -5676,7 +6361,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SecurityAdminResult"];
                 };
             };
             /** @description Bad request */
@@ -5737,7 +6422,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["UserList"];
                 };
             };
             /** @description Bad request */
@@ -5795,7 +6480,7 @@ export interface operations {
         /** @description User update request with optional password and databases */
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["UpdateUserRequest"];
             };
         };
         responses: {
@@ -5806,7 +6491,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SecurityAdminResult"];
                 };
             };
             /** @description Bad request */
@@ -5871,7 +6556,7 @@ export interface operations {
         /** @description User creation request with name, password, and optional databases */
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["CreateUserRequest"];
             };
         };
         responses: {
@@ -5882,7 +6567,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SecurityAdminResult"];
                 };
             };
             /** @description Bad request */
@@ -5956,7 +6641,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SecurityAdminResult"];
                 };
             };
             /** @description Bad request */
@@ -6065,7 +6750,10 @@ export interface operations {
     checkGrafanaHealth: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6078,6 +6766,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6114,7 +6806,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6139,7 +6831,10 @@ export interface operations {
     getGrafanaMetadata: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6152,6 +6847,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6188,7 +6887,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6213,7 +6912,10 @@ export interface operations {
     queryGrafana: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6231,6 +6933,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6267,7 +6973,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6297,7 +7003,10 @@ export interface operations {
                 /** @description Tag filter in name:value form. Repeat the parameter to narrow to one series across several tags: every occurrence must match. An occurrence that carries no ':' separator, or whose name is no TAG column of the type, is refused with 400 rather than ignored. */
                 tag?: string[];
             };
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6310,6 +7019,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6346,7 +7059,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6370,8 +7083,16 @@ export interface operations {
     };
     promQLLabelValues: {
         parameters: {
-            query?: never;
-            header?: never;
+            query?: {
+                /** @description Inclusive range start as a Unix timestamp in seconds, fractional seconds allowed */
+                start?: string;
+                /** @description Inclusive range end as a Unix timestamp in seconds, fractional seconds allowed */
+                end?: string;
+            };
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6386,6 +7107,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6422,7 +7147,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6447,7 +7172,10 @@ export interface operations {
     promQLLabels: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6460,6 +7188,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6496,7 +7228,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6528,7 +7260,10 @@ export interface operations {
                 /** @description How far back to look for a sample, as a duration such as '5m'. Defaults to the server setting. */
                 lookback_delta?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6541,6 +7276,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6577,7 +7316,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6613,7 +7352,10 @@ export interface operations {
                 /** @description How far back to look for a sample, as a duration such as '5m'. Defaults to the server setting. */
                 lookback_delta?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6626,6 +7368,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6662,7 +7408,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6694,7 +7440,10 @@ export interface operations {
                 /** @description Inclusive range end as a Unix timestamp in seconds, fractional seconds allowed */
                 end?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6707,6 +7456,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6743,7 +7496,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6768,7 +7521,10 @@ export interface operations {
     prometheusRemoteRead: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6786,6 +7542,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6822,7 +7582,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6847,7 +7607,10 @@ export interface operations {
     prometheusRemoteWrite: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6865,6 +7628,8 @@ export interface operations {
             204: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -6899,7 +7664,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found, or the session id header names a transaction that no longer resolves ("Remote transaction session not found or expired"): a write is refused rather than run outside the transaction the caller believes it is inside. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6924,7 +7689,10 @@ export interface operations {
     queryTimeSeries: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -6942,6 +7710,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -6978,7 +7750,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -7016,7 +7788,14 @@ export interface operations {
                 /** @description Unit of the timestamps in the body. Defaults to nanoseconds when omitted. */
                 precision?: "ns" | "us" | "ms" | "s";
             };
-            header?: never;
+            header?: {
+                /**
+                 * @description Session id returned by 'beginTransaction'. It makes this call run under that session's lock and principal and refreshes its idle timer, so a client that only ingests does not have its transaction reaped underneath it, and it turns a session id this server no longer knows into a 404 rather than a silent write outside the transaction you believe you are in.
+                 *
+                 *     It does NOT put the samples in that transaction. They are committed as they are appended and are readable by everyone before you commit anything; rolling the transaction back does not remove them. Omit it to run outside any transaction: for the samples themselves that is the same thing.
+                 */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -7034,6 +7813,8 @@ export interface operations {
             204: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content?: never;
@@ -7068,7 +7849,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found, or the session id header names a transaction that no longer resolves ("Remote transaction session not found or expired"): a write is refused rather than run outside the transaction the caller believes it is inside. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -7093,7 +7874,10 @@ export interface operations {
     fullTextSearch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -7111,6 +7895,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -7147,7 +7935,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -7172,7 +7960,10 @@ export interface operations {
     hybridSearch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -7190,6 +7981,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -7226,7 +8021,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -7251,7 +8046,10 @@ export interface operations {
     vectorSearch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
+                "arcadedb-session-id"?: string;
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -7269,6 +8067,10 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
+                    "arcadedb-session-expired"?: string;
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -7305,7 +8107,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Not found */
+            /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];

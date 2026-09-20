@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
+from ..models.prom_ql_data_response_status import PromQLDataResponseStatus
 
 if TYPE_CHECKING:
     from ..models.prom_ql_data_response_data import PromQLDataResponseData
@@ -20,28 +20,27 @@ class PromQLDataResponse:
     """Prometheus query response
 
     Attributes:
-        data (PromQLDataResponseData | Unset): Evaluation result
-        status (str | Unset): Always 'success' on a 200
+        data (PromQLDataResponseData): Evaluation result
+        status (PromQLDataResponseStatus): Always 'success' on a 200. The error envelope carries 'error' here instead
     """
 
-    data: PromQLDataResponseData | Unset = UNSET
-    status: str | Unset = UNSET
+    data: PromQLDataResponseData
+    status: PromQLDataResponseStatus
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.data, Unset):
-            data = self.data.to_dict()
+        data = self.data.to_dict()
 
-        status = self.status
+        status = self.status.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if data is not UNSET:
-            field_dict["data"] = data
-        if status is not UNSET:
-            field_dict["status"] = status
+        field_dict.update(
+            {
+                "data": data,
+                "status": status,
+            }
+        )
 
         return field_dict
 
@@ -50,14 +49,9 @@ class PromQLDataResponse:
         from ..models.prom_ql_data_response_data import PromQLDataResponseData
 
         d = dict(src_dict)
-        _data = d.pop("data", UNSET)
-        data: PromQLDataResponseData | Unset
-        if isinstance(_data, Unset):
-            data = UNSET
-        else:
-            data = PromQLDataResponseData.from_dict(_data)
+        data = PromQLDataResponseData.from_dict(d.pop("data"))
 
-        status = d.pop("status", UNSET)
+        status = PromQLDataResponseStatus(d.pop("status"))
 
         prom_ql_data_response = cls(
             data=data,

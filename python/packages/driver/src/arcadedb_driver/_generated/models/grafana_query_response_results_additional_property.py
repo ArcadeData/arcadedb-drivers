@@ -22,31 +22,31 @@ class GrafanaQueryResponseResultsAdditionalProperty:
     """Result for one target. Carries 'error' instead of frames when the target could not be resolved.
 
     Attributes:
+        frames (list[GrafanaQueryResponseResultsAdditionalPropertyFramesItem]): Frames produced by the target
         error (str | Unset): Why the target could not be resolved. Present only when it failed; 'frames' is then empty.
-        frames (list[GrafanaQueryResponseResultsAdditionalPropertyFramesItem] | Unset): Frames produced by the target
     """
 
+    frames: list[GrafanaQueryResponseResultsAdditionalPropertyFramesItem]
     error: str | Unset = UNSET
-    frames: list[GrafanaQueryResponseResultsAdditionalPropertyFramesItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        error = self.error
+        frames = []
+        for frames_item_data in self.frames:
+            frames_item = frames_item_data.to_dict()
+            frames.append(frames_item)
 
-        frames: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.frames, Unset):
-            frames = []
-            for frames_item_data in self.frames:
-                frames_item = frames_item_data.to_dict()
-                frames.append(frames_item)
+        error = self.error
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "frames": frames,
+            }
+        )
         if error is not UNSET:
             field_dict["error"] = error
-        if frames is not UNSET:
-            field_dict["frames"] = frames
 
         return field_dict
 
@@ -57,20 +57,18 @@ class GrafanaQueryResponseResultsAdditionalProperty:
         )
 
         d = dict(src_dict)
+        frames = []
+        _frames = d.pop("frames")
+        for frames_item_data in _frames:
+            frames_item = GrafanaQueryResponseResultsAdditionalPropertyFramesItem.from_dict(frames_item_data)
+
+            frames.append(frames_item)
+
         error = d.pop("error", UNSET)
 
-        _frames = d.pop("frames", UNSET)
-        frames: list[GrafanaQueryResponseResultsAdditionalPropertyFramesItem] | Unset = UNSET
-        if _frames is not UNSET:
-            frames = []
-            for frames_item_data in _frames:
-                frames_item = GrafanaQueryResponseResultsAdditionalPropertyFramesItem.from_dict(frames_item_data)
-
-                frames.append(frames_item)
-
         grafana_query_response_results_additional_property = cls(
-            error=error,
             frames=frames,
+            error=error,
         )
 
         grafana_query_response_results_additional_property.additional_properties = d

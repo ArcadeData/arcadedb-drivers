@@ -9,12 +9,17 @@ from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
 from ...models.prom_ql_error_response import PromQLErrorResponse
 from ...models.prom_ql_labels_response import PromQLLabelsResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     database: str,
+    *,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(arcadedb_session_id, Unset):
+        headers["arcadedb-session-id"] = arcadedb_session_id
 
     _kwargs: dict[str, Any] = {
         "method": "get",
@@ -23,6 +28,7 @@ def _get_kwargs(
         ),
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -80,6 +86,7 @@ def sync_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse]:
     """List label names
 
@@ -89,6 +96,7 @@ def sync_detailed(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -100,6 +108,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         database=database,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -113,6 +122,7 @@ def sync(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse | None:
     """List label names
 
@@ -122,6 +132,7 @@ def sync(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -134,6 +145,7 @@ def sync(
     return sync_detailed(
         database=database,
         client=client,
+        arcadedb_session_id=arcadedb_session_id,
     ).parsed
 
 
@@ -141,6 +153,7 @@ async def asyncio_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse]:
     """List label names
 
@@ -150,6 +163,7 @@ async def asyncio_detailed(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -161,6 +175,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         database=database,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -172,6 +187,7 @@ async def asyncio(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse | None:
     """List label names
 
@@ -181,6 +197,7 @@ async def asyncio(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -194,5 +211,6 @@ async def asyncio(
         await asyncio_detailed(
             database=database,
             client=client,
+            arcadedb_session_id=arcadedb_session_id,
         )
     ).parsed

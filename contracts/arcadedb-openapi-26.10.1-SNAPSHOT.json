@@ -23,6 +23,13 @@
           "peerId": {
             "description": "Peer identifier",
             "type": "string"
+          },
+          "priority": {
+            "default": 0,
+            "description": "Raft leader-election priority, a non-negative integer. Defaults to 0, which is Ratis's own default and leaves the peer as electable as every other peer on a cluster where nobody names a priority. Once ANY peer carries a positive priority the priority-0 ones become witnesses that are never elected and are skipped as step-down targets, so 0 is how a witness is declared and a higher value how a preferred leader is. A fractional value or one that does not fit in a 32-bit integer is refused rather than rounded, because the value it would round to declares a witness. The same field the 'priority' of an arcadedb.ha.serverList entry sets.",
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
           }
         },
         "required": [
@@ -52,13 +59,17 @@
             "type": "boolean"
           }
         },
+        "required": [
+          "activated"
+        ],
         "type": "object"
       },
       "AiAnalyzeProfilerRequest": {
         "description": "Profiler analysis request",
         "properties": {
           "profilerData": {
-            "description": "Profiler snapshot to analyse",
+            "additionalProperties": true,
+            "description": "Profiler snapshot to analyse. An open map: the server forwards it to the assistant as it stands and derives the schema of every database named inside it, rather than reading a fixed set of keys out of it - so the shape follows whatever the profiler produced.",
             "type": "object"
           }
         },
@@ -73,8 +84,7 @@
           "commands": {
             "description": "Commands the assistant proposes. Absent when it proposes none.",
             "items": {
-              "description": "A proposed command",
-              "type": "object"
+              "$ref": "#/components/schemas/AiCommand"
             },
             "type": "array"
           },
@@ -83,6 +93,9 @@
             "type": "string"
           }
         },
+        "required": [
+          "response"
+        ],
         "type": "object"
       },
       "AiChat": {
@@ -108,8 +121,7 @@
                 "commands": {
                   "description": "SQL commands the assistant proposed with this reply. Present only on an assistant message that proposed at least one.",
                   "items": {
-                    "description": "A proposed command",
-                    "type": "object"
+                    "$ref": "#/components/schemas/AiCommand"
                   },
                   "type": "array"
                 },
@@ -118,7 +130,11 @@
                   "type": "string"
                 },
                 "role": {
-                  "description": "'user' or the assistant role",
+                  "description": "Who wrote the message",
+                  "enum": [
+                    "user",
+                    "assistant"
+                  ],
                   "type": "string"
                 },
                 "timestamp": {
@@ -126,6 +142,11 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "content",
+                "role",
+                "timestamp"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -139,6 +160,13 @@
             "type": "string"
           }
         },
+        "required": [
+          "created",
+          "database",
+          "id",
+          "title",
+          "updated"
+        ],
         "type": "object"
       },
       "AiChatDeleted": {
@@ -149,19 +177,25 @@
             "type": "boolean"
           }
         },
+        "required": [
+          "deleted"
+        ],
         "type": "object"
       },
       "AiChatList": {
         "description": "Stored chats",
         "properties": {
           "chats": {
-            "description": "Stored chat transcripts, metadata only (no 'messages')",
+            "description": "Stored chat transcripts, metadata only (no 'messages'). Empty when this user has stored none",
             "items": {
               "$ref": "#/components/schemas/AiChat"
             },
             "type": "array"
           }
         },
+        "required": [
+          "chats"
+        ],
         "type": "object"
       },
       "AiChatRequest": {
@@ -200,8 +234,7 @@
           "commands": {
             "description": "SQL commands the assistant proposes. Absent when it proposes none.",
             "items": {
-              "description": "A proposed command",
-              "type": "object"
+              "$ref": "#/components/schemas/AiCommand"
             },
             "type": "array"
           },
@@ -212,12 +245,82 @@
           "toolCalls": {
             "description": "Tools the assistant invoked while answering. Absent when it invoked none.",
             "items": {
-              "description": "A tool invocation",
-              "type": "object"
+              "$ref": "#/components/schemas/AiToolCall"
             },
             "type": "array"
           }
         },
+        "required": [
+          "chatId",
+          "response"
+        ],
+        "type": "object"
+      },
+      "AiChatStreamEvent": {
+        "description": "One event of the chat stream. 'type' says which one; the other members below belong to the kinds their descriptions name, and an event carries only its own.",
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "description": "Arguments the assistant passed to the tool, echoed identically on 'tool_start' and 'tool_end'. An open map: the keys are the tool's own parameters.",
+            "type": "object"
+          },
+          "chatId": {
+            "description": "Chat this exchange belongs to, on 'done'. Added by this server, not by the gateway, and the chat is persisted before this event is written - so a client that has seen it can read the chat back immediately.",
+            "type": "string"
+          },
+          "commands": {
+            "description": "SQL commands the assistant proposes, on 'done'. Absent or empty when it proposes none",
+            "items": {
+              "$ref": "#/components/schemas/AiCommand"
+            },
+            "type": "array"
+          },
+          "error": {
+            "description": "Why the tool failed, on 'tool_end' only, and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller.",
+            "type": "string"
+          },
+          "response": {
+            "description": "The assistant's reply, on 'done'. The same value POST /api/v1/ai/chat returns under this name",
+            "type": "string"
+          },
+          "tool": {
+            "description": "Name of the tool being run, on 'tool_start' and 'tool_end'. The same name appears on both, which is how a consumer pairs them",
+            "type": "string"
+          },
+          "type": {
+            "description": "Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.",
+            "enum": [
+              "tool_start",
+              "tool_end",
+              "done"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "AiCommand": {
+        "description": "One command the assistant proposes. Proposed only: the server never runs it, the caller does",
+        "properties": {
+          "command": {
+            "description": "The statement text",
+            "type": "string"
+          },
+          "language": {
+            "description": "Query language the statement is written in. Treated as 'sql' when absent",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "One line saying what the statement is for, shown above it. Absent when the assistant gave none",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
         "type": "object"
       },
       "AiConfig": {
@@ -244,6 +347,12 @@
             "type": "array"
           }
         },
+        "required": [
+          "configured",
+          "currentProtocolVersion",
+          "gatewayUrl",
+          "supportedProtocolVersions"
+        ],
         "type": "object"
       },
       "AiProtocolError": {
@@ -270,13 +379,104 @@
             "type": "array"
           }
         },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "AiToolCall": {
+        "description": "One tool invocation, reported after the fact. The same pair of members the stream's 'tool_start' carries",
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "description": "Arguments it was run with, keyed by the tool's own parameter names",
+            "type": "object"
+          },
+          "error": {
+            "description": "Why it failed. Absent on a run that succeeded",
+            "type": "string"
+          },
+          "tool": {
+            "description": "Name of the tool that was run",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool"
+        ],
+        "type": "object"
+      },
+      "ApiTokenList": {
+        "description": "Every issued API token",
+        "properties": {
+          "count": {
+            "description": "Number of tokens returned",
+            "type": "integer"
+          },
+          "result": {
+            "description": "Tokens, metadata only",
+            "items": {
+              "description": "One issued API token, as metadata only",
+              "properties": {
+                "createdAt": {
+                  "description": "Issue time as epoch milliseconds",
+                  "type": "integer"
+                },
+                "database": {
+                  "description": "Database the token is scoped to. '*' means every database",
+                  "type": "string"
+                },
+                "expired": {
+                  "description": "Whether this token's expiry has passed. Carried by the listing only. An expired token authenticates nobody, but it stays listed until the next token change retires it",
+                  "type": "boolean"
+                },
+                "expiresAt": {
+                  "description": "Expiry as epoch milliseconds. 0 means the token does not expire",
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "Token name, unique among issued tokens",
+                  "type": "string"
+                },
+                "permissions": {
+                  "additionalProperties": true,
+                  "description": "Permissions the token carries, in the same shape a group's 'types' map takes",
+                  "type": "object"
+                },
+                "tokenHash": {
+                  "description": "SHA-256 hex of the token. The handle DELETE names; the only one the server keeps",
+                  "type": "string"
+                },
+                "tokenSuffix": {
+                  "description": "Last characters of the plaintext token, so an operator can tell two entries apart",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "createdAt",
+                "database",
+                "expiresAt",
+                "name",
+                "permissions",
+                "tokenHash",
+                "tokenSuffix"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "result"
+        ],
         "type": "object"
       },
       "BatchEdgeLine": {
         "additionalProperties": {
           "description": "One property of the record, keyed by its name. Any JSON scalar, array or nested object; a nested object is stored as an embedded document. The name may not start with '@' - that prefix is reserved for the control keys - and a property named 'properties' may not carry an object, because that is the nested-form misreading rather than data."
         },
-        "description": "An edge line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400.",
+        "description": "An edge line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. '@id' is a vertex's temporary id and an edge is never referenced by one: carrying it here is refused with a 400 naming the line, not dropped.",
         "properties": {
           "@class": {
             "description": "Edge type to create the record in. The type must already exist: a bulk load creates records, never types.",
@@ -323,7 +523,7 @@
             "type": "string"
           },
           "exception": {
-            "description": "Exception class name, for distinguishing failure classes programmatically",
+            "description": "Exception class name, for distinguishing failure classes programmatically. On the 400 it is always present; on the 408 it is absent when nothing threw - a body that simply ended before its announced length, or a malformed record that turned out to be a cut upload. Key on the status for that distinction, not on this member.",
             "type": "string"
           },
           "linesRead": {
@@ -351,6 +551,15 @@
             "type": "integer"
           }
         },
+        "required": [
+          "bytesRead",
+          "edgesCreated",
+          "error",
+          "linesRead",
+          "linesSkipped",
+          "partialCommit",
+          "verticesCreated"
+        ],
         "type": "object"
       },
       "BatchLine": {
@@ -389,6 +598,10 @@
             "type": "integer"
           },
           "idMapping": {
+            "additionalProperties": {
+              "description": "RID, in #bucket:position form",
+              "type": "string"
+            },
             "description": "Temporary id to RID mapping, present only when temporary ids were used and the mapping was small enough to echo",
             "type": "object"
           },
@@ -417,13 +630,21 @@
             "type": "integer"
           }
         },
+        "required": [
+          "bytesRead",
+          "edgesCreated",
+          "elapsedMs",
+          "linesRead",
+          "linesSkipped",
+          "verticesCreated"
+        ],
         "type": "object"
       },
       "BatchVertexLine": {
         "additionalProperties": {
           "description": "One property of the record, keyed by its name. Any JSON scalar, array or nested object; a nested object is stored as an embedded document. The name may not start with '@' - that prefix is reserved for the control keys - and a property named 'properties' may not carry an object, because that is the nested-form misreading rather than data."
         },
-        "description": "A vertex line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400.",
+        "description": "A vertex line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT nested under a 'properties' key, and sending one carrying an object is refused with a 400. '@from' and '@to' name an edge's endpoints and a vertex has none: carrying either here is refused with a 400 naming the line, not dropped.",
         "properties": {
           "@class": {
             "description": "Vertex type to create the record in. The type must already exist: a bulk load creates records, never types.",
@@ -452,7 +673,7 @@
         "description": "Per-database bootstrap state of one peer",
         "properties": {
           "databases": {
-            "description": "Databases on this peer",
+            "description": "Databases on this peer. Empty when it holds none",
             "items": {
               "description": "One database's bootstrap state",
               "properties": {
@@ -473,6 +694,11 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "fingerprint",
+                "lastTxId",
+                "name"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -482,6 +708,10 @@
             "type": "string"
           }
         },
+        "required": [
+          "databases",
+          "peerId"
+        ],
         "type": "object"
       },
       "ClusterActionResponse": {
@@ -504,13 +734,20 @@
             "type": "string"
           }
         },
+        "required": [
+          "result"
+        ],
         "type": "object"
       },
       "ClusterAuthSessionRequest": {
         "description": "A session token and the action to apply to it",
         "properties": {
           "action": {
-            "description": "'validate' (default) or 'revoke'",
+            "description": "What to do with the token. 'validate' answers with the session the issuer holds; 'revoke' drops it. Defaults to 'validate'. Anything else is refused with a 400 naming it.",
+            "enum": [
+              "validate",
+              "revoke"
+            ],
             "type": "string"
           },
           "token": {
@@ -535,15 +772,59 @@
             "type": "string"
           }
         },
+        "required": [
+          "createdAt",
+          "user"
+        ],
         "type": "object"
       },
       "ClusterStatus": {
         "description": "Cluster and replication status",
         "properties": {
           "alerts": {
-            "description": "Conditions worth an operator's attention",
+            "description": "Conditions worth an operator's attention. Empty when the cluster is healthy: an absent array is not a state this endpoint produces",
             "items": {
               "description": "One cluster alert",
+              "properties": {
+                "details": {
+                  "additionalProperties": true,
+                  "description": "The condition's own data - the peers involved, the databases behind, the lag figures. An open map because each 'id' carries its own keys; read it against the 'id', not blind.",
+                  "type": "object"
+                },
+                "id": {
+                  "description": "Stable identifier of the condition, e.g. 'lagging-followers' or 'local-resync-in-progress'. Key a monitoring rule on this rather than on 'title', which is prose and may be reworded.",
+                  "type": "string"
+                },
+                "message": {
+                  "description": "What is wrong, in full sentences",
+                  "type": "string"
+                },
+                "recommendation": {
+                  "description": "What an operator should do about it",
+                  "type": "string"
+                },
+                "severity": {
+                  "description": "How urgent the condition is. 'critical' means this node or the cluster is not serving correctly right now, 'warning' that it will not keep serving correctly, 'info' that a declared configuration and the live one differ without consequence yet.",
+                  "enum": [
+                    "info",
+                    "warning",
+                    "critical"
+                  ],
+                  "type": "string"
+                },
+                "title": {
+                  "description": "One line naming the condition, for a dashboard row",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "details",
+                "id",
+                "message",
+                "recommendation",
+                "severity",
+                "title"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -560,8 +841,44 @@
             "description": "Configured cluster name",
             "type": "string"
           },
+          "crashLoopEscalated": {
+            "description": "True once the health monitor has given up restarting this node's HA layer (issue #7622). The liveness counterpart of the two above: this is what makes '/api/v1/health' answer unhealthy.",
+            "type": "boolean"
+          },
+          "criticalHalt": {
+            "description": "Why this node's replication state machine halted, or null while it is applying entries. Present on every answer. A non-null value means this node's databases are frozen at 'index' and will not advance again in this process: restart it.",
+            "nullable": true,
+            "properties": {
+              "index": {
+                "description": "The Raft index being applied when the halt tripped, or -1 when the entry carried none",
+                "type": "integer"
+              },
+              "reason": {
+                "description": "One line naming what could not be applied. 'unknown Raft log entry type' means a newer peer is writing a format this build cannot read, and the answer is to upgrade this node; anything else is a bug. Raw exception text, so it is shown to the root user only: another caller reads a placeholder here while still getting 'index' and 'timestamp'",
+                "type": "string"
+              },
+              "timestamp": {
+                "description": "When it tripped, as epoch milliseconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "index",
+              "reason",
+              "timestamp"
+            ],
+            "type": "object"
+          },
           "databasePresence": {
-            "description": "Which peer holds which database. Present only when this server is the leader and the request set '?presence=true'.",
+            "additionalProperties": {
+              "description": "Peers that hold this database",
+              "items": {
+                "description": "Peer identifier",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Which peer holds which database, keyed by database name. Present only when this server is the leader and the request set '?presence=true'.",
             "type": "object"
           },
           "databases": {
@@ -594,6 +911,9 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "name"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -628,9 +948,82 @@
             "description": "True when the leader has finished the work that makes it safe to serve writes",
             "type": "boolean"
           },
+          "localAppliedIndex": {
+            "description": "Last Raft index this node has applied. -1 when the division cannot be read, e.g. during an in-place restart",
+            "type": "integer"
+          },
+          "localCommitIndex": {
+            "description": "Last Raft index this node knows to be committed. -1 under the same condition",
+            "type": "integer"
+          },
           "localPeerId": {
             "description": "This server's peer identifier",
             "type": "string"
+          },
+          "localReplicationLag": {
+            "description": "Entries this node has yet to apply: 'localCommitIndex' minus 'localAppliedIndex'. -1 rather than a fabricated difference whenever either side is unknown",
+            "type": "integer"
+          },
+          "localResync": {
+            "description": "This node's resync state. Present on every answer. The database names it carries are reduced to the ones the caller is authorized on, so a caller scoped to one database cannot learn another tenant's database name from a status poll.",
+            "properties": {
+              "databaseAppliedFloors": {
+                "additionalProperties": {
+                  "description": "Raft index this database has been brought to",
+                  "type": "integer"
+                },
+                "description": "Per-database applied floor, keyed by database name",
+                "type": "object"
+              },
+              "divergedDatabases": {
+                "description": "Databases quarantined because this node's WAL diverged from the leader's",
+                "items": {
+                  "description": "Database name",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "divergenceCauses": {
+                "additionalProperties": {
+                  "description": "Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index.",
+                  "enum": [
+                    "WAL_VERSION_GAP",
+                    "UNDECODABLE_LOG_ENTRY",
+                    "APPLY_ERROR",
+                    "SNAPSHOT_INSTALL_INCOMPLETE"
+                  ],
+                  "type": "string"
+                },
+                "description": "Why each quarantined database was quarantined, keyed by database name. Same keys as 'divergedDatabases'",
+                "type": "object"
+              },
+              "inProgress": {
+                "description": "True while a resync is holding this node out of the ready set. NOT the whole answer '/api/v1/ready' gives: a node halted by a critical error or wedged by a log-write failure has this false and answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872).",
+                "type": "boolean"
+              },
+              "snapshotAppliedFloor": {
+                "description": "Raft index the last installed snapshot brought this node to",
+                "type": "integer"
+              },
+              "snapshotDownloadInProgress": {
+                "description": "A snapshot is being installed now",
+                "type": "boolean"
+              },
+              "snapshotDownloadQueued": {
+                "description": "A snapshot install is waiting to start",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "databaseAppliedFloors",
+              "divergedDatabases",
+              "divergenceCauses",
+              "inProgress",
+              "snapshotAppliedFloor",
+              "snapshotDownloadInProgress",
+              "snapshotDownloadQueued"
+            ],
+            "type": "object"
           },
           "peers": {
             "description": "Known peers",
@@ -648,6 +1041,10 @@
                     "type": "string"
                   },
                   "type": "array"
+                },
+                "capabilitiesUnknownReason": {
+                  "description": "Why 'capabilities' is absent for this peer, when the leader knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the capability route or was never asked because its address identifies no single peer, and the two have nothing alike as remedies (issue #7256). Written by the leader only.",
+                  "type": "string"
                 },
                 "httpAddress": {
                   "description": "Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved.",
@@ -706,9 +1103,38 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "address",
+                "id",
+                "role"
+              ],
               "type": "object"
             },
             "type": "array"
+          },
+          "raftLogFailure": {
+            "description": "The persistent Raft log-write failure wedging this node, or null while the log writer is healthy. Present on every answer. A non-null value means Ratis is rejecting every append, so the node can neither catch up nor become caught up; the usual cause is a full Raft storage volume, and it clears by itself once the health monitor restarts the writer in place.",
+            "nullable": true,
+            "properties": {
+              "cause": {
+                "description": "The failure Ratis reported, as its own text, which routinely names the Raft storage path - so it is shown to the root user only: another caller reads a placeholder here while still getting 'index' and 'timestamp'",
+                "type": "string"
+              },
+              "index": {
+                "description": "The Raft index of the entry whose write failed, or -1 when the failure was on a log segment",
+                "type": "integer"
+              },
+              "timestamp": {
+                "description": "When it was first reported, as epoch milliseconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cause",
+              "index",
+              "timestamp"
+            ],
+            "type": "object"
           },
           "raftState": {
             "description": "Raft lifecycle state",
@@ -719,6 +1145,30 @@
             "type": "integer"
           }
         },
+        "required": [
+          "alerts",
+          "capabilities",
+          "clusterName",
+          "crashLoopEscalated",
+          "criticalHalt",
+          "databases",
+          "electionCount",
+          "implementation",
+          "isLeader",
+          "lastElectionTime",
+          "leaderHttpAddress",
+          "leaderId",
+          "leaderReady",
+          "localAppliedIndex",
+          "localCommitIndex",
+          "localPeerId",
+          "localReplicationLag",
+          "localResync",
+          "peers",
+          "raftLogFailure",
+          "raftState",
+          "uptime"
+        ],
         "type": "object"
       },
       "CommandRequest": {
@@ -739,6 +1189,9 @@
             "type": "integer"
           },
           "params": {
+            "additionalProperties": {
+              "description": "One parameter value"
+            },
             "description": "Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {\"$bytes\": \"<base64>\"} for byte[] (standard or URL-safe base64), {\"$int8\": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip).",
             "type": "object"
           }
@@ -746,6 +1199,126 @@
         "required": [
           "command",
           "language"
+        ],
+        "type": "object"
+      },
+      "CreateApiTokenRequest": {
+        "description": "A token to issue",
+        "properties": {
+          "database": {
+            "description": "Database to scope the token to. Defaults to '*', every database, which an empty value also means",
+            "type": "string"
+          },
+          "expiresAt": {
+            "description": "Expiry as epoch milliseconds. Defaults to 0, which does not expire",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Token name. Must not already be in use",
+            "type": "string"
+          },
+          "permissions": {
+            "additionalProperties": true,
+            "description": "Permissions to grant, in the same shape a group's 'types' map takes. Defaults to none",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "CreateApiTokenResponse": {
+        "description": "Result of issuing an API token",
+        "properties": {
+          "result": {
+            "description": "The issued token: every field the listing carries, plus the plaintext 'token'. Read it now - the server stores only the hash, so this is the one and only time that value exists outside the caller's hands.",
+            "properties": {
+              "createdAt": {
+                "description": "Issue time as epoch milliseconds",
+                "type": "integer"
+              },
+              "database": {
+                "description": "Database the token is scoped to. '*' means every database",
+                "type": "string"
+              },
+              "expired": {
+                "description": "Whether this token's expiry has passed. Carried by the listing only. An expired token authenticates nobody, but it stays listed until the next token change retires it",
+                "type": "boolean"
+              },
+              "expiresAt": {
+                "description": "Expiry as epoch milliseconds. 0 means the token does not expire",
+                "type": "integer"
+              },
+              "name": {
+                "description": "Token name, unique among issued tokens",
+                "type": "string"
+              },
+              "permissions": {
+                "additionalProperties": true,
+                "description": "Permissions the token carries, in the same shape a group's 'types' map takes",
+                "type": "object"
+              },
+              "token": {
+                "description": "The plaintext token, presented as a bearer credential. Returned exactly once, here; it cannot be read back from the listing and cannot be recovered if lost.",
+                "type": "string"
+              },
+              "tokenHash": {
+                "description": "SHA-256 hex of the token. The handle DELETE names; the only one the server keeps",
+                "type": "string"
+              },
+              "tokenSuffix": {
+                "description": "Last characters of the plaintext token, so an operator can tell two entries apart",
+                "type": "string"
+              }
+            },
+            "required": [
+              "createdAt",
+              "database",
+              "expiresAt",
+              "name",
+              "permissions",
+              "tokenHash",
+              "tokenSuffix",
+              "token"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      },
+      "CreateUserRequest": {
+        "description": "A user to create",
+        "properties": {
+          "databases": {
+            "additionalProperties": {
+              "description": "Groups the user holds on this database",
+              "items": {
+                "description": "Group name",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Database assignments, keyed by database name. '*' means every database",
+            "type": "object"
+          },
+          "name": {
+            "description": "User name. Must not be blank and must not start with 'apitoken:', which is the prefix reserved for the synthetic principals API tokens authenticate as.",
+            "type": "string"
+          },
+          "password": {
+            "description": "Plaintext password, hashed by the server before it is stored",
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "password"
         ],
         "type": "object"
       },
@@ -757,45 +1330,65 @@
             "type": "boolean"
           }
         },
+        "required": [
+          "result"
+        ],
         "type": "object"
       },
       "DatabaseList": {
         "description": "Database list response",
         "properties": {
           "result": {
-            "description": "List of database names",
+            "description": "The databases this caller is authorized on, not every database installed. A database the caller cannot see is indistinguishable here from one that does not exist.",
             "items": {
+              "description": "Database name",
               "type": "string"
             },
             "type": "array"
+          },
+          "user": {
+            "description": "The authenticated caller",
+            "type": "string"
+          },
+          "version": {
+            "description": "Server version",
+            "type": "string"
           }
         },
+        "required": [
+          "result",
+          "user",
+          "version"
+        ],
         "type": "object"
       },
       "ErrorResponse": {
         "description": "Error response object",
         "properties": {
           "detail": {
-            "description": "Error details",
+            "description": "Error details, including the cause chain when there is one. Absent when there is nothing to add",
             "type": "string"
           },
           "error": {
-            "description": "Error message",
+            "description": "Error message. The one member every error body carries",
             "type": "string"
           },
           "exception": {
-            "description": "Exception class name",
+            "description": "Exception class name, for distinguishing failure classes programmatically. Absent when the failure was raised as a plain message rather than from an exception",
             "type": "string"
           },
           "exceptionArgs": {
-            "description": "Exception arguments",
+            "description": "Exception arguments, when the exception class carries any",
             "type": "string"
           },
           "help": {
-            "description": "Help information",
+            "description": "What to do about it, when the server can say",
             "type": "string"
           }
         },
+        "required": [
+          "error"
+        ],
         "type": "object"
       },
       "FullTextSearchRequest": {
@@ -876,7 +1469,11 @@
             "type": "array"
           },
           "similarity": {
-            "description": "Similarity function the index scores with, e.g. BM25",
+            "description": "Similarity function the index scores with",
+            "enum": [
+              "BM25",
+              "CLASSIC"
+            ],
             "type": "string"
           }
         },
@@ -900,6 +1497,10 @@
             "type": "string"
           }
         },
+        "required": [
+          "database",
+          "status"
+        ],
         "type": "object"
       },
       "GrafanaMetadata": {
@@ -932,6 +1533,10 @@
                         "type": "string"
                       }
                     },
+                    "required": [
+                      "dataType",
+                      "name"
+                    ],
                     "type": "object"
                   },
                   "type": "array"
@@ -954,16 +1559,29 @@
                         "type": "string"
                       }
                     },
+                    "required": [
+                      "dataType",
+                      "name"
+                    ],
                     "type": "object"
                   },
                   "type": "array"
                 }
               },
+              "required": [
+                "fields",
+                "name",
+                "tags"
+              ],
               "type": "object"
             },
             "type": "array"
           }
         },
+        "required": [
+          "aggregationTypes",
+          "types"
+        ],
         "type": "object"
       },
       "GrafanaQueryRequest": {
@@ -986,11 +1604,11 @@
                   "description": "Bucketed aggregation. Omit for raw samples.",
                   "properties": {
                     "bucketInterval": {
-                      "description": "Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and the time range when omitted.",
+                      "description": "Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and the time range when omitted. When stated it must be positive: a value of zero or less is refused with an error frame for this target rather than replaced by a derived interval.",
                       "type": "integer"
                     },
                     "requests": {
-                      "description": "Aggregations to compute",
+                      "description": "Aggregations to compute. Must name at least one; an empty array is refused with an error frame.",
                       "items": {
                         "description": "One aggregation to compute",
                         "properties": {
@@ -1003,19 +1621,33 @@
                             "type": "string"
                           },
                           "type": {
-                            "description": "Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively. A value that matches none is reported as an error frame on this target, leaving the other targets served.",
+                            "description": "Aggregation function, matched case-insensitively. A value that matches none is reported as an error frame on this target, leaving the other targets served.",
+                            "enum": [
+                              "SUM",
+                              "AVG",
+                              "MIN",
+                              "MAX",
+                              "COUNT"
+                            ],
                             "type": "string"
                           }
                         },
+                        "required": [
+                          "field",
+                          "type"
+                        ],
                         "type": "object"
                       },
                       "type": "array"
                     }
                   },
+                  "required": [
+                    "requests"
+                  ],
                   "type": "object"
                 },
                 "fields": {
-                  "description": "Fields to project on a raw (non-aggregated) query. All fields when omitted. Ignored when 'aggregation' is present.",
+                  "description": "Fields to project on a raw (non-aggregated) query. All fields when omitted. Ignored when 'aggregation' is present. A name that is no column of the type is refused with an error frame for this target rather than ignored.",
                   "items": {
                     "description": "Field name",
                     "type": "string"
@@ -1027,7 +1659,11 @@
                   "type": "string"
                 },
                 "tags": {
-                  "description": "Tag filter as name to value pairs",
+                  "additionalProperties": {
+                    "description": "Tag value the column must equal",
+                    "type": "string"
+                  },
+                  "description": "Tag filter as name to value pairs. All pairs must match",
                   "type": "object"
                 },
                 "type": {
@@ -1035,6 +1671,9 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "type"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1073,14 +1712,16 @@
                             "items": {
                               "description": "One column of values",
                               "items": {
-                                "description": "Value",
-                                "type": "object"
+                                "description": "One cell: a timestamp, a number, a string, or null"
                               },
                               "type": "array"
                             },
                             "type": "array"
                           }
                         },
+                        "required": [
+                          "values"
+                        ],
                         "type": "object"
                       },
                       "schema": {
@@ -1100,25 +1741,120 @@
                                   "type": "string"
                                 }
                               },
+                              "required": [
+                                "name",
+                                "type"
+                              ],
                               "type": "object"
                             },
                             "type": "array"
                           }
                         },
+                        "required": [
+                          "fields"
+                        ],
                         "type": "object"
                       }
                     },
+                    "required": [
+                      "data",
+                      "schema"
+                    ],
                     "type": "object"
                   },
                   "type": "array"
                 }
               },
+              "required": [
+                "frames"
+              ],
               "type": "object"
             },
             "description": "Results keyed by target refId",
             "type": "object"
           }
         },
+        "required": [
+          "results"
+        ],
+        "type": "object"
+      },
+      "GroupDefinition": {
+        "description": "One group's permissions on one database. Stored normalized: a member the request omitted is written with the default below rather than left absent, so a group read back always carries all four.",
+        "properties": {
+          "access": {
+            "description": "Server-level rights the group grants. Empty when it grants none",
+            "items": {
+              "description": "Access right",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "readTimeout": {
+            "description": "Maximum milliseconds a member's read may take. -1 for no limit",
+            "example": -1,
+            "type": "integer"
+          },
+          "resultSetLimit": {
+            "description": "Maximum rows a member of this group may read in one result. -1 for no limit",
+            "example": -1,
+            "type": "integer"
+          },
+          "types": {
+            "additionalProperties": true,
+            "description": "Per-type permissions, keyed by type name. '*' is a legal key and covers every type. An open map because the keys are the schema's own type names.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "access",
+          "readTimeout",
+          "resultSetLimit",
+          "types"
+        ],
+        "type": "object"
+      },
+      "GroupList": {
+        "description": "Every security group, grouped by database",
+        "properties": {
+          "result": {
+            "description": "The group document as stored",
+            "properties": {
+              "databases": {
+                "additionalProperties": {
+                  "description": "One database's groups",
+                  "properties": {
+                    "groups": {
+                      "additionalProperties": {
+                        "$ref": "#/components/schemas/GroupDefinition"
+                      },
+                      "description": "The database's groups, keyed by group name",
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "groups"
+                  ],
+                  "type": "object"
+                },
+                "description": "Group definitions per database, keyed by database name. '*' is a legal key and covers every database",
+                "type": "object"
+              },
+              "version": {
+                "description": "Schema version of the group document",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "databases",
+              "version"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "result"
+        ],
         "type": "object"
       },
       "HybridSearchRequest": {
@@ -1134,7 +1870,12 @@
             "description": "Optional graph expansion leg, seeded from the union of the retrieval legs and ranked by breadth-first discovery order.",
             "properties": {
               "direction": {
-                "description": "out, in, or both",
+                "description": "Which way to walk the edges. Defaults to 'out'",
+                "enum": [
+                  "out",
+                  "in",
+                  "both"
+                ],
                 "type": "string"
               },
               "edgeTypes": {
@@ -1167,7 +1908,12 @@
             "type": "string"
           },
           "fusionStrategy": {
-            "description": "How the legs are combined. Only RRF can consume the graph expansion leg, which is ranked by traversal order",
+            "description": "How the legs are combined. Matched case-insensitively on input and echoed upper-cased. Only RRF can consume the graph expansion leg, which is ranked by traversal order and carries no score, so naming another strategy alongside 'expand' is refused. Defaults to RRF when omitted",
+            "enum": [
+              "RRF",
+              "DBSF",
+              "LINEAR"
+            ],
             "type": "string"
           },
           "k": {
@@ -1247,7 +1993,12 @@
             "type": "boolean"
           },
           "fusionStrategy": {
-            "description": "Strategy actually applied; absent when 'fused' is false",
+            "description": "Strategy actually applied, upper-cased; absent when 'fused' is false",
+            "enum": [
+              "RRF",
+              "DBSF",
+              "LINEAR"
+            ],
             "type": "string"
           },
           "legs": {
@@ -1261,7 +2012,12 @@
                     "type": "integer"
                   },
                   "direction": {
-                    "description": "Direction walked: out, in or both",
+                    "description": "Direction walked, echoed from the request",
+                    "enum": [
+                      "out",
+                      "in",
+                      "both"
+                    ],
                     "type": "string"
                   },
                   "edgeTypes": {
@@ -1311,7 +2067,11 @@
                     "type": "string"
                   },
                   "similarity": {
-                    "description": "Similarity function that index scores with, e.g. BM25",
+                    "description": "Similarity function that index scores with",
+                    "enum": [
+                      "BM25",
+                      "CLASSIC"
+                    ],
                     "type": "string"
                   }
                 },
@@ -1379,8 +2139,13 @@
                   "type": "number"
                 },
                 "sources": {
-                  "description": "Which legs contributed this hit: vector, fulltext, expand",
+                  "description": "Which legs contributed this hit. Never empty: a hit is in the list because some leg produced it",
                   "items": {
+                    "enum": [
+                      "vector",
+                      "fulltext",
+                      "expand"
+                    ],
                     "type": "string"
                   },
                   "type": "array"
@@ -1424,6 +2189,117 @@
         ],
         "type": "object"
       },
+      "JsonRpcMessage": {
+        "description": "One JSON-RPC 2.0 message, or a batch of them as a top-level array. A batch request is answered by a batch of responses.",
+        "oneOf": [
+          {
+            "additionalProperties": true,
+            "description": "One JSON-RPC 2.0 envelope. A request carries 'method' and 'id'; a notification 'method' without 'id'; a response 'id' with either 'result' or 'error'. The method set and the shapes of 'params' and 'result' are defined by the Model Context Protocol, not by this API.",
+            "properties": {
+              "error": {
+                "description": "A JSON-RPC error, on a failed response",
+                "properties": {
+                  "code": {
+                    "description": "JSON-RPC error code",
+                    "type": "integer"
+                  },
+                  "data": {
+                    "description": "Further detail, when the method provides any"
+                  },
+                  "message": {
+                    "description": "Short description of the error",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "id": {
+                "description": "Correlation id, a string or a number. Absent on a notification, which is precisely what says this server must not answer it."
+              },
+              "jsonrpc": {
+                "description": "Always '2.0'",
+                "enum": [
+                  "2.0"
+                ],
+                "type": "string"
+              },
+              "method": {
+                "description": "Method being invoked. Present on a request and on a notification, absent on a response",
+                "type": "string"
+              },
+              "params": {
+                "description": "Method arguments, shaped by the method"
+              },
+              "result": {
+                "description": "The method's result, on a successful response. Mutually exclusive with 'error'"
+              }
+            },
+            "required": [
+              "jsonrpc"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A batch",
+            "items": {
+              "additionalProperties": true,
+              "description": "One JSON-RPC 2.0 envelope. A request carries 'method' and 'id'; a notification 'method' without 'id'; a response 'id' with either 'result' or 'error'. The method set and the shapes of 'params' and 'result' are defined by the Model Context Protocol, not by this API.",
+              "properties": {
+                "error": {
+                  "description": "A JSON-RPC error, on a failed response",
+                  "properties": {
+                    "code": {
+                      "description": "JSON-RPC error code",
+                      "type": "integer"
+                    },
+                    "data": {
+                      "description": "Further detail, when the method provides any"
+                    },
+                    "message": {
+                      "description": "Short description of the error",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "type": "object"
+                },
+                "id": {
+                  "description": "Correlation id, a string or a number. Absent on a notification, which is precisely what says this server must not answer it."
+                },
+                "jsonrpc": {
+                  "description": "Always '2.0'",
+                  "enum": [
+                    "2.0"
+                  ],
+                  "type": "string"
+                },
+                "method": {
+                  "description": "Method being invoked. Present on a request and on a notification, absent on a response",
+                  "type": "string"
+                },
+                "params": {
+                  "description": "Method arguments, shaped by the method"
+                },
+                "result": {
+                  "description": "The method's result, on a successful response. Mutually exclusive with 'error'"
+                }
+              },
+              "required": [
+                "jsonrpc"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        ]
+      },
       "LoginResponse": {
         "description": "Newly created session",
         "properties": {
@@ -1436,10 +2312,14 @@
             "type": "string"
           }
         },
+        "required": [
+          "token",
+          "user"
+        ],
         "type": "object"
       },
       "McpConfig": {
-        "description": "MCP server configuration",
+        "description": "MCP server configuration, as GET and POST both answer with it",
         "properties": {
           "allowAdmin": {
             "description": "Permit administrative operations",
@@ -1494,14 +2374,115 @@
           },
           "principalProfiles": {
             "additionalProperties": {
-              "description": "Tool profile name: 'all', 'rag', or 'admin'",
+              "description": "Tool profile assigned to this principal",
+              "enum": [
+                "all",
+                "rag",
+                "admin"
+              ],
               "type": "string"
             },
             "description": "Tool profile assigned per principal (user or API token) name. Present only when at least one is configured.",
             "type": "object"
           },
           "profile": {
-            "description": "Default tool profile: 'all', 'rag', or 'admin'",
+            "description": "Default tool profile, applied to a principal that 'principalProfiles' does not name",
+            "enum": [
+              "all",
+              "rag",
+              "admin"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowAdmin",
+          "allowDelete",
+          "allowInsert",
+          "allowReads",
+          "allowSchemaChange",
+          "allowUpdate",
+          "allowedOrigins",
+          "allowedUsers",
+          "enabled",
+          "profile"
+        ],
+        "type": "object"
+      },
+      "McpConfigUpdate": {
+        "description": "A partial MCP server configuration. Send only the fields to change; an omitted one keeps its current value, so nothing here is required. The update is all-or-nothing: every field is parsed and validated before the first one is assigned.",
+        "properties": {
+          "allowAdmin": {
+            "description": "Permit administrative operations",
+            "type": "boolean"
+          },
+          "allowDelete": {
+            "description": "Permit deletes",
+            "type": "boolean"
+          },
+          "allowInsert": {
+            "description": "Permit inserts",
+            "type": "boolean"
+          },
+          "allowReads": {
+            "description": "Permit read operations",
+            "type": "boolean"
+          },
+          "allowSchemaChange": {
+            "description": "Permit schema changes",
+            "type": "boolean"
+          },
+          "allowUpdate": {
+            "description": "Permit updates",
+            "type": "boolean"
+          },
+          "allowedOrigins": {
+            "description": "Extra browser origins permitted for the HTTP transport, beyond loopback addresses which are always allowed. The value '*' permits any origin, disabling the anti-DNS-rebinding check.",
+            "items": {
+              "description": "Origin",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowedUsers": {
+            "description": "Users permitted to reach the MCP server. The value '*' permits any authenticated user.",
+            "items": {
+              "description": "User name",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "databases": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/McpDatabaseOverride"
+            },
+            "description": "Per-database permission overrides, keyed by database name. Present only when at least one override is configured.",
+            "type": "object"
+          },
+          "enabled": {
+            "description": "Whether the MCP server answers requests",
+            "type": "boolean"
+          },
+          "principalProfiles": {
+            "additionalProperties": {
+              "description": "Tool profile assigned to this principal",
+              "enum": [
+                "all",
+                "rag",
+                "admin"
+              ],
+              "type": "string"
+            },
+            "description": "Tool profile assigned per principal (user or API token) name. Present only when at least one is configured.",
+            "type": "object"
+          },
+          "profile": {
+            "description": "Default tool profile, applied to a principal that 'principalProfiles' does not name",
+            "enum": [
+              "all",
+              "rag",
+              "admin"
+            ],
             "type": "string"
           }
         },
@@ -1578,6 +2559,10 @@
                 "type": "integer"
               },
               "idMapping": {
+                "additionalProperties": {
+                  "description": "RID, in #bucket:position form",
+                  "type": "string"
+                },
                 "description": "Temporary id to RID mapping of the vertices this chunk resolved, and only of those: the mapping is handed back one committed chunk at a time so neither end ever holds the whole load's worth of it (issue #7353). Concatenate the 'idMapping' of every line, in order, to obtain what the buffered encoding returns in one object, and check the total against 'idMappingSize' on the terminal line. Absent on an edge-phase acknowledgement, on a chunk whose vertices declared no @id under refMode=tempId, and when the request sent idMapping=false.",
                 "type": "object"
               },
@@ -1639,7 +2624,8 @@
             "type": "object"
           },
           "record": {
-            "description": "One result row, identical to an element of the 'result' array of the buffered application/json response.",
+            "additionalProperties": true,
+            "description": "One result row, identical to an element of the 'result' array of the buffered application/json response. An open map: a row's keys are the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record.",
             "type": "object"
           },
           "stats": {
@@ -1667,7 +2653,7 @@
         "description": "The wire-format sections one peer can decode",
         "properties": {
           "capabilities": {
-            "description": "Capability tokens this peer can decode, sorted",
+            "description": "Capability tokens this peer can decode, sorted. Empty when it can decode none, never absent",
             "items": {
               "description": "Capability token",
               "type": "string"
@@ -1683,13 +2669,18 @@
             "type": "string"
           }
         },
+        "required": [
+          "capabilities",
+          "peerId",
+          "version"
+        ],
         "type": "object"
       },
       "ProgressResponse": {
         "description": "In-progress maintenance operations",
         "properties": {
           "result": {
-            "description": "In-progress operations",
+            "description": "In-progress operations. Empty when nothing is running",
             "items": {
               "description": "One in-progress operation",
               "properties": {
@@ -1738,11 +2729,27 @@
                   "type": "integer"
                 }
               },
+              "required": [
+                "database",
+                "done",
+                "elapsedMs",
+                "id",
+                "operation",
+                "percentage",
+                "startedOn",
+                "stepIndex",
+                "stepName",
+                "total",
+                "totalSteps"
+              ],
               "type": "object"
             },
             "type": "array"
           }
         },
+        "required": [
+          "result"
+        ],
         "type": "object"
       },
       "PromQLDataResponse": {
@@ -1835,13 +2842,24 @@
                 "type": "string"
               }
             },
+            "required": [
+              "result",
+              "resultType"
+            ],
             "type": "object"
           },
           "status": {
-            "description": "Always 'success' on a 200",
+            "description": "Always 'success' on a 200. The error envelope carries 'error' here instead",
+            "enum": [
+              "success"
+            ],
             "type": "string"
           }
         },
+        "required": [
+          "data",
+          "status"
+        ],
         "type": "object"
       },
       "PromQLErrorResponse": {
@@ -1857,16 +2875,24 @@
           },
           "status": {
             "description": "Always 'error'",
+            "enum": [
+              "error"
+            ],
             "type": "string"
           }
         },
+        "required": [
+          "error",
+          "errorType",
+          "status"
+        ],
         "type": "object"
       },
       "PromQLLabelsResponse": {
         "description": "Prometheus label response",
         "properties": {
           "data": {
-            "description": "Sorted names or values",
+            "description": "Sorted names or values. Empty when nothing matched",
             "items": {
               "description": "Label name or value",
               "type": "string"
@@ -1874,28 +2900,46 @@
             "type": "array"
           },
           "status": {
-            "description": "Always 'success' on a 200",
+            "description": "Always 'success' on a 200. The error envelope carries 'error' here instead",
+            "enum": [
+              "success"
+            ],
             "type": "string"
           }
         },
+        "required": [
+          "data",
+          "status"
+        ],
         "type": "object"
       },
       "PromQLSeriesResponse": {
         "description": "Prometheus series response",
         "properties": {
           "data": {
-            "description": "Matching series",
+            "description": "Matching series. Empty when nothing matched",
             "items": {
-              "description": "One series as a label map, including the '__name__' label",
+              "additionalProperties": {
+                "description": "Label value",
+                "type": "string"
+              },
+              "description": "Label map, including the '__name__' label",
               "type": "object"
             },
             "type": "array"
           },
           "status": {
-            "description": "Always 'success' on a 200",
+            "description": "Always 'success' on a 200. The error envelope carries 'error' here instead",
+            "enum": [
+              "success"
+            ],
             "type": "string"
           }
         },
+        "required": [
+          "data",
+          "status"
+        ],
         "type": "object"
       },
       "QueryRequest": {
@@ -1916,6 +2960,9 @@
             "type": "integer"
           },
           "params": {
+            "additionalProperties": {
+              "description": "One parameter value"
+            },
             "description": "Query parameters. Values may be JSON primitives, arrays, or typed-marker objects: {\"$bytes\": \"<base64>\"} for byte[] (standard or URL-safe base64), {\"$int8\": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip).",
             "type": "object"
           },
@@ -1933,16 +2980,69 @@
       "QueryResponse": {
         "description": "Query response object",
         "properties": {
+          "explain": {
+            "description": "The execution plan as indented text, one line per step. Present on an EXPLAIN or PROFILE statement, and on any statement run with 'profileExecution'; absent otherwise. 'result' is then empty: the plan is the answer, and it is not also repeated as a row.",
+            "type": "string"
+          },
+          "explainPlan": {
+            "additionalProperties": true,
+            "description": "The same plan in structured form, for a caller that reads the steps rather than prints them. Present exactly when 'explain' is.",
+            "type": "object"
+          },
           "limit": {
             "description": "Effective row cap applied while serializing, -1 when uncapped. This is the serializer's cap, not the query's own LIMIT: a query stating a LIMIT below the server default reports the default here, and 'returned' with 'truncated' describe what the response actually carries.",
             "type": "integer"
           },
           "result": {
-            "description": "Query results",
-            "items": {
-              "type": "object"
-            },
-            "type": "array"
+            "description": "The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers.",
+            "oneOf": [
+              {
+                "description": "Query results",
+                "items": {
+                  "additionalProperties": true,
+                  "description": "One result row: the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record.",
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "description": "The 'graph' and 'studio' serializers answer with one object instead of a row list: the elements every row referenced, deduplicated across the whole result.",
+                "properties": {
+                  "edges": {
+                    "description": "Edges, deduplicated",
+                    "items": {
+                      "additionalProperties": true,
+                      "description": "One result row: the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record.",
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "records": {
+                    "description": "Non-element rows. Written by the 'studio' serializer only",
+                    "items": {
+                      "additionalProperties": true,
+                      "description": "One result row: the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record.",
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "vertices": {
+                    "description": "Vertices, deduplicated",
+                    "items": {
+                      "additionalProperties": true,
+                      "description": "One result row: the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record.",
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "edges",
+                  "vertices"
+                ],
+                "type": "object"
+              }
+            ]
           },
           "returned": {
             "description": "Number of rows carried by this response. With the 'graph' serializer, whose cap counts graph elements rather than rows, it is the number of serialized vertices plus edges, and it can exceed 'limit': a single row can expand into several elements, and the expansion of the row that reaches the cap is not cut in half.",
@@ -1953,28 +3053,202 @@
             "type": "boolean"
           }
         },
+        "required": [
+          "limit",
+          "returned",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "SaveGroupRequest": {
+        "description": "A group to create or replace. Replaces any group of the same name on the same database outright - the members are not merged into the existing definition - and refreshes the cached permissions of every open database it applies to.",
+        "properties": {
+          "access": {
+            "description": "Server-level rights the group grants. Defaults to none",
+            "items": {
+              "description": "Access right",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "database": {
+            "description": "Database the group applies to. '*' means every database",
+            "type": "string"
+          },
+          "name": {
+            "description": "Group name",
+            "type": "string"
+          },
+          "readTimeout": {
+            "description": "Maximum milliseconds a member's read may take. Defaults to -1, no limit",
+            "type": "integer"
+          },
+          "resultSetLimit": {
+            "description": "Maximum rows a member may read in one result. Defaults to -1, no limit",
+            "type": "integer"
+          },
+          "types": {
+            "additionalProperties": true,
+            "description": "Per-type permissions, keyed by type name. Defaults to none",
+            "type": "object"
+          }
+        },
+        "required": [
+          "database",
+          "name"
+        ],
+        "type": "object"
+      },
+      "SecurityAdminResult": {
+        "description": "Outcome of an administrative change, as one human-readable sentence. There is nothing else to report: the change either applied or the call failed.",
+        "properties": {
+          "result": {
+            "description": "What was done, e.g. \"User 'alice' created\"",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      },
+      "SecuritySeedRequest": {
+        "description": "What the caller wants seeded, and what it already holds",
+        "properties": {
+          "catchUp": {
+            "description": "True when the caller is a node repairing ITSELF after coming back, false (or absent) for a node reporting on an admission it performed. What it changes is REUSE: a catch-up is never answered by a seed that completed for somebody else, while an admission may be, since its request follows the membership change that already seeded for it. A catch-up can still complete without anything being submitted - that is what the fingerprint comparison is for, and it answers upToDate before any seeder is asked.",
+            "type": "boolean"
+          },
+          "fingerprints": {
+            "description": "The caller's own document digests. When all three match the leader's, nothing is submitted and the answer is upToDate. Omit them to have every document seeded, which is what an admission does - the admitting node does not hold the joining peer's copies.",
+            "properties": {
+              "apiTokens": {
+                "description": "Digest of server-api-tokens.json as the caller holds it",
+                "type": "string"
+              },
+              "groups": {
+                "description": "Digest of server-groups.json as the caller holds it",
+                "type": "string"
+              },
+              "users": {
+                "description": "Digest of server-users.jsonl as the caller holds it",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "reason": {
+            "description": "Why the seed was asked for, for the leader's log line. Optional.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SecuritySeedResponse": {
+        "description": "What the leader did about the request",
+        "properties": {
+          "error": {
+            "description": "Why the seed could not be run or its outcome could not be read. Present only on the 503 that carries no failedSeeds, since in that case which documents failed is exactly what is not known.",
+            "type": "string"
+          },
+          "failedSeeds": {
+            "description": "The documents that did not commit, empty when all of them did",
+            "items": {
+              "description": "Document name",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seeded": {
+            "description": "True when the documents were submitted to the cluster",
+            "type": "boolean"
+          },
+          "upToDate": {
+            "description": "True when the caller's fingerprints already matched the leader's and nothing was submitted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "seeded"
+        ],
         "type": "object"
       },
       "ServerInfo": {
-        "description": "Server information object",
+        "description": "Server information. The first four members are on every answer; which of the rest appear is decided by the 'mode' query parameter.",
         "properties": {
-          "mode": {
-            "description": "Server mode",
+          "ha": {
+            "additionalProperties": true,
+            "description": "Cluster topology and per-database replication state. Present with mode=cluster only, and only when this server runs an HA implementation. The per-database rows are scoped to the caller's authorized databases; the topology members are not.\n\nIts 'securityRefresh' member says whether the replicated group changes THIS node received have been enforced here, not merely received: entriesApplied, refreshesRequested, refreshesCoalesced, sweepsCompleted, sweepsFailed, databasesRefreshed, databaseRefreshFailures, and the epoch-millisecond lastEntryAppliedAt / lastSweepAt. entriesApplied rising while sweepsCompleted does not is a node enforcing permissions it has already been told to replace; the same numbers are scrapable as the arcadedb.ha.security.* meters.",
+            "type": "object"
+          },
+          "languages": {
+            "description": "Query languages this build can run, e.g. sql, sqlscript, cypher, gremlin",
+            "items": {
+              "description": "Query language name",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "description": "Profiler counters, request meters, executor pools and sparse-vector index statistics. Present with mode=default only. An open map: the counter set follows the build and the plugins loaded.",
+            "type": "object"
+          },
+          "serverName": {
+            "description": "This server's configured name",
             "type": "string"
           },
-          "status": {
-            "description": "Server status",
-            "type": "string"
+          "settings": {
+            "description": "Every server setting with its current and default value. Present with mode=default only. A setting marked hidden reports '*****' for both, and so does any setting whose key contains 'password'.",
+            "items": {
+              "description": "One server setting",
+              "properties": {
+                "default": {
+                  "description": "Default value, masked the same way as 'value'"
+                },
+                "description": {
+                  "description": "What the setting does",
+                  "type": "string"
+                },
+                "key": {
+                  "description": "Setting key, e.g. 'arcadedb.server.httpQueryMaxResultRows'",
+                  "type": "string"
+                },
+                "overridden": {
+                  "description": "True when this server's context overrides the default rather than inheriting it",
+                  "type": "boolean"
+                },
+                "value": {
+                  "description": "Current value, or '*****' when the setting is hidden or its key names a password"
+                }
+              },
+              "required": [
+                "default",
+                "description",
+                "key",
+                "overridden",
+                "value"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
-          "uptime": {
-            "description": "Server uptime in milliseconds",
-            "type": "integer"
+          "user": {
+            "description": "The authenticated caller. Null on a request that carried no principal",
+            "nullable": true,
+            "type": "string"
           },
           "version": {
             "description": "Server version",
             "type": "string"
           }
         },
+        "required": [
+          "languages",
+          "serverName",
+          "user",
+          "version"
+        ],
         "type": "object"
       },
       "SessionList": {
@@ -1985,16 +3259,18 @@
             "type": "integer"
           },
           "result": {
-            "description": "Active sessions",
+            "description": "Active sessions. Empty when this server holds none",
             "items": {
               "description": "One active session",
               "properties": {
                 "city": {
-                  "description": "City reported by the proxy, when available",
+                  "description": "City reported by the proxy. Null when no proxy reported one",
+                  "nullable": true,
                   "type": "string"
                 },
                 "country": {
-                  "description": "Country reported by the proxy, when available",
+                  "description": "Country reported by the proxy. Null when no proxy reported one",
+                  "nullable": true,
                   "type": "string"
                 },
                 "createdAt": {
@@ -2014,7 +3290,8 @@
                   "type": "integer"
                 },
                 "sourceIp": {
-                  "description": "Client address",
+                  "description": "Client address, as this server saw it",
+                  "nullable": true,
                   "type": "string"
                 },
                 "token": {
@@ -2026,15 +3303,31 @@
                   "type": "string"
                 },
                 "userAgent": {
-                  "description": "Client user agent",
+                  "description": "Client user agent. Null when the request carried none",
+                  "nullable": true,
                   "type": "string"
                 }
               },
+              "required": [
+                "city",
+                "country",
+                "createdAt",
+                "elapsedMs",
+                "lastUpdate",
+                "sourceIp",
+                "token",
+                "user",
+                "userAgent"
+              ],
               "type": "object"
             },
             "type": "array"
           }
         },
+        "required": [
+          "count",
+          "result"
+        ],
         "type": "object"
       },
       "TimeSeriesAggregatedResponse": {
@@ -2060,12 +3353,15 @@
                 "values": {
                   "description": "Aggregated values, positionally aligned with 'aggregations'",
                   "items": {
-                    "description": "Aggregated value",
-                    "type": "object"
+                    "description": "One aggregated value: a number, or null for a bucket the aggregation had no sample for"
                   },
                   "type": "array"
                 }
               },
+              "required": [
+                "timestamp",
+                "values"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -2079,6 +3375,12 @@
             "type": "string"
           }
         },
+        "required": [
+          "aggregations",
+          "buckets",
+          "count",
+          "type"
+        ],
         "type": "object"
       },
       "TimeSeriesLatestResponse": {
@@ -2095,8 +3397,7 @@
           "latest": {
             "description": "Most recent sample, positionally aligned with 'columns'. Null when the series is empty.",
             "items": {
-              "description": "Column value",
-              "type": "object"
+              "description": "One cell: a timestamp, a number, a string, or null"
             },
             "nullable": true,
             "type": "array"
@@ -2106,6 +3407,11 @@
             "type": "string"
           }
         },
+        "required": [
+          "columns",
+          "latest",
+          "type"
+        ],
         "type": "object"
       },
       "TimeSeriesQueryRequest": {
@@ -2115,11 +3421,11 @@
             "description": "Bucketed aggregation. Present only when the caller wants buckets rather than raw rows.",
             "properties": {
               "bucketInterval": {
-                "description": "Bucket width in the same unit as the timestamps",
+                "description": "Bucket width in the same unit as the timestamps. Required, and must be a positive WHOLE number: a value of zero or less is refused with 400 rather than read as a single bucket over the whole range, and one with a fractional part is refused rather than truncated, because a bucket width is exactly the sort of value a client computes by division.",
                 "type": "integer"
               },
               "requests": {
-                "description": "Aggregations to compute",
+                "description": "Aggregations to compute. Must name at least one; an empty array is refused with 400.",
                 "items": {
                   "description": "One aggregation to compute over a bucket",
                   "properties": {
@@ -2132,19 +3438,34 @@
                       "type": "string"
                     },
                     "type": {
-                      "description": "Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-insensitively.",
+                      "description": "Aggregation function, matched case-insensitively. The same vocabulary the Grafana query endpoint accepts, because both resolve it through the same parser.",
+                      "enum": [
+                        "SUM",
+                        "AVG",
+                        "MIN",
+                        "MAX",
+                        "COUNT"
+                      ],
                       "type": "string"
                     }
                   },
+                  "required": [
+                    "field",
+                    "type"
+                  ],
                   "type": "object"
                 },
                 "type": "array"
               }
             },
+            "required": [
+              "bucketInterval",
+              "requests"
+            ],
             "type": "object"
           },
           "fields": {
-            "description": "Fields to project. All fields when omitted.",
+            "description": "Fields to project. All fields when omitted. A name that is no column of the type is refused with 400 rather than ignored.",
             "items": {
               "description": "Field name",
               "type": "string"
@@ -2160,6 +3481,10 @@
             "type": "integer"
           },
           "tags": {
+            "additionalProperties": {
+              "description": "Tag value the column must equal",
+              "type": "string"
+            },
             "description": "Tag filter as name to value pairs. All pairs must match. A name that is no TAG column of the type is refused with 400 rather than ignored.",
             "type": "object"
           },
@@ -2197,8 +3522,7 @@
             "items": {
               "description": "One row",
               "items": {
-                "description": "Column value",
-                "type": "object"
+                "description": "One cell: a timestamp, a number, a string, or null"
               },
               "type": "array"
             },
@@ -2209,6 +3533,12 @@
             "type": "string"
           }
         },
+        "required": [
+          "columns",
+          "count",
+          "rows",
+          "type"
+        ],
         "type": "object"
       },
       "TimeSeriesWriteError": {
@@ -2255,6 +3585,11 @@
             "type": "integer"
           }
         },
+        "required": [
+          "dropped",
+          "error",
+          "written"
+        ],
         "type": "object"
       },
       "TransferLeaderRequest": {
@@ -2269,6 +3604,69 @@
             "type": "integer"
           }
         },
+        "type": "object"
+      },
+      "UpdateUserRequest": {
+        "description": "Changes to apply to an existing user, named by the 'name' QUERY parameter rather than by the body. Both members are optional and an omitted one is left alone; a body carrying neither is accepted and changes nothing.",
+        "properties": {
+          "databases": {
+            "additionalProperties": {
+              "description": "Groups the user holds on this database",
+              "items": {
+                "description": "Group name",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Database assignments, keyed by database name. '*' means every database",
+            "type": "object"
+          },
+          "password": {
+            "description": "New plaintext password. Omit to leave the current one in place",
+            "maxLength": 256,
+            "minLength": 8,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UserList": {
+        "description": "Every server user",
+        "properties": {
+          "result": {
+            "description": "Users, one entry each",
+            "items": {
+              "description": "One server user. The password hash is never returned",
+              "properties": {
+                "databases": {
+                  "additionalProperties": {
+                    "description": "Groups the user holds on this database",
+                    "items": {
+                      "description": "Group name",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "description": "Database assignments, keyed by database name. '*' means every database",
+                  "type": "object"
+                },
+                "name": {
+                  "description": "User name",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "databases",
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "result"
+        ],
         "type": "object"
       },
       "VectorSearchRequest": {
@@ -2390,11 +3788,27 @@
         ],
         "type": "object"
       },
-      "VerifyDatabaseResponse": {
-        "description": "Per-file checksums of one database. A follower response carries only its own 'localChecksums', 'files' and 'localServer'; the leader instead returns only 'result', nesting a cluster-wide comparison against every other peer.",
+      "VerifyDatabaseClusterResponse": {
+        "description": "A leader's cluster-wide comparison, fanned out to every peer",
         "properties": {
+          "result": {
+            "$ref": "#/components/schemas/VerifyDatabaseClusterResult"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "type": "object"
+      },
+      "VerifyDatabaseClusterResult": {
+        "description": "Leader-only cluster-wide comparison, fanned out to every peer",
+        "properties": {
+          "database": {
+            "description": "Database name",
+            "type": "string"
+          },
           "files": {
-            "description": "Files with size and category. Present on a follower response.",
+            "description": "The leader's files with size and category",
             "items": {
               "description": "One database file",
               "properties": {
@@ -2415,132 +3829,197 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "checksum",
+                "name",
+                "size",
+                "type"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "incompleteSealedStores": {
+            "description": "Present and true when the LEADER's own answer was short of a sealed store, so no peer comparison can be complete: the leader compares its own keys. Absent when its coverage was complete.",
+            "type": "boolean"
+          },
+          "localChecksums": {
+            "additionalProperties": {
+              "description": "CRC of the file's contents",
+              "type": "integer"
+            },
+            "description": "Leader's file name to checksum map",
+            "type": "object"
+          },
+          "localPeerId": {
+            "description": "Leader's peer identifier",
+            "type": "string"
+          },
+          "localServer": {
+            "description": "Leader server name",
+            "type": "string"
+          },
+          "overallStatus": {
+            "description": "ALL_CONSISTENT when every peer was compared and agreed, INCONSISTENCY_DETECTED when a compared peer differs, VERIFICATION_INCOMPLETE when nothing diverged but at least one peer could not be verified",
+            "type": "string"
+          },
+          "peers": {
+            "description": "Every other peer's comparison result",
+            "items": {
+              "description": "One peer's comparison against the leader's checksums",
+              "properties": {
+                "error": {
+                  "description": "Why the peer could not be queried or compared. Absent on a completed comparison.",
+                  "type": "string"
+                },
+                "httpAddress": {
+                  "description": "Peer HTTP address",
+                  "type": "string"
+                },
+                "matchingFiles": {
+                  "description": "Files whose checksum matches. Absent when the peer could not be queried.",
+                  "type": "integer"
+                },
+                "mismatchedFiles": {
+                  "description": "Files whose checksum differs. Absent when the peer could not be queried.",
+                  "type": "integer"
+                },
+                "mismatches": {
+                  "description": "Present only when mismatchedFiles is greater than zero",
+                  "items": {
+                    "description": "One file whose checksum differs between the leader and a peer",
+                    "properties": {
+                      "file": {
+                        "description": "File name",
+                        "type": "string"
+                      },
+                      "localChecksum": {
+                        "description": "Leader's CRC for the file",
+                        "type": "integer"
+                      },
+                      "remoteChecksum": {
+                        "description": "Peer's CRC for the file, or 'MISSING' when the peer does not have it",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "File category",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "file",
+                      "localChecksum",
+                      "remoteChecksum",
+                      "type"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "peerId": {
+                  "description": "Peer identifier",
+                  "type": "string"
+                },
+                "status": {
+                  "description": "CONSISTENT, INCONSISTENT, or ERROR",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "httpAddress",
+                "peerId",
+                "status"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "database",
+          "files",
+          "localChecksums",
+          "localPeerId",
+          "localServer",
+          "overallStatus",
+          "peers"
+        ],
+        "type": "object"
+      },
+      "VerifyDatabaseLocalResponse": {
+        "description": "One node's own checksums, for the leader to compare against. Answered by a follower, and by a leader whose request carried the already-forwarded marker.",
+        "properties": {
+          "files": {
+            "description": "Files with size and category",
+            "items": {
+              "description": "One database file",
+              "properties": {
+                "checksum": {
+                  "description": "CRC of the file's contents",
+                  "type": "integer"
+                },
+                "name": {
+                  "description": "File name",
+                  "type": "string"
+                },
+                "size": {
+                  "description": "File size in bytes",
+                  "type": "integer"
+                },
+                "type": {
+                  "description": "File category",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "checksum",
+                "name",
+                "size",
+                "type"
+              ],
               "type": "object"
             },
             "type": "array"
           },
           "localChecksums": {
-            "description": "File name to checksum map, for a quick cross-peer comparison. Present on a follower response.",
+            "additionalProperties": {
+              "description": "CRC of the file's contents",
+              "type": "integer"
+            },
+            "description": "File name to checksum map, for a quick cross-peer comparison",
             "type": "object"
           },
           "localServer": {
-            "description": "Server the checksums were taken on. Present on a follower response.",
+            "description": "Server the checksums were taken on",
             "type": "string"
           },
-          "result": {
-            "description": "Leader-only cluster-wide comparison, fanned out to every peer",
-            "properties": {
-              "database": {
-                "description": "Database name",
-                "type": "string"
-              },
-              "files": {
-                "description": "The leader's files with size and category",
-                "items": {
-                  "description": "One database file",
-                  "properties": {
-                    "checksum": {
-                      "description": "CRC of the file's contents",
-                      "type": "integer"
-                    },
-                    "name": {
-                      "description": "File name",
-                      "type": "string"
-                    },
-                    "size": {
-                      "description": "File size in bytes",
-                      "type": "integer"
-                    },
-                    "type": {
-                      "description": "File category",
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              "localChecksums": {
-                "description": "Leader's file name to checksum map",
-                "type": "object"
-              },
-              "localPeerId": {
-                "description": "Leader's peer identifier",
-                "type": "string"
-              },
-              "localServer": {
-                "description": "Leader server name",
-                "type": "string"
-              },
-              "overallStatus": {
-                "description": "ALL_CONSISTENT when every peer was compared and agreed, INCONSISTENCY_DETECTED when a compared peer differs, VERIFICATION_INCOMPLETE when nothing diverged but at least one peer could not be verified",
-                "type": "string"
-              },
-              "peers": {
-                "description": "Every other peer's comparison result",
-                "items": {
-                  "description": "One peer's comparison against the leader's checksums",
-                  "properties": {
-                    "error": {
-                      "description": "Why the peer could not be queried or compared. Absent on a completed comparison.",
-                      "type": "string"
-                    },
-                    "httpAddress": {
-                      "description": "Peer HTTP address",
-                      "type": "string"
-                    },
-                    "matchingFiles": {
-                      "description": "Files whose checksum matches. Absent when the peer could not be queried.",
-                      "type": "integer"
-                    },
-                    "mismatchedFiles": {
-                      "description": "Files whose checksum differs. Absent when the peer could not be queried.",
-                      "type": "integer"
-                    },
-                    "mismatches": {
-                      "description": "Present only when mismatchedFiles is greater than zero",
-                      "items": {
-                        "description": "One file whose checksum differs between the leader and a peer",
-                        "properties": {
-                          "file": {
-                            "description": "File name",
-                            "type": "string"
-                          },
-                          "localChecksum": {
-                            "description": "Leader's CRC for the file",
-                            "type": "integer"
-                          },
-                          "remoteChecksum": {
-                            "description": "Peer's CRC for the file, or 'MISSING' when the peer does not have it",
-                            "type": "string"
-                          },
-                          "type": {
-                            "description": "File category",
-                            "type": "string"
-                          }
-                        },
-                        "type": "object"
-                      },
-                      "type": "array"
-                    },
-                    "peerId": {
-                      "description": "Peer identifier",
-                      "type": "string"
-                    },
-                    "status": {
-                      "description": "CONSISTENT, INCONSISTENT, or ERROR",
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
-                },
-                "type": "array"
-              }
-            },
-            "type": "object"
+          "sealedStoresComplete": {
+            "description": "Present and false when this answer did NOT cover every sealed store - an unreadable file, or a compaction pause the node could not take. Absent when coverage was complete.",
+            "type": "boolean"
+          },
+          "sealedStoresIncluded": {
+            "description": "True when this build checksums the TimeSeries sealed stores as well (issue #7338). A peer on an older build omits the flag, and the leader then leaves its sealed files out of the comparison rather than reporting every one of them MISSING - a rolling upgrade must not make the divergence detector cry divergence over a file the other side was never asked to checksum. Stays true even when 'sealedStoresComplete' is false: \"my build checksums them\" and \"this answer covers them\" are different statements.",
+            "type": "boolean"
           }
         },
+        "required": [
+          "files",
+          "localChecksums",
+          "localServer",
+          "sealedStoresIncluded"
+        ],
         "type": "object"
+      },
+      "VerifyDatabaseResponse": {
+        "description": "Per-file checksums of one database, in one of two shapes. A follower - and a leader answering a request a peer already forwarded - answers the local shape, carrying only its own checksums. A leader answering a first-hand request fans out to every peer and answers the cluster shape, carrying only 'result'. The two share no member, so read 'result' to tell them apart.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/VerifyDatabaseLocalResponse"
+          },
+          {
+            "$ref": "#/components/schemas/VerifyDatabaseClusterResponse"
+          }
+        ]
       }
     },
     "securitySchemes": {
@@ -3003,7 +4482,7 @@
     },
     "/api/v1/ai/chat/stream": {
       "post": {
-        "description": "Sends one message in the context of a database, optionally continuing an existing chat by 'chatId', using a client-orchestrated streaming protocol so the AI gateway never has to open an inbound connection into the caller's network: the gateway emits 'tool_call' events on the response stream, the server executes each tool locally, and posts the result back to the gateway to resume the loop. The 200 response is always 'text/event-stream', never a JSON body; the closing 'done' event carries the same 'response', 'commands', and 'chatId' fields as POST /api/v1/ai/chat's JSON response. For a single non-streaming JSON reply instead, use POST /api/v1/ai/chat.\n\nThe assistant is a remote dependency: 503 means the gateway was unreachable and 504 that it did not answer in time. Both are retryable. A rejected subscription token answers 502, remapped from the gateway's own 401 or 403 so it cannot be mistaken for this request's own authentication failing.",
+        "description": "Sends one message in the context of a database, optionally continuing an existing chat by 'chatId', using a client-orchestrated streaming protocol so the AI gateway never has to open an inbound connection into the caller's network: the gateway emits 'tool_call' events on the response stream, the server executes each tool locally, and posts the result back to the gateway to resume the loop. The 200 response is always 'text/event-stream', never a JSON body; the closing 'done' event carries the same 'response', 'commands', and 'chatId' fields as POST /api/v1/ai/chat's JSON response. For a single non-streaming JSON reply instead, use POST /api/v1/ai/chat.\n\nThe gateway's own 'session' and 'tool_call' events are NOT forwarded: this server consumes both - the first to learn where to post tool results, the second to run the tool - and emits a 'tool_start'/'tool_end' pair around each run in their place. See AiChatStreamEvent.\n\nThe assistant is a remote dependency: 503 means the gateway was unreachable and 504 that it did not answer in time. Both are retryable. A rejected subscription token answers 502, remapped from the gateway's own 401 or 403 so it cannot be mistaken for this request's own authentication failing.",
         "operationId": "streamChatWithAi",
         "requestBody": {
           "content": {
@@ -3020,13 +4499,13 @@
           "200": {
             "content": {
               "text/event-stream": {
+                "example": "data: {\"type\":\"tool_start\",\"tool\":\"query\",\"args\":{\"database\":\"demo\",\"query\":\"SELECT FROM Person\"}}\n\ndata: {\"type\":\"tool_end\",\"tool\":\"query\",\"args\":{\"database\":\"demo\",\"query\":\"SELECT FROM Person\"}}\n\ndata: {\"type\":\"done\",\"response\":\"There are 42 people.\",\"commands\":[],\"chatId\":\"c-17\"}\n",
                 "schema": {
-                  "description": "Server-Sent Events stream: 'session', 'tool_call', 'tool_start', 'tool_end', 'done'",
-                  "type": "string"
+                  "$ref": "#/components/schemas/AiChatStreamEvent"
                 }
               }
             },
-            "description": "Server-Sent Events stream of 'session', 'tool_call', 'tool_start', 'tool_end', and 'done' events.",
+            "description": "Server-Sent Events stream. Each event is one 'data: ' line carrying a JSON object, followed by a blank line; the schema below is the schema of that object. A complete stream ends with a 'done' event, and exactly one: a stream that ends without it was cut short, and the reply it would have carried was never persisted.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -3622,7 +5101,7 @@
     },
     "/api/v1/batch/{database}": {
       "post": {
-        "description": "Streams vertices and then edges into the database using the GraphBatch API. The body is never buffered, so a load is bounded by the server's memory only through the batching parameters below.\n\nA batch is NOT atomic: GraphBatch commits every 'commitEvery' records, so a failure mid-stream leaves earlier chunks durably committed. A client-input failure answers 400 with 'verticesCreated', 'edgesCreated', and a 'partialCommit' flag; those counts are the records attempted before the failure and are an upper bound on what is durable. Because temporary ids are not keys, retrying the whole payload duplicates already-committed vertices.\n\nA body that ends before its announced length answers 408 with the same partial-commit counts, never a 200 with a truncated count. Compare the returned 'bytesRead' against the bytes sent to verify a chunked upload arrived whole.\n\nSend 'Accept: application/x-ndjson' to be acknowledged while you are still uploading. The answer is then a newline-delimited stream: a 'progress' line at every vertex commit and every 'commitEvery' edges, then exactly one 'summary' or 'error' line carrying the same object this endpoint would otherwise have returned. That is the HTTP counterpart of the per-chunk acknowledgement of the gRPC InsertBidirectional RPC. A progress line counts records attempted, the same upper bound the partial-commit counters carry. Anything else in Accept, including an absent header, returns the buffered object unchanged.\n\nA load that fails before it has acknowledged anything still answers with its real status code and the buffered error body, because the status line has not been sent yet: the 400 and 408 below apply to a streaming request too. Only a failure raised after the first progress line is reported in band under a 200.",
+        "description": "Streams vertices and then edges into the database using the GraphBatch API. The body is never buffered, so a load is bounded by the server's memory only through the batching parameters below.\n\nA batch is NOT atomic: GraphBatch commits every 'commitEvery' records, so a failure mid-stream leaves earlier chunks durably committed. A client-input failure answers 400 with 'verticesCreated', 'edgesCreated', and a 'partialCommit' flag; those counts are the records attempted before the failure and are an upper bound on what is durable. Because temporary ids are not keys, retrying the whole payload duplicates already-committed vertices.\n\nA body that ends before its announced length answers 408 with the same partial-commit counts, never a 200 with a truncated count. Compare the returned 'bytesRead' against the bytes sent to verify a chunked upload arrived whole.\n\nSend 'Accept: application/x-ndjson' to be acknowledged while you are still uploading. The answer is then a newline-delimited stream: a 'progress' line at every vertex commit and every 'commitEvery' edges, then exactly one 'summary' or 'error' line carrying the same object this endpoint would otherwise have returned. That is the HTTP counterpart of the per-chunk acknowledgement of the gRPC InsertBidirectional RPC. A progress line counts records attempted, the same upper bound the partial-commit counters carry. Anything else in Accept, including an absent header, returns the buffered object unchanged.\n\nA load that fails before it has acknowledged anything still answers with its real status code and the buffered error body, because the status line has not been sent yet: the 400 and 408 below apply to a streaming request too. Only a failure raised after the first progress line is reported in band under a 200.\n\nRead the answer while you upload. The streamed answer grows with the size of the load and is written over the same connection the body arrives on, so a client that sends everything before reading anything can fill the socket buffers and stall both directions. A response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' therefore closes the connection and fails the load rather than holding the server thread.\n\nThis endpoint is NOT idempotent, in either encoding: an 'X-Request-Id' is echoed and logged but gives no replay protection here, because the body is never buffered and so cannot be part of the replay key. Two loads sharing one correlation id are two loads.",
         "operationId": "executeBatch",
         "parameters": [
           {
@@ -3827,12 +5306,12 @@
             "text/csv": {
               "example": "@type,@class,@id,name\nvertex,Person,p1,Alice\nvertex,Person,p2,Bob\n---\n@type,@class,@from,@to,since\nedge,Knows,p1,p2,2020",
               "schema": {
-                "description": "A header row naming the columns, then one data row per record. The control keys are column names: @type and @class are required, @id names a vertex's temporary id, and @from and @to name an edge's endpoints. Every other column is a property, and the '@' prefix is reserved there too - an unrecognised '@' column is refused with a 400. A '---' row separates the vertex section from the edge section, and a new header row follows it. Values are typed by inspection: 'true'/'false' become booleans, numeric text becomes a number, an empty field sets no property at all. Quoting follows RFC 4180, single-line fields only.",
+                "description": "A header row naming the columns, then one data row per record. The control keys are column names: @type and @class are required, @id names a vertex's temporary id, and @from and @to name an edge's endpoints. Every other column is a property, and the '@' prefix is reserved there too - an unrecognised '@' column is refused with a 400, and a control column carrying a value the row's kind cannot use - '@id' on an edge row, '@from' or '@to' on a vertex row - is refused too, while an EMPTY one is ignored, so one header naming all five across both sections keeps working. A '---' row separates the vertex section from the edge section, and a new header row follows it. Values are typed by inspection: 'true'/'false' become booleans, numeric text becomes a number, an empty field sets no property at all. Quoting follows RFC 4180, single-line fields only.",
                 "type": "string"
               }
             }
           },
-          "description": "Vertices first, then edges. JSONL sends one JSON record per line; CSV sends a header row followed by data rows. Vertices may declare a temporary '@id' that edges reference through '@from' and '@to', or be referenced by position when refMode=ordinal. Edges may also reference existing RIDs in #bucket:position form.\n\nThe JSON schema below describes ONE LINE: the body is a sequence of them separated by newlines, not a JSON array, and a line that is an array is refused as such.\n\nProperties sit FLAT beside the control keys - {\"@type\":\"vertex\",\"@class\":\"Person\",\"name\":\"Alice\"} - and are NOT nested under a 'properties' object. The '@' prefix is reserved: a key starting with '@' that is not one of @type, @class, @id, @from or @to is refused with a 400 naming the line, and so is a 'properties' key carrying an object, because both can only ever be a misread of this encoding.\n\nThe control keys and the '@type' values are matched case-sensitively: '@Type' is not '@type' and is refused as an unknown control key, and 'Vertex' is not 'vertex'. Only the CSV boolean literals 'true' and 'false' are matched ignoring case.\n\nA temporary id is resolved only within the request that declared it, and only if the vertex appeared earlier in the same payload: a vertex loaded by an EARLIER request has to be referenced by RID (#bucket:position). Under refMode=ordinal, use 'ordinalBase' to keep one position counter across a load split into several requests.",
+          "description": "Vertices first, then edges. JSONL sends one JSON record per line; CSV sends a header row followed by data rows. Vertices may declare a temporary '@id' that edges reference through '@from' and '@to', or be referenced by position when refMode=ordinal. Edges may also reference existing RIDs in #bucket:position form.\n\nThe JSON schema below describes ONE LINE: the body is a sequence of them separated by newlines, not a JSON array, and a line that is an array is refused as such.\n\nProperties sit FLAT beside the control keys - {\"@type\":\"vertex\",\"@class\":\"Person\",\"name\":\"Alice\"} - and are NOT nested under a 'properties' object. The '@' prefix is reserved: a key starting with '@' that is not one of @type, @class, @id, @from or @to is refused with a 400 naming the line, and so is a 'properties' key carrying an object, because both can only ever be a misread of this encoding.\n\nThe control keys and the '@type' values are matched case-sensitively: '@Type' is not '@type' and is refused as an unknown control key, and 'Vertex' is not 'vertex'. Only the CSV boolean literals 'true' and 'false' are matched ignoring case.\n\nA control key the encoding DOES understand, carrying a value on the kind of line that cannot use it, is refused the same way: '@id' on an edge line, '@from' or '@to' on a vertex line. It used to be dropped in silence, so a client that models both line shapes with one struct - which the gRPC sibling GraphBatchRecord invites, since it carries temp_id for both kinds - got a load that looked clean. A key carrying nothing is still accepted, so JSON null and the empty string are ignored and a single CSV header naming all five control columns across both sections keeps working, as long as the inapplicable columns are left empty.\n\nA temporary id is resolved only within the request that declared it, and only if the vertex appeared earlier in the same payload: a vertex loaded by an EARLIER request has to be referenced by RID (#bucket:position). Under refMode=ordinal, use 'ordinalBase' to keep one position counter across a load split into several requests.",
           "required": true
         },
         "responses": {
@@ -4028,6 +5507,12 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
               },
               "arcadedb-session-id": {
                 "description": "Session id identifying the transaction just opened. Present it on the 'arcadedb-session-id' request header of every subsequent call that belongs to this transaction.",
@@ -4740,7 +6225,7 @@
     },
     "/api/v1/cluster/peer": {
       "post": {
-        "description": "Adds a peer to the Raft configuration, then seeds it with the three security documents (server-users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not carry.\n\nA 503 means the membership change succeeded and at least one of those seeds did not commit within arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "description": "Adds a peer to the Raft configuration, then seeds it with the three security documents (server-users.jsonl, server-groups.json, server-api-tokens.json) that a Raft snapshot install does not carry.\n\nA 503 means the membership change succeeded and at least one of those seeds did not commit within arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to reissue the seed - the membership change is idempotent.\n\nThe optional 'priority' carries the peer's Raft leader-election priority, which before it could only be declared in arcadedb.ha.serverList at startup: a peer added at runtime always got the default and a witness admitted this way could be elected leader.\n\nNote the direction: this grows the cluster the SERVER SERVING THIS REQUEST belongs to, with the peer named in the body. It never makes that server join another cluster, so it has to be issued against a member of the target cluster. An address that resolves to the serving node's own peer id is answered 400 rather than accepted: it used to report the peer as added while doing nothing, because a peer already in the committed configuration is an idempotent no-op.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
         "operationId": "addClusterPeer",
         "requestBody": {
           "content": {
@@ -5086,6 +6571,134 @@
         ]
       }
     },
+    "/api/v1/cluster/security-seed": {
+      "post": {
+        "description": "Asks the Raft LEADER to submit server-users.jsonl, server-groups.json and server-api-tokens.json to the cluster, and answers with the ones that did not commit.\n\nTwo callers need it, and both are cluster-internal. A node that has just admitted a peer reads the outcome here instead of running a seed of its own, so an admission is seeded once rather than from two nodes under two different monitors (issue #7834). A node that came back while it was still a Raft member - a rolling restart, a drain and reschedule, a pod whose ordinal is in the static server list - sends the fingerprints of the documents it holds, and is re-seeded only if they differ from the leader's (issue #7833); the three documents live outside the database directory, so no snapshot install carries them.\n\nAnswered 409 by a node that is not the leader, naming the one it believes leads. Answered 503 with the failedSeeds array when the seed ran but a document did not commit, which is the same contract POST /api/v1/cluster/peer answers with.\n\nRestricted to the root user; peers satisfy this by forwarding as root with the cluster token.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "operationId": "seedClusterSecurityDocuments",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecuritySeedRequest"
+              }
+            }
+          },
+          "description": "What to seed, and what the caller already holds",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecuritySeedResponse"
+                }
+              }
+            },
+            "description": "The seed outcome",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "This node is not the Raft leader; the answer names the one it believes leads",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecuritySeedResponse"
+                }
+              }
+            },
+            "description": "The seed ran but one or more documents did not commit (see failedSeeds), or it could not be run at all (see error)",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Have the leader replicate the cluster security documents",
+        "tags": [
+          "Cluster"
+        ]
+      }
+    },
     "/api/v1/cluster/stepdown": {
       "post": {
         "description": "Asks this server to give up leadership, triggering an election. Answers 409 when this server is not the leader - it has nothing to step down from, and the request must be reissued against the leader the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
@@ -5303,7 +6916,7 @@
     },
     "/api/v1/command/{database}": {
       "post": {
-        "description": "Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.",
+        "description": "Executes a database command. INSERT INTO a TIMESERIES type is NOT atomic with the transaction that contains it: the samples are committed as they are appended and a rollback does not take them back. Every other INSERT target behaves normally. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.\n\nEXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and 'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation reached neither rule and answered the plan as a result row instead.",
         "operationId": "executeCommand",
         "parameters": [
           {
@@ -5506,6 +7119,12 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -5855,11 +7474,16 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": {
+                    "description": "CRC of the file's contents",
+                    "type": "integer"
+                  },
+                  "description": "File name to checksum",
                   "type": "object"
                 }
               }
             },
-            "description": "Per-file checksums",
+            "description": "Per-file checksums, keyed by file name. No envelope: the map IS the body",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -6134,7 +7758,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/JsonRpcMessage"
               }
             }
           },
@@ -6146,7 +7770,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/JsonRpcMessage"
                 }
               }
             },
@@ -6184,7 +7808,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/JsonRpcMessage"
                 }
               }
             },
@@ -6199,7 +7823,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/JsonRpcMessage"
                 }
               }
             },
@@ -6229,7 +7853,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/JsonRpcMessage"
                 }
               }
             },
@@ -6340,7 +7964,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/McpConfig"
+                "$ref": "#/components/schemas/McpConfigUpdate"
               }
             }
           },
@@ -6545,7 +8169,7 @@
     },
     "/api/v1/query/{database}": {
       "post": {
-        "description": "Executes a query using POST method with query in request body. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.",
+        "description": "Executes a query using POST method with query in request body. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.\n\nEXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and 'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation reached neither rule and answered the plan as a result row instead.",
         "operationId": "executeQueryPost",
         "parameters": [
           {
@@ -6720,7 +8344,7 @@
     },
     "/api/v1/query/{database}/{language}/{command}": {
       "get": {
-        "description": "Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.",
+        "description": "Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its status code on the wire ahead of the rows and so cannot report a statement that fails half-way through. Request the buffered 'application/json' encoding for it instead.\n\nEXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and 'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation reached neither rule and answered the plan as a result row instead.",
         "operationId": "executeQueryGet",
         "parameters": [
           {
@@ -6804,6 +8428,12 @@
               },
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -6966,6 +8596,12 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -7038,8 +8674,25 @@
     },
     "/api/v1/server": {
       "get": {
-        "description": "Retrieves server status, version, and configuration information",
+        "description": "Retrieves this server's identity and, depending on 'mode', its metrics and settings or its cluster state. The identity members - user, version, serverName, languages - are on every answer.",
         "operationId": "getServerInfo",
+        "parameters": [
+          {
+            "description": "Which optional sections to include. 'default' adds 'metrics' and 'settings', 'cluster' adds 'ha', 'basic' adds nothing and is the cheapest form. An unrecognised value behaves like 'basic'.",
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "default",
+              "enum": [
+                "default",
+                "basic",
+                "cluster"
+              ],
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -7093,7 +8746,7 @@
         ]
       },
       "post": {
-        "description": "Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when this server is not running an HA implementation that supports runtime membership",
+        "description": "Executes administrative commands on the server (root user only). Available commands: create database, drop database, open database, close database, restore database <name> <url>, import database <name> <url>, create user, drop user, shutdown, set server setting, get server events, align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this server is not running an HA implementation that supports runtime membership, and 503 when the server joined but one of the three security documents could not be seeded to it - the same answer POST /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join itself stands in that case; re-running the command is idempotent on the membership change and reissues the seed. Note the direction: it never makes THIS server join another cluster, and an address that resolves to this server is answered 400 rather than accepted as a no-op. To make a running server join a cluster it is not configured for, issue this same command on a server that is already a member of that cluster, or declare arcadedb.ha.serverList and restart",
         "operationId": "executeServerCommand",
         "requestBody": {
           "content": {
@@ -7197,6 +8850,21 @@
               }
             }
           },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "'connect cluster' joined the server, but one or more of the cluster's security documents could not be seeded to it. The new peer is a committed cluster member enforcing its own copy of them. The 'failedSeeds' array names the documents; re-run the command to reissue the seed.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
           "504": {
             "content": {
               "application/json": {
@@ -7239,7 +8907,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/SecurityAdminResult"
                 }
               }
             },
@@ -7324,7 +8992,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ApiTokenList"
                 }
               }
             },
@@ -7408,7 +9076,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/CreateApiTokenRequest"
               }
             }
           },
@@ -7420,7 +9088,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CreateApiTokenResponse"
                 }
               }
             },
@@ -7470,6 +9138,21 @@
               }
             },
             "description": "Forbidden - root user required",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -7527,7 +9210,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/SecurityAdminResult"
                 }
               }
             },
@@ -7612,7 +9295,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/GroupList"
                 }
               }
             },
@@ -7696,7 +9379,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/SaveGroupRequest"
               }
             }
           },
@@ -7708,7 +9391,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/SecurityAdminResult"
                 }
               }
             },
@@ -7806,7 +9489,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/SecurityAdminResult"
                 }
               }
             },
@@ -7906,7 +9589,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/UserList"
                 }
               }
             },
@@ -7990,7 +9673,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/CreateUserRequest"
               }
             }
           },
@@ -8002,7 +9685,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/SecurityAdminResult"
                 }
               }
             },
@@ -8112,7 +9795,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object"
+                "$ref": "#/components/schemas/UpdateUserRequest"
               }
             }
           },
@@ -8124,7 +9807,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/SecurityAdminResult"
                 }
               }
             },
@@ -8302,6 +9985,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -8317,6 +10009,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -8373,7 +10077,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -8415,6 +10119,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -8430,6 +10143,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -8486,7 +10211,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -8528,6 +10253,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -8554,6 +10288,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -8610,7 +10356,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -8654,6 +10400,15 @@
             }
           },
           {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "Time-series type name",
             "in": "query",
             "name": "type",
@@ -8690,6 +10445,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -8746,7 +10513,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -8777,7 +10544,7 @@
     },
     "/api/v1/ts/{database}/prom/api/v1/label/{name}/values": {
       "get": {
-        "description": "Lists every value of one label name, sorted. Compatible with the Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns every time-series type name instead of scanning a tag column. Takes no filtering parameters: unlike Prometheus itself, this endpoint does not accept 'start', 'end', or 'match[]'.",
+        "description": "Lists the values of one label name, sorted, over the requested time range. Compatible with the Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns the time-series type names instead of scanning a tag column. 'start' and 'end' are optional and default to the whole series: when either is supplied, the answer is restricted to the values - and, for '__name__', the types - carried by a sample in that range; with neither, every time-series type is named, one holding no sample at all included. Unlike Prometheus itself, this endpoint does not accept 'match[]'.",
         "operationId": "promQLLabelValues",
         "parameters": [
           {
@@ -8790,10 +10557,37 @@
             }
           },
           {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "Label name",
             "in": "path",
             "name": "name",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive range start as a Unix timestamp in seconds, fractional seconds allowed",
+            "in": "query",
+            "name": "start",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Inclusive range end as a Unix timestamp in seconds, fractional seconds allowed",
+            "in": "query",
+            "name": "end",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -8812,6 +10606,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -8868,7 +10674,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -8910,6 +10716,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -8925,6 +10740,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -8981,7 +10808,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9020,6 +10847,15 @@
             "in": "path",
             "name": "database",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -9065,6 +10901,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -9121,7 +10969,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9160,6 +11008,15 @@
             "in": "path",
             "name": "database",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -9223,6 +11080,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -9279,7 +11148,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9318,6 +11187,15 @@
             "in": "path",
             "name": "database",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -9368,6 +11246,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -9424,7 +11314,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9466,6 +11356,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -9494,6 +11393,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -9550,7 +11461,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9592,6 +11503,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -9612,6 +11532,12 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -9668,7 +11594,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found, or the session id header names a transaction that no longer resolves (\"Remote transaction session not found or expired\"): a write is refused rather than run outside the transaction the caller believes it is inside.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9710,6 +11636,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -9743,6 +11678,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -9799,7 +11746,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9845,7 +11792,7 @@
     },
     "/api/v1/ts/{database}/write": {
       "post": {
-        "description": "Ingests one or more samples expressed in InfluxDB Line Protocol. The measurement name selects the time-series type, tags select the series, and fields carry the values.\n\nThe body may be gzip-compressed by sending Content-Encoding: gzip. A fully accepted request answers 204 with no body; a request whose samples could not all be applied answers 400 with the counts of what was written and dropped, so a client can tell a total rejection from a partial one.",
+        "description": "Ingests one or more samples expressed in InfluxDB Line Protocol. The measurement name selects the time-series type, tags select the series, and fields carry the values.\n\nThe body may be gzip-compressed by sending Content-Encoding: gzip. A fully accepted request answers 204 with no body; a request whose samples could not all be applied answers 400 with the counts of what was written and dropped, so a client can tell a total rejection from a partial one.\n\nAn ingest is NOT atomic, with this request or with any transaction around it. Each measurement's batch commits its own storage transaction as it is appended, so a failure part-way leaves the measurements before it durable - which is what those counts report - and a rollback of the transaction named by 'arcadedb-session-id' does not take the appended samples back. Retry the dropped measurements rather than the whole body: the samples already written stay written. The same applies to INSERT INTO a TIMESERIES type through /api/v1/command/{database}.",
         "operationId": "writeTimeSeries",
         "parameters": [
           {
@@ -9853,6 +11800,15 @@
             "in": "path",
             "name": "database",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. It makes this call run under that session's lock and principal and refreshes its idle timer, so a client that only ingests does not have its transaction reaped underneath it, and it turns a session id this server no longer knows into a 404 rather than a silent write outside the transaction you believe you are in.\n\nIt does NOT put the samples in that transaction. They are committed as they are appended and are readable by everyone before you commit anything; rolling the transaction back does not remove them. Omit it to run outside any transaction: for the samples themselves that is the same thing.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -9890,6 +11846,12 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -9946,7 +11908,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found, or the session id header names a transaction that no longer resolves (\"Remote transaction session not found or expired\"): a write is refused rather than run outside the transaction the caller believes it is inside.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9988,6 +11950,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -10014,6 +11985,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -10070,7 +12053,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -10112,6 +12095,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -10138,6 +12130,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -10194,7 +12198,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -10236,6 +12240,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -10262,6 +12275,18 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-expired": {
+                "description": "Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -10318,7 +12343,7 @@
                 }
               }
             },
-            "description": "Not found",
+            "description": "Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"

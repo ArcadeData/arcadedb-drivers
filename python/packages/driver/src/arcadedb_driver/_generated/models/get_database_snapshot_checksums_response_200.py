@@ -11,9 +11,9 @@ T = TypeVar("T", bound="GetDatabaseSnapshotChecksumsResponse200")
 
 @_attrs_define
 class GetDatabaseSnapshotChecksumsResponse200:
-    """ """
+    """File name to checksum"""
 
-    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+    additional_properties: dict[str, int] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
 
@@ -34,10 +34,10 @@ class GetDatabaseSnapshotChecksumsResponse200:
     def additional_keys(self) -> list[str]:
         return list(self.additional_properties.keys())
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: str) -> int:
         return self.additional_properties[key]
 
-    def __setitem__(self, key: str, value: Any) -> None:
+    def __setitem__(self, key: str, value: int) -> None:
         self.additional_properties[key] = value
 
     def __delitem__(self, key: str) -> None:

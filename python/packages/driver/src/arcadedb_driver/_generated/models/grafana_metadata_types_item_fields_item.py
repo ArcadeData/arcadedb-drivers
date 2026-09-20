@@ -6,8 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="GrafanaMetadataTypesItemFieldsItem")
 
 
@@ -16,12 +14,12 @@ class GrafanaMetadataTypesItemFieldsItem:
     """One column, value or tag
 
     Attributes:
-        data_type (str | Unset): ArcadeDB column data type
-        name (str | Unset): Column name
+        data_type (str): ArcadeDB column data type
+        name (str): Column name
     """
 
-    data_type: str | Unset = UNSET
-    name: str | Unset = UNSET
+    data_type: str
+    name: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,20 +29,21 @@ class GrafanaMetadataTypesItemFieldsItem:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if data_type is not UNSET:
-            field_dict["dataType"] = data_type
-        if name is not UNSET:
-            field_dict["name"] = name
+        field_dict.update(
+            {
+                "dataType": data_type,
+                "name": name,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        data_type = d.pop("dataType", UNSET)
+        data_type = d.pop("dataType")
 
-        name = d.pop("name", UNSET)
+        name = d.pop("name")
 
         grafana_metadata_types_item_fields_item = cls(
             data_type=data_type,

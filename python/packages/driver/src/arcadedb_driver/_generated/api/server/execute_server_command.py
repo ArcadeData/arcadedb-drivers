@@ -63,6 +63,11 @@ def _parse_response(
 
         return response_500
 
+    if response.status_code == 503:
+        response_503 = ErrorResponse.from_dict(response.json())
+
+        return response_503
+
     if response.status_code == 504:
         response_504 = ErrorResponse.from_dict(response.json())
 
@@ -99,8 +104,15 @@ def sync_detailed(
     progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
     at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
     <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
-    this server is not running an HA implementation that supports runtime membership
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
+    server is not running an HA implementation that supports runtime membership, and 503 when the server
+    joined but one of the three security documents could not be seeded to it - the same answer POST
+    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
+    itself stands in that case; re-running the command is idempotent on the membership change and
+    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
+    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
+    running server join a cluster it is not configured for, issue this same command on a server that is
+    already a member of that cluster, or declare arcadedb.ha.serverList and restart
 
     Args:
         body (CommandRequest): Command request object
@@ -138,8 +150,15 @@ def sync(
     progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
     at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
     <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
-    this server is not running an HA implementation that supports runtime membership
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
+    server is not running an HA implementation that supports runtime membership, and 503 when the server
+    joined but one of the three security documents could not be seeded to it - the same answer POST
+    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
+    itself stands in that case; re-running the command is idempotent on the membership change and
+    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
+    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
+    running server join a cluster it is not configured for, issue this same command on a server that is
+    already a member of that cluster, or declare arcadedb.ha.serverList and restart
 
     Args:
         body (CommandRequest): Command request object
@@ -172,8 +191,15 @@ async def asyncio_detailed(
     progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
     at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
     <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
-    this server is not running an HA implementation that supports runtime membership
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
+    server is not running an HA implementation that supports runtime membership, and 503 when the server
+    joined but one of the three security documents could not be seeded to it - the same answer POST
+    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
+    itself stands in that case; re-running the command is idempotent on the membership change and
+    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
+    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
+    running server join a cluster it is not configured for, issue this same command on a server that is
+    already a member of that cluster, or declare arcadedb.ha.serverList and restart
 
     Args:
         body (CommandRequest): Command request object
@@ -209,8 +235,15 @@ async def asyncio(
     progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
     at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
     <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address and 500 when
-    this server is not running an HA implementation that supports runtime membership
+    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
+    server is not running an HA implementation that supports runtime membership, and 503 when the server
+    joined but one of the three security documents could not be seeded to it - the same answer POST
+    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
+    itself stands in that case; re-running the command is idempotent on the membership change and
+    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
+    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
+    running server join a cluster it is not configured for, issue this same command on a server that is
+    already a member of that cluster, or declare arcadedb.ha.serverList and restart
 
     Args:
         body (CommandRequest): Command request object

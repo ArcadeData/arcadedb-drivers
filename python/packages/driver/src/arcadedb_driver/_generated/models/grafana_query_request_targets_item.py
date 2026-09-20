@@ -21,22 +21,25 @@ class GrafanaQueryRequestTargetsItem:
     """One panel query
 
     Attributes:
+        type_ (str): Time-series type name
         aggregation (GrafanaQueryRequestTargetsItemAggregation | Unset): Bucketed aggregation. Omit for raw samples.
         fields (list[str] | Unset): Fields to project on a raw (non-aggregated) query. All fields when omitted. Ignored
-            when 'aggregation' is present.
+            when 'aggregation' is present. A name that is no column of the type is refused with an error frame for this
+            target rather than ignored.
         ref_id (str | Unset): Identifier echoed back as the result key. Defaults to 'A'.
-        tags (GrafanaQueryRequestTargetsItemTags | Unset): Tag filter as name to value pairs
-        type_ (str | Unset): Time-series type name
+        tags (GrafanaQueryRequestTargetsItemTags | Unset): Tag filter as name to value pairs. All pairs must match
     """
 
+    type_: str
     aggregation: GrafanaQueryRequestTargetsItemAggregation | Unset = UNSET
     fields: list[str] | Unset = UNSET
     ref_id: str | Unset = UNSET
     tags: GrafanaQueryRequestTargetsItemTags | Unset = UNSET
-    type_: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        type_ = self.type_
+
         aggregation: dict[str, Any] | Unset = UNSET
         if not isinstance(self.aggregation, Unset):
             aggregation = self.aggregation.to_dict()
@@ -51,11 +54,13 @@ class GrafanaQueryRequestTargetsItem:
         if not isinstance(self.tags, Unset):
             tags = self.tags.to_dict()
 
-        type_ = self.type_
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "type": type_,
+            }
+        )
         if aggregation is not UNSET:
             field_dict["aggregation"] = aggregation
         if fields is not UNSET:
@@ -64,8 +69,6 @@ class GrafanaQueryRequestTargetsItem:
             field_dict["refId"] = ref_id
         if tags is not UNSET:
             field_dict["tags"] = tags
-        if type_ is not UNSET:
-            field_dict["type"] = type_
 
         return field_dict
 
@@ -75,6 +78,8 @@ class GrafanaQueryRequestTargetsItem:
         from ..models.grafana_query_request_targets_item_tags import GrafanaQueryRequestTargetsItemTags
 
         d = dict(src_dict)
+        type_ = d.pop("type")
+
         _aggregation = d.pop("aggregation", UNSET)
         aggregation: GrafanaQueryRequestTargetsItemAggregation | Unset
         if isinstance(_aggregation, Unset):
@@ -93,14 +98,12 @@ class GrafanaQueryRequestTargetsItem:
         else:
             tags = GrafanaQueryRequestTargetsItemTags.from_dict(_tags)
 
-        type_ = d.pop("type", UNSET)
-
         grafana_query_request_targets_item = cls(
+            type_=type_,
             aggregation=aggregation,
             fields=fields,
             ref_id=ref_id,
             tags=tags,
-            type_=type_,
         )
 
         grafana_query_request_targets_item.additional_properties = d

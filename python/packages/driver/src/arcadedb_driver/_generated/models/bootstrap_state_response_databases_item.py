@@ -16,57 +16,57 @@ class BootstrapStateResponseDatabasesItem:
     """One database's bootstrap state
 
     Attributes:
+        fingerprint (str): Content fingerprint, empty when the database could not be read
+        last_tx_id (int): Last transaction id, -1 when the database could not be read
+        name (str): Database name
         error (str | Unset): Why the database could not be read. Absent on success.
-        fingerprint (str | Unset): Content fingerprint, empty when the database could not be read
-        last_tx_id (int | Unset): Last transaction id, -1 when the database could not be read
-        name (str | Unset): Database name
     """
 
+    fingerprint: str
+    last_tx_id: int
+    name: str
     error: str | Unset = UNSET
-    fingerprint: str | Unset = UNSET
-    last_tx_id: int | Unset = UNSET
-    name: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        error = self.error
-
         fingerprint = self.fingerprint
 
         last_tx_id = self.last_tx_id
 
         name = self.name
 
+        error = self.error
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "fingerprint": fingerprint,
+                "lastTxId": last_tx_id,
+                "name": name,
+            }
+        )
         if error is not UNSET:
             field_dict["error"] = error
-        if fingerprint is not UNSET:
-            field_dict["fingerprint"] = fingerprint
-        if last_tx_id is not UNSET:
-            field_dict["lastTxId"] = last_tx_id
-        if name is not UNSET:
-            field_dict["name"] = name
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        fingerprint = d.pop("fingerprint")
+
+        last_tx_id = d.pop("lastTxId")
+
+        name = d.pop("name")
+
         error = d.pop("error", UNSET)
 
-        fingerprint = d.pop("fingerprint", UNSET)
-
-        last_tx_id = d.pop("lastTxId", UNSET)
-
-        name = d.pop("name", UNSET)
-
         bootstrap_state_response_databases_item = cls(
-            error=error,
             fingerprint=fingerprint,
             last_tx_id=last_tx_id,
             name=name,
+            error=error,
         )
 
         bootstrap_state_response_databases_item.additional_properties = d

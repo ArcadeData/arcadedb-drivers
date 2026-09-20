@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.hybrid_search_response_results_item_sources_item import HybridSearchResponseResultsItemSourcesItem
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
@@ -24,7 +25,8 @@ class HybridSearchResponseResultsItem:
             own properties it carries the record's '@rid' and '@type', which JsonSerializer writes into every serialized
             document.
         rid (str): Record id of the hit
-        sources (list[str]): Which legs contributed this hit: vector, fulltext, expand
+        sources (list[HybridSearchResponseResultsItemSourcesItem]): Which legs contributed this hit. Never empty: a hit
+            is in the list because some leg produced it
         depth (int | Unset): Hops from the seed, for a hit the expansion leg contributed
         distance (float | Unset): Vector distance, present instead of 'fusedScore' on an unfused dense response
         fused_score (float | Unset): Fused score, higher is better. Present when 'fused' is true
@@ -35,7 +37,7 @@ class HybridSearchResponseResultsItem:
 
     properties: HybridSearchResponseResultsItemProperties
     rid: str
-    sources: list[str]
+    sources: list[HybridSearchResponseResultsItemSourcesItem]
     depth: int | Unset = UNSET
     distance: float | Unset = UNSET
     fused_score: float | Unset = UNSET
@@ -48,7 +50,10 @@ class HybridSearchResponseResultsItem:
 
         rid = self.rid
 
-        sources = self.sources
+        sources = []
+        for sources_item_data in self.sources:
+            sources_item = sources_item_data.value
+            sources.append(sources_item)
 
         depth = self.depth
 
@@ -93,7 +98,12 @@ class HybridSearchResponseResultsItem:
 
         rid = d.pop("rid")
 
-        sources = cast(list[str], d.pop("sources"))
+        sources = []
+        _sources = d.pop("sources")
+        for sources_item_data in _sources:
+            sources_item = HybridSearchResponseResultsItemSourcesItem(sources_item_data)
+
+            sources.append(sources_item)
 
         depth = d.pop("depth", UNSET)
 

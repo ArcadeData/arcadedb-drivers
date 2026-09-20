@@ -6,17 +6,14 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
-from ...models.invoke_mcp_body import InvokeMcpBody
-from ...models.invoke_mcp_response_200 import InvokeMcpResponse200
-from ...models.invoke_mcp_response_403 import InvokeMcpResponse403
-from ...models.invoke_mcp_response_405 import InvokeMcpResponse405
-from ...models.invoke_mcp_response_503 import InvokeMcpResponse503
+from ...models.json_rpc_message_type_0 import JsonRpcMessageType0
+from ...models.json_rpc_message_type_1_item import JsonRpcMessageType1Item
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: InvokeMcpBody,
+    body: JsonRpcMessageType0 | list[JsonRpcMessageType1Item],
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -25,7 +22,15 @@ def _get_kwargs(
         "url": "/api/v1/mcp",
     }
 
-    _kwargs["json"] = body.to_dict()
+    if isinstance(body, JsonRpcMessageType0):
+        _kwargs["json"] = body.to_dict()
+    else:
+        _kwargs["json"] = []
+        for componentsschemas_json_rpc_message_type_1_item_data in body:
+            componentsschemas_json_rpc_message_type_1_item = (
+                componentsschemas_json_rpc_message_type_1_item_data.to_dict()
+            )
+            _kwargs["json"].append(componentsschemas_json_rpc_message_type_1_item)
 
     headers["Content-Type"] = "application/json"
 
@@ -35,17 +40,32 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> (
-    Any
-    | ErrorResponse
-    | InvokeMcpResponse200
-    | InvokeMcpResponse403
-    | InvokeMcpResponse405
-    | InvokeMcpResponse503
-    | None
-):
+) -> Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item] | None:
     if response.status_code == 200:
-        response_200 = InvokeMcpResponse200.from_dict(response.json())
+
+        def _parse_response_200(data: object) -> JsonRpcMessageType0 | list[JsonRpcMessageType1Item]:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                componentsschemas_json_rpc_message_type_0 = JsonRpcMessageType0.from_dict(data)
+
+                return componentsschemas_json_rpc_message_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, list):
+                raise TypeError()
+            componentsschemas_json_rpc_message_type_1 = []
+            _componentsschemas_json_rpc_message_type_1 = data
+            for componentsschemas_json_rpc_message_type_1_item_data in _componentsschemas_json_rpc_message_type_1:
+                componentsschemas_json_rpc_message_type_1_item = JsonRpcMessageType1Item.from_dict(
+                    componentsschemas_json_rpc_message_type_1_item_data
+                )
+
+                componentsschemas_json_rpc_message_type_1.append(componentsschemas_json_rpc_message_type_1_item)
+
+            return componentsschemas_json_rpc_message_type_1
+
+        response_200 = _parse_response_200(response.json())
 
         return response_200
 
@@ -59,12 +79,58 @@ def _parse_response(
         return response_401
 
     if response.status_code == 403:
-        response_403 = InvokeMcpResponse403.from_dict(response.json())
+
+        def _parse_response_403(data: object) -> JsonRpcMessageType0 | list[JsonRpcMessageType1Item]:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                componentsschemas_json_rpc_message_type_0 = JsonRpcMessageType0.from_dict(data)
+
+                return componentsschemas_json_rpc_message_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, list):
+                raise TypeError()
+            componentsschemas_json_rpc_message_type_1 = []
+            _componentsschemas_json_rpc_message_type_1 = data
+            for componentsschemas_json_rpc_message_type_1_item_data in _componentsschemas_json_rpc_message_type_1:
+                componentsschemas_json_rpc_message_type_1_item = JsonRpcMessageType1Item.from_dict(
+                    componentsschemas_json_rpc_message_type_1_item_data
+                )
+
+                componentsschemas_json_rpc_message_type_1.append(componentsschemas_json_rpc_message_type_1_item)
+
+            return componentsschemas_json_rpc_message_type_1
+
+        response_403 = _parse_response_403(response.json())
 
         return response_403
 
     if response.status_code == 405:
-        response_405 = InvokeMcpResponse405.from_dict(response.json())
+
+        def _parse_response_405(data: object) -> JsonRpcMessageType0 | list[JsonRpcMessageType1Item]:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                componentsschemas_json_rpc_message_type_0 = JsonRpcMessageType0.from_dict(data)
+
+                return componentsschemas_json_rpc_message_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, list):
+                raise TypeError()
+            componentsschemas_json_rpc_message_type_1 = []
+            _componentsschemas_json_rpc_message_type_1 = data
+            for componentsschemas_json_rpc_message_type_1_item_data in _componentsschemas_json_rpc_message_type_1:
+                componentsschemas_json_rpc_message_type_1_item = JsonRpcMessageType1Item.from_dict(
+                    componentsschemas_json_rpc_message_type_1_item_data
+                )
+
+                componentsschemas_json_rpc_message_type_1.append(componentsschemas_json_rpc_message_type_1_item)
+
+            return componentsschemas_json_rpc_message_type_1
+
+        response_405 = _parse_response_405(response.json())
 
         return response_405
 
@@ -74,7 +140,30 @@ def _parse_response(
         return response_500
 
     if response.status_code == 503:
-        response_503 = InvokeMcpResponse503.from_dict(response.json())
+
+        def _parse_response_503(data: object) -> JsonRpcMessageType0 | list[JsonRpcMessageType1Item]:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                componentsschemas_json_rpc_message_type_0 = JsonRpcMessageType0.from_dict(data)
+
+                return componentsschemas_json_rpc_message_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, list):
+                raise TypeError()
+            componentsschemas_json_rpc_message_type_1 = []
+            _componentsschemas_json_rpc_message_type_1 = data
+            for componentsschemas_json_rpc_message_type_1_item_data in _componentsschemas_json_rpc_message_type_1:
+                componentsschemas_json_rpc_message_type_1_item = JsonRpcMessageType1Item.from_dict(
+                    componentsschemas_json_rpc_message_type_1_item_data
+                )
+
+                componentsschemas_json_rpc_message_type_1.append(componentsschemas_json_rpc_message_type_1_item)
+
+            return componentsschemas_json_rpc_message_type_1
+
+        response_503 = _parse_response_503(response.json())
 
         return response_503
 
@@ -86,9 +175,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[
-    Any | ErrorResponse | InvokeMcpResponse200 | InvokeMcpResponse403 | InvokeMcpResponse405 | InvokeMcpResponse503
-]:
+) -> Response[Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item]]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -100,10 +187,8 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: InvokeMcpBody,
-) -> Response[
-    Any | ErrorResponse | InvokeMcpResponse200 | InvokeMcpResponse403 | InvokeMcpResponse405 | InvokeMcpResponse503
-]:
+    body: JsonRpcMessageType0 | list[JsonRpcMessageType1Item],
+) -> Response[Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item]]:
     """Exchange a JSON-RPC message with the MCP server
 
      Accepts one JSON-RPC 2.0 request, notification, or response, or a batch of them as a top-level
@@ -122,14 +207,15 @@ def sync_detailed(
     from a custom build that excludes the MCP module.
 
     Args:
-        body (InvokeMcpBody):
+        body (JsonRpcMessageType0 | list[JsonRpcMessageType1Item]): One JSON-RPC 2.0 message, or a
+            batch of them as a top-level array. A batch request is answered by a batch of responses.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorResponse | InvokeMcpResponse200 | InvokeMcpResponse403 | InvokeMcpResponse405 | InvokeMcpResponse503]
+        Response[Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item]]
     """
 
     kwargs = _get_kwargs(
@@ -146,16 +232,8 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: InvokeMcpBody,
-) -> (
-    Any
-    | ErrorResponse
-    | InvokeMcpResponse200
-    | InvokeMcpResponse403
-    | InvokeMcpResponse405
-    | InvokeMcpResponse503
-    | None
-):
+    body: JsonRpcMessageType0 | list[JsonRpcMessageType1Item],
+) -> Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item] | None:
     """Exchange a JSON-RPC message with the MCP server
 
      Accepts one JSON-RPC 2.0 request, notification, or response, or a batch of them as a top-level
@@ -174,14 +252,15 @@ def sync(
     from a custom build that excludes the MCP module.
 
     Args:
-        body (InvokeMcpBody):
+        body (JsonRpcMessageType0 | list[JsonRpcMessageType1Item]): One JSON-RPC 2.0 message, or a
+            batch of them as a top-level array. A batch request is answered by a batch of responses.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorResponse | InvokeMcpResponse200 | InvokeMcpResponse403 | InvokeMcpResponse405 | InvokeMcpResponse503
+        Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item]
     """
 
     return sync_detailed(
@@ -193,10 +272,8 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: InvokeMcpBody,
-) -> Response[
-    Any | ErrorResponse | InvokeMcpResponse200 | InvokeMcpResponse403 | InvokeMcpResponse405 | InvokeMcpResponse503
-]:
+    body: JsonRpcMessageType0 | list[JsonRpcMessageType1Item],
+) -> Response[Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item]]:
     """Exchange a JSON-RPC message with the MCP server
 
      Accepts one JSON-RPC 2.0 request, notification, or response, or a batch of them as a top-level
@@ -215,14 +292,15 @@ async def asyncio_detailed(
     from a custom build that excludes the MCP module.
 
     Args:
-        body (InvokeMcpBody):
+        body (JsonRpcMessageType0 | list[JsonRpcMessageType1Item]): One JSON-RPC 2.0 message, or a
+            batch of them as a top-level array. A batch request is answered by a batch of responses.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ErrorResponse | InvokeMcpResponse200 | InvokeMcpResponse403 | InvokeMcpResponse405 | InvokeMcpResponse503]
+        Response[Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item]]
     """
 
     kwargs = _get_kwargs(
@@ -237,16 +315,8 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: InvokeMcpBody,
-) -> (
-    Any
-    | ErrorResponse
-    | InvokeMcpResponse200
-    | InvokeMcpResponse403
-    | InvokeMcpResponse405
-    | InvokeMcpResponse503
-    | None
-):
+    body: JsonRpcMessageType0 | list[JsonRpcMessageType1Item],
+) -> Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item] | None:
     """Exchange a JSON-RPC message with the MCP server
 
      Accepts one JSON-RPC 2.0 request, notification, or response, or a batch of them as a top-level
@@ -265,14 +335,15 @@ async def asyncio(
     from a custom build that excludes the MCP module.
 
     Args:
-        body (InvokeMcpBody):
+        body (JsonRpcMessageType0 | list[JsonRpcMessageType1Item]): One JSON-RPC 2.0 message, or a
+            batch of them as a top-level array. A batch request is answered by a batch of responses.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ErrorResponse | InvokeMcpResponse200 | InvokeMcpResponse403 | InvokeMcpResponse405 | InvokeMcpResponse503
+        Any | ErrorResponse | JsonRpcMessageType0 | list[JsonRpcMessageType1Item]
     """
 
     return (

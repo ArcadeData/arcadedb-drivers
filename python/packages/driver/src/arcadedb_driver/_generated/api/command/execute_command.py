@@ -100,13 +100,23 @@ def sync_detailed(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
-    """Execute command
+    r"""Execute command
 
-     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
-    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
-    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
-    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
-    through. Request the buffered 'application/json' encoding for it instead.
+     Executes a database command. INSERT INTO a TIMESERIES type is NOT atomic with the transaction that
+    contains it: the samples are committed as they are appended and a rollback does not take them back.
+    Every other INSERT target behaves normally. When 'Accept' requests the ndjson encoding, only a
+    statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP
+    DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a
+    streamed response puts its status code on the wire ahead of the rows and so cannot report a
+    statement that fails half-way through. Request the buffered 'application/json' encoding for it
+    instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):
@@ -144,13 +154,23 @@ def sync(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
-    """Execute command
+    r"""Execute command
 
-     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
-    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
-    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
-    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
-    through. Request the buffered 'application/json' encoding for it instead.
+     Executes a database command. INSERT INTO a TIMESERIES type is NOT atomic with the transaction that
+    contains it: the samples are committed as they are appended and a rollback does not take them back.
+    Every other INSERT target behaves normally. When 'Accept' requests the ndjson encoding, only a
+    statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP
+    DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a
+    streamed response puts its status code on the wire ahead of the rows and so cannot report a
+    statement that fails half-way through. Request the buffered 'application/json' encoding for it
+    instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):
@@ -183,13 +203,23 @@ async def asyncio_detailed(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
-    """Execute command
+    r"""Execute command
 
-     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
-    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
-    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
-    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
-    through. Request the buffered 'application/json' encoding for it instead.
+     Executes a database command. INSERT INTO a TIMESERIES type is NOT atomic with the transaction that
+    contains it: the samples are committed as they are appended and a rollback does not take them back.
+    Every other INSERT target behaves normally. When 'Accept' requests the ndjson encoding, only a
+    statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP
+    DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a
+    streamed response puts its status code on the wire ahead of the rows and so cannot report a
+    statement that fails half-way through. Request the buffered 'application/json' encoding for it
+    instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):
@@ -225,13 +255,23 @@ async def asyncio(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
-    """Execute command
+    r"""Execute command
 
-     Executes a database command. When 'Accept' requests the ndjson encoding, only a statement provably
-    read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP DATABASE, or one this
-    analysis cannot classify - is refused with 400 before it runs, because a streamed response puts its
-    status code on the wire ahead of the rows and so cannot report a statement that fails half-way
-    through. Request the buffered 'application/json' encoding for it instead.
+     Executes a database command. INSERT INTO a TIMESERIES type is NOT atomic with the transaction that
+    contains it: the samples are committed as they are appended and a rollback does not take them back.
+    Every other INSERT target behaves normally. When 'Accept' requests the ndjson encoding, only a
+    statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE, DDL, BACKUP
+    DATABASE, or one this analysis cannot classify - is refused with 400 before it runs, because a
+    streamed response puts its status code on the wire ahead of the rows and so cannot report a
+    statement that fails half-way through. Request the buffered 'application/json' encoding for it
+    instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):

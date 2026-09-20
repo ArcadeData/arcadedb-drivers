@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.ai_chat_messages_item_role import AiChatMessagesItemRole
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
-    from ..models.ai_chat_messages_item_commands_item import AiChatMessagesItemCommandsItem
+    from ..models.ai_command import AiCommand
 
 
 T = TypeVar("T", bound="AiChatMessagesItem")
@@ -20,20 +21,26 @@ class AiChatMessagesItem:
     """One chat message
 
     Attributes:
-        commands (list[AiChatMessagesItemCommandsItem] | Unset): SQL commands the assistant proposed with this reply.
-            Present only on an assistant message that proposed at least one.
-        content (str | Unset): Message text
-        role (str | Unset): 'user' or the assistant role
-        timestamp (str | Unset): ISO-8601 instant
+        content (str): Message text
+        role (AiChatMessagesItemRole): Who wrote the message
+        timestamp (str): ISO-8601 instant
+        commands (list[AiCommand] | Unset): SQL commands the assistant proposed with this reply. Present only on an
+            assistant message that proposed at least one.
     """
 
-    commands: list[AiChatMessagesItemCommandsItem] | Unset = UNSET
-    content: str | Unset = UNSET
-    role: str | Unset = UNSET
-    timestamp: str | Unset = UNSET
+    content: str
+    role: AiChatMessagesItemRole
+    timestamp: str
+    commands: list[AiCommand] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        content = self.content
+
+        role = self.role.value
+
+        timestamp = self.timestamp
+
         commands: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.commands, Unset):
             commands = []
@@ -41,51 +48,45 @@ class AiChatMessagesItem:
                 commands_item = commands_item_data.to_dict()
                 commands.append(commands_item)
 
-        content = self.content
-
-        role = self.role
-
-        timestamp = self.timestamp
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "content": content,
+                "role": role,
+                "timestamp": timestamp,
+            }
+        )
         if commands is not UNSET:
             field_dict["commands"] = commands
-        if content is not UNSET:
-            field_dict["content"] = content
-        if role is not UNSET:
-            field_dict["role"] = role
-        if timestamp is not UNSET:
-            field_dict["timestamp"] = timestamp
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.ai_chat_messages_item_commands_item import AiChatMessagesItemCommandsItem
+        from ..models.ai_command import AiCommand
 
         d = dict(src_dict)
+        content = d.pop("content")
+
+        role = AiChatMessagesItemRole(d.pop("role"))
+
+        timestamp = d.pop("timestamp")
+
         _commands = d.pop("commands", UNSET)
-        commands: list[AiChatMessagesItemCommandsItem] | Unset = UNSET
+        commands: list[AiCommand] | Unset = UNSET
         if _commands is not UNSET:
             commands = []
             for commands_item_data in _commands:
-                commands_item = AiChatMessagesItemCommandsItem.from_dict(commands_item_data)
+                commands_item = AiCommand.from_dict(commands_item_data)
 
                 commands.append(commands_item)
 
-        content = d.pop("content", UNSET)
-
-        role = d.pop("role", UNSET)
-
-        timestamp = d.pop("timestamp", UNSET)
-
         ai_chat_messages_item = cls(
-            commands=commands,
             content=content,
             role=role,
             timestamp=timestamp,
+            commands=commands,
         )
 
         ai_chat_messages_item.additional_properties = d

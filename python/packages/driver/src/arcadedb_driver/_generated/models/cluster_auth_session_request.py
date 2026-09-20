@@ -6,6 +6,7 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.cluster_auth_session_request_action import ClusterAuthSessionRequestAction
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="ClusterAuthSessionRequest")
@@ -17,17 +18,20 @@ class ClusterAuthSessionRequest:
 
     Attributes:
         token (str): The session token, 'AU-<server name>-<uuid>'
-        action (str | Unset): 'validate' (default) or 'revoke'
+        action (ClusterAuthSessionRequestAction | Unset): What to do with the token. 'validate' answers with the session
+            the issuer holds; 'revoke' drops it. Defaults to 'validate'. Anything else is refused with a 400 naming it.
     """
 
     token: str
-    action: str | Unset = UNSET
+    action: ClusterAuthSessionRequestAction | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         token = self.token
 
-        action = self.action
+        action: str | Unset = UNSET
+        if not isinstance(self.action, Unset):
+            action = self.action.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -46,7 +50,12 @@ class ClusterAuthSessionRequest:
         d = dict(src_dict)
         token = d.pop("token")
 
-        action = d.pop("action", UNSET)
+        _action = d.pop("action", UNSET)
+        action: ClusterAuthSessionRequestAction | Unset
+        if isinstance(_action, Unset):
+            action = UNSET
+        else:
+            action = ClusterAuthSessionRequestAction(_action)
 
         cluster_auth_session_request = cls(
             token=token,

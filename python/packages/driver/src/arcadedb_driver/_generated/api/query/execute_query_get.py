@@ -100,7 +100,7 @@ def sync_detailed(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
-    """Execute query via GET
+    r"""Execute query via GET
 
      Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson
     encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE,
@@ -108,6 +108,13 @@ def sync_detailed(
     because a streamed response puts its status code on the wire ahead of the rows and so cannot report
     a statement that fails half-way through. Request the buffered 'application/json' encoding for it
     instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):
@@ -148,7 +155,7 @@ def sync(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
-    """Execute query via GET
+    r"""Execute query via GET
 
      Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson
     encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE,
@@ -156,6 +163,13 @@ def sync(
     because a streamed response puts its status code on the wire ahead of the rows and so cannot report
     a statement that fails half-way through. Request the buffered 'application/json' encoding for it
     instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):
@@ -191,7 +205,7 @@ async def asyncio_detailed(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
-    """Execute query via GET
+    r"""Execute query via GET
 
      Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson
     encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE,
@@ -199,6 +213,13 @@ async def asyncio_detailed(
     because a streamed response puts its status code on the wire ahead of the rows and so cannot report
     a statement that fails half-way through. Request the buffered 'application/json' encoding for it
     instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):
@@ -237,7 +258,7 @@ async def asyncio(
     arcadedb_session_id: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
-    """Execute query via GET
+    r"""Execute query via GET
 
      Executes a query using GET method with parameters in URL. When 'Accept' requests the ndjson
     encoding, only a statement provably read-only may stream: one that writes - INSERT, UPDATE, DELETE,
@@ -245,6 +266,13 @@ async def asyncio(
     because a streamed response puts its status code on the wire ahead of the rows and so cannot report
     a statement that fails half-way through. Request the buffered 'application/json' encoding for it
     instead.
+
+    EXPLAIN is refused on the stream for a different reason and with its own 400 (\"EXPLAIN produces a
+    plan, not a row stream\"): it is read-only and passes the gate above, but its answer is a plan
+    rather than rows, and a stream of rows plus a stats trailer has nowhere to carry one. Request it
+    buffered, where the plan arrives in the 'explain' and 'explainPlan' properties of the envelope and
+    'result' is empty. All three operations answer EXPLAIN this way; until issue #7575 the GET operation
+    reached neither rule and answered the plan as a result row instead.
 
     Args:
         database (str):

@@ -5,8 +5,8 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.api_token_list import ApiTokenList
 from ...models.error_response import ErrorResponse
-from ...models.list_api_tokens_response_200 import ListApiTokensResponse200
 from ...types import Response
 
 
@@ -22,9 +22,9 @@ def _get_kwargs() -> dict[str, Any]:
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ErrorResponse | ListApiTokensResponse200 | None:
+) -> ApiTokenList | ErrorResponse | None:
     if response.status_code == 200:
-        response_200 = ListApiTokensResponse200.from_dict(response.json())
+        response_200 = ApiTokenList.from_dict(response.json())
 
         return response_200
 
@@ -56,7 +56,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ErrorResponse | ListApiTokensResponse200]:
+) -> Response[ApiTokenList | ErrorResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -68,7 +68,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ErrorResponse | ListApiTokensResponse200]:
+) -> Response[ApiTokenList | ErrorResponse]:
     """List API tokens
 
      Lists all API tokens with metadata (root only). Token values are never returned.
@@ -78,7 +78,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | ListApiTokensResponse200]
+        Response[ApiTokenList | ErrorResponse]
     """
 
     kwargs = _get_kwargs()
@@ -93,7 +93,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-) -> ErrorResponse | ListApiTokensResponse200 | None:
+) -> ApiTokenList | ErrorResponse | None:
     """List API tokens
 
      Lists all API tokens with metadata (root only). Token values are never returned.
@@ -103,7 +103,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | ListApiTokensResponse200
+        ApiTokenList | ErrorResponse
     """
 
     return sync_detailed(
@@ -114,7 +114,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ErrorResponse | ListApiTokensResponse200]:
+) -> Response[ApiTokenList | ErrorResponse]:
     """List API tokens
 
      Lists all API tokens with metadata (root only). Token values are never returned.
@@ -124,7 +124,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | ListApiTokensResponse200]
+        Response[ApiTokenList | ErrorResponse]
     """
 
     kwargs = _get_kwargs()
@@ -137,7 +137,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-) -> ErrorResponse | ListApiTokensResponse200 | None:
+) -> ApiTokenList | ErrorResponse | None:
     """List API tokens
 
      Lists all API tokens with metadata (root only). Token values are never returned.
@@ -147,7 +147,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | ListApiTokensResponse200
+        ApiTokenList | ErrorResponse
     """
 
     return (

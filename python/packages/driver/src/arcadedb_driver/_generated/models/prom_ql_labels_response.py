@@ -6,7 +6,7 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
+from ..models.prom_ql_labels_response_status import PromQLLabelsResponseStatus
 
 T = TypeVar("T", bound="PromQLLabelsResponse")
 
@@ -16,37 +16,36 @@ class PromQLLabelsResponse:
     """Prometheus label response
 
     Attributes:
-        data (list[str] | Unset): Sorted names or values
-        status (str | Unset): Always 'success' on a 200
+        data (list[str]): Sorted names or values. Empty when nothing matched
+        status (PromQLLabelsResponseStatus): Always 'success' on a 200. The error envelope carries 'error' here instead
     """
 
-    data: list[str] | Unset = UNSET
-    status: str | Unset = UNSET
+    data: list[str]
+    status: PromQLLabelsResponseStatus
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        data: list[str] | Unset = UNSET
-        if not isinstance(self.data, Unset):
-            data = self.data
+        data = self.data
 
-        status = self.status
+        status = self.status.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if data is not UNSET:
-            field_dict["data"] = data
-        if status is not UNSET:
-            field_dict["status"] = status
+        field_dict.update(
+            {
+                "data": data,
+                "status": status,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        data = cast(list[str], d.pop("data", UNSET))
+        data = cast(list[str], d.pop("data"))
 
-        status = d.pop("status", UNSET)
+        status = PromQLLabelsResponseStatus(d.pop("status"))
 
         prom_ql_labels_response = cls(
             data=data,

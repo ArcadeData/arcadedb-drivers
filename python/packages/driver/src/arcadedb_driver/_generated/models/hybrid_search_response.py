@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.hybrid_search_response_fusion_strategy import HybridSearchResponseFusionStrategy
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
@@ -33,7 +34,8 @@ class HybridSearchResponse:
         vector_index_name (str): Vector index that was searched
         fulltext_index_name (str | Unset): Full-text index that was searched, present whenever the full-text leg ran -
             including when it matched nothing
-        fusion_strategy (str | Unset): Strategy actually applied; absent when 'fused' is false
+        fusion_strategy (HybridSearchResponseFusionStrategy | Unset): Strategy actually applied, upper-cased; absent
+            when 'fused' is false
     """
 
     count: int
@@ -45,7 +47,7 @@ class HybridSearchResponse:
     truncated: bool
     vector_index_name: str
     fulltext_index_name: str | Unset = UNSET
-    fusion_strategy: str | Unset = UNSET
+    fusion_strategy: HybridSearchResponseFusionStrategy | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -70,7 +72,9 @@ class HybridSearchResponse:
 
         fulltext_index_name = self.fulltext_index_name
 
-        fusion_strategy = self.fusion_strategy
+        fusion_strategy: str | Unset = UNSET
+        if not isinstance(self.fusion_strategy, Unset):
+            fusion_strategy = self.fusion_strategy.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -122,7 +126,12 @@ class HybridSearchResponse:
 
         fulltext_index_name = d.pop("fulltextIndexName", UNSET)
 
-        fusion_strategy = d.pop("fusionStrategy", UNSET)
+        _fusion_strategy = d.pop("fusionStrategy", UNSET)
+        fusion_strategy: HybridSearchResponseFusionStrategy | Unset
+        if isinstance(_fusion_strategy, Unset):
+            fusion_strategy = UNSET
+        else:
+            fusion_strategy = HybridSearchResponseFusionStrategy(_fusion_strategy)
 
         hybrid_search_response = cls(
             count=count,

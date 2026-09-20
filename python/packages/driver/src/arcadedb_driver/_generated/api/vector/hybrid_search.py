@@ -9,15 +9,18 @@ from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
 from ...models.hybrid_search_request import HybridSearchRequest
 from ...models.hybrid_search_response import HybridSearchResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     database: str,
     *,
     body: HybridSearchRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(arcadedb_session_id, Unset):
+        headers["arcadedb-session-id"] = arcadedb_session_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -89,6 +92,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: HybridSearchRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | HybridSearchResponse]:
     """Fused vector, full-text and graph-expansion search
 
@@ -102,6 +106,7 @@ def sync_detailed(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (HybridSearchRequest): Fused vector, full-text and graph-expansion search
 
     Raises:
@@ -115,6 +120,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         database=database,
         body=body,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -129,6 +135,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: HybridSearchRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | HybridSearchResponse | None:
     """Fused vector, full-text and graph-expansion search
 
@@ -142,6 +149,7 @@ def sync(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (HybridSearchRequest): Fused vector, full-text and graph-expansion search
 
     Raises:
@@ -156,6 +164,7 @@ def sync(
         database=database,
         client=client,
         body=body,
+        arcadedb_session_id=arcadedb_session_id,
     ).parsed
 
 
@@ -164,6 +173,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: HybridSearchRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | HybridSearchResponse]:
     """Fused vector, full-text and graph-expansion search
 
@@ -177,6 +187,7 @@ async def asyncio_detailed(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (HybridSearchRequest): Fused vector, full-text and graph-expansion search
 
     Raises:
@@ -190,6 +201,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         database=database,
         body=body,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -202,6 +214,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: HybridSearchRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | HybridSearchResponse | None:
     """Fused vector, full-text and graph-expansion search
 
@@ -215,6 +228,7 @@ async def asyncio(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (HybridSearchRequest): Fused vector, full-text and graph-expansion search
 
     Raises:
@@ -230,5 +244,6 @@ async def asyncio(
             database=database,
             client=client,
             body=body,
+            arcadedb_session_id=arcadedb_session_id,
         )
     ).parsed

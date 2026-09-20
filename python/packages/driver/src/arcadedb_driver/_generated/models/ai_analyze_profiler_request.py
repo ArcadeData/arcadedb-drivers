@@ -18,7 +18,9 @@ class AiAnalyzeProfilerRequest:
     """Profiler analysis request
 
     Attributes:
-        profiler_data (AiAnalyzeProfilerRequestProfilerData): Profiler snapshot to analyse
+        profiler_data (AiAnalyzeProfilerRequestProfilerData): Profiler snapshot to analyse. An open map: the server
+            forwards it to the assistant as it stands and derives the schema of every database named inside it, rather than
+            reading a fixed set of keys out of it - so the shape follows whatever the profiler produced.
     """
 
     profiler_data: AiAnalyzeProfilerRequestProfilerData

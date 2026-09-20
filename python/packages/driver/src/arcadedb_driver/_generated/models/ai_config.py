@@ -6,8 +6,6 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="AiConfig")
 
 
@@ -16,16 +14,16 @@ class AiConfig:
     """AI assistant configuration
 
     Attributes:
-        configured (bool | Unset): True once a subscription has been activated
-        current_protocol_version (int | Unset): Protocol version this server prefers
-        gateway_url (str | Unset): AI gateway endpoint
-        supported_protocol_versions (list[int] | Unset): Every version this server accepts
+        configured (bool): True once a subscription has been activated
+        current_protocol_version (int): Protocol version this server prefers
+        gateway_url (str): AI gateway endpoint
+        supported_protocol_versions (list[int]): Every version this server accepts
     """
 
-    configured: bool | Unset = UNSET
-    current_protocol_version: int | Unset = UNSET
-    gateway_url: str | Unset = UNSET
-    supported_protocol_versions: list[int] | Unset = UNSET
+    configured: bool
+    current_protocol_version: int
+    gateway_url: str
+    supported_protocol_versions: list[int]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -35,34 +33,31 @@ class AiConfig:
 
         gateway_url = self.gateway_url
 
-        supported_protocol_versions: list[int] | Unset = UNSET
-        if not isinstance(self.supported_protocol_versions, Unset):
-            supported_protocol_versions = self.supported_protocol_versions
+        supported_protocol_versions = self.supported_protocol_versions
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if configured is not UNSET:
-            field_dict["configured"] = configured
-        if current_protocol_version is not UNSET:
-            field_dict["currentProtocolVersion"] = current_protocol_version
-        if gateway_url is not UNSET:
-            field_dict["gatewayUrl"] = gateway_url
-        if supported_protocol_versions is not UNSET:
-            field_dict["supportedProtocolVersions"] = supported_protocol_versions
+        field_dict.update(
+            {
+                "configured": configured,
+                "currentProtocolVersion": current_protocol_version,
+                "gatewayUrl": gateway_url,
+                "supportedProtocolVersions": supported_protocol_versions,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        configured = d.pop("configured", UNSET)
+        configured = d.pop("configured")
 
-        current_protocol_version = d.pop("currentProtocolVersion", UNSET)
+        current_protocol_version = d.pop("currentProtocolVersion")
 
-        gateway_url = d.pop("gatewayUrl", UNSET)
+        gateway_url = d.pop("gatewayUrl")
 
-        supported_protocol_versions = cast(list[int], d.pop("supportedProtocolVersions", UNSET))
+        supported_protocol_versions = cast(list[int], d.pop("supportedProtocolVersions"))
 
         ai_config = cls(
             configured=configured,

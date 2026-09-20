@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.full_text_search_response_similarity import FullTextSearchResponseSimilarity
+
 if TYPE_CHECKING:
     from ..models.full_text_search_response_results_item import FullTextSearchResponseResultsItem
 
@@ -21,13 +23,13 @@ class FullTextSearchResponse:
         count (int): Number of results returned
         index_name (str): Index that was searched
         results (list[FullTextSearchResponseResultsItem]): Hits, highest score first
-        similarity (str): Similarity function the index scores with, e.g. BM25
+        similarity (FullTextSearchResponseSimilarity): Similarity function the index scores with
     """
 
     count: int
     index_name: str
     results: list[FullTextSearchResponseResultsItem]
-    similarity: str
+    similarity: FullTextSearchResponseSimilarity
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -40,7 +42,7 @@ class FullTextSearchResponse:
             results_item = results_item_data.to_dict()
             results.append(results_item)
 
-        similarity = self.similarity
+        similarity = self.similarity.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -71,7 +73,7 @@ class FullTextSearchResponse:
 
             results.append(results_item)
 
-        similarity = d.pop("similarity")
+        similarity = FullTextSearchResponseSimilarity(d.pop("similarity"))
 
         full_text_search_response = cls(
             count=count,

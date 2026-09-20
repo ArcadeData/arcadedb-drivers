@@ -9,13 +9,28 @@ from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
 from ...models.prom_ql_error_response import PromQLErrorResponse
 from ...models.prom_ql_labels_response import PromQLLabelsResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     database: str,
     name: str,
+    *,
+    start: str | Unset = UNSET,
+    end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(arcadedb_session_id, Unset):
+        headers["arcadedb-session-id"] = arcadedb_session_id
+
+    params: dict[str, Any] = {}
+
+    params["start"] = start
+
+    params["end"] = end
+
+    params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
         "method": "get",
@@ -23,8 +38,10 @@ def _get_kwargs(
             database=quote(str(database), safe=""),
             name=quote(str(name), safe=""),
         ),
+        "params": params,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -83,17 +100,26 @@ def sync_detailed(
     name: str,
     *,
     client: AuthenticatedClient | Client,
+    start: str | Unset = UNSET,
+    end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse]:
     """List the values of one label
 
-     Lists every value of one label name, sorted. Compatible with the Prometheus
-    /api/v1/label/{name}/values endpoint. Querying '__name__' returns every time-series type name
-    instead of scanning a tag column. Takes no filtering parameters: unlike Prometheus itself, this
-    endpoint does not accept 'start', 'end', or 'match[]'.
+     Lists the values of one label name, sorted, over the requested time range. Compatible with the
+    Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns the time-series type
+    names instead of scanning a tag column. 'start' and 'end' are optional and default to the whole
+    series: when either is supplied, the answer is restricted to the values - and, for '__name__', the
+    types - carried by a sample in that range; with neither, every time-series type is named, one
+    holding no sample at all included. Unlike Prometheus itself, this endpoint does not accept
+    'match[]'.
 
     Args:
         database (str):
         name (str):
+        start (str | Unset):
+        end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -106,6 +132,9 @@ def sync_detailed(
     kwargs = _get_kwargs(
         database=database,
         name=name,
+        start=start,
+        end=end,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -120,17 +149,26 @@ def sync(
     name: str,
     *,
     client: AuthenticatedClient | Client,
+    start: str | Unset = UNSET,
+    end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse | None:
     """List the values of one label
 
-     Lists every value of one label name, sorted. Compatible with the Prometheus
-    /api/v1/label/{name}/values endpoint. Querying '__name__' returns every time-series type name
-    instead of scanning a tag column. Takes no filtering parameters: unlike Prometheus itself, this
-    endpoint does not accept 'start', 'end', or 'match[]'.
+     Lists the values of one label name, sorted, over the requested time range. Compatible with the
+    Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns the time-series type
+    names instead of scanning a tag column. 'start' and 'end' are optional and default to the whole
+    series: when either is supplied, the answer is restricted to the values - and, for '__name__', the
+    types - carried by a sample in that range; with neither, every time-series type is named, one
+    holding no sample at all included. Unlike Prometheus itself, this endpoint does not accept
+    'match[]'.
 
     Args:
         database (str):
         name (str):
+        start (str | Unset):
+        end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -144,6 +182,9 @@ def sync(
         database=database,
         name=name,
         client=client,
+        start=start,
+        end=end,
+        arcadedb_session_id=arcadedb_session_id,
     ).parsed
 
 
@@ -152,17 +193,26 @@ async def asyncio_detailed(
     name: str,
     *,
     client: AuthenticatedClient | Client,
+    start: str | Unset = UNSET,
+    end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse]:
     """List the values of one label
 
-     Lists every value of one label name, sorted. Compatible with the Prometheus
-    /api/v1/label/{name}/values endpoint. Querying '__name__' returns every time-series type name
-    instead of scanning a tag column. Takes no filtering parameters: unlike Prometheus itself, this
-    endpoint does not accept 'start', 'end', or 'match[]'.
+     Lists the values of one label name, sorted, over the requested time range. Compatible with the
+    Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns the time-series type
+    names instead of scanning a tag column. 'start' and 'end' are optional and default to the whole
+    series: when either is supplied, the answer is restricted to the values - and, for '__name__', the
+    types - carried by a sample in that range; with neither, every time-series type is named, one
+    holding no sample at all included. Unlike Prometheus itself, this endpoint does not accept
+    'match[]'.
 
     Args:
         database (str):
         name (str):
+        start (str | Unset):
+        end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -175,6 +225,9 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         database=database,
         name=name,
+        start=start,
+        end=end,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -187,17 +240,26 @@ async def asyncio(
     name: str,
     *,
     client: AuthenticatedClient | Client,
+    start: str | Unset = UNSET,
+    end: str | Unset = UNSET,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | PromQLErrorResponse | PromQLLabelsResponse | None:
     """List the values of one label
 
-     Lists every value of one label name, sorted. Compatible with the Prometheus
-    /api/v1/label/{name}/values endpoint. Querying '__name__' returns every time-series type name
-    instead of scanning a tag column. Takes no filtering parameters: unlike Prometheus itself, this
-    endpoint does not accept 'start', 'end', or 'match[]'.
+     Lists the values of one label name, sorted, over the requested time range. Compatible with the
+    Prometheus /api/v1/label/{name}/values endpoint. Querying '__name__' returns the time-series type
+    names instead of scanning a tag column. 'start' and 'end' are optional and default to the whole
+    series: when either is supplied, the answer is restricted to the values - and, for '__name__', the
+    types - carried by a sample in that range; with neither, every time-series type is named, one
+    holding no sample at all included. Unlike Prometheus itself, this endpoint does not accept
+    'match[]'.
 
     Args:
         database (str):
         name (str):
+        start (str | Unset):
+        end (str | Unset):
+        arcadedb_session_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -212,5 +274,8 @@ async def asyncio(
             database=database,
             name=name,
             client=client,
+            start=start,
+            end=end,
+            arcadedb_session_id=arcadedb_session_id,
         )
     ).parsed

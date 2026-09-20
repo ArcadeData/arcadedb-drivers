@@ -6,8 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="AiChatDeleted")
 
 
@@ -16,10 +14,10 @@ class AiChatDeleted:
     """Deletion result
 
     Attributes:
-        deleted (bool | Unset): Always true on a 200
+        deleted (bool): Always true on a 200
     """
 
-    deleted: bool | Unset = UNSET
+    deleted: bool
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -27,16 +25,18 @@ class AiChatDeleted:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if deleted is not UNSET:
-            field_dict["deleted"] = deleted
+        field_dict.update(
+            {
+                "deleted": deleted,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        deleted = d.pop("deleted", UNSET)
+        deleted = d.pop("deleted")
 
         ai_chat_deleted = cls(
             deleted=deleted,

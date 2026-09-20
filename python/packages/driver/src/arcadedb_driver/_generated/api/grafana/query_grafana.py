@@ -9,15 +9,18 @@ from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
 from ...models.grafana_query_request import GrafanaQueryRequest
 from ...models.grafana_query_response import GrafanaQueryResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     database: str,
     *,
     body: GrafanaQueryRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(arcadedb_session_id, Unset):
+        headers["arcadedb-session-id"] = arcadedb_session_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -89,6 +92,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: GrafanaQueryRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | GrafanaQueryResponse]:
     """Execute panel queries and return DataFrames
 
@@ -101,6 +105,7 @@ def sync_detailed(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (GrafanaQueryRequest): Grafana panel query
 
     Raises:
@@ -114,6 +119,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         database=database,
         body=body,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = client.get_httpx_client().request(
@@ -128,6 +134,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: GrafanaQueryRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | GrafanaQueryResponse | None:
     """Execute panel queries and return DataFrames
 
@@ -140,6 +147,7 @@ def sync(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (GrafanaQueryRequest): Grafana panel query
 
     Raises:
@@ -154,6 +162,7 @@ def sync(
         database=database,
         client=client,
         body=body,
+        arcadedb_session_id=arcadedb_session_id,
     ).parsed
 
 
@@ -162,6 +171,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: GrafanaQueryRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | GrafanaQueryResponse]:
     """Execute panel queries and return DataFrames
 
@@ -174,6 +184,7 @@ async def asyncio_detailed(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (GrafanaQueryRequest): Grafana panel query
 
     Raises:
@@ -187,6 +198,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         database=database,
         body=body,
+        arcadedb_session_id=arcadedb_session_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -199,6 +211,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: GrafanaQueryRequest,
+    arcadedb_session_id: str | Unset = UNSET,
 ) -> ErrorResponse | GrafanaQueryResponse | None:
     """Execute panel queries and return DataFrames
 
@@ -211,6 +224,7 @@ async def asyncio(
 
     Args:
         database (str):
+        arcadedb_session_id (str | Unset):
         body (GrafanaQueryRequest): Grafana panel query
 
     Raises:
@@ -226,5 +240,6 @@ async def asyncio(
             database=database,
             client=client,
             body=body,
+            arcadedb_session_id=arcadedb_session_id,
         )
     ).parsed

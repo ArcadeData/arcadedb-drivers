@@ -24,7 +24,8 @@ class TimeSeriesQueryRequest:
         type_ (str): Time-series type name
         aggregation (TimeSeriesQueryRequestAggregation | Unset): Bucketed aggregation. Present only when the caller
             wants buckets rather than raw rows.
-        fields (list[str] | Unset): Fields to project. All fields when omitted.
+        fields (list[str] | Unset): Fields to project. All fields when omitted. A name that is no column of the type is
+            refused with 400 rather than ignored.
         from_ (int | Unset): Inclusive lower bound of the timestamp range. Unbounded when omitted.
         limit (int | Unset): Maximum rows to return for a raw (non-aggregated) query. Defaults to 20000. Ignored when
             'aggregation' is present.

@@ -21,20 +21,20 @@ class AiChat:
     it in full.
 
         Attributes:
-            created (str | Unset): ISO-8601 instant the chat was created
-            database (str | Unset): Database this chat is about
-            id (str | Unset): Chat identifier
+            created (str): ISO-8601 instant the chat was created
+            database (str): Database this chat is about
+            id (str): Chat identifier
+            title (str): Chat title, generated from the first user message
+            updated (str): ISO-8601 instant of the last change
             messages (list[AiChatMessagesItem] | Unset): Messages, oldest first. Omitted from the /chats list response.
-            title (str | Unset): Chat title, generated from the first user message
-            updated (str | Unset): ISO-8601 instant of the last change
     """
 
-    created: str | Unset = UNSET
-    database: str | Unset = UNSET
-    id: str | Unset = UNSET
+    created: str
+    database: str
+    id: str
+    title: str
+    updated: str
     messages: list[AiChatMessagesItem] | Unset = UNSET
-    title: str | Unset = UNSET
-    updated: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +44,10 @@ class AiChat:
 
         id = self.id
 
+        title = self.title
+
+        updated = self.updated
+
         messages: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.messages, Unset):
             messages = []
@@ -51,25 +55,19 @@ class AiChat:
                 messages_item = messages_item_data.to_dict()
                 messages.append(messages_item)
 
-        title = self.title
-
-        updated = self.updated
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if created is not UNSET:
-            field_dict["created"] = created
-        if database is not UNSET:
-            field_dict["database"] = database
-        if id is not UNSET:
-            field_dict["id"] = id
+        field_dict.update(
+            {
+                "created": created,
+                "database": database,
+                "id": id,
+                "title": title,
+                "updated": updated,
+            }
+        )
         if messages is not UNSET:
             field_dict["messages"] = messages
-        if title is not UNSET:
-            field_dict["title"] = title
-        if updated is not UNSET:
-            field_dict["updated"] = updated
 
         return field_dict
 
@@ -78,11 +76,15 @@ class AiChat:
         from ..models.ai_chat_messages_item import AiChatMessagesItem
 
         d = dict(src_dict)
-        created = d.pop("created", UNSET)
+        created = d.pop("created")
 
-        database = d.pop("database", UNSET)
+        database = d.pop("database")
 
-        id = d.pop("id", UNSET)
+        id = d.pop("id")
+
+        title = d.pop("title")
+
+        updated = d.pop("updated")
 
         _messages = d.pop("messages", UNSET)
         messages: list[AiChatMessagesItem] | Unset = UNSET
@@ -93,17 +95,13 @@ class AiChat:
 
                 messages.append(messages_item)
 
-        title = d.pop("title", UNSET)
-
-        updated = d.pop("updated", UNSET)
-
         ai_chat = cls(
             created=created,
             database=database,
             id=id,
-            messages=messages,
             title=title,
             updated=updated,
+            messages=messages,
         )
 
         ai_chat.additional_properties = d

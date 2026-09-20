@@ -22,32 +22,34 @@ class GrafanaQueryRequestTargetsItemAggregation:
     """Bucketed aggregation. Omit for raw samples.
 
     Attributes:
+        requests (list[GrafanaQueryRequestTargetsItemAggregationRequestsItem]): Aggregations to compute. Must name at
+            least one; an empty array is refused with an error frame.
         bucket_interval (int | Unset): Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and
-            the time range when omitted.
-        requests (list[GrafanaQueryRequestTargetsItemAggregationRequestsItem] | Unset): Aggregations to compute
+            the time range when omitted. When stated it must be positive: a value of zero or less is refused with an error
+            frame for this target rather than replaced by a derived interval.
     """
 
+    requests: list[GrafanaQueryRequestTargetsItemAggregationRequestsItem]
     bucket_interval: int | Unset = UNSET
-    requests: list[GrafanaQueryRequestTargetsItemAggregationRequestsItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        bucket_interval = self.bucket_interval
+        requests = []
+        for requests_item_data in self.requests:
+            requests_item = requests_item_data.to_dict()
+            requests.append(requests_item)
 
-        requests: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.requests, Unset):
-            requests = []
-            for requests_item_data in self.requests:
-                requests_item = requests_item_data.to_dict()
-                requests.append(requests_item)
+        bucket_interval = self.bucket_interval
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "requests": requests,
+            }
+        )
         if bucket_interval is not UNSET:
             field_dict["bucketInterval"] = bucket_interval
-        if requests is not UNSET:
-            field_dict["requests"] = requests
 
         return field_dict
 
@@ -58,20 +60,18 @@ class GrafanaQueryRequestTargetsItemAggregation:
         )
 
         d = dict(src_dict)
+        requests = []
+        _requests = d.pop("requests")
+        for requests_item_data in _requests:
+            requests_item = GrafanaQueryRequestTargetsItemAggregationRequestsItem.from_dict(requests_item_data)
+
+            requests.append(requests_item)
+
         bucket_interval = d.pop("bucketInterval", UNSET)
 
-        _requests = d.pop("requests", UNSET)
-        requests: list[GrafanaQueryRequestTargetsItemAggregationRequestsItem] | Unset = UNSET
-        if _requests is not UNSET:
-            requests = []
-            for requests_item_data in _requests:
-                requests_item = GrafanaQueryRequestTargetsItemAggregationRequestsItem.from_dict(requests_item_data)
-
-                requests.append(requests_item)
-
         grafana_query_request_targets_item_aggregation = cls(
-            bucket_interval=bucket_interval,
             requests=requests,
+            bucket_interval=bucket_interval,
         )
 
         grafana_query_request_targets_item_aggregation.additional_properties = d

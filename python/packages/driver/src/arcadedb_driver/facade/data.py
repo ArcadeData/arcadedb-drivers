@@ -16,6 +16,7 @@ from .._generated.models.query_request import QueryRequest
 from .._generated.models.query_request_params import QueryRequestParams
 from .._generated.models.query_response import QueryResponse
 from .._generated.types import UNSET, Unset
+from ..errors import ArcadeDBError
 
 #: Request header carrying the session id that scopes a call to one transaction.
 SESSION_HEADER = "arcadedb-session-id"
@@ -38,13 +39,18 @@ class QueryEnvelope:
     still pending, so `result` is incomplete: a caller that reads `result` and
     ignores `truncated` can silently work off a partial answer.
 
-    `QueryResponse` has no `required` list in the contract, so every field the
-    server sends is technically optional. When one is omitted this client defaults
-    it (`limit` to `-1`, meaning uncapped; `returned` to `0`; `truncated` to
-    `False`). Those defaults are the most reassuring possible reading of "the server
-    did not say" - they assert a completeness the server itself never claimed. In
-    practice today's server always sends all four, but that is a property of the
-    current implementation, not a guarantee this type enforces.
+    `QueryResponse` used to declare no `required` list, so every field was optional on
+    the wire and this client defaulted each one it did not get - `limit` to `-1`,
+    `returned` to `0`, `truncated` to `False` - asserting a completeness the server
+    itself never claimed. 26.10.1-SNAPSHOT made `limit`, `returned` and `truncated`
+    required, and the generated model now types them as plain `int`/`bool` that
+    `from_dict` pops without a fallback. `truncated is False` is therefore a server
+    statement now, not a client-side guess.
+
+    The `_or(...)` fallbacks in `to_envelope` below are consequently unreachable for
+    those three fields. They are kept rather than deleted because `result` still needs
+    one and because the fallbacks cost nothing if a later contract loosens the list
+    again; nobody should go looking for the code path that triggers them today.
     """
 
     result: list[dict[str, Any]]
@@ -56,10 +62,40 @@ class QueryEnvelope:
 def to_envelope(data: QueryResponse) -> QueryEnvelope:
     """Normalises a generated `QueryResponse` into the public envelope.
 
-    Also flattens each row out of `QueryResponseResultItem`'s additional-properties
+    Also flattens each row out of `QueryResponseResultType0Item`'s additional-properties
     wrapper into the plain dict a caller expects.
+
+    26.10.1-SNAPSHOT widened `result` into a union: an array of rows under the default
+    `record` serializer, and a single `{vertices, edges}` object - plus `records` under
+    `studio` - under the two graph serializers. `QueryEnvelope.result` is a list of rows
+    and cannot represent the second shape.
+
+    `build_query_request` never sends `serializer`, so the server always picks `record`
+    and the graph arm cannot arrive here. The check below is nonetheless a raise rather
+    than a cast: "unreachable" is a property of today's request builder, not of the
+    contract, and the day `serializer` becomes a parameter this has to fail with a
+    sentence explaining why rather than with `TypeError: 'QueryResponseResultType1'
+    object is not iterable` from inside a comprehension.
+
+    `ArcadeDBError(200, ...)`, not a builtin: "the server answered 200 in a shape this
+    client cannot represent" is already an `ArcadeDBError` everywhere else here - see
+    `stream.py`'s in-band error event - and the README's "Two error models" section
+    tells callers that `except ArcadeDBError` around `query`/`command` is enough. A
+    bare `TypeError` would slip straight through that. The TypeScript sibling throws
+    `ArcadeDBError` for this same guard.
     """
     rows = _or(data.result, [])
+    if not isinstance(rows, list):
+        raise ArcadeDBError(
+            200,
+            {
+                "error": "the server answered with a graph-serializer result object, but this call expected rows",
+                "detail": (
+                    "QueryResponse.result is {vertices, edges}, which QueryEnvelope cannot represent. "
+                    "This client never asks for a graph serializer - it sends no 'serializer' field."
+                ),
+            },
+        )
     return QueryEnvelope(
         result=[row.to_dict() for row in rows],
         limit=_or(data.limit, -1),

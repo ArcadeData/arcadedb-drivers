@@ -16,24 +16,24 @@ class AiProtocolError:
     """Rejected chat request. Carries the negotiation fields when the protocol version is at fault.
 
     Attributes:
+        error (str): Why the request was rejected
         code (str | Unset): Machine-readable cause, 'protocol_unsupported' for a version mismatch
         current_protocol_version (int | Unset): Protocol version this server prefers
-        error (str | Unset): Why the request was rejected
         supported_protocol_versions (list[int] | Unset): Every version this server accepts
     """
 
+    error: str
     code: str | Unset = UNSET
     current_protocol_version: int | Unset = UNSET
-    error: str | Unset = UNSET
     supported_protocol_versions: list[int] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        error = self.error
+
         code = self.code
 
         current_protocol_version = self.current_protocol_version
-
-        error = self.error
 
         supported_protocol_versions: list[int] | Unset = UNSET
         if not isinstance(self.supported_protocol_versions, Unset):
@@ -41,13 +41,15 @@ class AiProtocolError:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "error": error,
+            }
+        )
         if code is not UNSET:
             field_dict["code"] = code
         if current_protocol_version is not UNSET:
             field_dict["currentProtocolVersion"] = current_protocol_version
-        if error is not UNSET:
-            field_dict["error"] = error
         if supported_protocol_versions is not UNSET:
             field_dict["supportedProtocolVersions"] = supported_protocol_versions
 
@@ -56,18 +58,18 @@ class AiProtocolError:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        error = d.pop("error")
+
         code = d.pop("code", UNSET)
 
         current_protocol_version = d.pop("currentProtocolVersion", UNSET)
 
-        error = d.pop("error", UNSET)
-
         supported_protocol_versions = cast(list[int], d.pop("supportedProtocolVersions", UNSET))
 
         ai_protocol_error = cls(
+            error=error,
             code=code,
             current_protocol_version=current_protocol_version,
-            error=error,
             supported_protocol_versions=supported_protocol_versions,
         )
 

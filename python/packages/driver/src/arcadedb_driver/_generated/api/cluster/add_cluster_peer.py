@@ -94,7 +94,17 @@ def sync_detailed(
     A 503 means the membership change succeeded and at least one of those seeds did not commit within
     arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
     own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
-    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    reissue the seed - the membership change is idempotent.
+
+    The optional 'priority' carries the peer's Raft leader-election priority, which before it could only
+    be declared in arcadedb.ha.serverList at startup: a peer added at runtime always got the default and
+    a witness admitted this way could be elected leader.
+
+    Note the direction: this grows the cluster the SERVER SERVING THIS REQUEST belongs to, with the peer
+    named in the body. It never makes that server join another cluster, so it has to be issued against a
+    member of the target cluster. An address that resolves to the serving node's own peer id is answered
+    400 rather than accepted: it used to report the peer as added while doing nothing, because a peer
+    already in the committed configuration is an idempotent no-op.Requires RaftHAPlugin: the route is
     registered on every server, but answers only where high availability is configured.
 
     Args:
@@ -133,7 +143,17 @@ def sync(
     A 503 means the membership change succeeded and at least one of those seeds did not commit within
     arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
     own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
-    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    reissue the seed - the membership change is idempotent.
+
+    The optional 'priority' carries the peer's Raft leader-election priority, which before it could only
+    be declared in arcadedb.ha.serverList at startup: a peer added at runtime always got the default and
+    a witness admitted this way could be elected leader.
+
+    Note the direction: this grows the cluster the SERVER SERVING THIS REQUEST belongs to, with the peer
+    named in the body. It never makes that server join another cluster, so it has to be issued against a
+    member of the target cluster. An address that resolves to the serving node's own peer id is answered
+    400 rather than accepted: it used to report the peer as added while doing nothing, because a peer
+    already in the committed configuration is an idempotent no-op.Requires RaftHAPlugin: the route is
     registered on every server, but answers only where high availability is configured.
 
     Args:
@@ -167,7 +187,17 @@ async def asyncio_detailed(
     A 503 means the membership change succeeded and at least one of those seeds did not commit within
     arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
     own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
-    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    reissue the seed - the membership change is idempotent.
+
+    The optional 'priority' carries the peer's Raft leader-election priority, which before it could only
+    be declared in arcadedb.ha.serverList at startup: a peer added at runtime always got the default and
+    a witness admitted this way could be elected leader.
+
+    Note the direction: this grows the cluster the SERVER SERVING THIS REQUEST belongs to, with the peer
+    named in the body. It never makes that server join another cluster, so it has to be issued against a
+    member of the target cluster. An address that resolves to the serving node's own peer id is answered
+    400 rather than accepted: it used to report the peer as added while doing nothing, because a peer
+    already in the committed configuration is an idempotent no-op.Requires RaftHAPlugin: the route is
     registered on every server, but answers only where high availability is configured.
 
     Args:
@@ -204,7 +234,17 @@ async def asyncio(
     A 503 means the membership change succeeded and at least one of those seeds did not commit within
     arcadedb.ha.securitySeedRetryTimeout: the peer IS a cluster member and serves requests against its
     own copy of the documents that failed, which are named in 'failedSeeds'. Re-POST the same peer to
-    reissue the seed - the membership change is idempotent.Requires RaftHAPlugin: the route is
+    reissue the seed - the membership change is idempotent.
+
+    The optional 'priority' carries the peer's Raft leader-election priority, which before it could only
+    be declared in arcadedb.ha.serverList at startup: a peer added at runtime always got the default and
+    a witness admitted this way could be elected leader.
+
+    Note the direction: this grows the cluster the SERVER SERVING THIS REQUEST belongs to, with the peer
+    named in the body. It never makes that server join another cluster, so it has to be issued against a
+    member of the target cluster. An address that resolves to the serving node's own peer id is answered
+    400 rather than accepted: it used to report the peer as added while doing nothing, because a peer
+    already in the committed configuration is an idempotent no-op.Requires RaftHAPlugin: the route is
     registered on every server, but answers only where high availability is configured.
 
     Args:

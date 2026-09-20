@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 if TYPE_CHECKING:
     from ..models.ai_chat import AiChat
 
@@ -20,25 +18,26 @@ class AiChatList:
     """Stored chats
 
     Attributes:
-        chats (list[AiChat] | Unset): Stored chat transcripts, metadata only (no 'messages')
+        chats (list[AiChat]): Stored chat transcripts, metadata only (no 'messages'). Empty when this user has stored
+            none
     """
 
-    chats: list[AiChat] | Unset = UNSET
+    chats: list[AiChat]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        chats: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.chats, Unset):
-            chats = []
-            for chats_item_data in self.chats:
-                chats_item = chats_item_data.to_dict()
-                chats.append(chats_item)
+        chats = []
+        for chats_item_data in self.chats:
+            chats_item = chats_item_data.to_dict()
+            chats.append(chats_item)
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if chats is not UNSET:
-            field_dict["chats"] = chats
+        field_dict.update(
+            {
+                "chats": chats,
+            }
+        )
 
         return field_dict
 
@@ -47,14 +46,12 @@ class AiChatList:
         from ..models.ai_chat import AiChat
 
         d = dict(src_dict)
-        _chats = d.pop("chats", UNSET)
-        chats: list[AiChat] | Unset = UNSET
-        if _chats is not UNSET:
-            chats = []
-            for chats_item_data in _chats:
-                chats_item = AiChat.from_dict(chats_item_data)
+        chats = []
+        _chats = d.pop("chats")
+        for chats_item_data in _chats:
+            chats_item = AiChat.from_dict(chats_item_data)
 
-                chats.append(chats_item)
+            chats.append(chats_item)
 
         ai_chat_list = cls(
             chats=chats,

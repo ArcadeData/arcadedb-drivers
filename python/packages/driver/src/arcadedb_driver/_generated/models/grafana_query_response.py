@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 if TYPE_CHECKING:
     from ..models.grafana_query_response_results import GrafanaQueryResponseResults
 
@@ -20,22 +18,22 @@ class GrafanaQueryResponse:
     """Grafana DataFrame response
 
     Attributes:
-        results (GrafanaQueryResponseResults | Unset): Results keyed by target refId
+        results (GrafanaQueryResponseResults): Results keyed by target refId
     """
 
-    results: GrafanaQueryResponseResults | Unset = UNSET
+    results: GrafanaQueryResponseResults
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        results: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.results, Unset):
-            results = self.results.to_dict()
+        results = self.results.to_dict()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if results is not UNSET:
-            field_dict["results"] = results
+        field_dict.update(
+            {
+                "results": results,
+            }
+        )
 
         return field_dict
 
@@ -44,12 +42,7 @@ class GrafanaQueryResponse:
         from ..models.grafana_query_response_results import GrafanaQueryResponseResults
 
         d = dict(src_dict)
-        _results = d.pop("results", UNSET)
-        results: GrafanaQueryResponseResults | Unset
-        if isinstance(_results, Unset):
-            results = UNSET
-        else:
-            results = GrafanaQueryResponseResults.from_dict(_results)
+        results = GrafanaQueryResponseResults.from_dict(d.pop("results"))
 
         grafana_query_response = cls(
             results=results,

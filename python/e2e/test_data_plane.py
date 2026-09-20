@@ -6,6 +6,9 @@ from typing import Any
 
 import pytest
 from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, basic_auth
+from arcadedb_driver._generated.models.full_text_search_response_similarity import (
+    FullTextSearchResponseSimilarity,
+)
 from arcadedb_driver._generated.models.nd_json_query_event import NdJsonQueryEvent
 from arcadedb_driver._generated.models.nd_json_query_event_stats import NdJsonQueryEventStats
 from arcadedb_driver._generated.types import Unset
@@ -153,6 +156,12 @@ def test_fulltext_search_matches_a_known_term_and_carries_no_truncated_field(
     # Not False - ABSENT. FullTextSearchResponse carries no `truncated` field in the contract
     # at all, unlike VectorSearchResponse and HybridSearchResponse above (D-M5-2).
     assert not hasattr(result, "truncated")
+    # 26.10.1-SNAPSHOT turned `similarity` from a free string into an enum, which makes the
+    # exact casing the server sends load-bearing: a mismatch is a ValueError out of
+    # `from_dict`, not a surprising string. Asserted here, against a real server, because
+    # the unit fixture that claimed "bm25" was wrong for as long as it existed and only a
+    # real response can settle it.
+    assert result.similarity is FullTextSearchResponseSimilarity.BM25
 
 
 @pytest.mark.asyncio

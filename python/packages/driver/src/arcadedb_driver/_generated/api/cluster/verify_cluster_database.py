@@ -7,7 +7,8 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
-from ...models.verify_database_response import VerifyDatabaseResponse
+from ...models.verify_database_cluster_response import VerifyDatabaseClusterResponse
+from ...models.verify_database_local_response import VerifyDatabaseLocalResponse
 from ...types import Response
 
 
@@ -27,9 +28,25 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ErrorResponse | VerifyDatabaseResponse | None:
+) -> ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse | None:
     if response.status_code == 200:
-        response_200 = VerifyDatabaseResponse.from_dict(response.json())
+
+        def _parse_response_200(data: object) -> VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse:
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                componentsschemas_verify_database_response_type_0 = VerifyDatabaseLocalResponse.from_dict(data)
+
+                return componentsschemas_verify_database_response_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            if not isinstance(data, dict):
+                raise TypeError()
+            componentsschemas_verify_database_response_type_1 = VerifyDatabaseClusterResponse.from_dict(data)
+
+            return componentsschemas_verify_database_response_type_1
+
+        response_200 = _parse_response_200(response.json())
 
         return response_200
 
@@ -66,7 +83,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ErrorResponse | VerifyDatabaseResponse]:
+) -> Response[ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -79,7 +96,7 @@ def sync_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ErrorResponse | VerifyDatabaseResponse]:
+) -> Response[ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse]:
     """Checksum a database's files for comparison across peers
 
      Computes a per-file checksum of one database on this server. A follower returns only its own
@@ -95,7 +112,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | VerifyDatabaseResponse]
+        Response[ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse]
     """
 
     kwargs = _get_kwargs(
@@ -113,7 +130,7 @@ def sync(
     database: str,
     *,
     client: AuthenticatedClient | Client,
-) -> ErrorResponse | VerifyDatabaseResponse | None:
+) -> ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse | None:
     """Checksum a database's files for comparison across peers
 
      Computes a per-file checksum of one database on this server. A follower returns only its own
@@ -129,7 +146,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | VerifyDatabaseResponse
+        ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse
     """
 
     return sync_detailed(
@@ -142,7 +159,7 @@ async def asyncio_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
-) -> Response[ErrorResponse | VerifyDatabaseResponse]:
+) -> Response[ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse]:
     """Checksum a database's files for comparison across peers
 
      Computes a per-file checksum of one database on this server. A follower returns only its own
@@ -158,7 +175,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | VerifyDatabaseResponse]
+        Response[ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse]
     """
 
     kwargs = _get_kwargs(
@@ -174,7 +191,7 @@ async def asyncio(
     database: str,
     *,
     client: AuthenticatedClient | Client,
-) -> ErrorResponse | VerifyDatabaseResponse | None:
+) -> ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse | None:
     """Checksum a database's files for comparison across peers
 
      Computes a per-file checksum of one database on this server. A follower returns only its own
@@ -190,7 +207,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | VerifyDatabaseResponse
+        ErrorResponse | VerifyDatabaseClusterResponse | VerifyDatabaseLocalResponse
     """
 
     return (

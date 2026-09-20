@@ -51,7 +51,7 @@ def test_promql_query_sends_exactly_the_generated_operations_parameters() -> Non
     # of mypy --strict. Now it names `query`/`time`/`lookback_delta` explicitly,
     # matching the generated operation; this pins the query string it sends.
     route = respx.get(f"{BASE_URL}/api/v1/ts/mydb/prom/api/v1/query").mock(
-        return_value=httpx.Response(200, json={"status": "success", "data": {}})
+        return_value=httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": []}})
     )
     with ArcadeDBServer(base_url=BASE_URL) as srv:
         srv.db("mydb").promql.query(query="up", time="2024-01-01T00:00:00Z")
@@ -68,7 +68,7 @@ def test_promql_query_rejects_an_unknown_keyword_at_call_time() -> None:
 @respx.mock
 def test_promql_query_range_sends_exactly_the_generated_operations_parameters() -> None:
     route = respx.get(f"{BASE_URL}/api/v1/ts/mydb/prom/api/v1/query_range").mock(
-        return_value=httpx.Response(200, json={"status": "success", "data": {}})
+        return_value=httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": []}})
     )
     with ArcadeDBServer(base_url=BASE_URL) as srv:
         srv.db("mydb").promql.query_range(query="up", start="0", end="60", step="15")
@@ -95,7 +95,7 @@ def test_promql_series_sends_exactly_the_generated_operations_parameters() -> No
 @respx.mock
 async def test_async_promql_query_sends_exactly_the_generated_operations_parameters() -> None:
     route = respx.get(f"{BASE_URL}/api/v1/ts/mydb/prom/api/v1/query").mock(
-        return_value=httpx.Response(200, json={"status": "success", "data": {}})
+        return_value=httpx.Response(200, json={"status": "success", "data": {"resultType": "vector", "result": []}})
     )
     async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:
         await srv.db("mydb").promql.query(query="up")

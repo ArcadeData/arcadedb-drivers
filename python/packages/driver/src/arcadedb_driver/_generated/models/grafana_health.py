@@ -6,8 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="GrafanaHealth")
 
 
@@ -16,12 +14,12 @@ class GrafanaHealth:
     """Data source health
 
     Attributes:
-        database (str | Unset): Database the check ran against
-        status (str | Unset): Always 'ok' when the database is reachable
+        database (str): Database the check ran against
+        status (str): Always 'ok' when the database is reachable
     """
 
-    database: str | Unset = UNSET
-    status: str | Unset = UNSET
+    database: str
+    status: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,20 +29,21 @@ class GrafanaHealth:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if database is not UNSET:
-            field_dict["database"] = database
-        if status is not UNSET:
-            field_dict["status"] = status
+        field_dict.update(
+            {
+                "database": database,
+                "status": status,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        database = d.pop("database", UNSET)
+        database = d.pop("database")
 
-        status = d.pop("status", UNSET)
+        status = d.pop("status")
 
         grafana_health = cls(
             database=database,

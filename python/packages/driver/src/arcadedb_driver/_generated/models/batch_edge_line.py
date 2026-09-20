@@ -14,7 +14,9 @@ T = TypeVar("T", bound="BatchEdgeLine")
 @_attrs_define
 class BatchEdgeLine:
     """An edge line. Its properties are the keys of this same object, flat beside the control keys below - they are NOT
-    nested under a 'properties' key, and sending one carrying an object is refused with a 400.
+    nested under a 'properties' key, and sending one carrying an object is refused with a 400. '@id' is a vertex's
+    temporary id and an edge is never referenced by one: carrying it here is refused with a 400 naming the line, not
+    dropped.
 
         Attributes:
             class_ (str): Edge type to create the record in. The type must already exist: a bulk load creates records, never

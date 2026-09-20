@@ -1,18 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
-
-from ..types import UNSET, Unset
-
-if TYPE_CHECKING:
-    from ..models.time_series_aggregated_response_buckets_item_values_item import (
-        TimeSeriesAggregatedResponseBucketsItemValuesItem,
-    )
-
 
 T = TypeVar("T", bound="TimeSeriesAggregatedResponseBucketsItem")
 
@@ -22,52 +14,36 @@ class TimeSeriesAggregatedResponseBucketsItem:
     """One aggregation bucket
 
     Attributes:
-        timestamp (int | Unset): Bucket start timestamp
-        values (list[TimeSeriesAggregatedResponseBucketsItemValuesItem] | Unset): Aggregated values, positionally
-            aligned with 'aggregations'
+        timestamp (int): Bucket start timestamp
+        values (list[Any]): Aggregated values, positionally aligned with 'aggregations'
     """
 
-    timestamp: int | Unset = UNSET
-    values: list[TimeSeriesAggregatedResponseBucketsItemValuesItem] | Unset = UNSET
+    timestamp: int
+    values: list[Any]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         timestamp = self.timestamp
 
-        values: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.values, Unset):
-            values = []
-            for values_item_data in self.values:
-                values_item = values_item_data.to_dict()
-                values.append(values_item)
+        values = self.values
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if timestamp is not UNSET:
-            field_dict["timestamp"] = timestamp
-        if values is not UNSET:
-            field_dict["values"] = values
+        field_dict.update(
+            {
+                "timestamp": timestamp,
+                "values": values,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
-        from ..models.time_series_aggregated_response_buckets_item_values_item import (
-            TimeSeriesAggregatedResponseBucketsItemValuesItem,
-        )
-
         d = dict(src_dict)
-        timestamp = d.pop("timestamp", UNSET)
+        timestamp = d.pop("timestamp")
 
-        _values = d.pop("values", UNSET)
-        values: list[TimeSeriesAggregatedResponseBucketsItemValuesItem] | Unset = UNSET
-        if _values is not UNSET:
-            values = []
-            for values_item_data in _values:
-                values_item = TimeSeriesAggregatedResponseBucketsItemValuesItem.from_dict(values_item_data)
-
-                values.append(values_item)
+        values = cast(list[Any], d.pop("values"))
 
         time_series_aggregated_response_buckets_item = cls(
             timestamp=timestamp,

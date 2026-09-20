@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 if TYPE_CHECKING:
     from ..models.grafana_query_response_results_additional_property_frames_item_data import (
         GrafanaQueryResponseResultsAdditionalPropertyFramesItemData,
@@ -25,30 +23,27 @@ class GrafanaQueryResponseResultsAdditionalPropertyFramesItem:
     """One DataFrame
 
     Attributes:
-        data (GrafanaQueryResponseResultsAdditionalPropertyFramesItemData | Unset): Frame data
-        schema (GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema | Unset): Frame schema
+        data (GrafanaQueryResponseResultsAdditionalPropertyFramesItemData): Frame data
+        schema (GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema): Frame schema
     """
 
-    data: GrafanaQueryResponseResultsAdditionalPropertyFramesItemData | Unset = UNSET
-    schema: GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema | Unset = UNSET
+    data: GrafanaQueryResponseResultsAdditionalPropertyFramesItemData
+    schema: GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        data: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.data, Unset):
-            data = self.data.to_dict()
+        data = self.data.to_dict()
 
-        schema: dict[str, Any] | Unset = UNSET
-        if not isinstance(self.schema, Unset):
-            schema = self.schema.to_dict()
+        schema = self.schema.to_dict()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if data is not UNSET:
-            field_dict["data"] = data
-        if schema is not UNSET:
-            field_dict["schema"] = schema
+        field_dict.update(
+            {
+                "data": data,
+                "schema": schema,
+            }
+        )
 
         return field_dict
 
@@ -62,19 +57,9 @@ class GrafanaQueryResponseResultsAdditionalPropertyFramesItem:
         )
 
         d = dict(src_dict)
-        _data = d.pop("data", UNSET)
-        data: GrafanaQueryResponseResultsAdditionalPropertyFramesItemData | Unset
-        if isinstance(_data, Unset):
-            data = UNSET
-        else:
-            data = GrafanaQueryResponseResultsAdditionalPropertyFramesItemData.from_dict(_data)
+        data = GrafanaQueryResponseResultsAdditionalPropertyFramesItemData.from_dict(d.pop("data"))
 
-        _schema = d.pop("schema", UNSET)
-        schema: GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema | Unset
-        if isinstance(_schema, Unset):
-            schema = UNSET
-        else:
-            schema = GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema.from_dict(_schema)
+        schema = GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchema.from_dict(d.pop("schema"))
 
         grafana_query_response_results_additional_property_frames_item = cls(
             data=data,

@@ -6,8 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="ClusterAuthSessionResponse")
 
 
@@ -16,12 +14,12 @@ class ClusterAuthSessionResponse:
     """The session as held by the node that issued it
 
     Attributes:
-        created_at (int | Unset): Creation time, epoch milliseconds
-        user (str | Unset): The principal the session belongs to
+        created_at (int): Creation time, epoch milliseconds
+        user (str): The principal the session belongs to
     """
 
-    created_at: int | Unset = UNSET
-    user: str | Unset = UNSET
+    created_at: int
+    user: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,20 +29,21 @@ class ClusterAuthSessionResponse:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if created_at is not UNSET:
-            field_dict["createdAt"] = created_at
-        if user is not UNSET:
-            field_dict["user"] = user
+        field_dict.update(
+            {
+                "createdAt": created_at,
+                "user": user,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        created_at = d.pop("createdAt", UNSET)
+        created_at = d.pop("createdAt")
 
-        user = d.pop("user", UNSET)
+        user = d.pop("user")
 
         cluster_auth_session_response = cls(
             created_at=created_at,

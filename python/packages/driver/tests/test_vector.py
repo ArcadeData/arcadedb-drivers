@@ -5,6 +5,12 @@ import httpx
 import pytest
 import respx
 from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, basic_auth
+from arcadedb_driver._generated.models.full_text_search_response_similarity import (
+    FullTextSearchResponseSimilarity,
+)
+from arcadedb_driver._generated.models.hybrid_search_request_fusion_strategy import (
+    HybridSearchRequestFusionStrategy,
+)
 from arcadedb_driver._generated.types import Unset
 
 BASE_URL = "http://db.test"
@@ -83,12 +89,21 @@ def _hybrid_body(**overrides: Any) -> dict[str, Any]:
 
 
 def _fulltext_body(**overrides: Any) -> dict[str, Any]:
-    """A complete `FullTextSearchResponse`: count, indexName, results, similarity."""
+    """A complete `FullTextSearchResponse`: count, indexName, results, similarity.
+
+    `similarity` is "BM25", not "bm25". This fixture said lowercase from the day it
+    was written and nothing caught it, because the contract typed the field as a free
+    string; 26.10.1-SNAPSHOT turned it into an enum of BM25/CLASSIC and the stale
+    casing became a ValueError. The server has always emitted uppercase - see
+    ArcadeData/arcadedb's `FullTextIndexMetadata.SIMILARITY_BM25` and the assertion in
+    `MCPServerPluginTest` - so this is the fixture catching up with the server, not
+    the contract changing what the server sends.
+    """
     return {
         "results": [],
         "count": 0,
         "indexName": "ft_idx",
-        "similarity": "bm25",
+        "similarity": "BM25",
         **overrides,
     }
 
@@ -181,7 +196,7 @@ def test_fulltext_posts_to_the_fulltext_endpoint() -> None:
 
     assert route.called
     assert result.count == 1
-    assert result.similarity == "bm25"
+    assert result.similarity is FullTextSearchResponseSimilarity.BM25
 
 
 @respx.mock
@@ -210,3 +225,28 @@ async def test_async_hybrid_and_fulltext_reach_their_endpoints() -> None:
         await srv.db("mydb").vector.fulltext(query_text="cat")
 
     assert hybrid.called and fulltext.called
+
+
+@respx.mock
+def test_hybrid_sends_the_fusion_strategy_as_its_contract_value() -> None:
+    # 26.10.1-SNAPSHOT narrowed `fusionStrategy` from a free string to an enum of
+    # RRF/DBSF/LINEAR, and `openapi-python-client` turned that into a real Enum -
+    # so `hybrid()` now takes HybridSearchRequestFusionStrategy, exactly as
+    # `@arcadedb/driver` takes the "RRF" | "DBSF" | "LINEAR" union that
+    # `openapi-typescript` emits from the same schema.
+    #
+    # The assertion is about the wire, not the annotation: a `str, Enum` member
+    # must serialize as its bare value, never as "HybridSearchRequestFusionStrategy.RRF".
+    route = respx.post(f"{BASE_URL}/api/v1/vector/mydb/hybrid").mock(
+        return_value=httpx.Response(200, json=_hybrid_body())
+    )
+    with server() as srv:
+        srv.db("mydb").vector.hybrid(
+            vector_index_name="v_idx",
+            query_vector=[0.1],
+            fulltext_query="cat",
+            fusion_strategy=HybridSearchRequestFusionStrategy.RRF,
+        )
+
+    body: dict[str, Any] = _json.loads(route.calls.last.request.read())
+    assert body["fusionStrategy"] == "RRF"

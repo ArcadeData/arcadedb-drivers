@@ -6,6 +6,7 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.ai_chat_request import AiChatRequest
+from ...models.ai_chat_stream_event import AiChatStreamEvent
 from ...models.ai_protocol_error import AiProtocolError
 from ...models.error_response import ErrorResponse
 from ...types import Response
@@ -32,9 +33,10 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> AiProtocolError | ErrorResponse | str | None:
+) -> AiChatStreamEvent | AiProtocolError | ErrorResponse | None:
     if response.status_code == 200:
-        response_200 = response.text
+        response_200 = AiChatStreamEvent.from_dict(response.text)
+
         return response_200
 
     if response.status_code == 400:
@@ -85,7 +87,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[AiProtocolError | ErrorResponse | str]:
+) -> Response[AiChatStreamEvent | AiProtocolError | ErrorResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -98,7 +100,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: AiChatRequest,
-) -> Response[AiProtocolError | ErrorResponse | str]:
+) -> Response[AiChatStreamEvent | AiProtocolError | ErrorResponse]:
     """Send a message to the AI assistant, streaming the reply
 
      Sends one message in the context of a database, optionally continuing an existing chat by 'chatId',
@@ -108,6 +110,10 @@ def sync_detailed(
     The 200 response is always 'text/event-stream', never a JSON body; the closing 'done' event carries
     the same 'response', 'commands', and 'chatId' fields as POST /api/v1/ai/chat's JSON response. For a
     single non-streaming JSON reply instead, use POST /api/v1/ai/chat.
+
+    The gateway's own 'session' and 'tool_call' events are NOT forwarded: this server consumes both -
+    the first to learn where to post tool results, the second to run the tool - and emits a
+    'tool_start'/'tool_end' pair around each run in their place. See AiChatStreamEvent.
 
     The assistant is a remote dependency: 503 means the gateway was unreachable and 504 that it did not
     answer in time. Both are retryable. A rejected subscription token answers 502, remapped from the
@@ -121,7 +127,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[AiProtocolError | ErrorResponse | str]
+        Response[AiChatStreamEvent | AiProtocolError | ErrorResponse]
     """
 
     kwargs = _get_kwargs(
@@ -139,7 +145,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: AiChatRequest,
-) -> AiProtocolError | ErrorResponse | str | None:
+) -> AiChatStreamEvent | AiProtocolError | ErrorResponse | None:
     """Send a message to the AI assistant, streaming the reply
 
      Sends one message in the context of a database, optionally continuing an existing chat by 'chatId',
@@ -149,6 +155,10 @@ def sync(
     The 200 response is always 'text/event-stream', never a JSON body; the closing 'done' event carries
     the same 'response', 'commands', and 'chatId' fields as POST /api/v1/ai/chat's JSON response. For a
     single non-streaming JSON reply instead, use POST /api/v1/ai/chat.
+
+    The gateway's own 'session' and 'tool_call' events are NOT forwarded: this server consumes both -
+    the first to learn where to post tool results, the second to run the tool - and emits a
+    'tool_start'/'tool_end' pair around each run in their place. See AiChatStreamEvent.
 
     The assistant is a remote dependency: 503 means the gateway was unreachable and 504 that it did not
     answer in time. Both are retryable. A rejected subscription token answers 502, remapped from the
@@ -162,7 +172,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        AiProtocolError | ErrorResponse | str
+        AiChatStreamEvent | AiProtocolError | ErrorResponse
     """
 
     return sync_detailed(
@@ -175,7 +185,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: AiChatRequest,
-) -> Response[AiProtocolError | ErrorResponse | str]:
+) -> Response[AiChatStreamEvent | AiProtocolError | ErrorResponse]:
     """Send a message to the AI assistant, streaming the reply
 
      Sends one message in the context of a database, optionally continuing an existing chat by 'chatId',
@@ -185,6 +195,10 @@ async def asyncio_detailed(
     The 200 response is always 'text/event-stream', never a JSON body; the closing 'done' event carries
     the same 'response', 'commands', and 'chatId' fields as POST /api/v1/ai/chat's JSON response. For a
     single non-streaming JSON reply instead, use POST /api/v1/ai/chat.
+
+    The gateway's own 'session' and 'tool_call' events are NOT forwarded: this server consumes both -
+    the first to learn where to post tool results, the second to run the tool - and emits a
+    'tool_start'/'tool_end' pair around each run in their place. See AiChatStreamEvent.
 
     The assistant is a remote dependency: 503 means the gateway was unreachable and 504 that it did not
     answer in time. Both are retryable. A rejected subscription token answers 502, remapped from the
@@ -198,7 +212,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[AiProtocolError | ErrorResponse | str]
+        Response[AiChatStreamEvent | AiProtocolError | ErrorResponse]
     """
 
     kwargs = _get_kwargs(
@@ -214,7 +228,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: AiChatRequest,
-) -> AiProtocolError | ErrorResponse | str | None:
+) -> AiChatStreamEvent | AiProtocolError | ErrorResponse | None:
     """Send a message to the AI assistant, streaming the reply
 
      Sends one message in the context of a database, optionally continuing an existing chat by 'chatId',
@@ -224,6 +238,10 @@ async def asyncio(
     The 200 response is always 'text/event-stream', never a JSON body; the closing 'done' event carries
     the same 'response', 'commands', and 'chatId' fields as POST /api/v1/ai/chat's JSON response. For a
     single non-streaming JSON reply instead, use POST /api/v1/ai/chat.
+
+    The gateway's own 'session' and 'tool_call' events are NOT forwarded: this server consumes both -
+    the first to learn where to post tool results, the second to run the tool - and emits a
+    'tool_start'/'tool_end' pair around each run in their place. See AiChatStreamEvent.
 
     The assistant is a remote dependency: 503 means the gateway was unreachable and 504 that it did not
     answer in time. Both are retryable. A rejected subscription token answers 502, remapped from the
@@ -237,7 +255,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        AiProtocolError | ErrorResponse | str
+        AiChatStreamEvent | AiProtocolError | ErrorResponse
     """
 
     return (

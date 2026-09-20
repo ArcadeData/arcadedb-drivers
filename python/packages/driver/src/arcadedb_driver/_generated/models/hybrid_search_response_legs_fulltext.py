@@ -6,6 +6,8 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.hybrid_search_response_legs_fulltext_similarity import HybridSearchResponseLegsFulltextSimilarity
+
 T = TypeVar("T", bound="HybridSearchResponseLegsFulltext")
 
 
@@ -16,12 +18,12 @@ class HybridSearchResponseLegsFulltext:
     Attributes:
         count (int): Rows the full-text leg contributed to fusion
         index_name (str): Full-text index that was searched
-        similarity (str): Similarity function that index scores with, e.g. BM25
+        similarity (HybridSearchResponseLegsFulltextSimilarity): Similarity function that index scores with
     """
 
     count: int
     index_name: str
-    similarity: str
+    similarity: HybridSearchResponseLegsFulltextSimilarity
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -29,7 +31,7 @@ class HybridSearchResponseLegsFulltext:
 
         index_name = self.index_name
 
-        similarity = self.similarity
+        similarity = self.similarity.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -50,7 +52,7 @@ class HybridSearchResponseLegsFulltext:
 
         index_name = d.pop("indexName")
 
-        similarity = d.pop("similarity")
+        similarity = HybridSearchResponseLegsFulltextSimilarity(d.pop("similarity"))
 
         hybrid_search_response_legs_fulltext = cls(
             count=count,

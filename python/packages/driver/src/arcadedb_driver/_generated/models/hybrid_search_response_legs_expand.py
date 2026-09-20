@@ -6,6 +6,8 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.hybrid_search_response_legs_expand_direction import HybridSearchResponseLegsExpandDirection
+
 T = TypeVar("T", bound="HybridSearchResponseLegsExpand")
 
 
@@ -15,7 +17,7 @@ class HybridSearchResponseLegsExpand:
 
     Attributes:
         count (int): Rows the expansion leg contributed to fusion
-        direction (str): Direction walked: out, in or both
+        direction (HybridSearchResponseLegsExpandDirection): Direction walked, echoed from the request
         edge_types (list[str]): Edge types walked; empty when the request named none, which walks them all
         max_depth (int): Hops walked from a seed
         seed_count (int): Seeds the retrieval legs supplied
@@ -25,7 +27,7 @@ class HybridSearchResponseLegsExpand:
     """
 
     count: int
-    direction: str
+    direction: HybridSearchResponseLegsExpandDirection
     edge_types: list[str]
     max_depth: int
     seed_count: int
@@ -36,7 +38,7 @@ class HybridSearchResponseLegsExpand:
     def to_dict(self) -> dict[str, Any]:
         count = self.count
 
-        direction = self.direction
+        direction = self.direction.value
 
         edge_types = self.edge_types
 
@@ -69,7 +71,7 @@ class HybridSearchResponseLegsExpand:
         d = dict(src_dict)
         count = d.pop("count")
 
-        direction = d.pop("direction")
+        direction = HybridSearchResponseLegsExpandDirection(d.pop("direction"))
 
         edge_types = cast(list[str], d.pop("edgeTypes"))
 

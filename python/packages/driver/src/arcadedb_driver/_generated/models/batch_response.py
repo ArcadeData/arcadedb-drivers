@@ -20,31 +20,31 @@ class BatchResponse:
     """Result of a bulk load
 
     Attributes:
-        bytes_read (int | Unset): Bytes of the upload the server consumed, so a client can verify its whole file arrived
-            - and, on a truncated load, how far the server got. Never more than the client sent.
-        edges_created (int | Unset): Edges created
-        elapsed_ms (int | Unset): Elapsed time in milliseconds
+        bytes_read (int): Bytes of the upload the server consumed, so a client can verify its whole file arrived - and,
+            on a truncated load, how far the server got. Never more than the client sent.
+        edges_created (int): Edges created
+        elapsed_ms (int): Elapsed time in milliseconds
+        lines_read (int): Lines the parser read, so 'linesRead' minus 'linesSkipped' can be checked against the records
+            created
+        lines_skipped (int): Lines that carried no record: blank lines, plus CSV headers and '---' separators
+        vertices_created (int): Vertices created
         id_mapping (BatchResponseIdMapping | Unset): Temporary id to RID mapping, present only when temporary ids were
             used and the mapping was small enough to echo
         id_mapping_omitted (bool | Unset): True when the mapping was too large to return
         id_mapping_size (int | Unset): Number of entries in the omitted mapping
-        lines_read (int | Unset): Lines the parser read, so 'linesRead' minus 'linesSkipped' can be checked against the
-            records created
-        lines_skipped (int | Unset): Lines that carried no record: blank lines, plus CSV headers and '---' separators
-        vertices_created (int | Unset): Vertices created
         vertices_without_id (int | Unset): Vertices created without an '@id' under refMode=id. They are loaded and
             durable, but no edge can reference them. Absent when zero.
     """
 
-    bytes_read: int | Unset = UNSET
-    edges_created: int | Unset = UNSET
-    elapsed_ms: int | Unset = UNSET
+    bytes_read: int
+    edges_created: int
+    elapsed_ms: int
+    lines_read: int
+    lines_skipped: int
+    vertices_created: int
     id_mapping: BatchResponseIdMapping | Unset = UNSET
     id_mapping_omitted: bool | Unset = UNSET
     id_mapping_size: int | Unset = UNSET
-    lines_read: int | Unset = UNSET
-    lines_skipped: int | Unset = UNSET
-    vertices_created: int | Unset = UNSET
     vertices_without_id: int | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -55,6 +55,12 @@ class BatchResponse:
 
         elapsed_ms = self.elapsed_ms
 
+        lines_read = self.lines_read
+
+        lines_skipped = self.lines_skipped
+
+        vertices_created = self.vertices_created
+
         id_mapping: dict[str, Any] | Unset = UNSET
         if not isinstance(self.id_mapping, Unset):
             id_mapping = self.id_mapping.to_dict()
@@ -63,35 +69,26 @@ class BatchResponse:
 
         id_mapping_size = self.id_mapping_size
 
-        lines_read = self.lines_read
-
-        lines_skipped = self.lines_skipped
-
-        vertices_created = self.vertices_created
-
         vertices_without_id = self.vertices_without_id
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if bytes_read is not UNSET:
-            field_dict["bytesRead"] = bytes_read
-        if edges_created is not UNSET:
-            field_dict["edgesCreated"] = edges_created
-        if elapsed_ms is not UNSET:
-            field_dict["elapsedMs"] = elapsed_ms
+        field_dict.update(
+            {
+                "bytesRead": bytes_read,
+                "edgesCreated": edges_created,
+                "elapsedMs": elapsed_ms,
+                "linesRead": lines_read,
+                "linesSkipped": lines_skipped,
+                "verticesCreated": vertices_created,
+            }
+        )
         if id_mapping is not UNSET:
             field_dict["idMapping"] = id_mapping
         if id_mapping_omitted is not UNSET:
             field_dict["idMappingOmitted"] = id_mapping_omitted
         if id_mapping_size is not UNSET:
             field_dict["idMappingSize"] = id_mapping_size
-        if lines_read is not UNSET:
-            field_dict["linesRead"] = lines_read
-        if lines_skipped is not UNSET:
-            field_dict["linesSkipped"] = lines_skipped
-        if vertices_created is not UNSET:
-            field_dict["verticesCreated"] = vertices_created
         if vertices_without_id is not UNSET:
             field_dict["verticesWithoutId"] = vertices_without_id
 
@@ -102,11 +99,17 @@ class BatchResponse:
         from ..models.batch_response_id_mapping import BatchResponseIdMapping
 
         d = dict(src_dict)
-        bytes_read = d.pop("bytesRead", UNSET)
+        bytes_read = d.pop("bytesRead")
 
-        edges_created = d.pop("edgesCreated", UNSET)
+        edges_created = d.pop("edgesCreated")
 
-        elapsed_ms = d.pop("elapsedMs", UNSET)
+        elapsed_ms = d.pop("elapsedMs")
+
+        lines_read = d.pop("linesRead")
+
+        lines_skipped = d.pop("linesSkipped")
+
+        vertices_created = d.pop("verticesCreated")
 
         _id_mapping = d.pop("idMapping", UNSET)
         id_mapping: BatchResponseIdMapping | Unset
@@ -119,24 +122,18 @@ class BatchResponse:
 
         id_mapping_size = d.pop("idMappingSize", UNSET)
 
-        lines_read = d.pop("linesRead", UNSET)
-
-        lines_skipped = d.pop("linesSkipped", UNSET)
-
-        vertices_created = d.pop("verticesCreated", UNSET)
-
         vertices_without_id = d.pop("verticesWithoutId", UNSET)
 
         batch_response = cls(
             bytes_read=bytes_read,
             edges_created=edges_created,
             elapsed_ms=elapsed_ms,
-            id_mapping=id_mapping,
-            id_mapping_omitted=id_mapping_omitted,
-            id_mapping_size=id_mapping_size,
             lines_read=lines_read,
             lines_skipped=lines_skipped,
             vertices_created=vertices_created,
+            id_mapping=id_mapping,
+            id_mapping_omitted=id_mapping_omitted,
+            id_mapping_size=id_mapping_size,
             vertices_without_id=vertices_without_id,
         )
 

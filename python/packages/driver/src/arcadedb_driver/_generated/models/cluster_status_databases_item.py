@@ -16,24 +16,26 @@ class ClusterStatusDatabasesItem:
     """One database's cluster state
 
     Attributes:
+        name (str): Database name
         acquire_error (str | Unset): Why the last acquisition failed. Absent on success.
         acquire_status (str | Unset): State of the last acquisition attempt. Absent when none was made.
         acquire_timestamp (int | Unset): When the last acquisition attempt ran, as epoch milliseconds. Absent when none
             was made.
         bootstrap_fingerprint (str | Unset): Fingerprint recorded at bootstrap. Absent when no baseline exists.
         bootstrap_last_tx_id (int | Unset): Last transaction id recorded at bootstrap. Absent when no baseline exists.
-        name (str | Unset): Database name
     """
 
+    name: str
     acquire_error: str | Unset = UNSET
     acquire_status: str | Unset = UNSET
     acquire_timestamp: int | Unset = UNSET
     bootstrap_fingerprint: str | Unset = UNSET
     bootstrap_last_tx_id: int | Unset = UNSET
-    name: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        name = self.name
+
         acquire_error = self.acquire_error
 
         acquire_status = self.acquire_status
@@ -44,11 +46,13 @@ class ClusterStatusDatabasesItem:
 
         bootstrap_last_tx_id = self.bootstrap_last_tx_id
 
-        name = self.name
-
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "name": name,
+            }
+        )
         if acquire_error is not UNSET:
             field_dict["acquireError"] = acquire_error
         if acquire_status is not UNSET:
@@ -59,14 +63,14 @@ class ClusterStatusDatabasesItem:
             field_dict["bootstrapFingerprint"] = bootstrap_fingerprint
         if bootstrap_last_tx_id is not UNSET:
             field_dict["bootstrapLastTxId"] = bootstrap_last_tx_id
-        if name is not UNSET:
-            field_dict["name"] = name
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        name = d.pop("name")
+
         acquire_error = d.pop("acquireError", UNSET)
 
         acquire_status = d.pop("acquireStatus", UNSET)
@@ -77,15 +81,13 @@ class ClusterStatusDatabasesItem:
 
         bootstrap_last_tx_id = d.pop("bootstrapLastTxId", UNSET)
 
-        name = d.pop("name", UNSET)
-
         cluster_status_databases_item = cls(
+            name=name,
             acquire_error=acquire_error,
             acquire_status=acquire_status,
             acquire_timestamp=acquire_timestamp,
             bootstrap_fingerprint=bootstrap_fingerprint,
             bootstrap_last_tx_id=bootstrap_last_tx_id,
-            name=name,
         )
 
         cluster_status_databases_item.additional_properties = d

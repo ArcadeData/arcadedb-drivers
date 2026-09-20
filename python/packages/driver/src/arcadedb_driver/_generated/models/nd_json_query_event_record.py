@@ -11,7 +11,11 @@ T = TypeVar("T", bound="NdJsonQueryEventRecord")
 
 @_attrs_define
 class NdJsonQueryEventRecord:
-    """One result row, identical to an element of the 'result' array of the buffered application/json response."""
+    """One result row, identical to an element of the 'result' array of the buffered application/json response. An open
+    map: a row's keys are the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer
+    writes into every serialized record.
+
+    """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 

@@ -50,6 +50,7 @@ from .._generated.models.full_text_search_request import FullTextSearchRequest
 from .._generated.models.full_text_search_response import FullTextSearchResponse
 from .._generated.models.hybrid_search_request import HybridSearchRequest
 from .._generated.models.hybrid_search_request_expand import HybridSearchRequestExpand
+from .._generated.models.hybrid_search_request_fusion_strategy import HybridSearchRequestFusionStrategy
 from .._generated.models.hybrid_search_request_weights import HybridSearchRequestWeights
 from .._generated.models.hybrid_search_response import HybridSearchResponse
 from .._generated.models.vector_search_request import VectorSearchRequest
@@ -108,7 +109,7 @@ class VectorNamespace:
         sparse: bool | Unset = UNSET,
         fulltext_index_name: str | Unset = UNSET,
         fulltext_query: str | Unset = UNSET,
-        fusion_strategy: str | Unset = UNSET,
+        fusion_strategy: HybridSearchRequestFusionStrategy | Unset = UNSET,
         expand: HybridSearchRequestExpand | Unset = UNSET,
         weights: HybridSearchRequestWeights | Unset = UNSET,
     ) -> HybridSearchResponse:
@@ -215,7 +216,7 @@ class AsyncVectorNamespace:
         sparse: bool | Unset = UNSET,
         fulltext_index_name: str | Unset = UNSET,
         fulltext_query: str | Unset = UNSET,
-        fusion_strategy: str | Unset = UNSET,
+        fusion_strategy: HybridSearchRequestFusionStrategy | Unset = UNSET,
         expand: HybridSearchRequestExpand | Unset = UNSET,
         weights: HybridSearchRequestWeights | Unset = UNSET,
     ) -> HybridSearchResponse:

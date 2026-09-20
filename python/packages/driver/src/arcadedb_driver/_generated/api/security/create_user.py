@@ -5,15 +5,15 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_user_body import CreateUserBody
-from ...models.create_user_response_201 import CreateUserResponse201
+from ...models.create_user_request import CreateUserRequest
 from ...models.error_response import ErrorResponse
+from ...models.security_admin_result import SecurityAdminResult
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: CreateUserBody,
+    body: CreateUserRequest,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -32,9 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CreateUserResponse201 | ErrorResponse | None:
+) -> ErrorResponse | SecurityAdminResult | None:
     if response.status_code == 201:
-        response_201 = CreateUserResponse201.from_dict(response.json())
+        response_201 = SecurityAdminResult.from_dict(response.json())
 
         return response_201
 
@@ -71,7 +71,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CreateUserResponse201 | ErrorResponse]:
+) -> Response[ErrorResponse | SecurityAdminResult]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -83,22 +83,22 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateUserBody,
-) -> Response[CreateUserResponse201 | ErrorResponse]:
+    body: CreateUserRequest,
+) -> Response[ErrorResponse | SecurityAdminResult]:
     """Create user
 
      Creates a new server user (root only). Requires name (string) and password (min 8 chars). On an HA
     cluster the change is replicated to every node as a Raft entry.
 
     Args:
-        body (CreateUserBody):
+        body (CreateUserRequest): A user to create
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateUserResponse201 | ErrorResponse]
+        Response[ErrorResponse | SecurityAdminResult]
     """
 
     kwargs = _get_kwargs(
@@ -115,22 +115,22 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateUserBody,
-) -> CreateUserResponse201 | ErrorResponse | None:
+    body: CreateUserRequest,
+) -> ErrorResponse | SecurityAdminResult | None:
     """Create user
 
      Creates a new server user (root only). Requires name (string) and password (min 8 chars). On an HA
     cluster the change is replicated to every node as a Raft entry.
 
     Args:
-        body (CreateUserBody):
+        body (CreateUserRequest): A user to create
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateUserResponse201 | ErrorResponse
+        ErrorResponse | SecurityAdminResult
     """
 
     return sync_detailed(
@@ -142,22 +142,22 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateUserBody,
-) -> Response[CreateUserResponse201 | ErrorResponse]:
+    body: CreateUserRequest,
+) -> Response[ErrorResponse | SecurityAdminResult]:
     """Create user
 
      Creates a new server user (root only). Requires name (string) and password (min 8 chars). On an HA
     cluster the change is replicated to every node as a Raft entry.
 
     Args:
-        body (CreateUserBody):
+        body (CreateUserRequest): A user to create
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateUserResponse201 | ErrorResponse]
+        Response[ErrorResponse | SecurityAdminResult]
     """
 
     kwargs = _get_kwargs(
@@ -172,22 +172,22 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateUserBody,
-) -> CreateUserResponse201 | ErrorResponse | None:
+    body: CreateUserRequest,
+) -> ErrorResponse | SecurityAdminResult | None:
     """Create user
 
      Creates a new server user (root only). Requires name (string) and password (min 8 chars). On an HA
     cluster the change is replicated to every node as a Raft entry.
 
     Args:
-        body (CreateUserBody):
+        body (CreateUserRequest): A user to create
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateUserResponse201 | ErrorResponse
+        ErrorResponse | SecurityAdminResult
     """
 
     return (

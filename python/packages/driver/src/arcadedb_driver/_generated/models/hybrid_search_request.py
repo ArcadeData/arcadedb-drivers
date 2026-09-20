@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.hybrid_search_request_fusion_strategy import HybridSearchRequestFusionStrategy
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
@@ -31,8 +32,10 @@ class HybridSearchRequest:
             is given, and refused without it
         fulltext_query (str | Unset): Lucene-syntax query for the full-text leg. Goes together with 'fulltextIndexName':
             half a leg is refused rather than silently dropped. Omit both to search without a full-text leg.
-        fusion_strategy (str | Unset): How the legs are combined. Only RRF can consume the graph expansion leg, which is
-            ranked by traversal order
+        fusion_strategy (HybridSearchRequestFusionStrategy | Unset): How the legs are combined. Matched case-
+            insensitively on input and echoed upper-cased. Only RRF can consume the graph expansion leg, which is ranked by
+            traversal order and carries no score, so naming another strategy alongside 'expand' is refused. Defaults to RRF
+            when omitted
         k (int | Unset): Maximum number of fused results to return Default: 10.
         query_indices (list[int] | Unset): Sparse dimension ids matching the 'queryVector' weights. Requires sparse=true
         sparse (bool | Unset): Use the sparse vector path
@@ -48,7 +51,7 @@ class HybridSearchRequest:
     filter_: str | Unset = UNSET
     fulltext_index_name: str | Unset = UNSET
     fulltext_query: str | Unset = UNSET
-    fusion_strategy: str | Unset = UNSET
+    fusion_strategy: HybridSearchRequestFusionStrategy | Unset = UNSET
     k: int | Unset = 10
     query_indices: list[int] | Unset = UNSET
     sparse: bool | Unset = UNSET
@@ -72,7 +75,9 @@ class HybridSearchRequest:
 
         fulltext_query = self.fulltext_query
 
-        fusion_strategy = self.fusion_strategy
+        fusion_strategy: str | Unset = UNSET
+        if not isinstance(self.fusion_strategy, Unset):
+            fusion_strategy = self.fusion_strategy.value
 
         k = self.k
 
@@ -142,7 +147,12 @@ class HybridSearchRequest:
 
         fulltext_query = d.pop("fulltextQuery", UNSET)
 
-        fusion_strategy = d.pop("fusionStrategy", UNSET)
+        _fusion_strategy = d.pop("fusionStrategy", UNSET)
+        fusion_strategy: HybridSearchRequestFusionStrategy | Unset
+        if isinstance(_fusion_strategy, Unset):
+            fusion_strategy = UNSET
+        else:
+            fusion_strategy = HybridSearchRequestFusionStrategy(_fusion_strategy)
 
         k = d.pop("k", UNSET)
 

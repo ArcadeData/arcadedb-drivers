@@ -78,6 +78,18 @@ class ArcadeDbServiceStub:
     high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
     answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
     server's heap.
+
+    TRANSACTIONS (issue #7714). A transaction_id this server cannot resolve - committed, rolled back, expired,
+    or owned by another principal - is REFUSED with FAILED_PRECONDITION on all four of these, reads included.
+    That follows the convention of every other RPC here that takes one (LookupByRid, UpdateRecord and the three
+    search RPCs of #7326): a caller that names a transaction is told when it no longer has it.
+
+    The HTTP time-series read routes deliberately do NOT do this. POST /api/v1/ts/{db}/query and
+    GET /api/v1/ts/{db}/latest degrade to running outside the transaction and answer 200, naming the
+    unresolvable id in an 'arcadedb-session-expired' response header, because they follow
+    GET /api/v1/query - whose degrade is what keeps a read-after-commit and an idempotent retry working, and
+    refusing there would break every client that does one. The two are a deliberate split, each following its
+    own protocol; writes are refused on both.
     """
     TimeSeriesWriteStream: _grpc.StreamUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesWriteChunk, _arcadedb_server_pb2.TimeSeriesWriteSummary]
     TimeSeriesQuery: _grpc.UnaryStreamMultiCallable[_arcadedb_server_pb2.TimeSeriesQueryRequest, _arcadedb_server_pb2.TimeSeriesQueryResult]
@@ -119,6 +131,18 @@ class ArcadeDbServiceAsyncStub(ArcadeDbServiceStub):
     high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
     answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
     server's heap.
+
+    TRANSACTIONS (issue #7714). A transaction_id this server cannot resolve - committed, rolled back, expired,
+    or owned by another principal - is REFUSED with FAILED_PRECONDITION on all four of these, reads included.
+    That follows the convention of every other RPC here that takes one (LookupByRid, UpdateRecord and the three
+    search RPCs of #7326): a caller that names a transaction is told when it no longer has it.
+
+    The HTTP time-series read routes deliberately do NOT do this. POST /api/v1/ts/{db}/query and
+    GET /api/v1/ts/{db}/latest degrade to running outside the transaction and answer 200, naming the
+    unresolvable id in an 'arcadedb-session-expired' response header, because they follow
+    GET /api/v1/query - whose degrade is what keeps a read-after-commit and an idempotent retry working, and
+    refusing there would break every client that does one. The two are a deliberate split, each following its
+    own protocol; writes are refused on both.
     """
     TimeSeriesWriteStream: _aio.StreamUnaryMultiCallable[_arcadedb_server_pb2.TimeSeriesWriteChunk, _arcadedb_server_pb2.TimeSeriesWriteSummary]  # type: ignore[assignment]
     TimeSeriesQuery: _aio.UnaryStreamMultiCallable[_arcadedb_server_pb2.TimeSeriesQueryRequest, _arcadedb_server_pb2.TimeSeriesQueryResult]  # type: ignore[assignment]
@@ -265,6 +289,18 @@ class ArcadeDbServiceServicer(metaclass=_abc_1.ABCMeta):
         high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
         answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
         server's heap.
+
+        TRANSACTIONS (issue #7714). A transaction_id this server cannot resolve - committed, rolled back, expired,
+        or owned by another principal - is REFUSED with FAILED_PRECONDITION on all four of these, reads included.
+        That follows the convention of every other RPC here that takes one (LookupByRid, UpdateRecord and the three
+        search RPCs of #7326): a caller that names a transaction is told when it no longer has it.
+
+        The HTTP time-series read routes deliberately do NOT do this. POST /api/v1/ts/{db}/query and
+        GET /api/v1/ts/{db}/latest degrade to running outside the transaction and answer 200, naming the
+        unresolvable id in an 'arcadedb-session-expired' response header, because they follow
+        GET /api/v1/query - whose degrade is what keeps a read-after-commit and an idempotent retry working, and
+        refusing there would break every client that does one. The two are a deliberate split, each following its
+        own protocol; writes are refused on both.
         """
 
     @_abc_1.abstractmethod

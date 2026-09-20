@@ -2913,11 +2913,18 @@ export const TimeSeriesAggregationRequestSchema: GenMessage<TimeSeriesAggregatio
  */
 export type TimeSeriesAggregation = Message<"com.arcadedb.grpc.TimeSeriesAggregation"> & {
   /**
+   * Bucket width in milliseconds. Must be POSITIVE: a non-positive value is refused with INVALID_ARGUMENT
+   * rather than read as one bucket over the whole range, which is what the engine's own API means by it. The
+   * two HTTP time-series endpoints enforce the same rule on their own `bucketInterval` member (issue #7675).
+   *
    * @generated from field: int64 bucket_interval_ms = 1;
    */
   bucketIntervalMs: bigint;
 
   /**
+   * At least one aggregation to compute. An empty list is refused with INVALID_ARGUMENT, on this RPC and on
+   * both HTTP endpoints (issue #7675).
+   *
    * @generated from field: repeated com.arcadedb.grpc.TimeSeriesAggregationRequest requests = 2;
    */
   requests: TimeSeriesAggregationRequest[];
@@ -2963,7 +2970,11 @@ export type TimeSeriesQueryRequest = Message<"com.arcadedb.grpc.TimeSeriesQueryR
   toTimestamp?: bigint | undefined;
 
   /**
-   * Column projection; empty means every column. The timestamp column is always included and always first.
+   * Column projection; empty means every column. The timestamp column is always included and always first, so
+   * naming it here selects nothing further and is not an error. A name that matches NO column of the type is
+   * refused with INVALID_ARGUMENT before the first streamed message, rather than dropped (issue #7675): a
+   * dropped name narrowed the projection silently, and a projection where nothing resolved widened to every
+   * column. The two HTTP endpoints refuse the same input on their own `fields` member.
    *
    * @generated from field: repeated string fields = 6;
    */
@@ -5830,6 +5841,18 @@ export const ArcadeDbService: GenService<{
    * high-rate, small and uniformly shaped, which is the case gRPC is best suited to. The query streams its
    * answer rather than buffering it, so a wide range is bounded by the client's consumption and not by the
    * server's heap.
+   *
+   * TRANSACTIONS (issue #7714). A transaction_id this server cannot resolve - committed, rolled back, expired,
+   * or owned by another principal - is REFUSED with FAILED_PRECONDITION on all four of these, reads included.
+   * That follows the convention of every other RPC here that takes one (LookupByRid, UpdateRecord and the three
+   * search RPCs of #7326): a caller that names a transaction is told when it no longer has it.
+   *
+   * The HTTP time-series read routes deliberately do NOT do this. POST /api/v1/ts/{db}/query and
+   * GET /api/v1/ts/{db}/latest degrade to running outside the transaction and answer 200, naming the
+   * unresolvable id in an 'arcadedb-session-expired' response header, because they follow
+   * GET /api/v1/query - whose degrade is what keeps a read-after-commit and an idempotent retry working, and
+   * refusing there would break every client that does one. The two are a deliberate split, each following its
+   * own protocol; writes are refused on both.
    *
    * @generated from rpc com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite
    */

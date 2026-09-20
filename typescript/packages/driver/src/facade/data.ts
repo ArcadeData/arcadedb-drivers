@@ -40,12 +40,19 @@ export interface QueryOptions extends CommandOptions {
  *
  * `truncated` means the serializer's row cap stopped mid-serialization with rows still pending,
  * so `result` is incomplete: callers that only read `result` and ignore `truncated` can silently
- * work off a partial answer. `QueryResponse` has no `required` list in the generated schema, so
- * every field the server sends is technically optional; when the server omits `truncated`, this
- * client defaults it to `false` (`limit` defaults to `-1`, meaning "uncapped"). Both defaults are
- * the most reassuring possible reading of "the server did not say" - they assert completeness the
- * server itself never claimed. In practice the server always sends both today, but that is a
- * property of the current implementation, not a guarantee this type enforces.
+ * work off a partial answer.
+ *
+ * `QueryResponse` used to declare no `required` list, so every field was optional on the wire and
+ * this client defaulted each one it did not get - `limit` to `-1`, `returned` to `0`, `truncated`
+ * to `false` - asserting completeness the server itself never claimed. 26.10.1-SNAPSHOT made
+ * `limit`, `returned` and `truncated` required, and the generated schema now types them as plain
+ * `number`/`boolean`. `truncated === false` is therefore a server statement now, not a client-side
+ * guess.
+ *
+ * The `??` fallbacks in `toEnvelope` below are consequently unreachable for those three fields.
+ * They are kept rather than deleted because `result` still needs one and because they cost nothing
+ * if a later contract loosens the list again; nobody should go looking for the path that triggers
+ * them today.
  */
 export type QueryEnvelope<T = unknown> = {
   result: T[];
@@ -90,9 +97,32 @@ function asQueryResponse(data: QueryResponse | NdJsonQueryEvent): QueryResponse 
   return data as QueryResponse;
 }
 
+/**
+ * 26.10.1-SNAPSHOT widened `result` into a union: an array of rows under the default `record`
+ * serializer, and one `{ vertices, edges }` object - plus `records` under `studio` - under the two
+ * graph serializers. `QueryEnvelope.result` is `T[]` and cannot represent the second shape.
+ *
+ * The `as T[]` cast below would hide that on its own: it satisfies the compiler on either arm, so
+ * a graph object would reach a caller wearing an array's type and fail at their first `.map`. The
+ * Python sibling got a compile error from the same contract change - `openapi-python-client` emits
+ * a real union where `openapi-typescript` emits one this cast erases - so the check is written out
+ * here rather than inherited from the typechecker.
+ *
+ * `buildQueryBody` never sends `serializer`, so the server always picks `record` and the graph arm
+ * cannot arrive. That is a property of today's request builder, not of the contract, which is why
+ * this throws rather than asserts.
+ */
 function toEnvelope<T>(data: QueryResponse): QueryEnvelope<T> {
+  const rows = data.result ?? [];
+  if (!Array.isArray(rows)) {
+    throw new ArcadeDBError(200, {
+      error: "the server answered with a graph-serializer result object, but this call expected rows",
+      detail:
+        "QueryResponse.result is { vertices, edges }, which QueryEnvelope cannot represent. This client never asks for a graph serializer - it sends no 'serializer' field.",
+    });
+  }
   return {
-    result: (data.result ?? []) as T[],
+    result: rows as T[],
     limit: data.limit ?? -1,
     returned: data.returned ?? 0,
     truncated: data.truncated ?? false,

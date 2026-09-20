@@ -5,15 +5,15 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
-from ...models.create_api_token_body import CreateApiTokenBody
-from ...models.create_api_token_response_201 import CreateApiTokenResponse201
+from ...models.create_api_token_request import CreateApiTokenRequest
+from ...models.create_api_token_response import CreateApiTokenResponse
 from ...models.error_response import ErrorResponse
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: CreateApiTokenBody,
+    body: CreateApiTokenRequest,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -32,9 +32,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> CreateApiTokenResponse201 | ErrorResponse | None:
+) -> CreateApiTokenResponse | ErrorResponse | None:
     if response.status_code == 201:
-        response_201 = CreateApiTokenResponse201.from_dict(response.json())
+        response_201 = CreateApiTokenResponse.from_dict(response.json())
 
         return response_201
 
@@ -53,6 +53,11 @@ def _parse_response(
 
         return response_403
 
+    if response.status_code == 412:
+        response_412 = ErrorResponse.from_dict(response.json())
+
+        return response_412
+
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
 
@@ -66,7 +71,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[CreateApiTokenResponse201 | ErrorResponse]:
+) -> Response[CreateApiTokenResponse | ErrorResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -78,21 +83,21 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateApiTokenBody,
-) -> Response[CreateApiTokenResponse201 | ErrorResponse]:
+    body: CreateApiTokenRequest,
+) -> Response[CreateApiTokenResponse | ErrorResponse]:
     """Create API token
 
      Creates a new API token (root only). The plaintext token is returned only once in the response.
 
     Args:
-        body (CreateApiTokenBody):
+        body (CreateApiTokenRequest): A token to issue
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateApiTokenResponse201 | ErrorResponse]
+        Response[CreateApiTokenResponse | ErrorResponse]
     """
 
     kwargs = _get_kwargs(
@@ -109,21 +114,21 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateApiTokenBody,
-) -> CreateApiTokenResponse201 | ErrorResponse | None:
+    body: CreateApiTokenRequest,
+) -> CreateApiTokenResponse | ErrorResponse | None:
     """Create API token
 
      Creates a new API token (root only). The plaintext token is returned only once in the response.
 
     Args:
-        body (CreateApiTokenBody):
+        body (CreateApiTokenRequest): A token to issue
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateApiTokenResponse201 | ErrorResponse
+        CreateApiTokenResponse | ErrorResponse
     """
 
     return sync_detailed(
@@ -135,21 +140,21 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateApiTokenBody,
-) -> Response[CreateApiTokenResponse201 | ErrorResponse]:
+    body: CreateApiTokenRequest,
+) -> Response[CreateApiTokenResponse | ErrorResponse]:
     """Create API token
 
      Creates a new API token (root only). The plaintext token is returned only once in the response.
 
     Args:
-        body (CreateApiTokenBody):
+        body (CreateApiTokenRequest): A token to issue
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[CreateApiTokenResponse201 | ErrorResponse]
+        Response[CreateApiTokenResponse | ErrorResponse]
     """
 
     kwargs = _get_kwargs(
@@ -164,21 +169,21 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: CreateApiTokenBody,
-) -> CreateApiTokenResponse201 | ErrorResponse | None:
+    body: CreateApiTokenRequest,
+) -> CreateApiTokenResponse | ErrorResponse | None:
     """Create API token
 
      Creates a new API token (root only). The plaintext token is returned only once in the response.
 
     Args:
-        body (CreateApiTokenBody):
+        body (CreateApiTokenRequest): A token to issue
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        CreateApiTokenResponse201 | ErrorResponse
+        CreateApiTokenResponse | ErrorResponse
     """
 
     return (

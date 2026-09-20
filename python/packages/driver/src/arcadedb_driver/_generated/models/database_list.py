@@ -6,8 +6,6 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="DatabaseList")
 
 
@@ -16,32 +14,49 @@ class DatabaseList:
     """Database list response
 
     Attributes:
-        result (list[str] | Unset): List of database names
+        result (list[str]): The databases this caller is authorized on, not every database installed. A database the
+            caller cannot see is indistinguishable here from one that does not exist.
+        user (str): The authenticated caller
+        version (str): Server version
     """
 
-    result: list[str] | Unset = UNSET
+    result: list[str]
+    user: str
+    version: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        result: list[str] | Unset = UNSET
-        if not isinstance(self.result, Unset):
-            result = self.result
+        result = self.result
+
+        user = self.user
+
+        version = self.version
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if result is not UNSET:
-            field_dict["result"] = result
+        field_dict.update(
+            {
+                "result": result,
+                "user": user,
+                "version": version,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        result = cast(list[str], d.pop("result", UNSET))
+        result = cast(list[str], d.pop("result"))
+
+        user = d.pop("user")
+
+        version = d.pop("version")
 
         database_list = cls(
             result=result,
+            user=user,
+            version=version,
         )
 
         database_list.additional_properties = d

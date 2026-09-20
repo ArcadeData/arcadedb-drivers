@@ -6,6 +6,9 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.time_series_query_request_aggregation_requests_item_type import (
+    TimeSeriesQueryRequestAggregationRequestsItemType,
+)
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="TimeSeriesQueryRequestAggregationRequestsItem")
@@ -16,49 +19,50 @@ class TimeSeriesQueryRequestAggregationRequestsItem:
     """One aggregation to compute over a bucket
 
     Attributes:
+        field (str): Field name to aggregate
+        type_ (TimeSeriesQueryRequestAggregationRequestsItemType): Aggregation function, matched case-insensitively. The
+            same vocabulary the Grafana query endpoint accepts, because both resolve it through the same parser.
         alias (str | Unset): Output name. Defaults to the field name suffixed with the lower-cased aggregation type.
-        field (str | Unset): Field name to aggregate
-        type_ (str | Unset): Aggregation function. Required, one of SUM, AVG, MIN, MAX, COUNT, matched case-
-            insensitively.
     """
 
+    field: str
+    type_: TimeSeriesQueryRequestAggregationRequestsItemType
     alias: str | Unset = UNSET
-    field: str | Unset = UNSET
-    type_: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        alias = self.alias
-
         field = self.field
 
-        type_ = self.type_
+        type_ = self.type_.value
+
+        alias = self.alias
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "field": field,
+                "type": type_,
+            }
+        )
         if alias is not UNSET:
             field_dict["alias"] = alias
-        if field is not UNSET:
-            field_dict["field"] = field
-        if type_ is not UNSET:
-            field_dict["type"] = type_
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
+        field = d.pop("field")
+
+        type_ = TimeSeriesQueryRequestAggregationRequestsItemType(d.pop("type"))
+
         alias = d.pop("alias", UNSET)
 
-        field = d.pop("field", UNSET)
-
-        type_ = d.pop("type", UNSET)
-
         time_series_query_request_aggregation_requests_item = cls(
-            alias=alias,
             field=field,
             type_=type_,
+            alias=alias,
         )
 
         time_series_query_request_aggregation_requests_item.additional_properties = d

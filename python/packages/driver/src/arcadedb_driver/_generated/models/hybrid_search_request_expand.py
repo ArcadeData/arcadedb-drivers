@@ -6,6 +6,7 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.hybrid_search_request_expand_direction import HybridSearchRequestExpandDirection
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="HybridSearchRequestExpand")
@@ -17,18 +18,20 @@ class HybridSearchRequestExpand:
     order.
 
         Attributes:
-            direction (str | Unset): out, in, or both
+            direction (HybridSearchRequestExpandDirection | Unset): Which way to walk the edges. Defaults to 'out'
             edge_types (list[str] | Unset): Edge types to walk
             max_depth (int | Unset): Hops to walk from a seed Default: 1.
     """
 
-    direction: str | Unset = UNSET
+    direction: HybridSearchRequestExpandDirection | Unset = UNSET
     edge_types: list[str] | Unset = UNSET
     max_depth: int | Unset = 1
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        direction = self.direction
+        direction: str | Unset = UNSET
+        if not isinstance(self.direction, Unset):
+            direction = self.direction.value
 
         edge_types: list[str] | Unset = UNSET
         if not isinstance(self.edge_types, Unset):
@@ -51,7 +54,12 @@ class HybridSearchRequestExpand:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        direction = d.pop("direction", UNSET)
+        _direction = d.pop("direction", UNSET)
+        direction: HybridSearchRequestExpandDirection | Unset
+        if isinstance(_direction, Unset):
+            direction = UNSET
+        else:
+            direction = HybridSearchRequestExpandDirection(_direction)
 
         edge_types = cast(list[str], d.pop("edgeTypes", UNSET))
 

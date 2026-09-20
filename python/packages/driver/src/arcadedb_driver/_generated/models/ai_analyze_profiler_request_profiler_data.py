@@ -11,7 +11,11 @@ T = TypeVar("T", bound="AiAnalyzeProfilerRequestProfilerData")
 
 @_attrs_define
 class AiAnalyzeProfilerRequestProfilerData:
-    """Profiler snapshot to analyse"""
+    """Profiler snapshot to analyse. An open map: the server forwards it to the assistant as it stands and derives the
+    schema of every database named inside it, rather than reading a fixed set of keys out of it - so the shape follows
+    whatever the profiler produced.
+
+    """
 
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 

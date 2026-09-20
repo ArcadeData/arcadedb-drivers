@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 if TYPE_CHECKING:
     from ..models.grafana_metadata_types_item import GrafanaMetadataTypesItem
 
@@ -20,33 +18,30 @@ class GrafanaMetadata:
     """Queryable metadata
 
     Attributes:
-        aggregation_types (list[str] | Unset): Supported aggregation functions
-        types (list[GrafanaMetadataTypesItem] | Unset): Queryable time-series types
+        aggregation_types (list[str]): Supported aggregation functions
+        types (list[GrafanaMetadataTypesItem]): Queryable time-series types
     """
 
-    aggregation_types: list[str] | Unset = UNSET
-    types: list[GrafanaMetadataTypesItem] | Unset = UNSET
+    aggregation_types: list[str]
+    types: list[GrafanaMetadataTypesItem]
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        aggregation_types: list[str] | Unset = UNSET
-        if not isinstance(self.aggregation_types, Unset):
-            aggregation_types = self.aggregation_types
+        aggregation_types = self.aggregation_types
 
-        types: list[dict[str, Any]] | Unset = UNSET
-        if not isinstance(self.types, Unset):
-            types = []
-            for types_item_data in self.types:
-                types_item = types_item_data.to_dict()
-                types.append(types_item)
+        types = []
+        for types_item_data in self.types:
+            types_item = types_item_data.to_dict()
+            types.append(types_item)
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if aggregation_types is not UNSET:
-            field_dict["aggregationTypes"] = aggregation_types
-        if types is not UNSET:
-            field_dict["types"] = types
+        field_dict.update(
+            {
+                "aggregationTypes": aggregation_types,
+                "types": types,
+            }
+        )
 
         return field_dict
 
@@ -55,16 +50,14 @@ class GrafanaMetadata:
         from ..models.grafana_metadata_types_item import GrafanaMetadataTypesItem
 
         d = dict(src_dict)
-        aggregation_types = cast(list[str], d.pop("aggregationTypes", UNSET))
+        aggregation_types = cast(list[str], d.pop("aggregationTypes"))
 
-        _types = d.pop("types", UNSET)
-        types: list[GrafanaMetadataTypesItem] | Unset = UNSET
-        if _types is not UNSET:
-            types = []
-            for types_item_data in _types:
-                types_item = GrafanaMetadataTypesItem.from_dict(types_item_data)
+        types = []
+        _types = d.pop("types")
+        for types_item_data in _types:
+            types_item = GrafanaMetadataTypesItem.from_dict(types_item_data)
 
-                types.append(types_item)
+            types.append(types_item)
 
         grafana_metadata = cls(
             aggregation_types=aggregation_types,

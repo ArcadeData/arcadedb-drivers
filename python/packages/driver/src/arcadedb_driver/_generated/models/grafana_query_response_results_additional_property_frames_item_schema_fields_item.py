@@ -6,8 +6,6 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
-
 T = TypeVar("T", bound="GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchemaFieldsItem")
 
 
@@ -16,12 +14,12 @@ class GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchemaFieldsItem:
     """One frame field
 
     Attributes:
-        name (str | Unset): Field name, 'time' for the time column
-        type_ (str | Unset): Grafana field type, for example time or number
+        name (str): Field name, 'time' for the time column
+        type_ (str): Grafana field type, for example time or number
     """
 
-    name: str | Unset = UNSET
-    type_: str | Unset = UNSET
+    name: str
+    type_: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,20 +29,21 @@ class GrafanaQueryResponseResultsAdditionalPropertyFramesItemSchemaFieldsItem:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if name is not UNSET:
-            field_dict["name"] = name
-        if type_ is not UNSET:
-            field_dict["type"] = type_
+        field_dict.update(
+            {
+                "name": name,
+                "type": type_,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        name = d.pop("name", UNSET)
+        name = d.pop("name")
 
-        type_ = d.pop("type", UNSET)
+        type_ = d.pop("type")
 
         grafana_query_response_results_additional_property_frames_item_schema_fields_item = cls(
             name=name,

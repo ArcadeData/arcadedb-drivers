@@ -16,16 +16,21 @@ class ClusterStatusPeersItem:
     """One peer's replication health
 
     Attributes:
-        address (str | Unset): Peer address
+        address (str): Peer address
+        id (str): Peer identifier
+        role (str): LEADER or FOLLOWER
         capabilities (list[str] | Unset): Optional wire-format sections this peer can decode, as last observed by the
             leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not
             reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'.
+        capabilities_unknown_reason (str | Unset): Why 'capabilities' is absent for this peer, when the leader knows
+            why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the
+            capability route or was never asked because its address identifies no single peer, and the two have nothing
+            alike as remedies (issue #7256). Written by the leader only.
         http_address (str | Unset): Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved.
         http_address_ambiguous (bool | Unset): True when the HTTP endpoint above does not identify this peer alone: two
             or more peers resolve to it, which is what happens when 'http' ports are not declared in arcadedb.ha.serverList
             and the nodes differ by port rather than by host. Peer-to-peer operations (snapshot resync, cluster verify)
             refuse to dial such a peer. Absent when the address is unambiguous.
-        id (str | Unset): Peer identifier
         lagging (bool | Unset): True when the lag exceeds the configured warning threshold. Absent for the leader's own
             entry and until a health sample exists.
         lagging_for_ms (int | Unset): How long this peer has been lagging, in milliseconds. Absent for the leader's own
@@ -42,16 +47,17 @@ class ClusterStatusPeersItem:
             sample exists.
         replication_rtt_ms (int | Unset): Mean replication round-trip time. Absent when no sample exists.
         replication_rtt_p99_ms (int | Unset): 99th percentile replication round-trip time. Absent when no sample exists.
-        role (str | Unset): LEADER or FOLLOWER
         version (str | Unset): Server version this peer reported alongside its capabilities. Absent when the leader has
             no fresh answer from it.
     """
 
-    address: str | Unset = UNSET
+    address: str
+    id: str
+    role: str
     capabilities: list[str] | Unset = UNSET
+    capabilities_unknown_reason: str | Unset = UNSET
     http_address: str | Unset = UNSET
     http_address_ambiguous: bool | Unset = UNSET
-    id: str | Unset = UNSET
     lagging: bool | Unset = UNSET
     lagging_for_ms: int | Unset = UNSET
     last_contact_ms: int | Unset = UNSET
@@ -61,22 +67,25 @@ class ClusterStatusPeersItem:
     replication_lag: int | Unset = UNSET
     replication_rtt_ms: int | Unset = UNSET
     replication_rtt_p99_ms: int | Unset = UNSET
-    role: str | Unset = UNSET
     version: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         address = self.address
 
+        id = self.id
+
+        role = self.role
+
         capabilities: list[str] | Unset = UNSET
         if not isinstance(self.capabilities, Unset):
             capabilities = self.capabilities
 
+        capabilities_unknown_reason = self.capabilities_unknown_reason
+
         http_address = self.http_address
 
         http_address_ambiguous = self.http_address_ambiguous
-
-        id = self.id
 
         lagging = self.lagging
 
@@ -96,23 +105,25 @@ class ClusterStatusPeersItem:
 
         replication_rtt_p99_ms = self.replication_rtt_p99_ms
 
-        role = self.role
-
         version = self.version
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if address is not UNSET:
-            field_dict["address"] = address
+        field_dict.update(
+            {
+                "address": address,
+                "id": id,
+                "role": role,
+            }
+        )
         if capabilities is not UNSET:
             field_dict["capabilities"] = capabilities
+        if capabilities_unknown_reason is not UNSET:
+            field_dict["capabilitiesUnknownReason"] = capabilities_unknown_reason
         if http_address is not UNSET:
             field_dict["httpAddress"] = http_address
         if http_address_ambiguous is not UNSET:
             field_dict["httpAddressAmbiguous"] = http_address_ambiguous
-        if id is not UNSET:
-            field_dict["id"] = id
         if lagging is not UNSET:
             field_dict["lagging"] = lagging
         if lagging_for_ms is not UNSET:
@@ -131,8 +142,6 @@ class ClusterStatusPeersItem:
             field_dict["replicationRttMs"] = replication_rtt_ms
         if replication_rtt_p99_ms is not UNSET:
             field_dict["replicationRttP99Ms"] = replication_rtt_p99_ms
-        if role is not UNSET:
-            field_dict["role"] = role
         if version is not UNSET:
             field_dict["version"] = version
 
@@ -141,15 +150,19 @@ class ClusterStatusPeersItem:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        address = d.pop("address", UNSET)
+        address = d.pop("address")
+
+        id = d.pop("id")
+
+        role = d.pop("role")
 
         capabilities = cast(list[str], d.pop("capabilities", UNSET))
+
+        capabilities_unknown_reason = d.pop("capabilitiesUnknownReason", UNSET)
 
         http_address = d.pop("httpAddress", UNSET)
 
         http_address_ambiguous = d.pop("httpAddressAmbiguous", UNSET)
-
-        id = d.pop("id", UNSET)
 
         lagging = d.pop("lagging", UNSET)
 
@@ -169,16 +182,16 @@ class ClusterStatusPeersItem:
 
         replication_rtt_p99_ms = d.pop("replicationRttP99Ms", UNSET)
 
-        role = d.pop("role", UNSET)
-
         version = d.pop("version", UNSET)
 
         cluster_status_peers_item = cls(
             address=address,
+            id=id,
+            role=role,
             capabilities=capabilities,
+            capabilities_unknown_reason=capabilities_unknown_reason,
             http_address=http_address,
             http_address_ambiguous=http_address_ambiguous,
-            id=id,
             lagging=lagging,
             lagging_for_ms=lagging_for_ms,
             last_contact_ms=last_contact_ms,
@@ -188,7 +201,6 @@ class ClusterStatusPeersItem:
             replication_lag=replication_lag,
             replication_rtt_ms=replication_rtt_ms,
             replication_rtt_p99_ms=replication_rtt_p99_ms,
-            role=role,
             version=version,
         )
 

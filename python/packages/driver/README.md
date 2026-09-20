@@ -85,11 +85,19 @@ when it is `True` - though raising `limit` is not always the fix: a result whose
 the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused outright with 413
 rather than truncated, so once you are past that ceiling a narrower filter is the only way forward.
 
-`limit` and `truncated` in the envelope above both default when the server's response omits them
-(`limit` to `-1`, meaning uncapped; `returned` to `0`; `truncated` to `False`) - `QueryResponse`
-has no required fields in the contract, so all four are, strictly, optional on the wire. In
-practice the server always sends all four today, but a caller relying on `truncated is False` as
-proof of completeness is trusting a client-side default, not a server guarantee.
+`truncated is False` used to be a client-side default rather than a server guarantee: until
+26.10.1-SNAPSHOT, `QueryResponse` declared no required fields, so the envelope's `limit`,
+`returned` and `truncated` were all synthesised when the response omitted them. That caveat is
+retired. The contract now marks all three **required**, the server sends all three on every
+query and command, and a response missing one is a contract violation that surfaces as a
+`KeyError` out of the generated model rather than as a quietly invented `False`. `result` stayed
+optional and still defaults to `[]`.
+
+`result` also became a **union** in the same release: an array of rows under the default `record`
+serializer, and a single `{vertices, edges}` object - plus `records` under `studio` - under the
+two graph serializers. `QueryEnvelope.result` is a list of rows and cannot carry the second
+shape, so `query`/`command` raise `ArcadeDBError` if it ever arrives. It cannot today: this client
+sends no `serializer` field, so the server always picks `record`.
 
 ## Streaming a query or command: `query_stream`/`command_stream`
 
@@ -349,6 +357,30 @@ fused = db.vector.hybrid(
 )
 matches = db.vector.fulltext(query_text="cat")
 ```
+
+`hybrid`'s `fusion_strategy` takes a `HybridSearchRequestFusionStrategy` - `RRF`, `DBSF` or
+`LINEAR` - not a bare string. It was `str | Unset` until 26.10.1-SNAPSHOT turned the contract's
+free-form field into an enum:
+
+```python
+from arcadedb_driver._generated.models.hybrid_search_request_fusion_strategy import (
+    HybridSearchRequestFusionStrategy,
+)
+
+fused = db.vector.hybrid(
+    vector_index_name="myIndex",
+    query_vector=[0.1, 0.2, 0.3],
+    fusion_strategy=HybridSearchRequestFusionStrategy.RRF,
+)
+```
+
+The enum is a `str` subclass, so an existing call passing `"RRF"` still works on the wire and only
+the typechecker complains - but a call passing `"rrf"` was always wrong and the server always
+rejected it. Reading the enum off `_generated` mirrors how `expand` and `weights` already work on
+this method; it is not re-exported at the top level, because a name re-exported from `_generated`
+turns every contract bump into a breaking change to this package's public API.
+
+Full-text responses carry `similarity` as an enum for the same reason, `BM25` or `CLASSIC`.
 
 `search` runs a kNN query over a dense `LSM_VECTOR` or sparse `LSM_SPARSE_VECTOR` index; `hybrid`
 fuses a vector leg with an optional full-text leg and an optional graph-expansion leg into one

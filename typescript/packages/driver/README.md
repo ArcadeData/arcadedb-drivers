@@ -74,11 +74,17 @@ as the whole answer, and re-query with a narrower filter or a higher `limit` (vi
 ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused with 413 rather than truncated, so a
 narrower filter is the only fix once you're past that ceiling.
 
-`limit` and `truncated` in the envelope above both default when the server's response omits them
-(`limit` to `-1`, meaning uncapped; `truncated` to `false`) - `QueryResponse` has no required
-fields in the generated schema, so both are, strictly, optional on the wire. In practice the
-server always sends both today, but a caller relying on `truncated === false` as proof of
-completeness is trusting a client-side default, not a server guarantee.
+`truncated === false` used to be a client-side default rather than a server guarantee: until
+26.10.1-SNAPSHOT, `QueryResponse` declared no required fields, so `limit`, `returned` and
+`truncated` were all synthesised when the response omitted them. That caveat is retired. The
+schema now marks all three **required** and the server sends all three on every query and
+command. `result` stayed optional and still defaults to `[]`.
+
+`result` also became a **union** in the same release: an array of rows under the default `record`
+serializer, and a single `{ vertices, edges }` object - plus `records` under `studio` - under the
+two graph serializers. `QueryEnvelope<T>["result"]` is `T[]` and cannot carry the second shape,
+so `query`/`command` throw an `ArcadeDBError` if it ever arrives. It cannot today: this client
+sends no `serializer` field, so the server always picks `record`.
 
 ## Streaming a query or command: `queryStream`/`commandStream`
 

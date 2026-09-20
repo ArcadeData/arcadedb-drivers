@@ -16,24 +16,26 @@ class ErrorResponse:
     """Error response object
 
     Attributes:
-        detail (str | Unset): Error details
-        error (str | Unset): Error message
-        exception (str | Unset): Exception class name
-        exception_args (str | Unset): Exception arguments
-        help_ (str | Unset): Help information
+        error (str): Error message. The one member every error body carries
+        detail (str | Unset): Error details, including the cause chain when there is one. Absent when there is nothing
+            to add
+        exception (str | Unset): Exception class name, for distinguishing failure classes programmatically. Absent when
+            the failure was raised as a plain message rather than from an exception
+        exception_args (str | Unset): Exception arguments, when the exception class carries any
+        help_ (str | Unset): What to do about it, when the server can say
     """
 
+    error: str
     detail: str | Unset = UNSET
-    error: str | Unset = UNSET
     exception: str | Unset = UNSET
     exception_args: str | Unset = UNSET
     help_: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        detail = self.detail
-
         error = self.error
+
+        detail = self.detail
 
         exception = self.exception
 
@@ -43,11 +45,13 @@ class ErrorResponse:
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
+        field_dict.update(
+            {
+                "error": error,
+            }
+        )
         if detail is not UNSET:
             field_dict["detail"] = detail
-        if error is not UNSET:
-            field_dict["error"] = error
         if exception is not UNSET:
             field_dict["exception"] = exception
         if exception_args is not UNSET:
@@ -60,9 +64,9 @@ class ErrorResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        detail = d.pop("detail", UNSET)
+        error = d.pop("error")
 
-        error = d.pop("error", UNSET)
+        detail = d.pop("detail", UNSET)
 
         exception = d.pop("exception", UNSET)
 
@@ -71,8 +75,8 @@ class ErrorResponse:
         help_ = d.pop("help", UNSET)
 
         error_response = cls(
-            detail=detail,
             error=error,
+            detail=detail,
             exception=exception,
             exception_args=exception_args,
             help_=help_,

@@ -6,7 +6,7 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
+from ..models.prom_ql_error_response_status import PromQLErrorResponseStatus
 
 T = TypeVar("T", bound="PromQLErrorResponse")
 
@@ -16,14 +16,14 @@ class PromQLErrorResponse:
     """Prometheus error envelope
 
     Attributes:
-        error (str | Unset): Human-readable message
-        error_type (str | Unset): Prometheus error class, for example 'bad_data'
-        status (str | Unset): Always 'error'
+        error (str): Human-readable message
+        error_type (str): Prometheus error class, for example 'bad_data'
+        status (PromQLErrorResponseStatus): Always 'error'
     """
 
-    error: str | Unset = UNSET
-    error_type: str | Unset = UNSET
-    status: str | Unset = UNSET
+    error: str
+    error_type: str
+    status: PromQLErrorResponseStatus
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -31,28 +31,28 @@ class PromQLErrorResponse:
 
         error_type = self.error_type
 
-        status = self.status
+        status = self.status.value
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if error is not UNSET:
-            field_dict["error"] = error
-        if error_type is not UNSET:
-            field_dict["errorType"] = error_type
-        if status is not UNSET:
-            field_dict["status"] = status
+        field_dict.update(
+            {
+                "error": error,
+                "errorType": error_type,
+                "status": status,
+            }
+        )
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        error = d.pop("error", UNSET)
+        error = d.pop("error")
 
-        error_type = d.pop("errorType", UNSET)
+        error_type = d.pop("errorType")
 
-        status = d.pop("status", UNSET)
+        status = PromQLErrorResponseStatus(d.pop("status"))
 
         prom_ql_error_response = cls(
             error=error,

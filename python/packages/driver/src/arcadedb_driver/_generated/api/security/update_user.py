@@ -6,14 +6,14 @@ import httpx
 from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
-from ...models.update_user_body import UpdateUserBody
-from ...models.update_user_response_200 import UpdateUserResponse200
+from ...models.security_admin_result import SecurityAdminResult
+from ...models.update_user_request import UpdateUserRequest
 from ...types import UNSET, Response
 
 
 def _get_kwargs(
     *,
-    body: UpdateUserBody,
+    body: UpdateUserRequest,
     name: str,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
@@ -40,9 +40,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ErrorResponse | UpdateUserResponse200 | None:
+) -> ErrorResponse | SecurityAdminResult | None:
     if response.status_code == 200:
-        response_200 = UpdateUserResponse200.from_dict(response.json())
+        response_200 = SecurityAdminResult.from_dict(response.json())
 
         return response_200
 
@@ -79,7 +79,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ErrorResponse | UpdateUserResponse200]:
+) -> Response[ErrorResponse | SecurityAdminResult]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -91,9 +91,9 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: UpdateUserBody,
+    body: UpdateUserRequest,
     name: str,
-) -> Response[ErrorResponse | UpdateUserResponse200]:
+) -> Response[ErrorResponse | SecurityAdminResult]:
     """Update user
 
      Updates an existing user's password and/or database assignments (root only). On an HA cluster the
@@ -101,14 +101,16 @@ def sync_detailed(
 
     Args:
         name (str):
-        body (UpdateUserBody):
+        body (UpdateUserRequest): Changes to apply to an existing user, named by the 'name' QUERY
+            parameter rather than by the body. Both members are optional and an omitted one is left
+            alone; a body carrying neither is accepted and changes nothing.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | UpdateUserResponse200]
+        Response[ErrorResponse | SecurityAdminResult]
     """
 
     kwargs = _get_kwargs(
@@ -126,9 +128,9 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: UpdateUserBody,
+    body: UpdateUserRequest,
     name: str,
-) -> ErrorResponse | UpdateUserResponse200 | None:
+) -> ErrorResponse | SecurityAdminResult | None:
     """Update user
 
      Updates an existing user's password and/or database assignments (root only). On an HA cluster the
@@ -136,14 +138,16 @@ def sync(
 
     Args:
         name (str):
-        body (UpdateUserBody):
+        body (UpdateUserRequest): Changes to apply to an existing user, named by the 'name' QUERY
+            parameter rather than by the body. Both members are optional and an omitted one is left
+            alone; a body carrying neither is accepted and changes nothing.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | UpdateUserResponse200
+        ErrorResponse | SecurityAdminResult
     """
 
     return sync_detailed(
@@ -156,9 +160,9 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: UpdateUserBody,
+    body: UpdateUserRequest,
     name: str,
-) -> Response[ErrorResponse | UpdateUserResponse200]:
+) -> Response[ErrorResponse | SecurityAdminResult]:
     """Update user
 
      Updates an existing user's password and/or database assignments (root only). On an HA cluster the
@@ -166,14 +170,16 @@ async def asyncio_detailed(
 
     Args:
         name (str):
-        body (UpdateUserBody):
+        body (UpdateUserRequest): Changes to apply to an existing user, named by the 'name' QUERY
+            parameter rather than by the body. Both members are optional and an omitted one is left
+            alone; a body carrying neither is accepted and changes nothing.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | UpdateUserResponse200]
+        Response[ErrorResponse | SecurityAdminResult]
     """
 
     kwargs = _get_kwargs(
@@ -189,9 +195,9 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: UpdateUserBody,
+    body: UpdateUserRequest,
     name: str,
-) -> ErrorResponse | UpdateUserResponse200 | None:
+) -> ErrorResponse | SecurityAdminResult | None:
     """Update user
 
      Updates an existing user's password and/or database assignments (root only). On an HA cluster the
@@ -199,14 +205,16 @@ async def asyncio(
 
     Args:
         name (str):
-        body (UpdateUserBody):
+        body (UpdateUserRequest): Changes to apply to an existing user, named by the 'name' QUERY
+            parameter rather than by the body. Both members are optional and an omitted one is left
+            alone; a body carrying neither is accepted and changes nothing.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | UpdateUserResponse200
+        ErrorResponse | SecurityAdminResult
     """
 
     return (

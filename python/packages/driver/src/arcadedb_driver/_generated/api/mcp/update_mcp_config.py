@@ -7,12 +7,13 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
 from ...models.mcp_config import McpConfig
+from ...models.mcp_config_update import McpConfigUpdate
 from ...types import Response
 
 
 def _get_kwargs(
     *,
-    body: McpConfig,
+    body: McpConfigUpdate,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -82,7 +83,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: McpConfig,
+    body: McpConfigUpdate,
 ) -> Response[ErrorResponse | McpConfig]:
     """Update the MCP server configuration
 
@@ -94,7 +95,9 @@ def sync_detailed(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
-        body (McpConfig): MCP server configuration
+        body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
+            change; an omitted one keeps its current value, so nothing here is required. The update is
+            all-or-nothing: every field is parsed and validated before the first one is assigned.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -118,7 +121,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: McpConfig,
+    body: McpConfigUpdate,
 ) -> ErrorResponse | McpConfig | None:
     """Update the MCP server configuration
 
@@ -130,7 +133,9 @@ def sync(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
-        body (McpConfig): MCP server configuration
+        body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
+            change; an omitted one keeps its current value, so nothing here is required. The update is
+            all-or-nothing: every field is parsed and validated before the first one is assigned.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -149,7 +154,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: McpConfig,
+    body: McpConfigUpdate,
 ) -> Response[ErrorResponse | McpConfig]:
     """Update the MCP server configuration
 
@@ -161,7 +166,9 @@ async def asyncio_detailed(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
-        body (McpConfig): MCP server configuration
+        body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
+            change; an omitted one keeps its current value, so nothing here is required. The update is
+            all-or-nothing: every field is parsed and validated before the first one is assigned.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -183,7 +190,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: McpConfig,
+    body: McpConfigUpdate,
 ) -> ErrorResponse | McpConfig | None:
     """Update the MCP server configuration
 
@@ -195,7 +202,9 @@ async def asyncio(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
-        body (McpConfig): MCP server configuration
+        body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
+            change; an omitted one keeps its current value, so nothing here is required. The update is
+            all-or-nothing: every field is parsed and validated before the first one is assigned.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

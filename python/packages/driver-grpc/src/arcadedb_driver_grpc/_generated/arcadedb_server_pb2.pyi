@@ -2968,8 +2968,16 @@ class TimeSeriesAggregation(_message.Message):
     BUCKET_INTERVAL_MS_FIELD_NUMBER: _builtins.int
     REQUESTS_FIELD_NUMBER: _builtins.int
     bucket_interval_ms: _builtins.int
+    """Bucket width in milliseconds. Must be POSITIVE: a non-positive value is refused with INVALID_ARGUMENT
+    rather than read as one bucket over the whole range, which is what the engine's own API means by it. The
+    two HTTP time-series endpoints enforce the same rule on their own `bucketInterval` member (issue #7675).
+    """
     @_builtins.property
-    def requests(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesAggregationRequest]: ...
+    def requests(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesAggregationRequest]:
+        """At least one aggregation to compute. An empty list is refused with INVALID_ARGUMENT, on this RPC and on
+        both HTTP endpoints (issue #7675).
+        """
+
     def __init__(
         self,
         *,
@@ -3018,7 +3026,12 @@ class TimeSeriesQueryRequest(_message.Message):
     def credentials(self) -> Global___DatabaseCredentials: ...
     @_builtins.property
     def fields(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
-        """Column projection; empty means every column. The timestamp column is always included and always first."""
+        """Column projection; empty means every column. The timestamp column is always included and always first, so
+        naming it here selects nothing further and is not an error. A name that matches NO column of the type is
+        refused with INVALID_ARGUMENT before the first streamed message, rather than dropped (issue #7675): a
+        dropped name narrowed the projection silently, and a projection where nothing resolved widened to every
+        column. The two HTTP endpoints refuse the same input on their own `fields` member.
+        """
 
     @_builtins.property
     def tags(self) -> Global___TimeSeriesTagFilter: ...

@@ -141,7 +141,12 @@ def test_query_rejects_a_graph_shaped_result_instead_of_mangling_it() -> None:
             json={"result": {"vertices": [], "edges": []}, "limit": 100, "returned": 0, "truncated": False},
         )
     )
-    with server() as srv, pytest.raises(TypeError) as caught:
+    # ArcadeDBError, not a builtin: "200 in a shape this client cannot represent" is an
+    # ArcadeDBError everywhere else in this package, and the README tells callers that
+    # `except ArcadeDBError` around query()/command() is enough. The TypeScript sibling
+    # throws ArcadeDBError for the identical guard.
+    with server() as srv, pytest.raises(ArcadeDBError) as caught:
         srv.db("mydb").query(language="sql", command="SELECT FROM Person")
 
-    assert "serializer" in str(caught.value)
+    assert caught.value.status == 200
+    assert "serializer" in str(caught.value.detail)

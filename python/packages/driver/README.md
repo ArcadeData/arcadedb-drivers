@@ -96,7 +96,7 @@ optional and still defaults to `[]`.
 `result` also became a **union** in the same release: an array of rows under the default `record`
 serializer, and a single `{vertices, edges}` object - plus `records` under `studio` - under the
 two graph serializers. `QueryEnvelope.result` is a list of rows and cannot carry the second
-shape, so `query`/`command` raise `TypeError` if it ever arrives. It cannot today: this client
+shape, so `query`/`command` raise `ArcadeDBError` if it ever arrives. It cannot today: this client
 sends no `serializer` field, so the server always picks `record`.
 
 ## Streaming a query or command: `query_stream`/`command_stream`

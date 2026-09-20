@@ -40,12 +40,19 @@ export interface QueryOptions extends CommandOptions {
  *
  * `truncated` means the serializer's row cap stopped mid-serialization with rows still pending,
  * so `result` is incomplete: callers that only read `result` and ignore `truncated` can silently
- * work off a partial answer. `QueryResponse` has no `required` list in the generated schema, so
- * every field the server sends is technically optional; when the server omits `truncated`, this
- * client defaults it to `false` (`limit` defaults to `-1`, meaning "uncapped"). Both defaults are
- * the most reassuring possible reading of "the server did not say" - they assert completeness the
- * server itself never claimed. In practice the server always sends both today, but that is a
- * property of the current implementation, not a guarantee this type enforces.
+ * work off a partial answer.
+ *
+ * `QueryResponse` used to declare no `required` list, so every field was optional on the wire and
+ * this client defaulted each one it did not get - `limit` to `-1`, `returned` to `0`, `truncated`
+ * to `false` - asserting completeness the server itself never claimed. 26.10.1-SNAPSHOT made
+ * `limit`, `returned` and `truncated` required, and the generated schema now types them as plain
+ * `number`/`boolean`. `truncated === false` is therefore a server statement now, not a client-side
+ * guess.
+ *
+ * The `??` fallbacks in `toEnvelope` below are consequently unreachable for those three fields.
+ * They are kept rather than deleted because `result` still needs one and because they cost nothing
+ * if a later contract loosens the list again; nobody should go looking for the path that triggers
+ * them today.
  */
 export type QueryEnvelope<T = unknown> = {
   result: T[];

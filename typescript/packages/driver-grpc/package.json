@@ -43,7 +43,7 @@
     "prepack": "tsc --build"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "2.14.1",
+    "@bufbuild/protobuf": "2.15.0",
     "@connectrpc/connect": "2.2.0",
     "@connectrpc/connect-node": "2.2.0"
   }

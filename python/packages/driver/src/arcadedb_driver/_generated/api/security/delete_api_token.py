@@ -58,6 +58,11 @@ def _parse_response(
 
         return response_500
 
+    if response.status_code == 504:
+        response_504 = ErrorResponse.from_dict(response.json())
+
+        return response_504
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -82,7 +87,8 @@ def sync_detailed(
 ) -> Response[ErrorResponse | SecurityAdminResult]:
     """Delete API token
 
-     Deletes an API token by its hash (root only). Plaintext tokens are rejected.
+     Deletes an API token by its hash (root only). Plaintext tokens are rejected, on the node that
+    received them. On an HA cluster a follower forwards the request to the leader.
 
     Args:
         token (str):
@@ -113,7 +119,8 @@ def sync(
 ) -> ErrorResponse | SecurityAdminResult | None:
     """Delete API token
 
-     Deletes an API token by its hash (root only). Plaintext tokens are rejected.
+     Deletes an API token by its hash (root only). Plaintext tokens are rejected, on the node that
+    received them. On an HA cluster a follower forwards the request to the leader.
 
     Args:
         token (str):
@@ -139,7 +146,8 @@ async def asyncio_detailed(
 ) -> Response[ErrorResponse | SecurityAdminResult]:
     """Delete API token
 
-     Deletes an API token by its hash (root only). Plaintext tokens are rejected.
+     Deletes an API token by its hash (root only). Plaintext tokens are rejected, on the node that
+    received them. On an HA cluster a follower forwards the request to the leader.
 
     Args:
         token (str):
@@ -168,7 +176,8 @@ async def asyncio(
 ) -> ErrorResponse | SecurityAdminResult | None:
     """Delete API token
 
-     Deletes an API token by its hash (root only). Plaintext tokens are rejected.
+     Deletes an API token by its hash (root only). Plaintext tokens are rejected, on the node that
+    received them. On an HA cluster a follower forwards the request to the leader.
 
     Args:
         token (str):

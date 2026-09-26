@@ -14,10 +14,14 @@ def _get_kwargs(
     database: str,
     *,
     arcadedb_session_id: str | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
     if not isinstance(arcadedb_session_id, Unset):
         headers["arcadedb-session-id"] = arcadedb_session_id
+
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -50,6 +54,11 @@ def _parse_response(*, client: AuthenticatedClient | Client, response: httpx.Res
 
         return response_404
 
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
 
@@ -75,6 +84,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[Any | ErrorResponse]:
     """Commit transaction
 
@@ -83,6 +93,7 @@ def sync_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -95,6 +106,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         database=database,
         arcadedb_session_id=arcadedb_session_id,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -109,6 +121,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Any | ErrorResponse | None:
     """Commit transaction
 
@@ -117,6 +130,7 @@ def sync(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -130,6 +144,7 @@ def sync(
         database=database,
         client=client,
         arcadedb_session_id=arcadedb_session_id,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -138,6 +153,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[Any | ErrorResponse]:
     """Commit transaction
 
@@ -146,6 +162,7 @@ async def asyncio_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -158,6 +175,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         database=database,
         arcadedb_session_id=arcadedb_session_id,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -170,6 +188,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Any | ErrorResponse | None:
     """Commit transaction
 
@@ -178,6 +197,7 @@ async def asyncio(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -192,5 +212,6 @@ async def asyncio(
             database=database,
             client=client,
             arcadedb_session_id=arcadedb_session_id,
+            x_request_id=x_request_id,
         )
     ).parsed

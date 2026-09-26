@@ -61,6 +61,11 @@ def _parse_response(
 
         return response_500
 
+    if response.status_code == 504:
+        response_504 = ErrorResponse.from_dict(response.json())
+
+        return response_504
+
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
     else:
@@ -86,7 +91,8 @@ def sync_detailed(
 ) -> Response[ErrorResponse | SecurityAdminResult]:
     """Delete group
 
-     Deletes a security group (root only)
+     Deletes a security group (root only). On an HA cluster a follower forwards the request to the
+    leader.
 
     Args:
         database (str):
@@ -120,7 +126,8 @@ def sync(
 ) -> ErrorResponse | SecurityAdminResult | None:
     """Delete group
 
-     Deletes a security group (root only)
+     Deletes a security group (root only). On an HA cluster a follower forwards the request to the
+    leader.
 
     Args:
         database (str):
@@ -149,7 +156,8 @@ async def asyncio_detailed(
 ) -> Response[ErrorResponse | SecurityAdminResult]:
     """Delete group
 
-     Deletes a security group (root only)
+     Deletes a security group (root only). On an HA cluster a follower forwards the request to the
+    leader.
 
     Args:
         database (str):
@@ -181,7 +189,8 @@ async def asyncio(
 ) -> ErrorResponse | SecurityAdminResult | None:
     """Delete group
 
-     Deletes a security group (root only)
+     Deletes a security group (root only). On an HA cluster a follower forwards the request to the
+    leader.
 
     Args:
         database (str):

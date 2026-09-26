@@ -8,12 +8,17 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.cluster_action_response import ClusterActionResponse
 from ...models.error_response import ErrorResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     database: str,
+    *,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -22,6 +27,7 @@ def _get_kwargs(
         ),
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -47,6 +53,11 @@ def _parse_response(
         response_403 = ErrorResponse.from_dict(response.json())
 
         return response_403
+
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
 
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
@@ -79,6 +90,7 @@ def sync_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Re-fetch a database from the leader
 
@@ -89,6 +101,7 @@ def sync_detailed(
 
     Args:
         database (str):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -100,6 +113,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         database=database,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -113,6 +127,7 @@ def sync(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Re-fetch a database from the leader
 
@@ -123,6 +138,7 @@ def sync(
 
     Args:
         database (str):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -135,6 +151,7 @@ def sync(
     return sync_detailed(
         database=database,
         client=client,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -142,6 +159,7 @@ async def asyncio_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Re-fetch a database from the leader
 
@@ -152,6 +170,7 @@ async def asyncio_detailed(
 
     Args:
         database (str):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -163,6 +182,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         database=database,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -174,6 +194,7 @@ async def asyncio(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Re-fetch a database from the leader
 
@@ -184,6 +205,7 @@ async def asyncio(
 
     Args:
         database (str):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -197,5 +219,6 @@ async def asyncio(
         await asyncio_detailed(
             database=database,
             client=client,
+            x_request_id=x_request_id,
         )
     ).parsed

@@ -8,14 +8,17 @@ from ...client import AuthenticatedClient, Client
 from ...models.cluster_auth_session_request import ClusterAuthSessionRequest
 from ...models.cluster_auth_session_response import ClusterAuthSessionResponse
 from ...models.error_response import ErrorResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     body: ClusterAuthSessionRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -62,6 +65,11 @@ def _parse_response(
 
         return response_404
 
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
 
@@ -88,6 +96,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: ClusterAuthSessionRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[Any | ClusterAuthSessionResponse | ErrorResponse]:
     """Confirm or revoke an authentication session on the node that issued it
 
@@ -98,6 +107,7 @@ def sync_detailed(
     request that carries user credentials instead is refused with 403 (issue #7424).
 
     Args:
+        x_request_id (str | Unset):
         body (ClusterAuthSessionRequest): A session token and the action to apply to it
 
     Raises:
@@ -110,6 +120,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -123,6 +134,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: ClusterAuthSessionRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Any | ClusterAuthSessionResponse | ErrorResponse | None:
     """Confirm or revoke an authentication session on the node that issued it
 
@@ -133,6 +145,7 @@ def sync(
     request that carries user credentials instead is refused with 403 (issue #7424).
 
     Args:
+        x_request_id (str | Unset):
         body (ClusterAuthSessionRequest): A session token and the action to apply to it
 
     Raises:
@@ -146,6 +159,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -153,6 +167,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: ClusterAuthSessionRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[Any | ClusterAuthSessionResponse | ErrorResponse]:
     """Confirm or revoke an authentication session on the node that issued it
 
@@ -163,6 +178,7 @@ async def asyncio_detailed(
     request that carries user credentials instead is refused with 403 (issue #7424).
 
     Args:
+        x_request_id (str | Unset):
         body (ClusterAuthSessionRequest): A session token and the action to apply to it
 
     Raises:
@@ -175,6 +191,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -186,6 +203,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: ClusterAuthSessionRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Any | ClusterAuthSessionResponse | ErrorResponse | None:
     """Confirm or revoke an authentication session on the node that issued it
 
@@ -196,6 +214,7 @@ async def asyncio(
     request that carries user credentials instead is refused with 403 (issue #7424).
 
     Args:
+        x_request_id (str | Unset):
         body (ClusterAuthSessionRequest): A session token and the action to apply to it
 
     Raises:
@@ -210,5 +229,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_request_id=x_request_id,
         )
     ).parsed

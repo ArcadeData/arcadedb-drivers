@@ -614,7 +614,11 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Check server liveness (no body)
+         * @description Identical to GET /health but without a response body, for probes (e.g. 'wget --spider') that use HEAD.
+         */
+        head: operations["checkHealthHead"];
         patch?: never;
         trace?: never;
     };
@@ -786,7 +790,11 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * Check server readiness (no body)
+         * @description Identical to GET /ready but without a response body, for probes (e.g. 'wget --spider') that use HEAD.
+         */
+        head: operations["checkReadyHead"];
         patch?: never;
         trace?: never;
     };
@@ -849,12 +857,12 @@ export interface paths {
         put?: never;
         /**
          * Create API token
-         * @description Creates a new API token (root only). The plaintext token is returned only once in the response.
+         * @description Creates a new API token (root only). The plaintext token is returned only once in the response. On an HA cluster a follower checks the transport of the client connection, then forwards the request to the leader.
          */
         post: operations["createApiToken"];
         /**
          * Delete API token
-         * @description Deletes an API token by its hash (root only). Plaintext tokens are rejected.
+         * @description Deletes an API token by its hash (root only). Plaintext tokens are rejected, on the node that received them. On an HA cluster a follower forwards the request to the leader.
          */
         delete: operations["deleteApiToken"];
         options?: never;
@@ -877,12 +885,12 @@ export interface paths {
         put?: never;
         /**
          * Create or update group
-         * @description Creates or updates a security group (root only)
+         * @description Creates or updates a security group (root only). On an HA cluster a follower forwards the request to the leader, which replicates the group document to every node as a Raft entry.
          */
         post: operations["createOrUpdateGroup"];
         /**
          * Delete group
-         * @description Deletes a security group (root only)
+         * @description Deletes a security group (root only). On an HA cluster a follower forwards the request to the leader.
          */
         delete: operations["deleteGroup"];
         options?: never;
@@ -1197,7 +1205,7 @@ export interface paths {
          * Ingest samples in InfluxDB Line Protocol
          * @description Ingests one or more samples expressed in InfluxDB Line Protocol. The measurement name selects the time-series type, tags select the series, and fields carry the values.
          *
-         *     The body may be gzip-compressed by sending Content-Encoding: gzip. A fully accepted request answers 204 with no body; a request whose samples could not all be applied answers 400 with the counts of what was written and dropped, so a client can tell a total rejection from a partial one.
+         *     The body may be gzip-compressed by sending Content-Encoding: gzip, in which case it is bounded twice: by arcadedb.server.httpBodyContentMaxSize on the wire, and by arcadedb.server.httpBodyContentDecompressedMaxSize once decoded. A body that decodes past the second answers 413 naming that setting and the ceiling. A fully accepted request answers 204 with no body; a request whose samples could not all be applied answers 400 with the counts of what was written and dropped, so a client can tell a total rejection from a partial one.
          *
          *     An ingest is NOT atomic, with this request or with any transaction around it. Each measurement's batch commits its own storage transaction as it is appended, so a failure part-way leaves the measurements before it durable - which is what those counts report - and a rollback of the transaction named by 'arcadedb-session-id' does not take the appended samples back. Retry the dropped measurements rather than the whole body: the samples already written stay written. The same applies to INSERT INTO a TIMESERIES type through /api/v1/command/{database}.
          */
@@ -1633,11 +1641,20 @@ export interface components {
                 /** @description One line naming the condition, for a dashboard row */
                 title: string;
             }[];
+            /** @description The databases this node is installing from the leader's first-formation bootstrap snapshot. Present on every answer. While an install replaces a copy this node already holds, '/api/v1/ready' answers 503: that copy is the one the cluster's committed baseline decided against. Not a resync, so 'localResync' does not reflect it; the 'bootstrap-install-in-progress' alert does. */
+            bootstrapInstalls: {
+                /** @description How many databases are being installed, before the authorization filter below */
+                count: number;
+                /** @description The databases being installed, reduced to the ones the caller is authorized on */
+                databases: string[];
+                /** @description True while at least one bootstrap install is running */
+                inProgress: boolean;
+            };
             /** @description Optional wire-format sections THIS node can decode, sorted (issue #7219) */
             capabilities: string[];
             /** @description Configured cluster name */
             clusterName: string;
-            /** @description True once the health monitor has given up restarting this node's HA layer (issue #7622). The liveness counterpart of the two above: this is what makes '/api/v1/health' answer unhealthy. */
+            /** @description True once the health monitor has given up restarting this node's HA layer (issue #7622), including an escalation a previous run of this node recorded next to its Raft storage. The liveness counterpart of the two above: an escalation raised in this process makes '/api/v1/health' answer unhealthy, once, so the process is restarted a single time; an inherited one does not (issue #7736). */
             crashLoopEscalated: boolean;
             /** @description Why this node's replication state machine halted, or null while it is applying entries. Present on every answer. A non-null value means this node's databases are frozen at 'index' and will not advance again in this process: restart it. */
             criticalHalt: {
@@ -1675,6 +1692,8 @@ export interface components {
             isLeader: boolean;
             /** @description Last election as epoch milliseconds */
             lastElectionTime: number;
+            /** @description The commit index this follower's leader last reported, learned by the health monitor over a follower-to-leader call every arcadedb.ha.healthCheckInterval. -1 on the leader and on a follower that has not learned one yet */
+            leaderCommitIndex: number;
             /** @description Leader HTTP address, null when unknown */
             leaderHttpAddress: string | null;
             /** @description Current leader, null when unknown */
@@ -1701,7 +1720,7 @@ export interface components {
                 divergenceCauses: {
                     [key: string]: "WAL_VERSION_GAP" | "UNDECODABLE_LOG_ENTRY" | "APPLY_ERROR" | "SNAPSHOT_INSTALL_INCOMPLETE";
                 };
-                /** @description True while a resync is holding this node out of the ready set. NOT the whole answer '/api/v1/ready' gives: a node halted by a critical error or wedged by a log-write failure has this false and answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872). */
+                /** @description True while a resync is holding this node out of the ready set. NOT the whole answer '/api/v1/ready' gives: a node halted by a critical error or wedged by a log-write failure has this false and answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872), and 'bootstrapInstalls' (issue #8044). */
                 inProgress: boolean;
                 /** @description Raft index the last installed snapshot brought this node to */
                 snapshotAppliedFloor: number;
@@ -1710,6 +1729,10 @@ export interface components {
                 /** @description A snapshot install is waiting to start */
                 snapshotDownloadQueued: boolean;
             };
+            /** @description True when this follower is more than arcadedb.ha.replicationLagWarning entries behind 'leaderCommitIndex' and has applied nothing and received no log entry for the grace the leader uses to report a replica STALLED. It does not count toward quorum while this is true, even though 'localReplicationLag' can read 0. See the 'follower-stalled-behind-leader' alert for the operator-facing explanation */
+            localStalledBehindLeader: boolean;
+            /** @description True when this node recognizes a leader at a newer term but keeps rejecting its current-term entries although it has applied everything it could locally commit. It does not count toward quorum while this is true, even though 'localReplicationLag' reads 0. See the 'follower-stuck-at-stale-term' alert for the operator-facing explanation */
+            localStuckAtStaleTerm: boolean;
             /** @description Known peers */
             peers: {
                 /** @description Peer address */
@@ -2327,10 +2350,10 @@ export interface components {
             error?: {
                 /** @description Last applied Raft index, present on a replicated database. On a failed load it bookmarks the chunks that were committed before the failure */
                 commitIndex?: number;
-                /** @description HTTP status the buffered encoding would have used: 400, 408 or 500 */
+                /** @description Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key. */
+                exceptionArgs?: string;
+                /** @description HTTP status the buffered encoding would have used for the same failure - 400 or 408 for a malformed or truncated body, and for an engine failure raised after the stream started the status the standard error mapping gives it: 409 for a duplicated key, 503 for a retryable conflict, 413 for a body past arcadedb.server.httpBodyContentMaxSize, 403, 404, 500 (issue #7396). */
                 status?: number;
-                /** @description Present and false when 'status' is the unclassified 500 fallback rather than the status the buffered encoding would have chosen - the case of an engine failure raised after the stream had already started. Key on 'exception' there, not on 'status'. Absent whenever 'status' is exact. */
-                statusMapped?: boolean;
             };
             /** @description A chunk acknowledgement, written while the request body is still being read. Emitted at every vertex commit and every 'commitEvery' edges. The counters are records ATTEMPTED, the same upper bound on what is durable that the partial-commit counters carry: vertices are committed at each flush, while edges are buffered and written when the load ends. */
             progress?: {
@@ -2905,11 +2928,16 @@ export interface components {
         VerifyDatabaseResponse: components["schemas"]["VerifyDatabaseLocalResponse"] | components["schemas"]["VerifyDatabaseClusterResponse"];
     };
     responses: never;
-    parameters: never;
+    parameters: {
+        /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+        RequestIdParam: string;
+    };
     requestBodies: never;
     headers: {
         /** @description Correlates this response with a server log line. Echoes the caller's own 'X-Request-Id' request header when present; otherwise the server generates one. Set unconditionally on every response. */
         RequestIdHeader: string;
+        /** @description Seconds to wait before retrying the request with the same 'X-Request-Id'. */
+        RetryAfterHeader: string;
     };
     pathItems: never;
 }
@@ -2918,7 +2946,10 @@ export interface operations {
     activateAi: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -2969,6 +3000,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error, including a failure to reach the gateway */
             500: {
                 headers: {
@@ -3004,7 +3046,10 @@ export interface operations {
     analyzeProfilerWithAi: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3048,6 +3093,17 @@ export interface operations {
             /** @description Forbidden */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -3100,7 +3156,10 @@ export interface operations {
     chatWithAi: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3161,6 +3220,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -3206,7 +3276,10 @@ export interface operations {
     streamChatWithAi: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -3267,6 +3340,17 @@ export interface operations {
             /** @description Chat not found */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -3821,6 +3905,8 @@ export interface operations {
             header?: {
                 /** @description Normally omitted: 'beginTransaction' opens a new transaction and returns its own session id. Supplying a session id here that still resolves to an open transaction does not start a nested transaction; it makes the call fail with 409 instead. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -3872,9 +3958,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description A transaction is already open on this session */
+            /** @description A transaction is already open on this session. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -3961,7 +4048,10 @@ export interface operations {
     resolveClusterAuthSession: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4030,6 +4120,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -4045,7 +4146,10 @@ export interface operations {
     getClusterBootstrapState: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4091,6 +4195,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -4106,7 +4221,10 @@ export interface operations {
     getClusterPeerCapabilities: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4152,6 +4270,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -4167,7 +4296,10 @@ export interface operations {
     transferClusterLeadership: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4218,9 +4350,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4246,7 +4379,10 @@ export interface operations {
                 /** @description Bypasses the quorum guard and leaves even when it would break quorum. */
                 force?: boolean;
             };
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4292,9 +4428,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4317,7 +4454,10 @@ export interface operations {
     addClusterPeer: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4361,6 +4501,17 @@ export interface operations {
             /** @description Forbidden */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4470,7 +4621,10 @@ export interface operations {
     resyncClusterDatabase: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -4519,6 +4673,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -4544,7 +4709,10 @@ export interface operations {
     seedClusterSecurityDocuments: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4595,9 +4763,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description This node is not the Raft leader; the answer names the one it believes leads */
+            /** @description This node is not the Raft leader; the answer names the one it believes leads. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4630,7 +4799,10 @@ export interface operations {
     stepDownClusterLeader: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -4676,9 +4848,10 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Conflict */
+            /** @description Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -4701,7 +4874,10 @@ export interface operations {
     verifyClusterDatabase: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path: {
                 /** @description Database name */
                 database: string;
@@ -4760,6 +4936,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -4780,6 +4967,8 @@ export interface operations {
                 "arcadedb-session-id"?: string;
                 /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
                 Accept?: "application/json" | "application/x-ndjson";
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -4800,6 +4989,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4813,6 +5004,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4839,12 +5032,25 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the command */
             413: {
                 headers: {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4857,6 +5063,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -4871,6 +5079,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction', identifying the transaction to end. Omitting it, or presenting an id that no longer resolves to an open transaction, is an idempotent no-op: the call still answers 204, but commits or rolls back nothing. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -4913,6 +5123,17 @@ export interface operations {
             /** @description Database not found */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -5121,6 +5342,9 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @description Files listed in the database directory that were gone by the time this answer tried to read them, so it does not cover them. Absent when the answer is complete. */
+                        "/unreadableFiles"?: string[];
+                    } & {
                         [key: string]: number;
                     };
                 };
@@ -5204,12 +5428,50 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description The server is in a crash loop the HA layer has given up recovering from automatically in this process; one process restart is requested. A restarted process that still crash-loops answers 204 again and stays out of the Service for the operator */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    checkHealthHead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server process and HTTP layer are up */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is in a crash loop the HA layer has given up recovering from automatically in this process; one process restart is requested. A restarted process that still crash-loops answers 204 again and stays out of the Service for the operator */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     login: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5245,6 +5507,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -5270,7 +5543,10 @@ export interface operations {
     logout: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5294,6 +5570,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -5309,7 +5596,10 @@ export interface operations {
     invokeMcp: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5366,6 +5656,17 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JsonRpcMessage"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Internal server error */
@@ -5454,7 +5755,10 @@ export interface operations {
     updateMcpConfig: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5508,6 +5812,17 @@ export interface operations {
             /** @description Method not allowed */
             405: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -5599,6 +5914,8 @@ export interface operations {
                 "arcadedb-session-id"?: string;
                 /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
                 Accept?: "application/json" | "application/x-ndjson";
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -5619,6 +5936,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5632,6 +5951,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5658,12 +5979,25 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description The result exceeds 'arcadedb.server.httpQueryMaxResultRows': narrow or page the query */
             413: {
                 headers: {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5676,6 +6010,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5713,6 +6049,8 @@ export interface operations {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     /** @description Present only when the request named a session id this server could not resolve (committed, rolled back, expired, or owned by another principal). It carries that id reduced to the characters a session id is made of - anything else becomes '?', and an overlong one is truncated - and says this answer was produced OUTSIDE the transaction the caller named rather than inside it. The call is not refused, which is what keeps a read-after-commit and an idempotent retry working; the gRPC TimeSeriesQuery and TimeSeriesLatest RPCs refuse the same case with FAILED_PRECONDITION, following their own protocol's convention. */
                     "arcadedb-session-expired"?: string;
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5726,6 +6064,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5758,6 +6098,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5770,6 +6112,8 @@ export interface operations {
                     /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
                     "X-ArcadeDB-Commit-Index"?: string;
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -5805,12 +6149,41 @@ export interface operations {
             };
         };
     };
+    checkReadyHead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Server is ready to accept requests */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Server is not ready: it has not finished starting, has not yet joined the Raft group, or has not caught up on replication */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     rollbackTransaction: {
         parameters: {
             query?: never;
             header?: {
                 /** @description Session id returned by 'beginTransaction', identifying the transaction to end. Omitting it, or presenting an id that no longer resolves to an open transaction, is an idempotent no-op: the call still answers 204, but commits or rolls back nothing. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -5853,6 +6226,17 @@ export interface operations {
             /** @description Database not found */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -5919,7 +6303,10 @@ export interface operations {
     executeServerCommand: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -5963,6 +6350,17 @@ export interface operations {
             /** @description Database not found, or the session id header names a transaction that no longer resolves ("Remote transaction session not found or expired") */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -6076,7 +6474,10 @@ export interface operations {
     createApiToken: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6127,7 +6528,18 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server */
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server. On an HA cluster the leader applies the same check to the hop a follower forwarded the mint over */
             412: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6139,6 +6551,16 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -6203,6 +6625,16 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -6277,7 +6709,10 @@ export interface operations {
     createOrUpdateGroup: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6328,8 +6763,29 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -6396,6 +6852,16 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
+            504: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -6549,7 +7015,10 @@ export interface operations {
     createUser: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -6593,6 +7062,17 @@ export interface operations {
             /** @description Forbidden - root user required */
             403: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -6915,6 +7395,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -6976,6 +7458,17 @@ export interface operations {
             /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };
@@ -7524,6 +8017,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -7592,6 +8087,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The Snappy body decodes past arcadedb.server.httpBodyContentDecompressedMaxSize */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -7610,6 +8126,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -7674,6 +8192,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The Snappy body decodes past arcadedb.server.httpBodyContentDecompressedMaxSize */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -7692,6 +8231,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -7760,6 +8301,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description The rows or buckets exceed 'arcadedb.server.httpQueryMaxResultRows': narrow the range, widen 'bucketInterval', or page the query */
             413: {
                 headers: {
@@ -7795,6 +8347,8 @@ export interface operations {
                  *     It does NOT put the samples in that transaction. They are committed as they are appended and are readable by everyone before you commit anything; rolling the transaction back does not remove them. Omit it to run outside any transaction: for the samples themselves that is the same thing.
                  */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -7859,6 +8413,27 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The gzip body decodes past arcadedb.server.httpBodyContentDecompressedMaxSize */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -7877,6 +8452,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -7945,6 +8522,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -7963,6 +8551,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -8031,6 +8621,17 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -8049,6 +8650,8 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it to run this call inside that transaction: the call then runs under the session's lock and principal and refreshes its idle timer. Omit it to run outside any transaction. */
                 "arcadedb-session-id"?: string;
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
             };
             path: {
                 /** @description Database name */
@@ -8110,6 +8713,17 @@ export interface operations {
             /** @description Database not found. A session id that no longer resolves is NOT an error here: the read degrades to running outside the transaction and still answers 200, reporting the degrade in the arcadedb-session-expired response header. */
             404: {
                 headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
                 };

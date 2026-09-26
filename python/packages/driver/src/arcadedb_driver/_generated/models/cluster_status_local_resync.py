@@ -29,7 +29,8 @@ class ClusterStatusLocalResync:
                 keyed by database name. Same keys as 'divergedDatabases'
             in_progress (bool): True while a resync is holding this node out of the ready set. NOT the whole answer
                 '/api/v1/ready' gives: a node halted by a critical error or wedged by a log-write failure has this false and
-                answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872).
+                answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872), and
+                'bootstrapInstalls' (issue #8044).
             snapshot_applied_floor (int): Raft index the last installed snapshot brought this node to
             snapshot_download_in_progress (bool): A snapshot is being installed now
             snapshot_download_queued (bool): A snapshot install is waiting to start

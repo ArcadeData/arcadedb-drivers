@@ -13,7 +13,11 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     *,
     force: bool | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     params: dict[str, Any] = {}
 
@@ -27,6 +31,7 @@ def _get_kwargs(
         "params": params,
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -84,6 +89,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     force: bool | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Leave the cluster
 
@@ -93,6 +99,7 @@ def sync_detailed(
 
     Args:
         force (bool | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -104,6 +111,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         force=force,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -117,6 +125,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     force: bool | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Leave the cluster
 
@@ -126,6 +135,7 @@ def sync(
 
     Args:
         force (bool | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -138,6 +148,7 @@ def sync(
     return sync_detailed(
         client=client,
         force=force,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -145,6 +156,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     force: bool | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Leave the cluster
 
@@ -154,6 +166,7 @@ async def asyncio_detailed(
 
     Args:
         force (bool | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -165,6 +178,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         force=force,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -176,6 +190,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     force: bool | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Leave the cluster
 
@@ -185,6 +200,7 @@ async def asyncio(
 
     Args:
         force (bool | Unset):
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -198,5 +214,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             force=force,
+            x_request_id=x_request_id,
         )
     ).parsed

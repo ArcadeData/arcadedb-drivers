@@ -232,19 +232,25 @@ describe("ArcadeDBDatabase.batchLoadStream", () => {
     expect(cancelled()).toBe(true);
   });
 
-  it("records that status is an unclassified fallback when statusMapped is false (D6)", async () => {
-    // The contract says: key on `exception` here, not on `status`, because 500 is
-    // the fallback rather than the status the buffered encoding would have chosen.
+  it("carries the in-band error's exact status, exception and exceptionArgs (D6)", async () => {
     const fetchMock = vi.fn(async () =>
       ndjsonResponse([
-        JSON.stringify({ error: { error: "engine failure", status: 500, statusMapped: false, exception: "java.lang.IllegalStateException" } }),
+        JSON.stringify({
+          error: {
+            error: "duplicated key",
+            status: 409,
+            exception: "com.arcadedb.exception.DuplicatedKeyException",
+            exceptionArgs: "Person[name]|[Ada]|#1:0",
+          },
+        }),
       ]),
     );
     const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
 
     await expect(collect(server.db("mydb").batchLoadStream(ROWS))).rejects.toMatchObject({
-      status: 500,
-      exception: "java.lang.IllegalStateException",
+      status: 409,
+      exception: "com.arcadedb.exception.DuplicatedKeyException",
+      exceptionArgs: "Person[name]|[Ada]|#1:0",
     });
   });
 });

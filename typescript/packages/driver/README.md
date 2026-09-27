@@ -247,7 +247,7 @@ buffered load never sends it; but the generator does declare the field where it 
 `NdJsonBatchEvent["summary"]`, the streaming path's own type, alongside `commitIndex` and
 `idMappingSize`. `BatchSummary` is a plain alias for `BatchResponse` and carries no widening.
 `NdJsonBatchEvent`'s error object is the one genuine gap: it declares only `commitIndex`, `status`
-and `statusMapped`, not the `error` message and `exception` the server actually sends with them,
+and `exceptionArgs`, not the `error` message and `exception` the server actually sends with them,
 so `NdJsonBatchEvent` is widened here by exactly those two fields. That widening was established
 against a live 26.10.1-SNAPSHOT server, is reported upstream as
 [ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570), and should be
@@ -265,10 +265,10 @@ between them, and it is not something a caller can branch on usefully. Every eve
 stays delivered - and per the non-atomicity paragraph above, those progress counters are the best
 record you will get of what may already be durable.
 
-One field on that error event is worth branching on. When `statusMapped` is `false`, `status` is
-an unclassified 500 fallback rather than the status the buffered encoding would have chosen (an
-engine failure raised after the stream had already started). Key on `exception` there, not on
-`status`; the thrown `ArcadeDBError` carries `exception` and its `detail` says why.
+The in-band `status` is exact, not a fallback: an engine failure raised after the stream had
+already started carries the status the standard error mapping gives it - 409 for a duplicated
+key, 503 for a retryable conflict - so branching on `status` works the same on both channels. The
+thrown `ArcadeDBError` also carries `exception` and, when the failure has any, `exceptionArgs`.
 
 ### This is `batchLoad`, not `bulkInsert`
 

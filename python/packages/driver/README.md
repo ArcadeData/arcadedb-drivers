@@ -262,12 +262,13 @@ checking the total against `idMappingSize`, since a mapping delivered in pieces 
 truncated response without any single piece looking wrong - or calls `batch_load` and accepts the
 memory cost, which is a good trade right up until the map stops fitting.
 
-When a streamed `error` event's `statusMapped` is `False`, its `status` is an unclassified 500
-fallback rather than the status the buffered encoding would have chosen - an engine failure raised
-after the stream had already started. Key on `exception` there, not on `status`; the raised
-`ArcadeDBError` carries `exception` and its `detail` says why. `error` and `exception` are two
-more fields the server sends that no schema declares (the contract's streamed error object
-declares only `commitIndex`, `status` and `statusMapped`), read off the raw event here and
+A streamed `error` event's `status` is exact, not a fallback: an engine failure raised after the
+stream had already started carries the status the standard error mapping gives it - 409 for a
+duplicated key, 503 for a retryable conflict - so branching on `status` works the same on both
+channels. The raised `ArcadeDBError` also carries `exception` and, when the failure has any,
+`exception_args`. `error` and `exception` are two more fields the server sends that no schema
+declares (the contract's streamed error object declares only `commitIndex`, `status` and
+`exceptionArgs`), read off the raw event here and
 reported upstream on the same issue as `idMappingStreamed`,
 [ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570).
 

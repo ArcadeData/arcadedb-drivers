@@ -34,7 +34,7 @@ Two things about the contract's declared shapes are worth knowing before reading
   exists to avoid (D5; see `test_batch_load_stream_does_not_merge_id_mapping_fragments` in
   `test_batch.py`).
 - **An in-band error's `error`/`exception` fields.** This one is a genuine gap: the contract's
-  `NdJsonBatchEvent.error` object declares only `commitIndex`, `status` and `statusMapped` in
+  `NdJsonBatchEvent.error` object declares only `commitIndex`, `status` and `exceptionArgs` in
   every schema that describes it, but the server also sends `error` (the message) and `exception`
   - the same two fields the BUFFERED encoding's `BatchError` declares. `@arcadedb/driver`'s
   `facade/batch.ts` widens its generated type for exactly this field pair, and still does.
@@ -47,9 +47,10 @@ line cannot do that - the 200 status line is already on the wire and cannot be t
 failure arrives in band instead, carrying the status the buffered encoding would have used.
 `_raise_on_error_event` raises `ArcadeDBError` for both channels, so a caller's `for` loop fails
 the same way regardless of which one produced the failure; only the moment of failure differs, and
-that is not something a caller can act on. `statusMapped: false` marks `status` as an
-unclassified 500 fallback rather than the status the buffered encoding would have chosen - the
-contract says to key on `exception` in that case, so the raised error's `detail` says so. Any
+that is not something a caller can act on. `status` is exact on both channels: an engine failure
+raised after the stream started carries the status the standard error mapping gives it (409 for a
+duplicated key, 503 for a retryable conflict, ...), not a 500 fallback, and `exceptionArgs` rides
+along when the failure has any. Any
 event already yielded before the error stays delivered to the caller; the exception is raised from
 the iterator at the point the `error` event arrives, not before.
 
@@ -145,18 +146,15 @@ def _params(options: BatchOptions | None) -> dict[str, Any] | None:
 
 def _raise_on_error_event(event: dict[str, Any]) -> dict[str, Any]:
     """Raises `ArcadeDBError` for an in-band `error` event instead of returning it - see the
-    module docstring's "D6" section for why this is the same failure as a non-2xx response, and
-    why `statusMapped: false` means the raised error's `detail` should point at `exception`
-    instead of trusting `status`."""
+    module docstring's "D6" section for why this is the same failure as a non-2xx response."""
     error = event.get("error")
     if error is None:
         return event
     status = error.get("status")
     body: dict[str, Any] = {"error": error.get("error") or "the batch load reported an error"}
-    if error.get("exception") is not None:
-        body["exception"] = error["exception"]
-    if error.get("statusMapped") is False:
-        body["detail"] = "status is an unclassified fallback; key on exception"
+    for key in ("exception", "exceptionArgs"):
+        if error.get(key) is not None:
+            body[key] = error[key]
     raise ArcadeDBError(status if status is not None else 500, body)
 
 

@@ -10,7 +10,7 @@ type RawClient = Client<paths>;
  * The contract's `NdJsonBatchEvent.error` object, widened by one field the schema does not
  * declare.
  *
- * The generated `error` object carries only `commitIndex`, `status` and `statusMapped` - but the
+ * The generated `error` object carries only `commitIndex`, `status` and `exceptionArgs` - but the
  * server sends `error` (the message) and `exception` on it too, the same fields the BUFFERED
  * encoding declares on `BatchError`. Established against a live 26.10.1-SNAPSHOT server and
  * reported upstream as ArcadeData/arcadedb#7570. Unlike `idMappingStreamed` - which the contract
@@ -107,18 +107,18 @@ export async function batchLoad(client: RawClient, database: string, args: Batch
  * identically whichever channel the failure used; when the failure happened is the only
  * difference between them, and it is not something a caller can act on.
  *
- * `statusMapped: false` means `status` is an unclassified 500 fallback rather than the status the
- * buffered encoding would have chosen - the contract says to key on `exception` there, so the
- * thrown error carries it and `detail` records why.
+ * `status` is exact on both channels: an engine failure raised after the stream started carries
+ * the status the standard error mapping gives it (409 for a duplicated key, 503 for a retryable
+ * conflict, ...), not a 500 fallback. `exceptionArgs` rides along when the failure has any.
  */
 async function* raiseOnErrorEvent(events: AsyncGenerator<NdJsonBatchEvent>): AsyncGenerator<NdJsonBatchEvent> {
   for await (const event of events) {
     if (event.error !== undefined) {
-      const { status, statusMapped, error: message, exception } = event.error;
+      const { status, error: message, exception, exceptionArgs } = event.error;
       throw new ArcadeDBError(status ?? 500, {
         error: message ?? "the batch load reported an error",
         exception,
-        detail: statusMapped === false ? "status is an unclassified fallback; key on exception" : undefined,
+        exceptionArgs,
       });
     }
     yield event;

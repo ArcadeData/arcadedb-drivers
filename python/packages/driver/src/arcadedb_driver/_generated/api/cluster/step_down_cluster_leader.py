@@ -7,16 +7,23 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.cluster_action_response import ClusterActionResponse
 from ...models.error_response import ErrorResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    x_request_id: str | Unset = UNSET,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/api/v1/cluster/stepdown",
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -73,6 +80,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Step down from leadership
 
@@ -80,6 +88,9 @@ def sync_detailed(
     the leader - it has nothing to step down from, and the request must be reissued against the leader
     the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
     every server, but answers only where high availability is configured.
+
+    Args:
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -89,7 +100,9 @@ def sync_detailed(
         Response[ClusterActionResponse | ErrorResponse]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        x_request_id=x_request_id,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -101,6 +114,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Step down from leadership
 
@@ -108,6 +122,9 @@ def sync(
     the leader - it has nothing to step down from, and the request must be reissued against the leader
     the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
     every server, but answers only where high availability is configured.
+
+    Args:
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -119,12 +136,14 @@ def sync(
 
     return sync_detailed(
         client=client,
+        x_request_id=x_request_id,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Step down from leadership
 
@@ -132,6 +151,9 @@ async def asyncio_detailed(
     the leader - it has nothing to step down from, and the request must be reissued against the leader
     the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
     every server, but answers only where high availability is configured.
+
+    Args:
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -141,7 +163,9 @@ async def asyncio_detailed(
         Response[ClusterActionResponse | ErrorResponse]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        x_request_id=x_request_id,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -151,6 +175,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Step down from leadership
 
@@ -158,6 +183,9 @@ async def asyncio(
     the leader - it has nothing to step down from, and the request must be reissued against the leader
     the response names rather than acted on remotely.Requires RaftHAPlugin: the route is registered on
     every server, but answers only where high availability is configured.
+
+    Args:
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -170,5 +198,6 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
+            x_request_id=x_request_id,
         )
     ).parsed

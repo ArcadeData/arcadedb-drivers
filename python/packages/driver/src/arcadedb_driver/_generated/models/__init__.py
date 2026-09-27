@@ -41,6 +41,7 @@ from .cluster_status import ClusterStatus
 from .cluster_status_alerts_item import ClusterStatusAlertsItem
 from .cluster_status_alerts_item_details import ClusterStatusAlertsItemDetails
 from .cluster_status_alerts_item_severity import ClusterStatusAlertsItemSeverity
+from .cluster_status_bootstrap_installs import ClusterStatusBootstrapInstalls
 from .cluster_status_critical_halt_type_0 import ClusterStatusCriticalHaltType0
 from .cluster_status_database_presence import ClusterStatusDatabasePresence
 from .cluster_status_databases_item import ClusterStatusDatabasesItem
@@ -270,6 +271,7 @@ __all__ = (
     "ClusterStatusAlertsItem",
     "ClusterStatusAlertsItemDetails",
     "ClusterStatusAlertsItemSeverity",
+    "ClusterStatusBootstrapInstalls",
     "ClusterStatusCriticalHaltType0",
     "ClusterStatusDatabasePresence",
     "ClusterStatusDatabasesItem",

@@ -7,16 +7,23 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
 from ...models.login_response import LoginResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    x_request_id: str | Unset = UNSET,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/api/v1/login",
     }
 
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -37,6 +44,11 @@ def _parse_response(
         response_403 = ErrorResponse.from_dict(response.json())
 
         return response_403
+
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
 
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
@@ -68,6 +80,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | LoginResponse]:
     """Create an authentication session
 
@@ -80,6 +93,9 @@ def sync_detailed(
     that reaches 'arcadedb.server.httpAuthSessionMaxPerUser' instead has its own oldest session evicted
     and still receives a token.
 
+    Args:
+        x_request_id (str | Unset):
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -88,7 +104,9 @@ def sync_detailed(
         Response[ErrorResponse | LoginResponse]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        x_request_id=x_request_id,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -100,6 +118,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | LoginResponse | None:
     """Create an authentication session
 
@@ -112,6 +131,9 @@ def sync(
     that reaches 'arcadedb.server.httpAuthSessionMaxPerUser' instead has its own oldest session evicted
     and still receives a token.
 
+    Args:
+        x_request_id (str | Unset):
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -122,12 +144,14 @@ def sync(
 
     return sync_detailed(
         client=client,
+        x_request_id=x_request_id,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | LoginResponse]:
     """Create an authentication session
 
@@ -140,6 +164,9 @@ async def asyncio_detailed(
     that reaches 'arcadedb.server.httpAuthSessionMaxPerUser' instead has its own oldest session evicted
     and still receives a token.
 
+    Args:
+        x_request_id (str | Unset):
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -148,7 +175,9 @@ async def asyncio_detailed(
         Response[ErrorResponse | LoginResponse]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        x_request_id=x_request_id,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -158,6 +187,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
+    x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | LoginResponse | None:
     """Create an authentication session
 
@@ -169,6 +199,9 @@ async def asyncio(
     'arcadedb.server.httpAuthSessionMax' concurrent sessions and none could be reclaimed; a principal
     that reaches 'arcadedb.server.httpAuthSessionMaxPerUser' instead has its own oldest session evicted
     and still receives a token.
+
+    Args:
+        x_request_id (str | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -181,5 +214,6 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
+            x_request_id=x_request_id,
         )
     ).parsed

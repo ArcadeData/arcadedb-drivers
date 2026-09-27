@@ -8,14 +8,17 @@ from ...client import AuthenticatedClient, Client
 from ...models.error_response import ErrorResponse
 from ...models.mcp_config import McpConfig
 from ...models.mcp_config_update import McpConfigUpdate
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     body: McpConfigUpdate,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -58,6 +61,11 @@ def _parse_response(
 
         return response_405
 
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 500:
         response_500 = ErrorResponse.from_dict(response.json())
 
@@ -84,6 +92,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: McpConfigUpdate,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | McpConfig]:
     """Update the MCP server configuration
 
@@ -95,6 +104,7 @@ def sync_detailed(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
+        x_request_id (str | Unset):
         body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
             change; an omitted one keeps its current value, so nothing here is required. The update is
             all-or-nothing: every field is parsed and validated before the first one is assigned.
@@ -109,6 +119,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -122,6 +133,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: McpConfigUpdate,
+    x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | McpConfig | None:
     """Update the MCP server configuration
 
@@ -133,6 +145,7 @@ def sync(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
+        x_request_id (str | Unset):
         body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
             change; an omitted one keeps its current value, so nothing here is required. The update is
             all-or-nothing: every field is parsed and validated before the first one is assigned.
@@ -148,6 +161,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -155,6 +169,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: McpConfigUpdate,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | McpConfig]:
     """Update the MCP server configuration
 
@@ -166,6 +181,7 @@ async def asyncio_detailed(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
+        x_request_id (str | Unset):
         body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
             change; an omitted one keeps its current value, so nothing here is required. The update is
             all-or-nothing: every field is parsed and validated before the first one is assigned.
@@ -180,6 +196,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -191,6 +208,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: McpConfigUpdate,
+    x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | McpConfig | None:
     """Update the MCP server configuration
 
@@ -202,6 +220,7 @@ async def asyncio(
     every standard distribution, absent from a custom build that excludes the MCP module.
 
     Args:
+        x_request_id (str | Unset):
         body (McpConfigUpdate): A partial MCP server configuration. Send only the fields to
             change; an omitted one keeps its current value, so nothing here is required. The update is
             all-or-nothing: every field is parsed and validated before the first one is assigned.
@@ -218,5 +237,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_request_id=x_request_id,
         )
     ).parsed

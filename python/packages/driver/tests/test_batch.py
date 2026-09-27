@@ -243,19 +243,17 @@ def test_events_before_an_in_band_error_are_yielded_first() -> None:
 
 
 @respx.mock
-def test_status_mapped_false_is_recorded_on_the_error() -> None:
-    # The contract says to key on `exception` when statusMapped is false, because 500 is an
-    # unclassified fallback rather than the status the buffered encoding would have chosen.
+def test_in_band_error_carries_status_exception_and_exception_args() -> None:
     respx.post(f"{BASE_URL}/api/v1/batch/mydb").mock(
         return_value=httpx.Response(
             200,
             content=_lines(
                 {
                     "error": {
-                        "error": "engine failure",
-                        "status": 500,
-                        "statusMapped": False,
-                        "exception": "java.lang.IllegalStateException",
+                        "error": "duplicated key",
+                        "status": 409,
+                        "exception": "com.arcadedb.exception.DuplicatedKeyException",
+                        "exceptionArgs": "Person[name]|[Ada]|#1:0",
                     }
                 }
             ),
@@ -264,8 +262,9 @@ def test_status_mapped_false_is_recorded_on_the_error() -> None:
     with server() as srv, pytest.raises(ArcadeDBError) as caught:
         list(srv.db("mydb").batch_load_stream(**ROWS))
 
-    assert caught.value.status == 500
-    assert caught.value.exception == "java.lang.IllegalStateException"
+    assert caught.value.status == 409
+    assert caught.value.exception == "com.arcadedb.exception.DuplicatedKeyException"
+    assert caught.value.exception_args == "Person[name]|[Ada]|#1:0"
 
 
 @respx.mock
@@ -463,17 +462,17 @@ async def test_async_events_before_an_in_band_error_are_yielded_first() -> None:
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_async_status_mapped_false_is_recorded_on_the_error() -> None:
+async def test_async_in_band_error_carries_status_exception_and_exception_args() -> None:
     respx.post(f"{BASE_URL}/api/v1/batch/mydb").mock(
         return_value=httpx.Response(
             200,
             content=_lines(
                 {
                     "error": {
-                        "error": "engine failure",
-                        "status": 500,
-                        "statusMapped": False,
-                        "exception": "java.lang.IllegalStateException",
+                        "error": "duplicated key",
+                        "status": 409,
+                        "exception": "com.arcadedb.exception.DuplicatedKeyException",
+                        "exceptionArgs": "Person[name]|[Ada]|#1:0",
                     }
                 }
             ),
@@ -484,8 +483,9 @@ async def test_async_status_mapped_false_is_recorded_on_the_error() -> None:
             async for _ in srv.db("mydb").batch_load_stream(**ROWS):
                 pass
 
-    assert caught.value.status == 500
-    assert caught.value.exception == "java.lang.IllegalStateException"
+    assert caught.value.status == 409
+    assert caught.value.exception == "com.arcadedb.exception.DuplicatedKeyException"
+    assert caught.value.exception_args == "Person[name]|[Ada]|#1:0"
 
 
 @respx.mock

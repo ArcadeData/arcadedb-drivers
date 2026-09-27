@@ -19,33 +19,35 @@ class NdJsonBatchEventError:
         Attributes:
             commit_index (int | Unset): Last applied Raft index, present on a replicated database. On a failed load it
                 bookmarks the chunks that were committed before the failure
-            status (int | Unset): HTTP status the buffered encoding would have used: 400, 408 or 500
-            status_mapped (bool | Unset): Present and false when 'status' is the unclassified 500 fallback rather than the
-                status the buffered encoding would have chosen - the case of an engine failure raised after the stream had
-                already started. Key on 'exception' there, not on 'status'. Absent whenever 'status' is exact.
+            exception_args (str | Unset): Structured arguments of the failure, as the buffered error body carries them:
+                present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.
+            status (int | Unset): HTTP status the buffered encoding would have used for the same failure - 400 or 408 for a
+                malformed or truncated body, and for an engine failure raised after the stream started the status the standard
+                error mapping gives it: 409 for a duplicated key, 503 for a retryable conflict, 413 for a body past
+                arcadedb.server.httpBodyContentMaxSize, 403, 404, 500 (issue #7396).
     """
 
     commit_index: int | Unset = UNSET
+    exception_args: str | Unset = UNSET
     status: int | Unset = UNSET
-    status_mapped: bool | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         commit_index = self.commit_index
 
-        status = self.status
+        exception_args = self.exception_args
 
-        status_mapped = self.status_mapped
+        status = self.status
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update({})
         if commit_index is not UNSET:
             field_dict["commitIndex"] = commit_index
+        if exception_args is not UNSET:
+            field_dict["exceptionArgs"] = exception_args
         if status is not UNSET:
             field_dict["status"] = status
-        if status_mapped is not UNSET:
-            field_dict["statusMapped"] = status_mapped
 
         return field_dict
 
@@ -54,14 +56,14 @@ class NdJsonBatchEventError:
         d = dict(src_dict)
         commit_index = d.pop("commitIndex", UNSET)
 
-        status = d.pop("status", UNSET)
+        exception_args = d.pop("exceptionArgs", UNSET)
 
-        status_mapped = d.pop("statusMapped", UNSET)
+        status = d.pop("status", UNSET)
 
         nd_json_batch_event_error = cls(
             commit_index=commit_index,
+            exception_args=exception_args,
             status=status,
-            status_mapped=status_mapped,
         )
 
         nd_json_batch_event_error.additional_properties = d

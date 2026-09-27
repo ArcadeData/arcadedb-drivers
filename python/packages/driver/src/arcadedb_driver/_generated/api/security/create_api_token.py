@@ -8,14 +8,17 @@ from ...client import AuthenticatedClient, Client
 from ...models.create_api_token_request import CreateApiTokenRequest
 from ...models.create_api_token_response import CreateApiTokenResponse
 from ...models.error_response import ErrorResponse
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     body: CreateApiTokenRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -53,6 +56,11 @@ def _parse_response(
 
         return response_403
 
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 412:
         response_412 = ErrorResponse.from_dict(response.json())
 
@@ -62,6 +70,11 @@ def _parse_response(
         response_500 = ErrorResponse.from_dict(response.json())
 
         return response_500
+
+    if response.status_code == 504:
+        response_504 = ErrorResponse.from_dict(response.json())
+
+        return response_504
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)
@@ -84,12 +97,16 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApiTokenRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[CreateApiTokenResponse | ErrorResponse]:
     """Create API token
 
-     Creates a new API token (root only). The plaintext token is returned only once in the response.
+     Creates a new API token (root only). The plaintext token is returned only once in the response. On
+    an HA cluster a follower checks the transport of the client connection, then forwards the request to
+    the leader.
 
     Args:
+        x_request_id (str | Unset):
         body (CreateApiTokenRequest): A token to issue
 
     Raises:
@@ -102,6 +119,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -115,12 +133,16 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApiTokenRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> CreateApiTokenResponse | ErrorResponse | None:
     """Create API token
 
-     Creates a new API token (root only). The plaintext token is returned only once in the response.
+     Creates a new API token (root only). The plaintext token is returned only once in the response. On
+    an HA cluster a follower checks the transport of the client connection, then forwards the request to
+    the leader.
 
     Args:
+        x_request_id (str | Unset):
         body (CreateApiTokenRequest): A token to issue
 
     Raises:
@@ -134,6 +156,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -141,12 +164,16 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApiTokenRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[CreateApiTokenResponse | ErrorResponse]:
     """Create API token
 
-     Creates a new API token (root only). The plaintext token is returned only once in the response.
+     Creates a new API token (root only). The plaintext token is returned only once in the response. On
+    an HA cluster a follower checks the transport of the client connection, then forwards the request to
+    the leader.
 
     Args:
+        x_request_id (str | Unset):
         body (CreateApiTokenRequest): A token to issue
 
     Raises:
@@ -159,6 +186,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -170,12 +198,16 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: CreateApiTokenRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> CreateApiTokenResponse | ErrorResponse | None:
     """Create API token
 
-     Creates a new API token (root only). The plaintext token is returned only once in the response.
+     Creates a new API token (root only). The plaintext token is returned only once in the response. On
+    an HA cluster a follower checks the transport of the client connection, then forwards the request to
+    the leader.
 
     Args:
+        x_request_id (str | Unset):
         body (CreateApiTokenRequest): A token to issue
 
     Raises:
@@ -190,5 +222,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_request_id=x_request_id,
         )
     ).parsed

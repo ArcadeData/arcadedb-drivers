@@ -5500,6 +5500,8 @@ export const ListSessionsResponseSchema: GenMessage<ListSessionsResponse> = /*@_
 /**
  * Liveness, the equivalent of GET /api/v1/health. Unauthenticated: reaching the handler is the
  * whole answer, and a probe that needs credentials is not usable as a container liveness probe.
+ * ok is false when the HA layer has escalated a crash loop in this process, so the orchestrator restarts
+ * it once; a restarted process that inherits the escalation answers true and stays out of readiness.
  *
  * @generated from message com.arcadedb.grpc.HealthRequest
  */

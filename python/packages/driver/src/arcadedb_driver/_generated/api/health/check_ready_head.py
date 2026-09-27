@@ -11,8 +11,8 @@ from ...types import Response
 def _get_kwargs() -> dict[str, Any]:
 
     _kwargs: dict[str, Any] = {
-        "method": "get",
-        "url": "/api/v1/health",
+        "method": "head",
+        "url": "/api/v1/ready",
     }
 
     return _kwargs
@@ -44,10 +44,10 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any]:
-    """Check server liveness
+    """Check server readiness (no body)
 
-     Liveness probe: returns 204 when the server process and HTTP layer are up. Performs no database I/O
-    and requires no authentication.
+     Identical to GET /ready but without a response body, for probes (e.g. 'wget --spider') that use
+    HEAD.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -70,10 +70,10 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[Any]:
-    """Check server liveness
+    """Check server readiness (no body)
 
-     Liveness probe: returns 204 when the server process and HTTP layer are up. Performs no database I/O
-    and requires no authentication.
+     Identical to GET /ready but without a response body, for probes (e.g. 'wget --spider') that use
+    HEAD.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

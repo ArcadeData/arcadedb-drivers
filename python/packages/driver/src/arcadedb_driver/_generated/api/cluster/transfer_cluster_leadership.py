@@ -8,14 +8,17 @@ from ...client import AuthenticatedClient, Client
 from ...models.cluster_action_response import ClusterActionResponse
 from ...models.error_response import ErrorResponse
 from ...models.transfer_leader_request import TransferLeaderRequest
-from ...types import Response
+from ...types import UNSET, Response, Unset
 
 
 def _get_kwargs(
     *,
     body: TransferLeaderRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -84,6 +87,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: TransferLeaderRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Transfer leadership
 
@@ -94,6 +98,7 @@ def sync_detailed(
     is registered on every server, but answers only where high availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.
             Unknown fields are rejected.
 
@@ -107,6 +112,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -120,6 +126,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: TransferLeaderRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Transfer leadership
 
@@ -130,6 +137,7 @@ def sync(
     is registered on every server, but answers only where high availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.
             Unknown fields are rejected.
 
@@ -144,6 +152,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -151,6 +160,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: TransferLeaderRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ClusterActionResponse | ErrorResponse]:
     """Transfer leadership
 
@@ -161,6 +171,7 @@ async def asyncio_detailed(
     is registered on every server, but answers only where high availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.
             Unknown fields are rejected.
 
@@ -174,6 +185,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -185,6 +197,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: TransferLeaderRequest,
+    x_request_id: str | Unset = UNSET,
 ) -> ClusterActionResponse | ErrorResponse | None:
     """Transfer leadership
 
@@ -195,6 +208,7 @@ async def asyncio(
     is registered on every server, but answers only where high availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (TransferLeaderRequest): Transfer target. Send an empty object to let Raft choose.
             Unknown fields are rejected.
 
@@ -210,5 +224,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_request_id=x_request_id,
         )
     ).parsed

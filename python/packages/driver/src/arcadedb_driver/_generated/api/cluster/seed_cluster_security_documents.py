@@ -14,8 +14,11 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     *,
     body: SecuritySeedRequest | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_request_id, Unset):
+        headers["X-Request-Id"] = x_request_id
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -90,6 +93,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: SecuritySeedRequest | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | SecuritySeedResponse]:
     """Have the leader replicate the cluster security documents
 
@@ -113,6 +117,7 @@ def sync_detailed(
     availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (SecuritySeedRequest | Unset): What the caller wants seeded, and what it already
             holds
 
@@ -126,6 +131,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = client.get_httpx_client().request(
@@ -139,6 +145,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: SecuritySeedRequest | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | SecuritySeedResponse | None:
     """Have the leader replicate the cluster security documents
 
@@ -162,6 +169,7 @@ def sync(
     availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (SecuritySeedRequest | Unset): What the caller wants seeded, and what it already
             holds
 
@@ -176,6 +184,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_request_id=x_request_id,
     ).parsed
 
 
@@ -183,6 +192,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: SecuritySeedRequest | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | SecuritySeedResponse]:
     """Have the leader replicate the cluster security documents
 
@@ -206,6 +216,7 @@ async def asyncio_detailed(
     availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (SecuritySeedRequest | Unset): What the caller wants seeded, and what it already
             holds
 
@@ -219,6 +230,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_request_id=x_request_id,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -230,6 +242,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: SecuritySeedRequest | Unset = UNSET,
+    x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | SecuritySeedResponse | None:
     """Have the leader replicate the cluster security documents
 
@@ -253,6 +266,7 @@ async def asyncio(
     availability is configured.
 
     Args:
+        x_request_id (str | Unset):
         body (SecuritySeedRequest | Unset): What the caller wants seeded, and what it already
             holds
 
@@ -268,5 +282,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_request_id=x_request_id,
         )
     ).parsed

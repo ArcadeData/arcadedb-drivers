@@ -395,7 +395,7 @@ export interface paths {
         put?: never;
         /**
          * Re-fetch a database from the leader
-         * @description Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses to run on the leader itself. Answers 503 when no leader is currently reachable.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         * @description Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses to run on the leader itself. Answers 503 when no leader is currently reachable. The body is ignored for an operator's resync. The leader's automatic resync of a stalled replica sends its view at decision time instead (leaderTerm, observedMatchIndex, leaderCommitIndex), and the server answers 409, keeping its copy, when that view no longer holds: it is already in a later term, has applied up to the leader's commit index, or has progressed past the observed matchIndex.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
          */
         post: operations["resyncClusterDatabase"];
         delete?: never;
@@ -1737,9 +1737,9 @@ export interface components {
             peers: {
                 /** @description Peer address */
                 address: string;
-                /** @description Optional wire-format sections this peer can decode, as last observed by the leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'. */
+                /** @description Optional wire-format sections this peer can decode, as last observed by the answering node (issue #7219). Every node polls its peers since issue #7549, so a follower answers for every peer too. Absent for a peer the answering node has no fresh answer from: an absent array means 'not known', which the leader treats exactly like 'cannot decode'. */
                 capabilities?: string[];
-                /** @description Why 'capabilities' is absent for this peer, when the leader knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the capability route or was never asked because its address identifies no single peer, and the two have nothing alike as remedies (issue #7256). Written by the leader only. */
+                /** @description Why 'capabilities' is absent for this peer, when the answering node knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the capability route or was never asked because its address identifies no single peer, and the two have nothing alike as remedies (issue #7256). Written by any node since issue #7549; absent while the answering node has not finished its first probe round. */
                 capabilitiesUnknownReason?: string;
                 /** @description Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved. */
                 httpAddress?: string;
@@ -1767,7 +1767,7 @@ export interface components {
                 replicationRttP99Ms?: number;
                 /** @description LEADER or FOLLOWER */
                 role: string;
-                /** @description Server version this peer reported alongside its capabilities. Absent when the leader has no fresh answer from it. */
+                /** @description Server version this peer reported alongside its capabilities. Absent when the answering node has no fresh answer from it. */
                 version?: string;
             }[];
             /** @description The persistent Raft log-write failure wedging this node, or null while the log writer is healthy. Present on every answer. A non-null value means Ratis is rejecting every append, so the node can neither catch up nor become caught up; the usual cause is a full Raft storage volume, and it clears by itself once the health monitor restarts the writer in place. */
@@ -4673,7 +4673,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            /** @description Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
                     "Retry-After": components["headers"]["RetryAfterHeader"];
@@ -4965,7 +4965,7 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it on every call that must run inside that transaction, and on the commit or rollback that ends it. Omit it to run outside a transaction. */
                 "arcadedb-session-id"?: string;
-                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
+                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Read the stream as it arrives: a response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' closes the connection, and the stream ends without its stats trailer. Anything else - including an absent header - returns the buffered application/json body unchanged. */
                 Accept?: "application/json" | "application/x-ndjson";
                 /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
                 "X-Request-Id"?: components["parameters"]["RequestIdParam"];
@@ -5912,7 +5912,7 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it on every call that must run inside that transaction, and on the commit or rollback that ends it. Omit it to run outside a transaction. */
                 "arcadedb-session-id"?: string;
-                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
+                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Read the stream as it arrives: a response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' closes the connection, and the stream ends without its stats trailer. Anything else - including an absent header - returns the buffered application/json body unchanged. */
                 Accept?: "application/json" | "application/x-ndjson";
                 /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
                 "X-Request-Id"?: components["parameters"]["RequestIdParam"];
@@ -6026,7 +6026,7 @@ export interface operations {
             header?: {
                 /** @description Session id returned by 'beginTransaction'. Present it on every call that must run inside that transaction, and on the commit or rollback that ends it. Omit it to run outside a transaction. */
                 "arcadedb-session-id"?: string;
-                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged. */
+                /** @description Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Read the stream as it arrives: a response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' closes the connection, and the stream ends without its stats trailer. Anything else - including an absent header - returns the buffered application/json body unchanged. */
                 Accept?: "application/json" | "application/x-ndjson";
             };
             path: {

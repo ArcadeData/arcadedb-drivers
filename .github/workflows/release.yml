@@ -10,7 +10,7 @@ run-name: Release v${{ inputs.version }}${{ inputs.dry-run && ' (dry run)' || ''
 # (the same scripts/release/verify-*.sh the publish workflows run, so the two cannot diverge),
 # then pushes an annotated tag `v<version>` on the verified commit and creates a DRAFT GitHub
 # release on it with generated notes. It writes nothing to any registry, ever. `dry-run: true`
-# stops after the dry runs: no tag, no draft.
+# stops after the dry runs: no tag, no draft - and, since it tags nothing, may run on any ref.
 #
 # Phase 2 - publish (`release: published`). Publishing the draft IS the human approval for the
 # irreversible step: a registry publish cannot be undone, so nothing reaches npm or PyPI until a
@@ -48,6 +48,16 @@ on:
 permissions:
   contents: read
 
+# Two runs for the same version never overlap: a second dispatch for a version queues behind the
+# first, as does a second phase 2 run for the same release. (Phase 1 keys on `0.2.0` and phase 2 on
+# the tag `v0.2.0`, so the two phases do not share a group; they need not, because phase 2 can only
+# start once phase 1 has finished and a human has published its draft.)
+concurrency:
+  group: release-${{ inputs.version || github.event.release.tag_name }}
+  # Never cancel: the run being cancelled may be mid-publish, and a registry publish cut off
+  # halfway is worse than a queued run.
+  cancel-in-progress: false
+
 jobs:
   prepare-verify:
     name: Verify the release
@@ -66,12 +76,15 @@ jobs:
       # A release is cut from `main` and nowhere else: the tag lands on the commit this run
       # verified, and a tag on a feature branch's commit would publish code `main` never had.
       # Refused with a failing step rather than a job-level `if`, which would skip silently and
-      # leave a green run that did nothing.
-      - name: Refuse unless dispatched on main
+      # leave a green run that did nothing. A dry run tags nothing, so it may run on any ref -
+      # that is how a branch is checked for releasability before it merges (spec section 11).
+      - name: Refuse a real release unless dispatched on main
         env:
           REF: ${{ github.ref }}
         run: |
-          if [ "$REF" != "refs/heads/main" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "dry-run on $REF: the main-only rule applies to real releases only."
+          elif [ "$REF" != "refs/heads/main" ]; then
             echo "::error::release.yml must be dispatched on main, not $REF."
             exit 1
           fi
@@ -173,7 +186,9 @@ jobs:
   prepare-tag-and-draft:
     name: Tag and draft the release
     needs: prepare-dry-run
-    if: github.event_name == 'workflow_dispatch' && !inputs.dry-run
+    # The ref guard repeats prepare-verify's: dry-run is what lets a run off main get this far, and
+    # this job must stay impossible off main even if that relationship ever changes.
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry-run && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # The only phase 1 job that writes: it pushes the tag and creates the draft. Both live in this
     # one job so the write grant is not widened to a second.

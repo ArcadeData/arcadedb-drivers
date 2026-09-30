@@ -40,7 +40,8 @@ make_fixture() {
            "$root/typescript/packages/driver-grpc/src/gen" \
            "$root/typescript/packages/driver-grpc/test" \
            "$root/typescript/packages/driver" \
-           "$root/python/packages/driver"
+           "$root/python/packages/driver" \
+           "$root/go/arcadedb/generated"
   cp "$SCRIPTS_DIR/resolve-openapi-contract.sh" "$SCRIPTS_DIR/resolve-proto-contract.sh" \
      "$SCRIPTS_DIR/adopt-contract-version.sh" "$SCRIPTS_DIR/fetch-contract.sh" "$root/scripts/"
   mkdir -p "$root/fake-arcadedb/grpc/src/main/proto"
@@ -89,6 +90,14 @@ MD
   cat > "$root/python/packages/driver/src_index.py" <<PY
 # The contract this client is generated from is ${version}, in prose.
 PY
+  cat > "$root/go/arcadedb/version.go" <<GO
+package arcadedb
+
+const Version = "0.1.0"
+const ServerVersion = "${version}"
+GO
+  printf '// Code generated. Contract %s.\npackage generated\n' "$version" \
+    > "$root/go/arcadedb/generated/client.gen.go"
   echo "$root"
 }
 
@@ -280,6 +289,49 @@ echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.pro
 printf '[tool.arcadedb]\n' > "$FIX/python/packages/driver/pyproject.toml"
 "$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1; rc=$?
 check "$rc" "1" "refuses a pyproject.toml with no server-version key"
+rm -rf "$FIX"
+
+echo "adopt-contract-version.sh - Go"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1; rc=$?
+check "$rc" "0" "adopts a new version with a Go module present"
+
+GOVER="$FIX/go/arcadedb/version.go"
+if grep -qx 'const ServerVersion = "26.10.1-SNAPSHOT"' "$GOVER"; then
+  ok "rewrites ServerVersion in go/arcadedb/version.go"
+else
+  bad "rewrites ServerVersion in go/arcadedb/version.go (got: $(grep ServerVersion "$GOVER"))"
+fi
+if grep -qx 'const Version = "0.1.0"' "$GOVER"; then
+  ok "leaves Version in go/arcadedb/version.go untouched"
+else
+  bad "leaves Version in go/arcadedb/version.go untouched (got: $(grep '^const Version' "$GOVER"))"
+fi
+if grep -q '26.9.1-SNAPSHOT' "$FIX/go/arcadedb/generated/client.gen.go"; then
+  ok "leaves go/arcadedb/generated untouched"
+else
+  bad "leaves go/arcadedb/generated untouched (the old version literal was rewritten)"
+fi
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+printf 'package arcadedb\n\nconst ServerVersion = "26.9.1-SNAPSHOT"\nconst ServerVersion = "26.9.1-SNAPSHOT"\n' \
+  > "$FIX/go/arcadedb/version.go"
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses a version.go carrying two ServerVersion consts"
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+printf 'package arcadedb\n\nconst Version = "0.1.0"\n' > "$FIX/go/arcadedb/version.go"
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses a version.go with no ServerVersion const"
 rm -rf "$FIX"
 
 echo "adopt-contract-version.sh - version-rewrite guard (issue #44)"

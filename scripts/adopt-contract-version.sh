@@ -123,6 +123,10 @@ LANGUAGES = {
             "docs",
         },
     },
+    "go": {
+        "suffixes": (".go", ".md"),
+        "skip_dirs": {"generated", ".git", "docs"},
+    },
 }
 
 
@@ -302,6 +306,24 @@ for pyproject in sorted((root / "python").glob("packages/*/pyproject.toml")):
     if updated != original:
         pyproject.write_text(updated)
         changed.append(pyproject.relative_to(root))
+
+# go/<module>/version.go carries ServerVersion as real data, as its own top-level
+# `const` line (never inside a const block, so this anchor holds). Same shape as
+# the pyproject pass above: a targeted substitution that asserts exactly one match
+# per file. The generic pass may already have rewritten this line by literal; the
+# dedicated pass is what catches a duplicated or missing const. It must never
+# touch `const Version`, which is the package version, not the server version.
+GO_SERVER_VERSION = re.compile(r'^(const ServerVersion = ")[^"]*(")', re.MULTILINE)
+
+for version_go in sorted((root / "go").glob("*/version.go")):
+    original = version_go.read_text()
+    updated, count = GO_SERVER_VERSION.subn(rf"\g<1>{version}\g<2>", original)
+    if count != 1:
+        raise SystemExit(f"{version_go} has {count} ServerVersion consts; expected exactly one")
+    if updated != original:
+        version_go.write_text(updated)
+        if version_go.relative_to(root) not in changed:
+            changed.append(version_go.relative_to(root))
 
 if changed:
     print("  repointed:", file=sys.stderr)

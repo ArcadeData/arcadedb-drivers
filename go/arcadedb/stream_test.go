@@ -83,6 +83,20 @@ func TestStreamInBandErrorYieldedOnce(t *testing.T) {
 	}
 }
 
+// An in-band error arrives after the 200 status line, so the only correlation id the
+// caller has for it is the response's X-Request-Id; batch.go's in-band error carries it too.
+func TestStreamInBandErrorCarriesRequestID(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Request-Id", "req-7")
+		ndjsonBody("{\"error\":{\"message\":\"m\"}}\n")(w, r)
+	})
+	_, err := drain(t, srv)
+	var ae *ArcadeDBError
+	if !errors.As(err, &ae) || ae.RequestID != "req-7" {
+		t.Fatalf("err = %#v, want RequestID req-7", err)
+	}
+}
+
 func TestStreamInBandErrorWithoutMessage(t *testing.T) {
 	srv := fakeServer(t, ndjsonBody("{\"error\":{}}\n"))
 	_, err := drain(t, srv)

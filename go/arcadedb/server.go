@@ -2,7 +2,6 @@ package arcadedb
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
@@ -127,14 +126,7 @@ func (s *Server) ServerInfo(ctx context.Context) (*generated.ServerInfo, error) 
 	if err := checkResponse(resp.HTTPResponse, resp.Body); err != nil {
 		return nil, err
 	}
-	info, err := decodeBody(resp.JSON200, resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if info == nil {
-		return nil, errors.New("arcadedb: server info response had an empty body")
-	}
-	return info, nil
+	return nonEmpty(decodeBody(resp.JSON200, resp.Body))
 }
 
 // Health succeeds only on 204, the server's healthy answer; any other status, 200

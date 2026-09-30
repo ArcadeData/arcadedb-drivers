@@ -105,7 +105,7 @@ func (d *Database) BatchLoad(ctx context.Context, vertices iter.Seq[VertexRow], 
 	if err != nil {
 		return nil, up.fail(err)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if !isSuccess(resp.StatusCode) {
 		return nil, up.fail(errorFromResponse(resp))
 	}
 	body, err := io.ReadAll(resp.Body)
@@ -164,7 +164,7 @@ func (d *Database) BatchLoadStream(ctx context.Context, vertices iter.Seq[Vertex
 			yield(nil, up.fail(err))
 			return
 		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if !isSuccess(resp.StatusCode) {
 			yield(nil, up.fail(errorFromResponse(resp)))
 			return
 		}

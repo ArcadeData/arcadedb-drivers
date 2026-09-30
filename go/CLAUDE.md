@@ -137,8 +137,10 @@ A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion`
   only when the status is exactly 200 and the `Content-Type` contains `json`. Every facade method
   falls back to `decodeBody` (`errors.go`) when `JSON200` is nil, so a JSON body behind a proxy that
   rewrites the type, or a 203, is not lost. An empty or `null` body means `[]` for `ListDatabases`,
-  `false` for `Exists`, and an error for anything that returns a pointer - never `(nil, nil)`,
-  which would read as a successful empty answer.
+  `false` for `Exists`, and the one exported sentinel `ErrEmptyBody` for anything that returns a
+  pointer or a map - never `(nil, nil)`, which would read as a successful empty answer. The shared
+  helpers (`isSuccess`, `nonEmpty`, `readChecked`, `decodeMap`, `decodeBody`) all live in
+  `errors.go`; do not grow a per-file sentinel again.
 - **Transactions are a callback, not a handle.** `db.Transaction(ctx, fn)` begins, calls `fn` with
   a SECOND `*Database` carrying the session id, and commits or rolls back. Go has no `with` or
   try-with-resources, so a `Begin()`-returning handle depends on every caller remembering `defer
@@ -165,7 +167,7 @@ A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion`
   `iter.Seq2[StreamEvent, error]`; each `StreamEvent` has exactly one of `Record` or `Stats` set.
   An event of an unknown kind, and `"record": null`, are **skipped**, where the Python driver yields
   an empty event. An in-band `{"error": ...}` event is yielded once as an `*ArcadeDBError` with
-  status 200 and ends the iteration. A stats trailer with no `limit` reads as `-1`. A non-EOF read
+  status 200 and the response's `X-Request-Id`, and ends the iteration. A stats trailer with no `limit` reads as `-1`. A non-EOF read
   error drops the partial line rather than decoding it, so a cancelled context surfaces as an error
   `errors.Is(err, context.Canceled)` matches, not as a bogus decode error. There is no line-length
   limit (`bufio.Scanner` would fail past 64 KiB).

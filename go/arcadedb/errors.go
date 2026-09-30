@@ -3,10 +3,18 @@ package arcadedb
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 )
+
+// ErrEmptyBody is returned when the server answered 2xx with an empty or null body where
+// the method needs a JSON document to return: ServerInfo, the Vector, PromQL, TS and
+// Grafana methods. Returning (nil, nil) instead would read as a successful empty answer.
+// Match it with errors.Is. Methods for which an empty body has a meaning (ListDatabases,
+// Exists) never return it.
+var ErrEmptyBody = errors.New("arcadedb: response had an empty body")
 
 // requestIDHeader is set by the server on every response, generating a value when the
 // client sent none, so it is a usable correlation id unconditionally.
@@ -76,6 +84,10 @@ func newError(status int, body []byte, requestID string) *ArcadeDBError {
 	}
 }
 
+// isSuccess reports whether status is 2xx: the one definition of success every facade
+// method shares, buffered (checkResponse) and streamed (streams, BatchLoad) alike.
+func isSuccess(status int) bool { return status >= 200 && status < 300 }
+
 // errorFromResponse reads and closes resp.Body. A read failure is treated as an empty
 // body: the status is still worth reporting.
 func errorFromResponse(resp *http.Response) *ArcadeDBError {
@@ -90,7 +102,7 @@ func errorFromResponse(resp *http.Response) *ArcadeDBError {
 // checkResponse returns nil for any 2xx status, otherwise an *ArcadeDBError built from
 // body. It returns a plain nil error on success, never a typed-nil *ArcadeDBError.
 func checkResponse(resp *http.Response, body []byte) error {
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+	if isSuccess(resp.StatusCode) {
 		return nil
 	}
 	return newError(resp.StatusCode, body, resp.Header.Get(requestIDHeader))
@@ -112,4 +124,48 @@ func decodeBody[T any](typed *T, body []byte) (*T, error) {
 		return nil, fmt.Errorf("arcadedb: decode response: %w", err)
 	}
 	return out, nil
+}
+
+// nonEmpty turns a nil decoded body into ErrEmptyBody: a call that succeeded with no body
+// has no answer to give, and (nil, nil) would read as an empty one.
+func nonEmpty[T any](r *T, err error) (*T, error) {
+	if err != nil {
+		return nil, err
+	}
+	if r == nil {
+		return nil, ErrEmptyBody
+	}
+	return r, nil
+}
+
+// readChecked reads and closes resp.Body and returns it, or the *ArcadeDBError for a
+// non-2xx status. It is for the plain (non-WithResponse) client methods, whose body the
+// caller still has to read.
+func readChecked(resp *http.Response) ([]byte, error) {
+	var body []byte
+	if resp.Body != nil {
+		body, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}
+	if err := checkResponse(resp, body); err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+// decodeMap turns a plain-client response into the JSON object it carries. An empty or
+// null 2xx body is ErrEmptyBody, never (nil, nil): the caller expected an object.
+func decodeMap(resp *http.Response, err error) (map[string]any, error) {
+	if err != nil {
+		return nil, err
+	}
+	body, err := readChecked(resp)
+	if err != nil {
+		return nil, err
+	}
+	m, err := nonEmpty(decodeBody[map[string]any](nil, body))
+	if err != nil {
+		return nil, err
+	}
+	return *m, nil
 }

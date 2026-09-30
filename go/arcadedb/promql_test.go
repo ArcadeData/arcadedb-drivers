@@ -2,7 +2,9 @@ package arcadedb
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
@@ -88,7 +90,25 @@ func TestPromQLErrorAndEmptyBody(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	empty := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	if _, err := empty.DB("d").PromQL().Labels(context.Background()); err == nil {
-		t.Fatal("empty 2xx body must be an error")
+	for name, call := range map[string]func() error{
+		"Query": func() error {
+			_, err := empty.DB("d").PromQL().Query(context.Background(), generated.PromQLQueryParams{Query: "up"})
+			return err
+		},
+		"QueryRange": func() error {
+			_, err := empty.DB("d").PromQL().QueryRange(context.Background(), generated.PromQLQueryRangeParams{Query: "up"})
+			return err
+		},
+		"Labels": func() error { _, err := empty.DB("d").PromQL().Labels(context.Background()); return err },
+		"Series": func() error {
+			_, err := empty.DB("d").PromQL().Series(context.Background(), generated.PromQLSeriesParams{})
+			return err
+		},
+	} {
+		// One sentinel for every empty 2xx body; PromQL once reported it as a "search
+		// response", borrowing vector.go's.
+		if err := call(); !errors.Is(err, ErrEmptyBody) || strings.Contains(err.Error(), "search") {
+			t.Fatalf("%s: err = %v, want ErrEmptyBody", name, err)
+		}
 	}
 }

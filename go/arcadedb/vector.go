@@ -2,7 +2,6 @@ package arcadedb
 
 import (
 	"context"
-	"errors"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
 )
@@ -42,8 +41,6 @@ type Vector struct {
 
 // Vector returns the vector namespace. It performs no request.
 func (d *Database) Vector() *Vector { return &Vector{db: d} }
-
-var errEmptySearchBody = errors.New("arcadedb: search response had an empty body")
 
 // Search runs a kNN search over a dense (LSM_VECTOR) or sparse (LSM_SPARSE_VECTOR) index.
 // Dense hits carry Distance (lower is better); sparse hits carry Score (higher is
@@ -91,16 +88,4 @@ func (v *Vector) Fulltext(ctx context.Context, req generated.FullTextSearchReque
 		return nil, err
 	}
 	return nonEmpty(decodeBody(resp.JSON200, resp.Body))
-}
-
-// nonEmpty turns a nil decoded body into an error: a search that succeeded with no body
-// has no answer to give, and (nil, nil) would read as "no results".
-func nonEmpty[T any](r *T, err error) (*T, error) {
-	if err != nil {
-		return nil, err
-	}
-	if r == nil {
-		return nil, errEmptySearchBody
-	}
-	return r, nil
 }

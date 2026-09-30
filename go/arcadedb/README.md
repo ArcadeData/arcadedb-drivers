@@ -158,7 +158,8 @@ a partial answer.
 
 A failure after the 200 status line has been sent cannot be reported as an HTTP status, so the
 server sends it in band, as an `{"error": ...}` line. This client yields it as the loop's `err`, an
-`*ArcadeDBError` with `Status` 200, exactly once, and the iteration then stops. Rows yielded before
+`*ArcadeDBError` with `Status` 200 and the response's `X-Request-Id` as `RequestID`, exactly once,
+and the iteration then stops. Rows yielded before
 it stay delivered. Events of a kind this client does not know are skipped, so a newer server can
 add kinds without breaking it.
 
@@ -346,6 +347,11 @@ so an absent or non-JSON body yields an error with just the status. `RequestID` 
 `Error`, because Go forbids a field and a method with one name; `Help` has no underscore, unlike the
 Python driver's `help_`. An `*ArcadeDBError` is not always a non-2xx status: an in-band stream
 error and an unrepresentable graph-serializer result both carry `Status` 200.
+
+A 2xx answer with an empty or `null` body, where a method needs a document to return
+(`ServerInfo`, the `Vector()`, `PromQL()`, `TS()` and `Grafana()` methods), is `ErrEmptyBody`,
+matched with `errors.Is`, never a `nil` result with a `nil` error that would read as a successful
+empty answer. `ListDatabases` and `Exists`, for which an empty body has a meaning, never return it.
 
 `srv.Raw()`, the generated `*generated.ClientWithResponses`, does **not** return an error for a
 non-2xx status. You inspect the response yourself:

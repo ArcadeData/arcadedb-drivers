@@ -165,7 +165,7 @@ func TestListDatabasesDecodesTextPlain(t *testing.T) {
 
 func TestServerInfoEmptyBodyIsError(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {})
-	if info, err := srv.ServerInfo(context.Background()); err == nil || info != nil {
+	if info, err := srv.ServerInfo(context.Background()); !errors.Is(err, ErrEmptyBody) || info != nil {
 		t.Fatal(info, err)
 	}
 }

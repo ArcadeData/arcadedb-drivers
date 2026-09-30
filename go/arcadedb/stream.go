@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"iter"
 	"net/http"
 
@@ -40,12 +39,11 @@ const defaultStreamError = "the stream reported an error"
 // transport or decode error. Events of an unknown kind are ignored, so a newer server can
 // add kinds without breaking this client. A non-2xx status is an *ArcadeDBError.
 func (d *Database) QueryStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...QueryOption) iter.Seq2[StreamEvent, error] {
-	return d.stream(func() (io.ReadCloser, error) {
+	return d.stream(func() (*http.Response, error) {
 		accept := generated.ExecuteQueryPostParamsAcceptApplicationxNdjson
-		resp, err := d.srv.raw.ExecuteQueryPost(ctx, d.name,
+		return d.srv.raw.ExecuteQueryPost(ctx, d.name,
 			&generated.ExecuteQueryPostParams{ArcadedbSessionId: d.sessionParam(), Accept: &accept},
 			buildQueryRequest(lang, command, params, opts...))
-		return unpackStream(resp, err)
 	})
 }
 
@@ -54,40 +52,40 @@ func (d *Database) QueryStream(ctx context.Context, lang QueryLanguage, command 
 // data does not fit the row-per-line shape. Use Command for those. The trailer and error
 // rules are QueryStream's.
 func (d *Database) CommandStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any) iter.Seq2[StreamEvent, error] {
-	return d.stream(func() (io.ReadCloser, error) {
+	return d.stream(func() (*http.Response, error) {
 		accept := generated.ExecuteCommandParamsAcceptApplicationxNdjson
-		resp, err := d.srv.raw.ExecuteCommand(ctx, d.name,
+		return d.srv.raw.ExecuteCommand(ctx, d.name,
 			&generated.ExecuteCommandParams{ArcadedbSessionId: d.sessionParam(), Accept: &accept},
 			buildCommandRequest(lang, command, params))
-		return unpackStream(resp, err)
 	})
 }
 
-// unpackStream returns the body of a 2xx response, or the *ArcadeDBError for any other.
-func unpackStream(resp *http.Response, err error) (io.ReadCloser, error) {
+// unpackStream returns a 2xx response, or the *ArcadeDBError for any other.
+func unpackStream(resp *http.Response, err error) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if !isSuccess(resp.StatusCode) {
 		return nil, errorFromResponse(resp)
 	}
-	return resp.Body, nil
+	return resp, nil
 }
 
-func (d *Database) stream(open func() (io.ReadCloser, error)) iter.Seq2[StreamEvent, error] {
+func (d *Database) stream(open func() (*http.Response, error)) iter.Seq2[StreamEvent, error] {
 	return func(yield func(StreamEvent, error) bool) {
-		body, err := open()
+		resp, err := unpackStream(open())
 		if err != nil {
 			yield(StreamEvent{}, err)
 			return
 		}
-		defer body.Close()
-		for line, err := range ndjson.Lines(body) {
+		defer resp.Body.Close()
+		requestID := resp.Header.Get(requestIDHeader)
+		for line, err := range ndjson.Lines(resp.Body) {
 			if err != nil {
 				yield(StreamEvent{}, err)
 				return
 			}
-			ev, ok, err := decodeStreamLine(line)
+			ev, ok, err := decodeStreamLine(line, requestID)
 			if !ok && err == nil {
 				continue
 			}
@@ -112,8 +110,10 @@ type eventWire struct {
 	} `json:"error"`
 }
 
-// decodeStreamLine reports ok=false with a nil error for an event of an unknown kind.
-func decodeStreamLine(line []byte) (StreamEvent, bool, error) {
+// decodeStreamLine reports ok=false with a nil error for an event of an unknown kind. An
+// in-band error carries requestID, the response's X-Request-Id: it arrives after the 200
+// status line, so that header is the caller's only correlation id for it.
+func decodeStreamLine(line []byte, requestID string) (StreamEvent, bool, error) {
 	var w eventWire
 	if err := json.Unmarshal(line, &w); err != nil {
 		return StreamEvent{}, false, fmt.Errorf("arcadedb: decode stream event: %w", err)
@@ -124,7 +124,7 @@ func decodeStreamLine(line []byte) (StreamEvent, bool, error) {
 		if msg == "" {
 			msg = defaultStreamError
 		}
-		return StreamEvent{}, true, &ArcadeDBError{Status: 200, ErrorMessage: msg}
+		return StreamEvent{}, true, &ArcadeDBError{Status: 200, ErrorMessage: msg, RequestID: requestID}
 	case w.Stats != nil:
 		s := &StreamStats{Limit: -1, Returned: w.Stats.Returned, Truncated: w.Stats.Truncated}
 		if w.Stats.Limit != nil {

@@ -82,8 +82,8 @@ func TestVectorAllMethodsEmptyBodyIsError(t *testing.T) {
 	for name, call := range vectorCalls {
 		t.Run(name, func(t *testing.T) {
 			srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-			if err := call(context.Background(), srv.DB("d").Vector()); err == nil {
-				t.Fatal("empty 2xx body must be an error")
+			if err := call(context.Background(), srv.DB("d").Vector()); !errors.Is(err, ErrEmptyBody) {
+				t.Fatalf("err = %v, want ErrEmptyBody", err)
 			}
 		})
 	}
@@ -142,8 +142,8 @@ func TestVectorNon2xx(t *testing.T) {
 
 func TestVectorEmptyBodyIsError(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	if _, err := srv.DB("d").Vector().Search(context.Background(), generated.VectorSearchRequest{}); err == nil {
-		t.Fatal("empty 2xx body must be an error")
+	if _, err := srv.DB("d").Vector().Search(context.Background(), generated.VectorSearchRequest{}); !errors.Is(err, ErrEmptyBody) {
+		t.Fatalf("err = %v, want ErrEmptyBody", err)
 	}
 }
 

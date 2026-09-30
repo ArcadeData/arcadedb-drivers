@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
-	"net/http"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
 )
@@ -42,8 +39,6 @@ type TimeSeries struct {
 
 // TS returns the time-series namespace. It performs no request.
 func (d *Database) TS() *TimeSeries { return &TimeSeries{db: d} }
-
-var errEmptyJSONBody = errors.New("arcadedb: response had an empty body where a JSON object was expected")
 
 // Write ingests samples in InfluxDB Line Protocol, sent as a text/plain body. precision is
 // the unit of the timestamps in the payload: "ns", "us", "ms" or "s"; "" omits the
@@ -90,38 +85,4 @@ func (t *TimeSeries) Latest(ctx context.Context, typ, tag string) (map[string]an
 	}
 	resp, err := t.db.srv.raw.GetTimeSeriesLatest(ctx, t.db.name, params)
 	return decodeMap(resp, err)
-}
-
-// readChecked reads and closes resp.Body and returns it, or the *ArcadeDBError for a
-// non-2xx status.
-func readChecked(resp *http.Response) ([]byte, error) {
-	var body []byte
-	if resp.Body != nil {
-		body, _ = io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-	}
-	if err := checkResponse(resp, body); err != nil {
-		return nil, err
-	}
-	return body, nil
-}
-
-// decodeMap turns a plain-client response into the JSON object it carries. An empty or
-// null 2xx body is an error, never (nil, nil): the caller expected an object.
-func decodeMap(resp *http.Response, err error) (map[string]any, error) {
-	if err != nil {
-		return nil, err
-	}
-	body, err := readChecked(resp)
-	if err != nil {
-		return nil, err
-	}
-	m, err := decodeBody[map[string]any](nil, body)
-	if err != nil {
-		return nil, err
-	}
-	if m == nil {
-		return nil, errEmptyJSONBody
-	}
-	return *m, nil
 }

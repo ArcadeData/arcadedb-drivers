@@ -127,14 +127,14 @@ func TestTSLatestEmptySeriesNullLatest(t *testing.T) {
 
 func TestTSEmptyBodyIsError(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	if _, err := srv.DB("d").TS().Query(context.Background(), map[string]any{}); err == nil {
-		t.Fatal("empty 2xx body must be an error")
+	if _, err := srv.DB("d").TS().Query(context.Background(), map[string]any{}); !errors.Is(err, ErrEmptyBody) {
+		t.Fatalf("err = %v, want ErrEmptyBody", err)
 	}
-	if _, err := srv.DB("d").TS().Latest(context.Background(), "T", ""); err == nil {
-		t.Fatal("empty 2xx body must be an error")
+	if _, err := srv.DB("d").TS().Latest(context.Background(), "T", ""); !errors.Is(err, ErrEmptyBody) {
+		t.Fatalf("err = %v, want ErrEmptyBody", err)
 	}
-	if _, err := srv.DB("d").Grafana().Query(context.Background(), map[string]any{}); err == nil {
-		t.Fatal("empty 2xx body must be an error")
+	if _, err := srv.DB("d").Grafana().Query(context.Background(), map[string]any{}); !errors.Is(err, ErrEmptyBody) {
+		t.Fatalf("err = %v, want ErrEmptyBody", err)
 	}
 }
 

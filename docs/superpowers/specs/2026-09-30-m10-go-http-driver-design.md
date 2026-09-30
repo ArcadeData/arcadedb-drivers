@@ -3,8 +3,7 @@
 **Status:** design approved in conversation, spec under review, plan pending
 **Date:** 2026-09-30
 **Parent:** ArcadeData/arcadedb Epic #4894
-**Predecessors:** M1/M1b (TypeScript), M3/M3b (Python), M5 (vector), M7 (ndjson streaming), M8
-(control plane), and the unified release (`2026-09-30-unified-release-design.md`). M9 (Java,
+**Predecessors:** M1/M1b (TypeScript), M3/M3b (Python), M5 (vector), M7 (ndjson streaming), and the unified release (`2026-09-30-unified-release-design.md`). M9 (Java,
 `2026-09-16-m9-java-http-driver-design.md`) is proposed in parallel; nothing here depends on it.
 
 ## 1. Scope
@@ -12,7 +11,10 @@
 M10 ships the Go module `github.com/ArcadeData/arcadedb-drivers/go/arcadedb`: an HTTP client
 generated from the committed OpenAPI contract, with a hand-written facade at **feature parity with
 the Python HTTP driver** as of the 26.10.1 contract — data plane, transactions, M5 vector, M7
-ndjson streaming, batch load, time series / Grafana / PromQL, and the M8 control plane.
+ndjson streaming, batch load, and time series / Grafana / PromQL. Parity means the Python driver's
+*facade*: what it leaves to `.raw` — the security, cluster, auth, AI, MCP and metrics operations,
+`POST /api/v1/server`, and the two protobuf PromQL remote read/write routes — this client leaves to
+`Raw()`. M8's control plane is a gRPC facade (`raw_admin`) and arrives with M10b, not here.
 
 It also does the one-time work of teaching this repository that it hosts Go: a `go` row in
 `adopt-contract-version.sh`'s `LANGUAGES`, a Go reader in `check-licenses.py`, `ci-go.yml`, a
@@ -119,7 +121,7 @@ go/
     ├── README.md  LICENSE
     ├── version.go               # const Version, const ServerVersion
     ├── server.go  database.go  transaction.go  envelope.go  errors.go  auth.go
-    ├── vector.go  timeseries.go  dashboards.go  promql.go  batch.go  stream.go  admin.go
+    ├── vector.go  timeseries.go  dashboards.go  promql.go  batch.go  stream.go
     ├── internal/unwrap/  internal/batchrows/
     └── generated/               # NEVER hand-edited
         ├── oapi-codegen.yaml
@@ -209,7 +211,11 @@ err = db.Transaction(ctx, func(tx *arcadedb.Database) error {
     return err
 })
 
-for row, err := range db.QueryStream(ctx, arcadedb.SQL, "SELECT FROM Person", nil) { ... }
+for ev, err := range db.QueryStream(ctx, arcadedb.SQL, "SELECT FROM Person", nil) {
+    if err != nil { ... }
+    if ev.Stats != nil && ev.Stats.Truncated { ... } // the trailer, always last
+    use(ev.Record)
+}
 ```
 
 ### Context, not two facades
@@ -293,15 +299,22 @@ The contract, each clause with its own unit test:
 
 ### Streaming
 
-`db.QueryStream` and `db.CommandStream` (M7 ndjson) return `iter.Seq2[map[string]any, error]`, Go's
-range-over-func iterator. The request is issued on the first iteration, rows are decoded one line
-at a time, and leaving the loop early — `break`, `return`, or an error — closes the response body.
-A mid-stream error is yielded once as the final `err` and ends the iteration.
+`db.QueryStream` and `db.CommandStream` (M7 ndjson) return `iter.Seq2[StreamEvent, error]`, Go's
+range-over-func iterator. `StreamEvent` has exactly one of `Record map[string]any` or
+`Stats *StreamStats{Limit, Returned int; Truncated bool}` set, mirroring the Python driver's
+`NdJsonQueryEvent`. The stats trailer is always last in a complete stream, so a stream that ends
+without one was cut short. Yielding only rows would have discarded `truncated`, which is the
+silent-partial-result hazard `QueryEnvelope` exists to prevent. The request is issued on the first
+iteration and carries `Accept: application/x-ndjson`, which alone switches the server into
+streaming mode. Lines are split on `\n` only, never on other Unicode line breaks, which can appear
+raw inside JSON, and blank lines are skipped. An in-band `{"error": {...}}` line is yielded once as
+`err` (an `*ArcadeDBError` with status 200) and ends the iteration. Leaving the loop early, by
+`break`, `return` or an error, closes the response body. `CommandStream` accepts read-only
+statements only; the server answers 400 to a mutating one.
 
 ### Namespaces and `Raw`
 
-`db.Vector()`, `db.TS()`, `db.Grafana()`, `db.PromQL()` and `srv.Admin()` group the rest of the
-surface. As in the Python driver they pass generated request and response models through unaltered;
+`db.Vector()`, `db.TS()`, `db.Grafana()` and `db.PromQL()` group the rest of the surface. As in the Python driver they pass generated request and response models through unaltered;
 `QueryEnvelope` remains the only normalised type, and `db.Vector()` returning whole generated
 responses keeps `truncated`, `count` and `scoring` attached to their rows, for the reason
 `facade/vector.py` gives.
@@ -327,8 +340,8 @@ variants:
   `internal/batchrows`, a port of `_internal/batch_rows.py` with the same line format and tests.
   The streaming form writes through an `io.Pipe`, so a large load is never buffered.
 - `db.TS().Write(ctx, lines)` sends the `text/plain` line-protocol body.
-- The two PromQL remote read/write routes take and return caller-supplied protobuf bytes. The
-  driver does not depend on a protobuf library for them, the same scoping the Python driver chose.
+- The two protobuf PromQL remote read/write routes are not wrapped, as in the Python driver; they
+  stay reachable through `Raw()`'s `...WithBody` variants.
 
 **Upstream defect 1: scalars typed as `"type": "object"`** (time-series rows and bucket values,
 `latest`, Grafana frame values). oapi-codegen types them as `map[string]interface{}`, and
@@ -339,8 +352,9 @@ Their doc comments carry Python's warning: do not route them back through the ty
 contract's element types are fixed.
 
 **Upstream defect 2: `POST /api/v1/server` returns `{"result": "ok"}`** where the contract declares
-an array. `srv.Admin().Command` decodes the raw response itself, and the e2e fixture creates its
-database the same way.
+an array. No facade method wraps it, as in the Python driver. Only `Raw()` and the e2e fixture are
+affected, and the fixture creates its database by decoding the plain generated `Client`'s
+`*http.Response` itself.
 
 **Upstream defect 3: `"/unreadableFiles"`**, handled by the overlay in section 6.
 

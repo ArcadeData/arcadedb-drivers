@@ -16,6 +16,7 @@ on:
       - "python/**/pyproject.toml"
       # Not go/go.work.sum: it only carries checksums, and the resolved module set (and so
       # every license) comes from the go.mod files, which are listed.
+      - "go/go.work"
       - "go/**/go.mod"
       - "go/**/go.sum"
       # The checker and the policy are themselves gated: an edit to either must re-run
@@ -32,6 +33,7 @@ on:
       - "python/**/pyproject.toml"
       # Not go/go.work.sum: it only carries checksums, and the resolved module set (and so
       # every license) comes from the go.mod files, which are listed.
+      - "go/go.work"
       - "go/**/go.mod"
       - "go/**/go.sum"
       # The checker and the policy are themselves gated: an edit to either must re-run

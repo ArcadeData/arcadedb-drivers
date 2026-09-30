@@ -379,6 +379,45 @@ def test_go_collector_raises_on_tool_failure(monkeypatch: pytest.MonkeyPatch, tm
         cl.collect_go(tmp_path)
 
 
+def test_go_collector_keeps_every_license_of_a_module_and_resolves_package_versions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    csv_text = (
+        "github.com/google/uuid,https://x,BSD-3-Clause\n"
+        "github.com/google/uuid/sub,https://x,MIT\n"
+        "github.com/google/uuid/sub2,https://x,MIT\n"
+        "\n"
+    )
+    fake, _ = _go_fake_run(csv_text)
+    monkeypatch.setattr(cl.subprocess, "run", fake)
+    monkeypatch.setattr(cl, "_MIN_PLAUSIBLE_GO_MODULES", 1)
+
+    records = cl.collect_go(tmp_path)
+
+    assert records == [
+        cl.Record("go", "github.com/google/uuid", "v1.6.0", "BSD-3-Clause", "go-licenses"),
+        cl.Record("go", "github.com/google/uuid", "v1.6.0", "MIT", "go-licenses"),
+    ]
+
+
+def test_go_collector_raises_when_no_module_owns_a_reported_package(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake, _ = _go_fake_run("example.com/unlisted/pkg,https://x,MIT\n")
+    monkeypatch.setattr(cl.subprocess, "run", fake)
+    monkeypatch.setattr(cl, "_MIN_PLAUSIBLE_GO_MODULES", 1)
+    with pytest.raises(cl.CollectorError, match="unlisted"):
+        cl.collect_go(tmp_path)
+
+
+def test_go_collector_raises_on_a_malformed_report_row(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    fake, _ = _go_fake_run("github.com/google/uuid,BSD-3-Clause\n")
+    monkeypatch.setattr(cl.subprocess, "run", fake)
+    monkeypatch.setattr(cl, "_MIN_PLAUSIBLE_GO_MODULES", 1)
+    with pytest.raises(cl.CollectorError, match="malformed"):
+        cl.collect_go(tmp_path)
+
+
 def test_go_unknown_license_is_a_violation() -> None:
     records = [cl.Record("go", "example.com/mystery", "v1.0.0", "Unknown", "go-licenses")]
     violations, _ = cl.check(records)

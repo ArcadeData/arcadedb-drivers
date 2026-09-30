@@ -566,10 +566,10 @@ def collect_python(python_dir: Path) -> list[Record]:
     return sorted(records)
 
 
-# Measured at 78 distinct third-party modules across the three Go modules (go/arcadedb 3, go/e2e 48,
-# go/tools 35, overlapping). Half of that, for the same reason as the floors above: low enough
-# never to fire on a legitimate tree, high enough to catch a report that saw almost nothing.
-_MIN_PLAUSIBLE_GO_MODULES = 39
+# Measured at 74 distinct third-party modules (83 module+license records) across the three Go
+# modules. Half of the module count, for the same reason as the floors above: low enough never to
+# fire on a legitimate tree, high enough to catch a report that saw almost nothing.
+_MIN_PLAUSIBLE_GO_MODULES = 37
 
 _GO_OWN_MODULE_PREFIX = "github.com/ArcadeData/arcadedb-drivers/"
 
@@ -617,35 +617,55 @@ def collect_go(go_dir: Path) -> list[Record]:
     workspace, so every command runs with a module directory under go/ as its cwd.
     """
     versions = _go_module_versions(go_dir / "arcadedb")
-    signals: dict[str, str] = {}
+    # go-licenses names PACKAGES (golang.org/x/sys/unix), so each row is resolved to the module that
+    # owns it, and the Record carries the MODULE path. One module can hold packages under different
+    # licenses (klauspost/compress: MIT, Apache-2.0, BSD-3-Clause), so every distinct
+    # (module, license) pair is its own Record and each license is evaluated.
+    pairs: set[tuple[str, str]] = set()
     for module in _GO_MODULES:
         cwd = go_dir / module
-        if module == _GO_TOOL_MODULE:
+        is_tool = module == _GO_TOOL_MODULE
+        if is_tool:
             packages = _go_run(["go", "list", "tool"], cwd).split()
             if not packages:
                 raise CollectorError(f"`go list tool` named no packages in {cwd}.")
         else:
             packages = ["./..."]
-        cmd = ["go", "tool", "go-licenses", "report", *(["--include_tests"] if module != _GO_TOOL_MODULE else [])]
-        for row in csv.reader(_go_run([*cmd, *packages], cwd).splitlines()):
-            if len(row) != 3:
+        include_tests = [] if is_tool else ["--include_tests"]
+        cmd = ["go", "tool", "go-licenses", "report", *include_tests, *packages]
+        for line in _go_run(cmd, cwd).splitlines():
+            if not line.strip():
                 continue
+            row = next(csv.reader([line]))
+            if len(row) != 3:
+                raise CollectorError(f"malformed go-licenses row in {cwd} (expected 3 fields): {line!r}")
             name, _url, signal = row
             # Our own modules are the thing being licensed, not a dependency of it.
             if name.startswith(_GO_OWN_MODULE_PREFIX):
                 continue
-            signals.setdefault(name, signal)
+            pairs.add((_go_owning_module(name, versions), signal))
 
-    if len(signals) < _MIN_PLAUSIBLE_GO_MODULES:
+    found = {name for name, _ in pairs}
+    if len(found) < _MIN_PLAUSIBLE_GO_MODULES:
         raise CollectorError(
-            f"only {len(signals)} Go module(s) found under {go_dir}, fewer than the "
+            f"only {len(found)} Go module(s) found under {go_dir}, fewer than the "
             f"{_MIN_PLAUSIBLE_GO_MODULES} a real tree has - is the Go toolchain working and the module cache populated "
             f"(`go mod download` in {go_dir / 'arcadedb'})?"
         )
 
-    return [
-        Record("go", name, versions.get(name, ""), signal, "go-licenses") for name, signal in sorted(signals.items())
-    ]
+    return [Record("go", name, versions[name], signal, "go-licenses") for name, signal in sorted(pairs)]
+
+
+def _go_owning_module(package: str, versions: dict[str, str]) -> str:
+    """The longest module path that is `package` or a parent of it; fails closed when none is."""
+    owner = max(
+        (mod for mod in versions if package == mod or package.startswith(mod + "/")),
+        key=len,
+        default=None,
+    )
+    if owner is None or not versions[owner]:
+        raise CollectorError(f"go-licenses reported {package!r}, which no module in `go list -m all` owns.")
+    return owner
 
 
 # ---------------------------------------------------------------------------

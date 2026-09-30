@@ -15,7 +15,7 @@
 # and indistinguishable from it in the code until someone reads the run id.
 #
 # Consumes, from the environment: STATE, VERSION, IMAGE, VERIFY_TS, VERIFY_PY,
-# RUN_URL, TRACKING_LABEL, REFRESH_BRANCH, GH_TOKEN.
+# VERIFY_GO, RUN_URL, TRACKING_LABEL, REFRESH_BRANCH, GH_TOKEN.
 #
 # Sourceable: the pure functions below can be tested without gh or a network.
 set -euo pipefail
@@ -27,29 +27,30 @@ REPO="${GITHUB_REPOSITORY:-ArcadeData/arcadedb-drivers}"
 # just asserting that something did - "the suite fails" is not actionable, but
 # "the Python client fails" tells a reader where to start.
 verify_line() {
-  local ts="${VERIFY_TS:-}" py="${VERIFY_PY:-}"
-  if [[ "$ts" == "success" && "$py" == "success" ]]; then
-    echo "Both clients build and their full suites pass against \`${IMAGE:-}\`."
+  local ts="${VERIFY_TS:-}" py="${VERIFY_PY:-}" go="${VERIFY_GO:-}"
+  if [[ "$ts" == "success" && "$py" == "success" && "$go" == "success" ]]; then
+    echo "All clients build and their full suites pass against \`${IMAGE:-}\`."
     return
   fi
   echo "**One or more clients FAIL against \`${IMAGE:-}\`.** See the run for which stage."
   echo
   [[ "$ts" == "success" ]] && echo "- \`@arcadedb/driver\` (TypeScript): passing" || echo "- \`@arcadedb/driver\` (TypeScript): **failing**"
   [[ "$py" == "success" ]] && echo "- \`arcadedb-driver\` (Python): passing" || echo "- \`arcadedb-driver\` (Python): **failing**"
+  [[ "$go" == "success" ]] && echo "- \`github.com/ArcadeData/arcadedb-drivers/go/arcadedb\` (Go): passing" || echo "- \`github.com/ArcadeData/arcadedb-drivers/go/arcadedb\` (Go): **failing**"
 }
 
 # Everything that makes this finding what it is, and nothing that merely makes
 # this RUN what it is. Two runs a day apart that found the same thing produce the
 # same fingerprint; a run that found something different does not.
 #
-# BOTH verdicts feed the fingerprint. If only one did, TypeScript recovering
+# EVERY verdict feeds the fingerprint. If only one did, TypeScript recovering
 # while Python stayed red would produce an identical fingerprint to the run
 # before it, and report_finding would silently decline to comment on a finding
 # that genuinely changed - the exact failure the fingerprint exists to prevent,
 # in a new disguise.
 finding_fingerprint() {
-  printf '%s\n%s\n%s\n%s\n%s\n' \
-    "${STATE:-}" "${VERSION:-}" "${VERIFY_TS:-}" "${VERIFY_PY:-}" "${CHANGED_FILES:-}" \
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
+    "${STATE:-}" "${VERSION:-}" "${VERIFY_TS:-}" "${VERIFY_PY:-}" "${VERIFY_GO:-}" "${CHANGED_FILES:-}" \
     | shasum -a 256 | cut -c1-16
 }
 
@@ -203,8 +204,8 @@ MD
 }
 
 main() {
-  : "${STATE:?}" "${VERSION:?}" "${IMAGE:?}" "${VERIFY_TS:?}" "${VERIFY_PY:?}" "${RUN_URL:?}"
-  CHANGED_FILES="$(git status --porcelain -- contracts typescript python || true)"
+  : "${STATE:?}" "${VERSION:?}" "${IMAGE:?}" "${VERIFY_TS:?}" "${VERIFY_PY:?}" "${VERIFY_GO:?}" "${RUN_URL:?}"
+  CHANGED_FILES="$(git status --porcelain -- contracts typescript python go || true)"
   export CHANGED_FILES
 
   if [[ "$STATE" == "quiet" ]]; then

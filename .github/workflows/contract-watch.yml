@@ -136,6 +136,15 @@ jobs:
         working-directory: python
         run: uv sync --frozen --python 3.14
 
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27'
+          cache-dependency-path: |
+            go/arcadedb/go.sum
+            go/e2e/go.sum
+            go/tools/go.sum
+
       - name: Contract script tests
         run: ./scripts/tests/test-contract-scripts.sh
 
@@ -156,6 +165,7 @@ jobs:
           (cd typescript && npm run generate)
           (cd python && ./scripts/generate.sh)
           (cd python && ./scripts/generate-grpc.sh)
+          (cd go && ./scripts/generate.sh)
 
       - name: Detect contract change
         id: detect
@@ -164,7 +174,7 @@ jobs:
           # --porcelain, not `git diff`: a version bump renames the contract and
           # the generated module, so the new files are UNTRACKED and a diff-only
           # check would report nothing while everything had moved.
-          CHANGES="$(git status --porcelain -- contracts typescript python)"
+          CHANGES="$(git status --porcelain -- contracts typescript python go)"
           if [[ -n "$CHANGES" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             {
@@ -211,15 +221,31 @@ jobs:
           uv run pytest
           uv run pytest e2e
 
+      # Its own step for the same reason as the two above. The first run after
+      # this step landed posts one "the finding changed" comment on an open
+      # tracking issue, because VERIFY_GO joined the fingerprint; that is expected.
+      - name: Verify the Go client against the snapshot
+        id: verify_go
+        continue-on-error: true
+        env:
+          ARCADEDB_DOCKER_IMAGE: ${{ steps.version.outputs.image }}
+        run: |
+          set -euo pipefail
+          go/scripts/lint.sh
+          (cd go/arcadedb && go test ./...)
+          (cd go/arcadedb && go test -run '^TestEveryOperationIsGenerated$' -v . | grep -q -- '--- PASS: TestEveryOperationIsGenerated')
+          (cd go/e2e && go test ./...)
+
       - name: Summarise the outcome
         id: outcome
         env:
           CHANGED: ${{ steps.detect.outputs.changed }}
           VERIFY_TS: ${{ steps.verify_ts.outcome }}
           VERIFY_PY: ${{ steps.verify_py.outcome }}
+          VERIFY_GO: ${{ steps.verify_go.outcome }}
         run: |
           set -euo pipefail
-          if [[ "$CHANGED" == "false" && "$VERIFY_TS" == "success" && "$VERIFY_PY" == "success" ]]; then
+          if [[ "$CHANGED" == "false" && "$VERIFY_TS" == "success" && "$VERIFY_PY" == "success" && "$VERIFY_GO" == "success" ]]; then
             echo "state=quiet" >> "$GITHUB_OUTPUT"
           elif [[ "$CHANGED" == "false" ]]; then
             # The contract is byte-identical yet a client no longer works: the
@@ -244,6 +270,7 @@ jobs:
           IMAGE: ${{ steps.version.outputs.image }}
           VERIFY_TS: ${{ steps.verify_ts.outcome }}
           VERIFY_PY: ${{ steps.verify_py.outcome }}
+          VERIFY_GO: ${{ steps.verify_go.outcome }}
           TRACKING_LABEL: ${{ env.TRACKING_LABEL }}
           REFRESH_BRANCH: ${{ env.REFRESH_BRANCH }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

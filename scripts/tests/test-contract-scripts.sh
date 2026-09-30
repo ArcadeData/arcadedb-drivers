@@ -517,14 +517,14 @@ echo "report-contract-watch.sh (pure functions, no gh)"
 
 # Sourced, not executed: main() is guarded so these can be exercised offline.
 # shellcheck source=/dev/null
-STATE=contract-changed VERSION=26.10.1-SNAPSHOT IMAGE=img VERIFY_TS=success VERIFY_PY=success RUN_URL=x \
+STATE=contract-changed VERSION=26.10.1-SNAPSHOT IMAGE=img VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success RUN_URL=x \
   source "$SCRIPTS_DIR/report-contract-watch.sh"
 
 # THE defect this replaced: the body embeds the run URL, which is unique per run,
 # so comparing rendered bodies is never equal and posts a "the finding changed"
 # comment every single day while the code claims to be quiet. The fingerprint
 # must ignore the run and track only the finding.
-STATE=contract-changed VERSION=26.10.1-SNAPSHOT VERIFY_TS=success VERIFY_PY=success CHANGED_FILES=" M a"
+STATE=contract-changed VERSION=26.10.1-SNAPSHOT VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success CHANGED_FILES=" M a"
 RUN_URL="https://example.invalid/runs/1"; a="$(finding_fingerprint)"
 RUN_URL="https://example.invalid/runs/2"; b="$(finding_fingerprint)"
 check "$a" "$b" "fingerprint ignores the run URL, so an unchanged finding stays unchanged"
@@ -545,6 +545,17 @@ VERIFY_TS=success
 VERIFY_PY=failure; e="$(finding_fingerprint)"
 if [[ "$e" != "$a" ]]; then ok "fingerprint moves when the Python verdict flips alone"; else bad "fingerprint moves when the Python verdict flips alone"; fi
 VERIFY_PY=success
+
+VERIFY_GO=failure; g="$(finding_fingerprint)"
+if [[ "$g" != "$a" ]]; then ok "fingerprint moves when the Go verdict flips alone"; else bad "fingerprint moves when the Go verdict flips alone"; fi
+VERIFY_GO=success
+
+# verify_line names the Go client when it is the only one failing.
+IMAGE=img; VERIFY_GO=failure; vl="$(verify_line)"; VERIFY_GO=success
+case "$vl" in
+  *'`github.com/ArcadeData/arcadedb-drivers/go/arcadedb` (Go): **failing**'*) ok "verify_line names the Go client when it fails" ;;
+  *) bad "verify_line names the Go client when it fails (got: $vl)" ;;
+esac
 
 # The round trip that decides whether a comment is posted.
 IMAGE="arcadedata/arcadedb:26.10.1-SNAPSHOT"
@@ -577,6 +588,11 @@ check "$(marker_of "no marker here at all")" "" "an unmarked body yields no mark
 # warns about. Restore the harness's own invariant (no -e, ever) before relying
 # on it again.
 set +e
+
+# main() must require VERIFY_GO rather than treating an unset verdict as success.
+out="$(env -i PATH="$PATH" STATE=quiet VERSION=v IMAGE=i VERIFY_TS=success VERIFY_PY=success RUN_URL=x \
+  bash "$SCRIPTS_DIR/report-contract-watch.sh" 2>&1)"; rc=$?
+if [[ "$rc" -ne 0 && "$out" == *VERIFY_GO* ]]; then ok "main refuses to run without VERIFY_GO"; else bad "main refuses to run without VERIFY_GO (rc=$rc out: $out)"; fi
 
 echo "resolve-proto-contract.sh"
 

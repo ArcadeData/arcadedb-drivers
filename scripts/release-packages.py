@@ -14,6 +14,8 @@ Subcommands:
   json                                   print the table as a JSON array
   check <version> [--allow-snapshot]     exit 1 listing every problem, else exit 0
   set <version>                          write <version> into every manifest and lockfile
+  is-published <id> <version>            print true/false: is it on its registry? errors if unsure
+  header <version>                       print the release-notes header (Markdown)
 
 `check` holds the invariant a lockstep release depends on: every manifest reads
 <version>, every lockfile agrees with its manifest, and every package's recorded server
@@ -36,6 +38,9 @@ import json
 import re
 import sys
 import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Callable, NamedTuple
 
@@ -300,6 +305,56 @@ def set_version(root: Path, version: str) -> None:
         path.write_text(text)
 
 
+_REGISTRY_URLS: dict[str, Callable[[str, str], str]] = {
+    "npm": lambda name, version: f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='@')}/{version}",
+    "pypi": lambda name, version: f"https://pypi.org/pypi/{name}/{version}/json",
+}
+
+
+def published_url(row: Row, version: str) -> str:
+    """The registry URL that answers 200 when `row` is published at `version`."""
+    try:
+        return _REGISTRY_URLS[row["registry"]](row["name"], version)
+    except KeyError:
+        raise ReleaseError(f"no registry URL scheme for {row['registry']!r}") from None
+
+
+def _http_status(url: str) -> int:
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=20) as resp:
+            return resp.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+def is_published(row: Row, version: str, fetch: Callable[[str], int] = _http_status) -> bool:
+    """Fail closed: only 200 means published and only 404 means not; anything else is an error.
+
+    Guessing "not published" on a 5xx or a network failure would let a retry re-publish a
+    version that already exists, so the caller is told it does not know.
+    """
+    url = published_url(row, version)
+    try:
+        status = fetch(url)
+    except Exception as exc:
+        raise ReleaseError(f"could not query {url}: {exc}") from exc
+    if status == 200:
+        return True
+    if status == 404:
+        return False
+    raise ReleaseError(f"unexpected HTTP {status} from {url}")
+
+
+def render_header(root: Path, version: str) -> str:
+    """Markdown that precedes GitHub's generated notes: what shipped, and against which server."""
+    lines = ["## Packages", "", "| Package | Registry | Version |", "| --- | --- | --- |"]
+    lines += [f"| `{row['name']}` | {row['registry']} | {version} |" for row in PACKAGES]
+    first = PACKAGES[0]
+    server = REGISTRIES[first["registry"]].read_server_version(root, first)
+    lines += ["", f"Generated against ArcadeDB server {server}.", ""]
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="repository root (for tests)")
@@ -310,10 +365,35 @@ def main(argv: list[str] | None = None) -> int:
     chk.add_argument("--allow-snapshot", action="store_true")
     st = sub.add_parser("set", help="write <version> into every manifest and lockfile")
     st.add_argument("version")
+    pub = sub.add_parser("is-published", help="is <id> published at <version>?")
+    pub.add_argument("id")
+    pub.add_argument("version")
+    hdr = sub.add_parser("header", help="print the release-notes header")
+    hdr.add_argument("version")
     args = parser.parse_args(argv)
 
     if args.command == "json":
         print(json.dumps(PACKAGES, indent=2))
+        return 0
+
+    if args.command == "is-published":
+        try:
+            row = next((r for r in PACKAGES if r["id"] == args.id), None)
+            if row is None:
+                raise ReleaseError(f"no package with id {args.id!r}; known: " + ", ".join(r["id"] for r in PACKAGES))
+            print("true" if is_published(row, args.version) else "false")
+        except ReleaseError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "header":
+        try:
+            validate_version(args.version)
+            print(render_header(args.root, args.version), end="")
+        except ReleaseError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
         return 0
 
     if args.command == "set":

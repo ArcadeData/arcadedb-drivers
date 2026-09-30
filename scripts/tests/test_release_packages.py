@@ -270,3 +270,64 @@ def test_set_rejects_invalid_version(tmp_path: Path) -> None:
     with pytest.raises(rp.ReleaseError):
         rp.set_version(root, "v0.2.0")
     assert _snapshot(root) == before
+
+
+def _row(row_id: str) -> dict[str, str]:
+    return next(r for r in rp.PACKAGES if r["id"] == row_id)
+
+
+def test_published_url_encodes_npm_scope() -> None:
+    assert (
+        rp.published_url(_row("npm-driver"), "0.2.0") == "https://registry.npmjs.org/@arcadedb%2Fdriver/0.2.0"
+    )
+
+
+def test_published_url_pypi() -> None:
+    assert (
+        rp.published_url(_row("pypi-driver-grpc"), "0.2.0")
+        == "https://pypi.org/pypi/arcadedb-driver-grpc/0.2.0/json"
+    )
+
+
+def test_is_published_maps_200_and_404() -> None:
+    row = _row("npm-driver")
+    assert rp.is_published(row, "0.2.0", fetch=lambda url: 200) is True
+    assert rp.is_published(row, "0.2.0", fetch=lambda url: 404) is False
+
+
+def test_is_published_fails_closed_on_500_and_network_error() -> None:
+    import urllib.error
+
+    row = _row("pypi-driver")
+
+    with pytest.raises(rp.ReleaseError, match="pypi.org"):
+        rp.is_published(row, "0.2.0", fetch=lambda url: 503)
+
+    def boom(url: str) -> int:
+        raise urllib.error.URLError("down")
+
+    with pytest.raises(rp.ReleaseError, match="pypi.org"):
+        rp.is_published(row, "0.2.0", fetch=boom)
+
+
+def test_header_lists_every_package_and_server_version(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path, "0.2.0", "26.10.1")
+    header = rp.render_header(root, "0.2.0")
+    for row in rp.PACKAGES:
+        # Backticked, because "arcadedb-driver" is a substring of "arcadedb-driver-grpc".
+        assert header.count("`" + row["name"] + "`") == 1
+    assert "## Packages" in header
+    assert "Generated against ArcadeDB server 26.10.1." in header
+    assert not header.startswith("# ")
+
+
+def test_cli_is_published_and_header(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path, "0.2.0")
+    res = subprocess.run(
+        [sys.executable, str(_SCRIPT), "--root", str(root), "header", "0.2.0"], capture_output=True, text=True
+    )
+    assert res.returncode == 0 and "## Packages" in res.stdout
+    res = subprocess.run(
+        [sys.executable, str(_SCRIPT), "is-published", "nope", "0.2.0"], capture_output=True, text=True
+    )
+    assert res.returncode == 1

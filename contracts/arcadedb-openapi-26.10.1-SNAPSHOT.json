@@ -1091,7 +1091,7 @@
                   "type": "string"
                 },
                 "capabilities": {
-                  "description": "Optional wire-format sections this peer can decode, as last observed by the leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'.",
+                  "description": "Optional wire-format sections this peer can decode, as last observed by the answering node (issue #7219). Every node polls its peers since issue #7549, so a follower answers for every peer too. Absent for a peer the answering node has no fresh answer from: an absent array means 'not known', which the leader treats exactly like 'cannot decode'.",
                   "items": {
                     "description": "Capability token",
                     "type": "string"
@@ -1099,7 +1099,7 @@
                   "type": "array"
                 },
                 "capabilitiesUnknownReason": {
-                  "description": "Why 'capabilities' is absent for this peer, when the leader knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the capability route or was never asked because its address identifies no single peer, and the two have nothing alike as remedies (issue #7256). Written by the leader only.",
+                  "description": "Why 'capabilities' is absent for this peer, when the answering node knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the capability route or was never asked because its address identifies no single peer, and the two have nothing alike as remedies (issue #7256). Written by any node since issue #7549; absent while the answering node has not finished its first probe round.",
                   "type": "string"
                 },
                 "httpAddress": {
@@ -1155,7 +1155,7 @@
                   "type": "string"
                 },
                 "version": {
-                  "description": "Server version this peer reported alongside its capabilities. Absent when the leader has no fresh answer from it.",
+                  "description": "Server version this peer reported alongside its capabilities. Absent when the answering node has no fresh answer from it.",
                   "type": "string"
                 }
               },
@@ -6724,7 +6724,7 @@
     },
     "/api/v1/cluster/resync/{database}": {
       "post": {
-        "description": "Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses to run on the leader itself. Answers 503 when no leader is currently reachable.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "description": "Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses to run on the leader itself. Answers 503 when no leader is currently reachable. The body is ignored for an operator's resync. The leader's automatic resync of a stalled replica sends its view at decision time instead (leaderTerm, observedMatchIndex, leaderCommitIndex), and the server answers 409, keeping its copy, when that view no longer holds: it is already in a later term, has applied up to the leader's commit index, or has progressed past the observed matchIndex.Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
         "operationId": "resyncClusterDatabase",
         "parameters": [
           {
@@ -6809,7 +6809,7 @@
                 }
               }
             },
-            "description": "An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "description": "Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
             "headers": {
               "Retry-After": {
                 "$ref": "#/components/headers/RetryAfterHeader"
@@ -7260,7 +7260,7 @@
             }
           },
           {
-            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged.",
+            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Read the stream as it arrives: a response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' closes the connection, and the stream ends without its stats trailer. Anything else - including an absent header - returns the buffered application/json body unchanged.",
             "in": "header",
             "name": "Accept",
             "required": false,
@@ -8716,7 +8716,7 @@
             }
           },
           {
-            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged.",
+            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Read the stream as it arrives: a response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' closes the connection, and the stream ends without its stats trailer. Anything else - including an absent header - returns the buffered application/json body unchanged.",
             "in": "header",
             "name": "Accept",
             "required": false,
@@ -8961,7 +8961,7 @@
             }
           },
           {
-            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Anything else - including an absent header - returns the buffered application/json body unchanged.",
+            "description": "Send 'application/x-ndjson' to receive the result as a stream of newline-delimited JSON events, one row per line, flushed as the engine produces them instead of buffered in full server-side. Read the stream as it arrives: a response write that makes no progress for 'arcadedb.server.httpStreamingWriteTimeout' closes the connection, and the stream ends without its stats trailer. Anything else - including an absent header - returns the buffered application/json body unchanged.",
             "in": "header",
             "name": "Accept",
             "required": false,

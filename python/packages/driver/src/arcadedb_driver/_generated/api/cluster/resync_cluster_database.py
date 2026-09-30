@@ -95,9 +95,12 @@ def sync_detailed(
     """Re-fetch a database from the leader
 
      Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses
-    to run on the leader itself. Answers 503 when no leader is currently reachable.Requires
-    RaftHAPlugin: the route is registered on every server, but answers only where high availability is
-    configured.
+    to run on the leader itself. Answers 503 when no leader is currently reachable. The body is ignored
+    for an operator's resync. The leader's automatic resync of a stalled replica sends its view at
+    decision time instead (leaderTerm, observedMatchIndex, leaderCommitIndex), and the server answers
+    409, keeping its copy, when that view no longer holds: it is already in a later term, has applied up
+    to the leader's commit index, or has progressed past the observed matchIndex.Requires RaftHAPlugin:
+    the route is registered on every server, but answers only where high availability is configured.
 
     Args:
         database (str):
@@ -132,9 +135,12 @@ def sync(
     """Re-fetch a database from the leader
 
      Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses
-    to run on the leader itself. Answers 503 when no leader is currently reachable.Requires
-    RaftHAPlugin: the route is registered on every server, but answers only where high availability is
-    configured.
+    to run on the leader itself. Answers 503 when no leader is currently reachable. The body is ignored
+    for an operator's resync. The leader's automatic resync of a stalled replica sends its view at
+    decision time instead (leaderTerm, observedMatchIndex, leaderCommitIndex), and the server answers
+    409, keeping its copy, when that view no longer holds: it is already in a later term, has applied up
+    to the leader's commit index, or has progressed past the observed matchIndex.Requires RaftHAPlugin:
+    the route is registered on every server, but answers only where high availability is configured.
 
     Args:
         database (str):
@@ -164,9 +170,12 @@ async def asyncio_detailed(
     """Re-fetch a database from the leader
 
      Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses
-    to run on the leader itself. Answers 503 when no leader is currently reachable.Requires
-    RaftHAPlugin: the route is registered on every server, but answers only where high availability is
-    configured.
+    to run on the leader itself. Answers 503 when no leader is currently reachable. The body is ignored
+    for an operator's resync. The leader's automatic resync of a stalled replica sends its view at
+    decision time instead (leaderTerm, observedMatchIndex, leaderCommitIndex), and the server answers
+    409, keeping its copy, when that view no longer holds: it is already in a later term, has applied up
+    to the leader's commit index, or has progressed past the observed matchIndex.Requires RaftHAPlugin:
+    the route is registered on every server, but answers only where high availability is configured.
 
     Args:
         database (str):
@@ -199,9 +208,12 @@ async def asyncio(
     """Re-fetch a database from the leader
 
      Discards this server's copy of one database and installs a fresh snapshot from the leader. Refuses
-    to run on the leader itself. Answers 503 when no leader is currently reachable.Requires
-    RaftHAPlugin: the route is registered on every server, but answers only where high availability is
-    configured.
+    to run on the leader itself. Answers 503 when no leader is currently reachable. The body is ignored
+    for an operator's resync. The leader's automatic resync of a stalled replica sends its view at
+    decision time instead (leaderTerm, observedMatchIndex, leaderCommitIndex), and the server answers
+    409, keeping its copy, when that view no longer holds: it is already in a later term, has applied up
+    to the leader's commit index, or has progressed past the observed matchIndex.Requires RaftHAPlugin:
+    the route is registered on every server, but answers only where high availability is configured.
 
     Args:
         database (str):

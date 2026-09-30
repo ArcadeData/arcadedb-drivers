@@ -20,12 +20,14 @@ class ClusterStatusPeersItem:
         id (str): Peer identifier
         role (str): LEADER or FOLLOWER
         capabilities (list[str] | Unset): Optional wire-format sections this peer can decode, as last observed by the
-            leader (issue #7219). Absent on a follower, which does not poll, and on the leader for a peer it has not
-            reached: an absent array means 'not known', which the leader treats exactly like 'cannot decode'.
-        capabilities_unknown_reason (str | Unset): Why 'capabilities' is absent for this peer, when the leader knows
-            why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the
+            answering node (issue #7219). Every node polls its peers since issue #7549, so a follower answers for every peer
+            too. Absent for a peer the answering node has no fresh answer from: an absent array means 'not known', which the
+            leader treats exactly like 'cannot decode'.
+        capabilities_unknown_reason (str | Unset): Why 'capabilities' is absent for this peer, when the answering node
+            knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the
             capability route or was never asked because its address identifies no single peer, and the two have nothing
-            alike as remedies (issue #7256). Written by the leader only.
+            alike as remedies (issue #7256). Written by any node since issue #7549; absent while the answering node has not
+            finished its first probe round.
         http_address (str | Unset): Peer HTTP endpoint as resolved by this node. Absent when it cannot be resolved.
         http_address_ambiguous (bool | Unset): True when the HTTP endpoint above does not identify this peer alone: two
             or more peers resolve to it, which is what happens when 'http' ports are not declared in arcadedb.ha.serverList
@@ -47,8 +49,8 @@ class ClusterStatusPeersItem:
             sample exists.
         replication_rtt_ms (int | Unset): Mean replication round-trip time. Absent when no sample exists.
         replication_rtt_p99_ms (int | Unset): 99th percentile replication round-trip time. Absent when no sample exists.
-        version (str | Unset): Server version this peer reported alongside its capabilities. Absent when the leader has
-            no fresh answer from it.
+        version (str | Unset): Server version this peer reported alongside its capabilities. Absent when the answering
+            node has no fresh answer from it.
     """
 
     address: str

@@ -6,6 +6,11 @@ on:
 
 jobs:
   claude-review:
+    # Dependabot runs get no CLAUDE_CODE_OAUTH_TOKEN (Dependabot-triggered workflows only see
+    # Dependabot secrets), and claude-code-action >= v1.0.233 rejects bot actors outright, so
+    # the job could only ever fail on its PRs. Skipped, not failed: dependabot-auto-merge.yml
+    # refuses a red check but lets a skipped one through.
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read

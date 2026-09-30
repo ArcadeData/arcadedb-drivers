@@ -153,7 +153,11 @@ describes the contract itself and a future Python or Go client reads the same mo
   reviewer needs here and nowhere else (generated code is never hand-edited, `contracts/` holds
   exactly one file of each kind, and the load-bearing prose in the READMEs moves with the behaviour
   it documents), and the commented-out `paths` and author-filter scaffolding the action's
-  template ships with is dropped. The job body, pins and allow-list are arcadedb's unchanged.
+  template ships with is dropped. The job also skips when the actor is `dependabot[bot]`:
+  Dependabot runs see no `CLAUDE_CODE_OAUTH_TOKEN`, and the action rejects bot actors since
+  v1.0.233, so without the skip every Dependabot PR carries a red check that
+  `dependabot-auto-merge.yml` refuses to merge past. The steps, pins and allow-list are
+  arcadedb's unchanged.
 - `classify-issue.yml` — byte-identical to arcadedb's, two jobs in one file. One labels an issue
   opened by an ArcadeData GitHub Sponsor `high_priority`, creating that label on first use. The
   other asks Claude which of the repository's **existing** labels fit a newly opened issue, and a

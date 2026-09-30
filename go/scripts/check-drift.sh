@@ -40,10 +40,18 @@ if ! grep -q -- '--- PASS: TestEveryOperationIsGenerated' <<<"$out"; then
   exit 1
 fi
 
-# Part 4: go.mod / go.sum are tidy. `go mod tidy` ignores go.work, so run it per module.
-for gomod in arcadedb/go.mod tools/go.mod; do
-  (cd "$(dirname "$gomod")" && go mod tidy)
-done
+# Part 4: go.mod / go.sum are tidy. `go mod tidy` ignores go.work, so run it per module:
+# EVERY module go.work uses, read from go.work itself rather than listed here, so a new
+# module (go/e2e was once left out) cannot join the workspace without joining this check.
+modules="$(go list -m -f '{{.Dir}}')"
+if [[ -z "$modules" ]]; then
+  echo "go list -m found no workspace modules - is go/go.work present?" >&2
+  exit 1
+fi
+while IFS= read -r dir; do
+  [[ -f "$dir/go.mod" ]] || continue
+  (cd "$dir" && go mod tidy)
+done <<<"$modules"
 if ! git diff --exit-code -- 'go/*go.mod' 'go/*go.sum'; then
   echo "go.mod/go.sum are not tidy - run go mod tidy in each module and commit the result." >&2
   exit 1

@@ -108,8 +108,8 @@ explicitly and requires a literal `--- PASS`: a skip there is a failure.
 `scripts/check-drift.sh` is the gate `ci-go.yml`, `scripts/release/verify-go.sh` and a developer all
 run, in four parts: (1) regenerate and `git diff --exit-code` the generated directory; (2) `git
 status --porcelain` it, which catches an added or renamed file `git diff` is blind to; (3)
-`TestEveryOperationIsGenerated`, pass required; (4) `go mod tidy` in `arcadedb/` and `tools/`, then
-fail on any `go.mod`/`go.sum` diff or untracked `go.sum`. There is no fifth "skipped endpoints"
+`TestEveryOperationIsGenerated`, pass required; (4) `go mod tidy` in every module `go.work` uses
+(`arcadedb/`, `e2e/`, `tools/`, read from `go list -m` rather than listed), then fail on any `go.mod`/`go.sum` diff or untracked `go.sum`. There is no fifth "skipped endpoints"
 check, and there should not be one: part 3 already covers what that check would.
 
 A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion` to the contract's

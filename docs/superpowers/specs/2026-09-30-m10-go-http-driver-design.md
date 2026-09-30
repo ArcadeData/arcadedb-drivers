@@ -192,7 +192,8 @@ the overlay stays.
    runs it explicitly and fails if it was skipped rather than passed. oapi-codegen skips nothing today; this is the **positive** check M9 proposes, so a
    future generator version cannot start dropping operations silently the way
    `openapi-python-client` does.
-4. `go mod tidy` in `arcadedb/` and `tools/`, then `git diff --exit-code` over every `go.mod` and
+4. `go mod tidy` in every module `go.work` uses (`arcadedb/`, `e2e/`, `tools/`, derived from
+   `go list -m` so a new module cannot be left out), then `git diff --exit-code` over every `go.mod` and
    `go.sum`, plus a check for an untracked `go.sum` — the Go equivalent of lockfile drift.
 
 The four parts live in `go/scripts/check-drift.sh`, which `ci-go.yml` and `verify-go.sh` both run.

@@ -1,8 +1,12 @@
 name: Publish to npm
+run-name: Publish @arcadedb/${{ inputs.package }} ${{ inputs.version }}
 
-# Manual release only. Nothing in this repository publishes to npm on push, tag, or schedule - a
-# human triggers this from the Actions UI (or `gh workflow run publish.yml`) after bumping the
-# chosen package's "version". This workflow is the ONLY place that talks to the npm registry.
+# Manual release only. Nothing in this repository publishes to npm on push, tag, or schedule.
+# release.yml dispatches this workflow once per package, after its own lockstep check and dry run.
+# Dispatching it by hand (the Actions UI, or `gh workflow run publish.yml`) is for recovering a
+# partial release - say one package published and the other did not - and it BYPASSES the lockstep
+# check, so the versions being published are then the operator's responsibility. This workflow is
+# the ONLY place that talks to the npm registry.
 #
 # It publishes ONE package per dispatch, chosen by the `package` input. That input is why this
 # file is parameterised rather than duplicated into a sibling workflow: npm keys a trusted
@@ -36,8 +40,7 @@ jobs:
     name: Publish @arcadedb/${{ inputs.package }} to npm
     runs-on: ubuntu-latest
     # Every step below addresses the chosen package through these two, never through a literal
-    # workspace name - that is what keeps the two packages from drifting apart in what gets
-    # verified before a publish.
+    # workspace name, so the two packages cannot drift apart in what gets published.
     env:
       PKG: ${{ inputs.package }}
       PKG_DIR: packages/${{ inputs.package }}
@@ -75,99 +78,12 @@ jobs:
         env:
           REQUESTED_VERSION: ${{ inputs.version }}
 
-      - name: Run the full unit test suite
-        working-directory: typescript
-        run: npm test
-
-      - name: Verify the package's recorded server version matches the committed contract
-        working-directory: typescript
-        # The package records the ArcadeDB server release it was generated against in
-        # package.json's "arcadedb.serverVersion". That must still match the committed contract's
-        # "info.version" at publish time - otherwise the compatibility table this package ships in
-        # its README would be lying the moment it's published. The contract file's name carries the
-        # version, so it's located by pattern rather than hardcoded, and the check fails loudly if
-        # zero or more than one candidate is found.
-        run: |
-          node -e '
-            const fs = require("fs");
-            const path = require("path");
-            const contractsDir = path.join("..", "contracts");
-            const candidates = fs.readdirSync(contractsDir).filter((f) => f.startsWith("arcadedb-openapi-") && f.endsWith(".json"));
-            if (candidates.length !== 1) {
-              console.error(`Expected exactly one contracts/arcadedb-openapi-*.json file, found ${candidates.length}: ${candidates.join(", ")}`);
-              process.exit(1);
-            }
-            const dir = process.env.PKG_DIR;
-            const pkg = require(`./${dir}/package.json`);
-            const contract = JSON.parse(fs.readFileSync(path.join(contractsDir, candidates[0]), "utf8"));
-            const pkgVersion = pkg.arcadedb && pkg.arcadedb.serverVersion;
-            const contractVersion = contract.info && contract.info.version;
-            if (!pkgVersion || !contractVersion) {
-              console.error(`Missing version field(s): ${dir}/package.json arcadedb.serverVersion="${pkgVersion}", contract info.version="${contractVersion}"`);
-              process.exit(1);
-            }
-            if (pkgVersion !== contractVersion) {
-              console.error(`${dir}/package.json arcadedb.serverVersion ("${pkgVersion}") does not match ${candidates[0]}'"'"'s info.version ("${contractVersion}")`);
-              process.exit(1);
-            }
-            console.log(`OK: arcadedb.serverVersion matches contract info.version (${pkgVersion})`);
-          '
-
-      - name: Build the client package and verify dist/ was produced
-        working-directory: typescript
-        # npm runs "prepack" per-workspace on `npm publish`/`npm pack`, which is what actually puts
-        # dist/ in the tarball - see each package's "prepack" script. Running it explicitly here,
-        # ahead of the publish step, and asserting its output exists turns a silent no-op build
-        # (missing script, build that produces the wrong directory, etc.) into a hard CI failure
-        # instead of an empty published package.
-        #
-        # The two packages need DIFFERENT assertions, which is why this is a script and not one
-        # shared list. `driver` emits its generated schema at a fixed path. `driver-grpc` emits a
-        # module whose filename carries the contract version, so the expected name is derived from
-        # the package's own arcadedb.serverVersion - already proved equal to the committed
-        # contract by the step above - rather than hardcoded, where it would rot on every bump.
-        run: |
-          npm run prepack --workspace "$PKG_DIR"
-          node -e '
-            const fs = require("fs");
-            const path = require("path");
-            const dir = process.env.PKG_DIR;
-            const pkg = require(`./${dir}/package.json`);
-            const required = ["dist/index.js", "dist/index.d.ts"];
-
-            if (process.env.PKG === "driver-grpc") {
-              const v = pkg.arcadedb.serverVersion;
-              required.push(`dist/gen/arcadedb-server-${v}_pb.js`, `dist/gen/arcadedb-server-${v}_pb.d.ts`);
-            } else {
-              required.push("dist/generated/schema.js", "dist/generated/schema.d.ts");
-            }
-
-            const missing = required.filter((f) => !fs.existsSync(path.join(dir, f)));
-            if (missing.length) {
-              console.error(`Missing after the build, so the published package would have shipped empty or broken:`);
-              for (const f of missing) console.error(`  ${dir}/${f}`);
-              console.error(`dist/index.d.ts imports its generated module by name; that module must exist alongside it.`);
-              process.exit(1);
-            }
-
-            // Only driver-grpc can accumulate here. `tsc --build` emits into dist/ and never
-            // removes output whose source is gone, and "files": ["dist"] ships the whole
-            // directory - so a tree that has been built across two contract versions carries a
-            // retired *_pb.js that would go out in the tarball. A clean CI checkout cannot hit
-            // that, which is exactly why publishing happens here and not from a laptop; this
-            // assertion is what makes the guarantee explicit rather than incidental.
-            if (process.env.PKG === "driver-grpc") {
-              const genDir = path.join(dir, "dist/gen");
-              const modules = fs.readdirSync(genDir).filter((f) => f.endsWith("_pb.js"));
-              if (modules.length !== 1) {
-                console.error(`Expected exactly one generated module in ${genDir}, found ${modules.length}: ${modules.join(", ")}`);
-                console.error(`A stale module from a previous contract version would be published inside the tarball.`);
-                process.exit(1);
-              }
-            }
-
-            console.log(`OK: ${pkg.name}@${pkg.version} built with all expected dist/ output`);
-          '
+      # The pre-publish gates (unit tests, recorded server version vs the committed contract, the
+      # prepack build and its dist/ assertions) live in scripts/release/verify-npm.sh, so that
+      # release.yml's dry run runs the very same checks and the two can never diverge. Their
+      # explanatory comments live there, next to the code they explain.
+      - name: Verify the package before publishing
+        run: ./scripts/release/verify-npm.sh "$PKG"
 
       # Two caveats recorded here because both cost real debugging time when this workflow was set
       # up, and neither is discoverable by reading npm's docs in the moment:

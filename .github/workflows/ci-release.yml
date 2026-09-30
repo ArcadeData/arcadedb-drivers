@@ -23,6 +23,8 @@ on:
       - python/packages/driver/pyproject.toml
       - python/packages/driver-grpc/pyproject.toml
       - python/uv.lock
+      - go/arcadedb/version.go
+      - go/arcadedb/go.mod
       # `check` compares every package's server version against these, so a contract move
       # (adopt-contract-version.sh) is as much a lockstep change as a manifest edit.
       - contracts/**

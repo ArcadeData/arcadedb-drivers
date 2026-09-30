@@ -97,7 +97,10 @@ describes the contract itself and a future Python or Go client reads the same mo
   table, at one version, in two phases with a human between them. **Phase 1** (`workflow_dispatch`
   from `main`) runs `release-packages.py check`, dry-runs every package's gates
   (`scripts/release/verify-*.sh`, the same scripts the publish workflows run), then pushes the tag
-  `v<version>` and creates a **draft** release; it writes to no registry. **Phase 2**
+  `v<version>` and creates a **draft** release; it writes to no registry. If the tag-and-draft job
+  fails partway (tag pushed, no draft), **re-run that failed job** rather than dispatching again:
+  it keeps a tag that already names the run's verified commit and reuses a release that already
+  exists, while a fresh dispatch still refuses any existing tag. **Phase 2**
   (`release: published`) re-checks the tag and fans out one job per package: each asks its registry
   whether the version is already there and, if not, dispatches that package's publish workflow at
   the tag and waits, and a summary job appends what shipped to the release body. **Publishing the

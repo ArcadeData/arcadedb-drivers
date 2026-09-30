@@ -13,6 +13,9 @@ run-name: ${{ github.event_name == 'release' && format('Publish {0}', github.eve
 # then pushes an annotated tag `v<version>` on the verified commit and creates a DRAFT GitHub
 # release on it with generated notes. It writes nothing to any registry, ever. `dry-run: true`
 # stops after the dry runs: no tag, no draft - and, since it tags nothing, may run on any ref.
+# If the tag-and-draft job fails - say the tag was pushed and the draft was not created - the
+# recovery is RE-RUNNING THAT FAILED JOB, not dispatching again: both of its steps accept what an
+# earlier attempt of the same run left behind, while a fresh dispatch refuses the existing tag.
 #
 # Phase 2 - publish (`release: published`). Publishing the draft IS the human approval for the
 # irreversible step: a registry publish cannot be undone, so nothing reaches npm or PyPI until a
@@ -234,8 +237,39 @@ jobs:
       # Annotated, so the tag records who made it and when; on $GITHUB_SHA explicitly rather than
       # HEAD, so the tag is the verified commit even if this step ever runs after something else
       # moved HEAD. A plain push never overwrites an existing tag.
+      #
+      # Idempotent within a run, so that a tag pushed by an attempt whose draft step then failed
+      # does not strand the release: RE-RUNNING THIS FAILED JOB is the recovery, and it reaches
+      # this step again with the same $GITHUB_SHA. (Re-running failed jobs does not repeat
+      # prepare-verify, whose "refuse if the tag already exists" gate is for a FRESH dispatch -
+      # that one must still refuse, since a new run may be on a different commit.) So: a tag that
+      # already names $GITHUB_SHA is this run's own and is kept; a tag on any other commit, or a
+      # lightweight tag with nothing to peel, fails. Asked of origin, peeled (`^{}`) so an
+      # annotated tag reads as the commit it names. Fails closed like prepare-verify's check:
+      # ls-remote exits 2 for no match, 0 for a match, and anything else is an unreadable answer.
       - name: Tag the verified commit
         run: |
+          set +e
+          remote=$(git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" "refs/tags/v$VERSION^{}")
+          status=$?
+          set -e
+          case "$status" in
+            2) ;;
+            0)
+              peeled=$(awk -v ref="refs/tags/v$VERSION^{}" '$2 == ref { print $1 }' <<<"$remote")
+              if [ -z "$peeled" ]; then
+                echo "::error::v$VERSION exists on origin but is not an annotated tag; phase 1 never made it. Nothing tagged."
+                exit 1
+              elif [ "$peeled" != "$GITHUB_SHA" ]; then
+                echo "::error::v$VERSION already exists on origin at $peeled, not this run's verified $GITHUB_SHA. A tag never moves; release a new version."
+                exit 1
+              fi
+              echo "v$VERSION already names $GITHUB_SHA (an earlier attempt of this run pushed it); keeping it."
+              exit 0 ;;
+            *)
+              echo "::error::Could not ask origin whether v$VERSION exists (git ls-remote exited $status)."
+              exit 1 ;;
+          esac
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "Release v$VERSION" "$GITHUB_SHA"
@@ -246,13 +280,28 @@ jobs:
       # was generated against) is rendered from the package table, so it cannot disagree with what
       # phase 2 publishes; `--notes-file` content precedes the generated notes, which are grouped
       # by .github/release.yml.
+      #
+      # Idempotent for the same reason the tag step is: if an earlier attempt of this run already
+      # created the release for v$VERSION, a re-run reports it rather than failing - or, worse,
+      # creating a second draft, which GitHub allows for one tag. It is looked up in the release
+      # LIST, not with `gh release view`: the list includes drafts to a token that can write, and
+      # a failing `gh api` fails this step, whereas `view` exits non-zero for "not found" and for
+      # an API error alike, and reading an error as "absent" is what would create the duplicate.
       - name: Create the draft release
         run: |
-          ./scripts/release-packages.py header "$VERSION" > header.md
-          url=$(gh release create "v$VERSION" --draft --verify-tag --title "v$VERSION" \
-            --generate-notes --notes-file header.md)
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > releases.json
+          url=$(jq -rs --arg tag "v$VERSION" '[.[][] | select(.tag_name == $tag)] | .[0].html_url // empty' releases.json)
+          if [ -n "$url" ]; then
+            echo "A release for v$VERSION already exists (an earlier attempt of this run created it); not creating another: $url"
+            heading="Draft release v$VERSION already existed"
+          else
+            ./scripts/release-packages.py header "$VERSION" > header.md
+            url=$(gh release create "v$VERSION" --draft --verify-tag --title "v$VERSION" \
+              --generate-notes --notes-file header.md)
+            heading="Draft release v$VERSION created"
+          fi
           {
-            echo "## Draft release v$VERSION created"
+            echo "## $heading"
             echo
             echo "$url"
             echo

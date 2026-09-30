@@ -142,3 +142,57 @@ func TestDBHandle(t *testing.T) {
 		t.Fatal("bad handle")
 	}
 }
+
+func TestExistsDecodesJSONWithoutContentType(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"result":true}`)) })
+	w := srv
+	ok, err := w.Exists(context.Background(), "d")
+	if err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+}
+
+func TestListDatabasesDecodesTextPlain(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(`{"result":["a"]}`))
+	})
+	got, err := srv.ListDatabases(context.Background())
+	if err != nil || len(got) != 1 || got[0] != "a" {
+		t.Fatal(got, err)
+	}
+}
+
+func TestServerInfoEmptyBodyIsError(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {})
+	if info, err := srv.ServerInfo(context.Background()); err == nil || info != nil {
+		t.Fatal(info, err)
+	}
+}
+
+func TestServerInfoNon2xxIsArcadeDBError(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(500) })
+	var ae *ArcadeDBError
+	if _, err := srv.ServerInfo(context.Background()); !errors.As(err, &ae) {
+		t.Fatal(err)
+	}
+}
+
+func TestListDatabasesPopulated(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { writeJSON(w, `{"result":["a","b"],"user":"root"}`) })
+	got, err := srv.ListDatabases(context.Background())
+	if err != nil || len(got) != 2 {
+		t.Fatal(got, err)
+	}
+}
+
+func TestWithHeaderOverridesAuthCaseInsensitively(t *testing.T) {
+	var got string
+	srv := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Authorization")
+		writeJSON(w, `{}`)
+	}, WithBasicAuth("a", "b"), WithHeader("authorization", "Custom x"))
+	if _, err := srv.ListDatabases(context.Background()); err != nil || got != "Custom x" {
+		t.Fatal(got, err)
+	}
+}

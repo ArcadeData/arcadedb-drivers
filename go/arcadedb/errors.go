@@ -1,6 +1,7 @@
 package arcadedb
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,4 +94,22 @@ func checkResponse(resp *http.Response, body []byte) error {
 		return nil
 	}
 	return newError(resp.StatusCode, body, resp.Header.Get(requestIDHeader))
+}
+
+// decodeBody returns typed when the generated parser filled it. The parser only does so
+// for an exact 200 whose Content-Type contains "json", so a JSON body behind a proxy that
+// rewrites the type, or a 203, would otherwise be lost. It then decodes body itself. An
+// empty body yields (nil, nil); callers decide what "unset" means.
+func decodeBody[T any](typed *T, body []byte) (*T, error) {
+	if typed != nil {
+		return typed, nil
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return nil, nil
+	}
+	out := new(T)
+	if err := json.Unmarshal(body, out); err != nil {
+		return nil, fmt.Errorf("arcadedb: decode response: %w", err)
+	}
+	return out, nil
 }

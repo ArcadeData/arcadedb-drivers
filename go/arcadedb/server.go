@@ -2,6 +2,7 @@ package arcadedb
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
@@ -17,20 +18,20 @@ type Option func(*config)
 
 // WithBasicAuth authenticates every request with HTTP Basic credentials.
 func WithBasicAuth(user, password string) Option {
-	return func(c *config) { c.headers["Authorization"] = basicAuthValue(user, password) }
+	return func(c *config) { c.headers[http.CanonicalHeaderKey("Authorization")] = basicAuthValue(user, password) }
 }
 
 // WithBearerToken authenticates every request with a bearer token.
 func WithBearerToken(token string) Option {
-	return func(c *config) { c.headers["Authorization"] = bearerAuthValue(token) }
+	return func(c *config) { c.headers[http.CanonicalHeaderKey("Authorization")] = bearerAuthValue(token) }
 }
 
 // WithHeader adds a header to every request, overriding any built-in one of that name.
 func WithHeader(name, value string) Option {
-	return func(c *config) { c.headers[name] = value }
+	return func(c *config) { c.headers[http.CanonicalHeaderKey(name)] = value }
 }
 
-// WithHTTPClient replaces the default http.Client. The default has no timeout on purpose:
+// WithHTTPClient replaces the default http.Client; nil falls back to the default. The default has no timeout on purpose:
 // deadlines belong to the context each call takes.
 func WithHTTPClient(hc *http.Client) Option {
 	return func(c *config) { c.client = hc }
@@ -72,7 +73,8 @@ func (s *Server) DB(name string) *Database { return &Database{srv: s, name: name
 // for a non-2xx status; inspect the response instead.
 func (s *Server) Raw() *generated.ClientWithResponses { return s.raw }
 
-// Close releases idle connections held by the underlying http.Client.
+// Close releases idle connections held by the underlying http.Client. It calls
+// CloseIdleConnections on a caller-supplied client too, which may be shared.
 func (s *Server) Close() error {
 	s.client.CloseIdleConnections()
 	return nil
@@ -88,10 +90,14 @@ func (s *Server) ListDatabases(ctx context.Context) ([]string, error) {
 	if err := checkResponse(resp.HTTPResponse, resp.Body); err != nil {
 		return nil, err
 	}
-	if resp.JSON200 == nil || resp.JSON200.Result == nil {
+	list, err := decodeBody(resp.JSON200, resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil || list.Result == nil {
 		return []string{}, nil
 	}
-	return resp.JSON200.Result, nil
+	return list.Result, nil
 }
 
 // Exists reports whether the named database exists AND the caller is authorized to see
@@ -105,7 +111,11 @@ func (s *Server) Exists(ctx context.Context, name string) (bool, error) {
 	if err := checkResponse(resp.HTTPResponse, resp.Body); err != nil {
 		return false, err
 	}
-	return resp.JSON200 != nil && resp.JSON200.Result, nil
+	res, err := decodeBody(resp.JSON200, resp.Body)
+	if err != nil {
+		return false, err
+	}
+	return res != nil && res.Result, nil
 }
 
 // ServerInfo returns the server's info document (basic mode).
@@ -117,7 +127,14 @@ func (s *Server) ServerInfo(ctx context.Context) (*generated.ServerInfo, error) 
 	if err := checkResponse(resp.HTTPResponse, resp.Body); err != nil {
 		return nil, err
 	}
-	return resp.JSON200, nil
+	info, err := decodeBody(resp.JSON200, resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if info == nil {
+		return nil, errors.New("arcadedb: server info response had an empty body")
+	}
+	return info, nil
 }
 
 // Health succeeds only on 204, the server's healthy answer; any other status, 200

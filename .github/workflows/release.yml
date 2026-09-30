@@ -155,10 +155,17 @@ jobs:
           esac
 
       # The dry-run matrix is built from the package table rather than repeated here, so adding a
-      # package is one row in release-packages.py and no edit to this file.
+      # package is one row in release-packages.py and no edit to this file. Emitted exactly as
+      # phase 2's is: assigned before it is written, under pipefail, so a failing `json` fails
+      # this step rather than emitting an empty matrix; and an empty table is refused rather than
+      # dry-running nothing and going on to tag a release no package was checked for.
       - name: Emit the package matrix
         id: matrix
-        run: echo "matrix=$(./scripts/release-packages.py json | jq -c .)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -o pipefail
+          matrix=$(./scripts/release-packages.py json | jq -c .)
+          echo "$matrix" | jq -e 'type == "array" and length > 0' > /dev/null
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   prepare-dry-run:
     name: Dry run ${{ matrix.package.name }}

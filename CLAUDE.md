@@ -36,6 +36,9 @@ scripts/resolve-openapi-contract.sh                  # print the single OpenAPI 
 scripts/resolve-proto-contract.sh                    # print the single .proto contract path, or fail
 scripts/tests/test-contract-scripts.sh               # tests for the scripts above (runs in CI)
 
+scripts/set-release-version.sh <version>             # write one release version into every package manifest and lockfile
+scripts/release-packages.py check <version>          # verify every package, lockfile and server version agrees
+
 scripts/check-licenses.py                            # fail if any dependency's license is off the allow-list
 ```
 
@@ -90,8 +93,43 @@ describes the contract itself and a future Python or Go client reads the same mo
   with a red suite gets an issue only (it is a server regression no PR here can fix). Both are
   filed idempotently against one tracking issue and one branch. It now regenerates and verifies
   **both** clients, not just the TypeScript one.
-- `publish.yml` — the only thing that talks to npm, and it is **manual workflow_dispatch only**.
-  Nothing publishes on push, tag, or schedule. It re-verifies that the dispatch input, the
+- `release.yml` — the one way a release happens: every package in `scripts/release-packages.py`'s
+  table, at one version, in two phases with a human between them. **Phase 1** (`workflow_dispatch`
+  from `main`) runs `release-packages.py check`, dry-runs every package's gates
+  (`scripts/release/verify-*.sh`, the same scripts the publish workflows run), then pushes the tag
+  `v<version>` and creates a **draft** release; it writes to no registry. If the tag-and-draft job
+  fails partway (tag pushed, no draft), **re-run that failed job** rather than dispatching again:
+  it keeps a tag that already names the run's verified commit and reuses a release that already
+  exists, while a fresh dispatch still refuses any existing tag. **Phase 2**
+  (`release: published`) re-checks the tag and fans out one job per package: each asks its registry
+  whether the version is already there and, if not, dispatches that package's publish workflow at
+  the tag and waits, and a summary job appends what shipped to the release body. **Publishing the
+  draft is the approval**, because a registry publish cannot be undone; the draft is created with
+  `GITHUB_TOKEN`, whose events start no workflows, so only a human's click fires phase 2. It
+  **dispatches** the publish workflows rather than calling them as reusable workflows because
+  trusted publishers key on the *top-level* workflow filename: a called workflow would present
+  `release.yml` to npm and PyPI, forcing every publisher to be reconfigured, and PyPI rejects a
+  reusable workflow as a trusted publisher outright. A partial release is completed by
+  **re-running failed jobs** on the phase 2 run (packages already on their registry read as
+  `skipped`) — after waiting a few minutes, because the npm registry can briefly 404 a version it
+  has just published, and a premature re-run re-dispatches it and npm refuses the duplicate (red,
+  but harmless); a fix that needs code is a **new version**, never a moved tag. Real runs refuse a
+  `-SNAPSHOT` server version (D4) so a release cannot ship against a moving target; a dry run
+  relaxes that to a warning and may run on any ref. A new package joins by adding one row to the
+  package table, plus a `REGISTRIES` entry if it targets a registry not already there. The notes
+  categories live in `.github/release.yml`.
+- `ci-release.yml` — tests the release scripts and runs `release-packages.py check` on the version
+  `main` currently carries (with `--allow-snapshot`, since `main`'s contract is a SNAPSHOT), so
+  `main` cannot hold packages at different versions. `paths`-filtered to the table, the release
+  scripts and workflows, the manifests and lockfiles the table names, and `contracts/` (which
+  `check` compares every server version against).
+- `publish.yml` — the only thing that talks to npm, and it is **workflow_dispatch only**, a child
+  of `release.yml`, which dispatches it once per package. Dispatching it by hand is for recovering a
+  partial release and **bypasses the lockstep check**. It refuses to run anywhere but the version's
+  own tag (`github.ref` must be `refs/tags/v<version>`), because the UI and `gh workflow run` both
+  default to `main`; recover with exactly
+  `gh workflow run publish.yml --ref v<version> -f package=<pkg> -f version=<version>`. Nothing
+  publishes on push, tag, or schedule. It re-verifies that the dispatch input, the
   package version, and the contract's `info.version` all agree before publishing. It publishes
   **one package per dispatch**, chosen by a `package` input (`driver` or `driver-grpc`), and is
   parameterised rather than duplicated into a sibling workflow for a specific reason: npm keys a
@@ -107,16 +145,22 @@ describes the contract itself and a future Python or Go client reads the same mo
   gone, and `files: ["dist"]` would ship a retired one from a tree built across two contract
   versions).
 - `publish-python.yml` — the npm workflow's sibling, and the only thing that talks to PyPI; also
-  **manual workflow_dispatch only**, with the same dispatch-input/version/contract re-verification.
+  **workflow_dispatch only** and a `release.yml` child, hand-dispatched for recovery only (it too
+  bypasses the lockstep check), with the same refusal of any ref but `refs/tags/v<version>` —
+  recover with exactly
+  `gh workflow run publish-python.yml --ref v<version> -f package=<pkg> -f version=<version>` —
+  and the same dispatch-input/version/contract re-verification.
   It publishes **one package per dispatch**, chosen by a `package` input (`driver` or
   `driver-grpc`), and is parameterised for the same reason `publish.yml` is: PyPI, like npm, keys a
   trusted publisher on the workflow **filename**, so both packages naming this one file means one
-  thing to configure and cross-check instead of two. The version-check gate compares the chosen
-  package's `[tool.arcadedb] server-version` against the committed OpenAPI contract's
-  `info.version` — for **both** packages, including `driver-grpc`. That is not a proto-specific
-  check masquerading as one; it works today only because `adopt-contract-version.sh` stamps every
-  package's `server-version` from the same version argument, so the OpenAPI contract's version is a
-  correct stand-in for the version the `.proto` contract carries too. Its bootstrap story inverts
+  thing to configure and cross-check instead of two. The server-version gate (in
+  `scripts/release/verify-pypi.sh`) checks each package against **its own** contract:
+  `driver`'s `[tool.arcadedb] server-version` against the committed OpenAPI contract's
+  `info.version`, and `driver-grpc`'s against the version in the committed `.proto` contract's
+  filename (resolved by `resolve-proto-contract.sh`). Neither package is gated on a contract it is
+  not generated from, so bumping one contract never blocks the other package's publish — and
+  since `fetch-contract.sh` can fetch the two contracts independently, a `driver-grpc` gate that
+  borrowed the OpenAPI version could pass while the `.proto` disagreed. Its bootstrap story inverts
   npm's: PyPI supports pending publishers, so a package's trusted publisher can be configured
   before the package exists on the index, and the first publish of either package needed no stored
   secret at all. Both are on PyPI at 0.1.0 today, `driver-grpc` included, each published that way.

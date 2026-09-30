@@ -1,0 +1,51 @@
+name: CI (release tooling)
+
+# Guards the release package table and the lockstep invariant behind it: every published
+# package reads one version, every lockfile agrees, every server version matches the
+# contracts. Runs on any change to the table, the release scripts and workflows, a
+# manifest/lockfile the table names, or the contracts, so `main` can never hold packages at different versions.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - scripts/release-packages.py
+      - scripts/set-release-version.sh
+      - scripts/release/**
+      - scripts/tests/test_release_packages.py
+      - .github/workflows/release.yml
+      - .github/workflows/publish.yml
+      - .github/workflows/publish-python.yml
+      - .github/workflows/ci-release.yml
+      - .github/release.yml
+      - typescript/packages/driver/package.json
+      - typescript/packages/driver-grpc/package.json
+      - typescript/package-lock.json
+      - python/packages/driver/pyproject.toml
+      - python/packages/driver-grpc/pyproject.toml
+      - python/uv.lock
+      # `check` compares every package's server version against these, so a contract move
+      # (adopt-contract-version.sh) is as much a lockstep change as a manifest edit.
+      - contracts/**
+  pull_request:
+    branches: [main]
+    paths: *paths
+
+permissions:
+  contents: read
+
+jobs:
+  release-tooling:
+    name: Release table tests and lockstep check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+
+      - name: Test the release scripts
+        run: uv run --no-project --python 3.12 --with pytest python -m pytest scripts/tests/test_release_packages.py -v
+
+      - name: Every package reads the same version
+        run: ./scripts/release-packages.py check "$(jq -r .version typescript/packages/driver/package.json)" --allow-snapshot

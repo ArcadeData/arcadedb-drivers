@@ -7,8 +7,14 @@ If you want an HTTP client instead - including from a browser - see
 [`@arcadedb/driver`](../driver/README.md).
 
 Published on npm as [`@arcadedb/driver-grpc`](https://www.npmjs.com/package/@arcadedb/driver-grpc),
-with a provenance attestation: every release is built and published by `publish.yml`, dispatched
-with `package=driver-grpc`, from a clean checkout of this repository, never from anyone's laptop.
+with a provenance attestation: every release is built and published by `publish.yml`, dispatched by
+`release.yml` with `package=driver-grpc`, from a clean checkout of this repository, never from
+anyone's laptop.
+
+Releases are cut for every package at once: bump all versions with
+`scripts/set-release-version.sh <version>` in a reviewed PR, merge it, dispatch `release.yml` on
+`main`, then review and publish the draft GitHub release it creates. Publishing the draft is what
+starts the registry publish.
 
 ## Requirements
 

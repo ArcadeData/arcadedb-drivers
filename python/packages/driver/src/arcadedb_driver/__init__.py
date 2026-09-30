@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 from collections.abc import Generator, Iterable, Mapping
 from functools import cached_property
 from types import TracebackType
@@ -39,7 +40,11 @@ from .facade.timeseries import TimeSeriesNamespace
 from .facade.transaction import Transaction
 from .facade.vector import VectorNamespace
 
-__version__ = "0.1.0"
+# Read from the installed distribution's metadata, never written here: pyproject.toml's
+# [project] version is the one place a release sets (set-release-version.sh), and a literal
+# here would escape both `set` and `check` - a wheel published as a new version would go on
+# reporting the old one.
+__version__ = importlib.metadata.version("arcadedb-driver")
 
 __all__ = [
     "ArcadeDBDatabase",

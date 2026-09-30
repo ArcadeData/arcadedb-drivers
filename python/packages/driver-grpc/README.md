@@ -8,9 +8,14 @@ If you want an HTTP client instead - including one that works from environments 
 see [`arcadedb-driver`](../driver/README.md).
 
 Published on PyPI as [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/), with
-attestations: every release is built and published by `publish-python.yml`, dispatched with
-`package=driver-grpc`, from a clean checkout of this repository through PyPI's trusted publishing,
-with no long-lived token anywhere in the chain.
+attestations: every release is built and published by `publish-python.yml`, dispatched by
+`release.yml` with `package=driver-grpc`, from a clean checkout of this repository through PyPI's
+trusted publishing, with no long-lived token anywhere in the chain.
+
+Releases are cut for every package at once: bump all versions with
+`scripts/set-release-version.sh <version>` in a reviewed PR, merge it, dispatch `release.yml` on
+`main`, then review and publish the draft GitHub release it creates. Publishing the draft is what
+starts the registry publish.
 
 ## Requirements
 

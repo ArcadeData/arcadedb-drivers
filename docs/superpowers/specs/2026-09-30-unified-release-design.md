@@ -15,8 +15,8 @@ fourth; the dispatch count grows with every package.
 This design adds one release, in two phases, that versions every driver in lockstep:
 
 1. **Prepare** — a human dispatches `release.yml` with a version. It verifies every package agrees,
-   dry-runs every package's publish gates, pushes the tag, and drafts a GitHub release whose notes
-   JReleaser generates.
+   dry-runs every package's publish gates, pushes the tag, and drafts a GitHub release with
+   generated notes.
 2. **Publish** — the human reviews and publishes the draft. That event fans out to each registry's
    existing publish workflow, waits for all of them, and records what shipped on the release.
 
@@ -27,11 +27,11 @@ phase 1, costs nothing.
 
 - **"Four runs."** True: two workflows × two packages, each dispatch publishing exactly one
   (`publish.yml:15`, `publish-python.yml:15`).
-- **"JReleaser implements the release."** Partly. JReleaser's deployers are Maven-only (Maven
-  Central, Nexus 2/3, Artifactory, GitHub/GitLab/Gitea/Forgejo packages, Azure). It cannot publish
-  to npm or PyPI. It owns what it is good at here — the changelog and the draft GitHub release —
-  and, once M9 lands, Maven Central deployment and signing inside `publish-java.yml`. npm and PyPI
-  stay on their native tooling.
+- **"JReleaser implements the release."** Not here. JReleaser's deployers are Maven-only (Maven
+  Central, Nexus 2/3, Artifactory, GitHub/GitLab/Gitea/Forgejo packages, Azure); it cannot publish
+  to npm or PyPI. What remained for it — a changelog and a draft GitHub release — `gh release
+  create` does natively, and this repository has no Java driver for its Maven Central support to
+  serve. It is dropped (D5).
 - **Trusted publishing is keyed on the top-level workflow.** PyPI documents that a reusable
   workflow cannot be the workflow in a trusted publisher, and npm keys on the workflow filename.
   An orchestrator that *called* the publish workflows as reusable workflows would move every OIDC
@@ -49,6 +49,7 @@ phase 1, costs nothing.
 | D2 | Who writes the version into manifests | `scripts/set-release-version.sh` in a reviewed PR; the workflow only verifies | Workflow commits to `main` (push rights on an unprotected branch); tag-derived versions (fights every build tool and the drift gates) |
 | D3 | How publishes are orchestrated | `release.yml` dispatches the existing per-registry workflows | One `release.yml` with inline publish jobs (reconfigures every trusted publisher); JReleaser shelling out to `npm`/`twine` via hooks |
 | D4 | SNAPSHOT contracts | Refused by phase 1 | Left to memory |
+| D5 | Release notes and the draft release | `gh release create --draft --generate-notes`, categories in `.github/release.yml` | JReleaser (a downloaded JVM binary in a `contents: write` job, invisible to `check-licenses.py`, for two things `gh` already does) |
 
 D4 makes enforceable what the 26.10.1 migration spec records as its own D3: nothing publishes until
 a released contract exists.
@@ -106,8 +107,8 @@ Trigger: `workflow_dispatch` on `main`, inputs `version` (string) and `dry-run` 
    cannot diverge in what they check. The existing step comments move with the code they explain.
 3. **Tag** (skipped when `dry-run`). An annotated `v<version>` on the verified commit, pushed by a
    job holding `contents: write` — the only job in phase 1 that does.
-4. **Draft notes** (skipped when `dry-run`). JReleaser creates a **draft** GitHub release on the
-   existing tag (section 7). Same job as the tag, so the write grant is not widened to a second job.
+4. **Draft notes** (skipped when `dry-run`). `gh release create` creates a **draft** GitHub
+   release on the existing tag (section 7). Same job as the tag, so the write grant is not widened to a second job.
 
 Phase 1 writes nothing to any registry, ever.
 
@@ -142,23 +143,26 @@ fixing the cause and **re-running failed jobs**; the already-published check tur
 succeeded into a no-op. If the fix needs a code change, that is a new version: the tag never moves
 and a version is never republished from a different commit.
 
-## 7. JReleaser
+## 7. Release notes
 
-`jreleaser.yml` at the repository root, run through `jreleaser/release-action` pinned by commit
-SHA like every other action here, with `JRELEASER_PROJECT_VERSION` set from the input.
+```bash
+gh release create "v$VERSION" --draft --verify-tag --title "v$VERSION" \
+  --generate-notes --notes-file "$HEADER"
+```
 
-- `release.github`: `draft: true`, `skipTag: true` (phase 1 already pushed it), `overwrite: false`,
-  no artifacts uploaded, no files attached.
-- `changelog`: `formatted: ALWAYS`, `preset: conventional-commits`, from the previous `v*` tag.
-  The history already follows the convention. Categories: Features, Fixes, Contract (commits
-  whose title matches `contract`, e.g. `chore: refresh the contract to …`), Dependencies (`build(deps)` and `build(deps-dev)` — Dependabot's
-  volume collapses into one section), CI/Build.
-- A templated header lists each package, its registry and the server version it was generated
-  against, rendered from the package table so it cannot disagree with what phase 2 publishes.
+- `--verify-tag` refuses to proceed unless the tag phase 1 just pushed exists, so `gh` never
+  creates a tag of its own on some other commit.
+- `--generate-notes` lists the merged PRs since the previous `v*` release. Its grouping comes from
+  `.github/release.yml` (new), which categorises by **PR label**: Dependencies (`dependencies`,
+  which Dependabot applies to its own PRs), Contract (`contract`), CI/Build (`build`, `release`),
+  and everything else under Changes. PRs are not labelled consistently today, so most human PRs
+  land in Changes; that is acceptable because a human reviews and edits the draft before
+  publishing it, which is the point of D1.
+- `$HEADER` is written by phase 1 from the package table: each package, its registry and the
+  server version it was generated against. Rendering it from the table means it cannot disagree
+  with what phase 2 publishes. `--notes-file` content precedes the generated notes.
 
-JReleaser runs as an action that downloads its own binary. It appears in no lockfile, so
-`check-licenses.py` never sees it; it is Apache-2.0, and `CLAUDE.md` gains one line saying so and
-why the gate does not cover it.
+No third-party tool is involved; `gh` is preinstalled on GitHub-hosted runners.
 
 ## 8. Changes to the existing publish workflows
 
@@ -180,16 +184,16 @@ A new registry needs: its rows in the table; its `read/write version` and `alrea
 cases keyed on the new `registry`; its `scripts/release/verify-<registry>.sh`; and its
 `publish-<lang>.yml`. `release.yml` is not edited.
 
-M9's `publish-java.yml` (M9 section 9) fits this unchanged. JReleaser's Maven Central deployer and
-GPG signing belong **inside** `publish-java.yml`, not in `release.yml`: that file is the only one
-talking to Maven Central, exactly as the other two are for theirs. M9 section 9 should gain a
-pointer to this design when it is next edited.
+M9's `publish-java.yml` (M9 section 9) fits this unchanged. How it deploys and signs for Maven
+Central — Sonatype's `central-publishing-maven-plugin` with `maven-gpg-plugin`, or JReleaser — is
+M9's decision and lives **inside** `publish-java.yml`, never in `release.yml`. M9 section 9 should
+gain a pointer to this design when it is next edited.
 
 ## 10. Documentation
 
 - Root `CLAUDE.md`, Workflows: a `release.yml` entry (two phases, dispatch-not-reuse and why,
   re-run-to-complete), and the `publish.yml` / `publish-python.yml` entries reframed as dispatched
-  children. The Dependency licenses section gains the JReleaser note from section 7.
+  children.
 - Each package README's release paragraph points at `set-release-version.sh` + dispatching
   `release.yml`. The compatibility tables are untouched; adding a row stays a human decision.
 

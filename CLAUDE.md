@@ -150,12 +150,14 @@ describes the contract itself and a future Python or Go client reads the same mo
   It publishes **one package per dispatch**, chosen by a `package` input (`driver` or
   `driver-grpc`), and is parameterised for the same reason `publish.yml` is: PyPI, like npm, keys a
   trusted publisher on the workflow **filename**, so both packages naming this one file means one
-  thing to configure and cross-check instead of two. The version-check gate compares the chosen
-  package's `[tool.arcadedb] server-version` against the committed OpenAPI contract's
-  `info.version` — for **both** packages, including `driver-grpc`. That is not a proto-specific
-  check masquerading as one; it works today only because `adopt-contract-version.sh` stamps every
-  package's `server-version` from the same version argument, so the OpenAPI contract's version is a
-  correct stand-in for the version the `.proto` contract carries too. Its bootstrap story inverts
+  thing to configure and cross-check instead of two. The server-version gate (in
+  `scripts/release/verify-pypi.sh`) checks each package against **its own** contract:
+  `driver`'s `[tool.arcadedb] server-version` against the committed OpenAPI contract's
+  `info.version`, and `driver-grpc`'s against the version in the committed `.proto` contract's
+  filename (resolved by `resolve-proto-contract.sh`). Neither package is gated on a contract it is
+  not generated from, so bumping one contract never blocks the other package's publish — and
+  since `fetch-contract.sh` can fetch the two contracts independently, a `driver-grpc` gate that
+  borrowed the OpenAPI version could pass while the `.proto` disagreed. Its bootstrap story inverts
   npm's: PyPI supports pending publishers, so a package's trusted publisher can be configured
   before the package exists on the index, and the first publish of either package needed no stored
   secret at all. Both are on PyPI at 0.1.0 today, `driver-grpc` included, each published that way.

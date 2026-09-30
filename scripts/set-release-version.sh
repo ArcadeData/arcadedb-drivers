@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Sets every published package to <version>, lockfiles included, then proves it.
+# Sets every published package to <version>, every lockfile that exists included (the Go module
+# has none), then proves it.
 #
 #   scripts/set-release-version.sh 0.2.0
 #

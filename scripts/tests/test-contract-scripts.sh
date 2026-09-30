@@ -533,8 +533,8 @@ CHANGED_FILES=" M a
  M b"; c="$(finding_fingerprint)"
 if [[ "$c" != "$a" ]]; then ok "fingerprint moves when the affected files move"; else bad "fingerprint moves when the affected files move"; fi
 
-# Both verdicts have to feed the fingerprint independently. If either one were
-# dropped, that language recovering while the other stayed red would leave the
+# Every verdict has to feed the fingerprint independently. If any one were
+# dropped, that language recovering while another stayed red would leave the
 # fingerprint unchanged, and report_finding would silently decline to comment
 # on a finding that genuinely changed - a silent production failure with no
 # other check that would catch it.

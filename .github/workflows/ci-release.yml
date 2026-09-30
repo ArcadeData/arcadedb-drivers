@@ -1,7 +1,7 @@
 name: CI (release tooling)
 
 # Guards the release package table and the lockstep invariant behind it: every published
-# package reads one version, every lockfile agrees, every server version matches the
+# package reads one version, every lockfile that exists agrees, every server version matches the
 # contracts. Runs on any change to the table, the release scripts and workflows, a
 # manifest/lockfile the table names, or the contracts, so `main` can never hold packages at different versions.
 on:

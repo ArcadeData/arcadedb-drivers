@@ -126,8 +126,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Every manifest reads $VERSION, every lockfile agrees with its manifest, and every package's
-      # recorded server version matches the committed OpenAPI and .proto contracts. A -SNAPSHOT
+      # Every manifest reads $VERSION, every lockfile that exists agrees with its manifest (the Go
+      # module has none), and every package's recorded server version matches the committed
+      # OpenAPI and .proto contracts. A -SNAPSHOT
       # server version is refused (spec D4): a release must not ship against a moving target.
       # Under dry-run that one refusal becomes a warning, so phase 1 can be exercised on today's
       # main, whose contract legitimately is a SNAPSHOT; a real run always enforces it.

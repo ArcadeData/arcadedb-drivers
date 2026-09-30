@@ -233,7 +233,18 @@ jobs:
           set -euo pipefail
           go/scripts/lint.sh
           (cd go/arcadedb && go test ./...)
-          (cd go/arcadedb && go test -run '^TestEveryOperationIsGenerated$' -v . | grep -q -- '--- PASS: TestEveryOperationIsGenerated')
+          # Captured, then grepped, as go/scripts/check-drift.sh does: `| grep -q` under pipefail
+          # can fail a passing run (grep exits at the first match and go test takes SIGPIPE), and a
+          # skip must not read as a pass. -count=1 so a cached result is never replayed.
+          out="$(cd go/arcadedb && go test -count=1 -run '^TestEveryOperationIsGenerated$' -v . 2>&1)" || {
+            echo "$out" >&2
+            exit 1
+          }
+          if ! grep -q -- '--- PASS: TestEveryOperationIsGenerated' <<<"$out"; then
+            echo "$out" >&2
+            echo "TestEveryOperationIsGenerated did not pass (a skip counts as a failure)." >&2
+            exit 1
+          fi
           (cd go/e2e && go test ./...)
 
       - name: Summarise the outcome

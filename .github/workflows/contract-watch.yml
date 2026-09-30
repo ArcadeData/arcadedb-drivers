@@ -174,7 +174,12 @@ jobs:
           # --porcelain, not `git diff`: a version bump renames the contract and
           # the generated module, so the new files are UNTRACKED and a diff-only
           # check would report nothing while everything had moved.
-          CHANGES="$(git status --porcelain -- contracts typescript python go)"
+          # The paths come from report-contract-watch.sh's REFRESH_PATHS, the
+          # same list its refresh PR commits, so a directory detected here can
+          # never be left out of that commit. Sourcing only defines it and the
+          # functions; main() runs only when the script is executed.
+          source scripts/report-contract-watch.sh
+          CHANGES="$(git status --porcelain -- "${REFRESH_PATHS[@]}")"
           if [[ -n "$CHANGES" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
             {

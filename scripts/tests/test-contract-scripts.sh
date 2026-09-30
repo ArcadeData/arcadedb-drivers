@@ -594,6 +594,54 @@ out="$(env -i PATH="$PATH" STATE=quiet VERSION=v IMAGE=i VERIFY_TS=success VERIF
   bash "$SCRIPTS_DIR/report-contract-watch.sh" 2>&1)"; rc=$?
 if [[ "$rc" -ne 0 && "$out" == *VERIFY_GO* ]]; then ok "main refuses to run without VERIFY_GO"; else bad "main refuses to run without VERIFY_GO (rc=$rc out: $out)"; fi
 
+# open_refresh_pr must COMMIT every language directory the regeneration touched.
+# It once staged `contracts typescript python` and not `go`, so every automated
+# refresh PR carried a Go client generated from the retired contract and turned
+# the Go gates red - while CHANGED_FILES, computed from a separate list, did name
+# go/. Driven against a throwaway repository with a local bare remote, and gh
+# stubbed out, so nothing leaves the machine.
+RPR="$(mktemp -d)"
+git init -q --bare "$RPR/remote.git"
+git init -q -b main "$RPR/work"
+(
+  cd "$RPR/work" || exit 1
+  git config user.name t; git config user.email t@t
+  mkdir -p contracts typescript python go
+  for d in contracts typescript python go; do echo old > "$d/f"; done
+  git add . && git commit -qm init
+  git remote add origin "$RPR/remote.git"
+  for d in contracts typescript python go; do echo new > "$d/f"; echo gen > "$d/untracked"; done
+) >/dev/null 2>&1
+(
+  cd "$RPR/work" || exit 1
+  # shellcheck disable=SC2329 # invoked by open_refresh_pr, not here
+  gh() { :; }
+  VERSION=v IMAGE=i VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success REFRESH_BRANCH=chore/contract-refresh
+  open_refresh_pr 1
+) >/dev/null 2>&1
+committed="$(git -C "$RPR/work" show --name-only --format= chore/contract-refresh 2>/dev/null | sort | tr '\n' ' ')"
+for d in contracts typescript python go; do
+  case " $committed" in
+    *" $d/f $d/untracked "*) ok "open_refresh_pr commits the refreshed $d/ (modified and new files)" ;;
+    *) bad "open_refresh_pr commits the refreshed $d/ (committed: $committed)" ;;
+  esac
+done
+leftover="$(git -C "$RPR/work" status --porcelain 2>/dev/null)"
+check "$leftover" "" "open_refresh_pr leaves nothing the watch detected uncommitted"
+rm -rf "$RPR"
+
+# The watch's detect step and the script share ONE list of refreshed paths, so a
+# new language directory cannot be detected but not committed (or the reverse).
+WATCH_YML="$REPO_ROOT/.github/workflows/contract-watch.yml"
+# shellcheck disable=SC2016 # the literal text of the workflow line, unexpanded
+if grep -q 'git status --porcelain -- "${REFRESH_PATHS\[@\]}"' "$WATCH_YML" \
+   && grep -q 'source scripts/report-contract-watch.sh' "$WATCH_YML"; then
+  ok "contract-watch.yml detects changes over the script's REFRESH_PATHS"
+else
+  bad "contract-watch.yml detects changes over the script's REFRESH_PATHS"
+fi
+check "${REFRESH_PATHS[*]:-}" "contracts typescript python go" "REFRESH_PATHS names the contracts and every language directory"
+
 echo "resolve-proto-contract.sh"
 
 FIX="$(make_fixture 26.9.1-SNAPSHOT)"

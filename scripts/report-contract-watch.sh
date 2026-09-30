@@ -23,6 +23,15 @@ set -euo pipefail
 : "${TRACKING_LABEL:=contract-drift}" "${REFRESH_BRANCH:=chore/contract-refresh}"
 REPO="${GITHUB_REPOSITORY:-ArcadeData/arcadedb-drivers}"
 
+# Everything a refresh can rewrite: the contracts and every language directory.
+# ONE list, read by main() for CHANGED_FILES, by open_refresh_pr() for what it
+# commits, and by contract-watch.yml's detect step (which sources this script).
+# Three hand-kept lists drifted once already: the commit staged `contracts
+# typescript python` while detection and CHANGED_FILES named go/ too, so every
+# refresh PR shipped a Go client generated from the retired contract. A new
+# language directory is added here and nowhere else.
+REFRESH_PATHS=(contracts typescript python go)
+
 # Per-language, so the issue and PR bodies name WHICH client broke rather than
 # just asserting that something did - "the suite fails" is not actionable, but
 # "the Python client fails" tells a reader where to start.
@@ -168,7 +177,7 @@ open_refresh_pr() {
   # -B, not -b: the branch may already exist locally, and a refresh that fails
   # only on its second run is worse than one that never worked.
   git checkout -B "$REFRESH_BRANCH"
-  git add contracts typescript python
+  git add -- "${REFRESH_PATHS[@]}"
   git commit -m "chore: refresh the contract to $VERSION
 
 Opened by the daily contract watch. Regenerated from $IMAGE, with the previous
@@ -205,7 +214,7 @@ MD
 
 main() {
   : "${STATE:?}" "${VERSION:?}" "${IMAGE:?}" "${VERIFY_TS:?}" "${VERIFY_PY:?}" "${VERIFY_GO:?}" "${RUN_URL:?}"
-  CHANGED_FILES="$(git status --porcelain -- contracts typescript python go || true)"
+  CHANGED_FILES="$(git status --porcelain -- "${REFRESH_PATHS[@]}" || true)"
   export CHANGED_FILES
 
   if [[ "$STATE" == "quiet" ]]; then

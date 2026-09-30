@@ -45,19 +45,34 @@ on:
 permissions:
   contents: read
 
+# One publish of a given version at a time: a second dispatch of the same package and version waits
+# for the first rather than racing it to the tag. Never cancelled mid-run - a cancelled publish
+# could stop between pushing the tag and fetching it.
+concurrency:
+  group: publish-go-${{ inputs.package }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+# Two jobs, split so that the write token never shares a runner with third-party code. `verify`
+# runs verify-go.sh, which executes code fetched through the module proxy (staticcheck,
+# oapi-codegen, go-licenses, test dependencies), and so holds only contents: read. `publish` holds
+# contents: write and runs nothing but git, the go command itself (`go list -m`) and
+# scripts/release-packages.py. Neither job restores a Go cache: a publish cannot be undone, so it
+# is not fed state an earlier run left behind.
 jobs:
-  publish:
-    name: Publish go/${{ inputs.package }} to the Go module proxy
+  verify:
+    name: Verify go/${{ inputs.package }}
     runs-on: ubuntu-latest
-    # contents: write is for pushing the go/<package>/v<version> tag, and is the only write this
-    # workflow holds: there is no registry secret and no id-token, because Go has neither.
     permissions:
-      contents: write
+      contents: read
     # Every step below addresses the chosen module through these two, never through a literal
     # directory name.
     env:
       PKG: ${{ inputs.package }}
       VERSION: ${{ inputs.version }}
+    outputs:
+      module: ${{ steps.module.outputs.module }}
+      id: ${{ steps.module.outputs.id }}
+      sha: ${{ steps.module.outputs.sha }}
     steps:
       # A version is published only from its own tag. The Actions UI and `gh workflow run` both
       # default to `main`, and a hand dispatch left on that default would tag and fetch whatever
@@ -76,18 +91,16 @@ jobs:
           fi
           echo "OK: dispatched on $REF"
 
-      # Full history so the tag step's `git tag` and `git push` work against a complete repository
-      # rather than a depth-1 graft. The checkout's persisted GITHUB_TOKEN is what pushes the tag.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26"
-          cache-dependency-path: go/**/go.sum
+          cache: false
 
       - name: Verify the dispatch input matches the module version
         id: module
@@ -115,8 +128,11 @@ jobs:
             echo "::error::release-packages.py row $id names $name, but go/$PKG/go.mod declares $module."
             exit 1
           fi
-          echo "module=$module" >> "$GITHUB_OUTPUT"
-          echo "id=$id" >> "$GITHUB_OUTPUT"
+          {
+            echo "module=$module"
+            echo "id=$id"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
           echo "OK: dispatch input matches $module@v$actual (release row $id)"
 
       # The pre-publish gates (lint, unit tests, the drift gate, ServerVersion vs the committed
@@ -126,10 +142,71 @@ jobs:
       - name: Verify the module before tagging
         run: ./scripts/release/verify-go.sh "$PKG"
 
+  publish:
+    name: Publish go/${{ inputs.package }} to the Go module proxy
+    needs: verify
+    runs-on: ubuntu-latest
+    # contents: write is for pushing the go/<package>/v<version> tag, and is the only write this
+    # workflow holds: there is no registry secret and no id-token, because Go has neither.
+    permissions:
+      contents: write
+    env:
+      PKG: ${{ inputs.package }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      # A version is published only from its own tag. The Actions UI and `gh workflow run` both
+      # default to `main`, and a hand dispatch left on that default would tag and fetch whatever
+      # main holds today under a version that was tagged, and verified, on another commit.
+      # release.yml always dispatches with ref=v<version>, so this only ever refuses a hand dispatch
+      # on the wrong ref. First, before checkout, so a refused run builds nothing. Both values reach
+      # the shell through the environment: `version` is free text typed by whoever dispatches.
+      - name: Refuse unless dispatched on the tag v<version>
+        env:
+          REF: ${{ github.ref }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$REF" != "refs/tags/v$REQUESTED_VERSION" ]; then
+            echo "::error::Dispatched on $REF, not refs/tags/v$REQUESTED_VERSION. Publish only from the version's tag: gh workflow run publish-go.yml --ref v$REQUESTED_VERSION -f package=$PKG -f version=$REQUESTED_VERSION"
+            exit 1
+          fi
+          echo "OK: dispatched on $REF"
+
+      # Full history so `git tag` works against a complete repository rather than a depth-1 graft.
+      # No persisted credentials: the tag step passes the token to the one push that needs it.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # For the go command only (`go list -m` in the fetch step); no module code is built or run.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache: false
+
+      # Both jobs checked out the ref v<version>, separately. A tag moved between them would have
+      # this job tag a commit `verify` never checked, so refuse unless HEAD is the verified commit.
+      - name: Refuse unless HEAD is the commit verify checked
+        env:
+          VERIFIED_SHA: ${{ needs.verify.outputs.sha }}
+        run: |
+          head=$(git rev-parse HEAD)
+          if [ -z "$VERIFIED_SHA" ] || [ "$head" != "$VERIFIED_SHA" ]; then
+            echo "::error::HEAD is $head, but verify checked '$VERIFIED_SHA'. Tag v$VERSION moved during this run; nothing tagged."
+            exit 1
+          fi
+          echo "OK: HEAD is the verified commit $head"
+
       # The Go toolchain finds a version of a module in a subdirectory by the tag
       # <subdirectory>/v<version>, so v<version> alone publishes nothing for go/<package>. The tag
       # goes on HEAD, which is the commit v<version> names (the ref check above and the checkout of
-      # that ref guarantee it).
+      # that ref guarantee it), and which the step before this one proved is the commit `verify`
+      # checked.
+      #
+      # The token reaches git only here, in the remote URL of these two commands - the checkout
+      # persisted none - and never on disk in .git/config. The runner masks it in the log.
       #
       # Idempotent for a re-run: a tag already on this very commit is an earlier attempt of this
       # release that failed after pushing it, so the step continues to the fetch. A tag on any
@@ -138,10 +215,13 @@ jobs:
       # refs/tags/<tag> and the commit it peels to under refs/tags/<tag>^{}; the peeled commit is
       # the one compared, falling back to the unpeeled line for a lightweight tag.
       - name: Tag go/<package>/v<version> on the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           TAG="go/$PKG/v$VERSION"
           head=$(git rev-parse HEAD)
-          listing=$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}")
+          remote_url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}"
+          listing=$(git ls-remote --tags "$remote_url" "refs/tags/$TAG" "refs/tags/$TAG^{}")
           peeled=$(awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1 }' <<<"$listing")
           direct=$(awk -v ref="refs/tags/$TAG" '$2 == ref { print $1 }' <<<"$listing")
           remote=${peeled:-$direct}
@@ -149,7 +229,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git tag -a "$TAG" -m "$TAG" HEAD
-            git push origin "refs/tags/$TAG"
+            git push "$remote_url" "refs/tags/$TAG"
             echo "OK: pushed $TAG on $head"
           elif [ "$remote" = "$head" ]; then
             echo "OK: $TAG already names $head (an earlier attempt pushed it); continuing"
@@ -160,14 +240,16 @@ jobs:
 
       # The first fetch through proxy.golang.org is the publish. GOWORK=off in a scratch directory
       # so the request resolves against the proxy, not against the workspace's own copy of this
-      # module. The fetch is retried because the proxy can briefly miss a tag pushed seconds ago.
+      # module. The fetch is retried because the proxy can briefly miss a tag pushed seconds ago,
+      # and can briefly cache the not-found that release.yml's is-published probe got before the
+      # tag existed; the poll below, and re-running this job, cover both.
       # Then the proxy's .info URL - the same one release.yml's is-published check asks - is polled
       # until it answers 200, so this run goes green only once the version is really there.
       - name: Fetch the version through proxy.golang.org
         working-directory: ${{ runner.temp }}
         env:
-          MODULE: ${{ steps.module.outputs.module }}
-          ID: ${{ steps.module.outputs.id }}
+          MODULE: ${{ needs.verify.outputs.module }}
+          ID: ${{ needs.verify.outputs.id }}
           GOWORK: "off"
           GOPROXY: https://proxy.golang.org
           GOFLAGS: -mod=mod
@@ -197,7 +279,7 @@ jobs:
               *) echo "::error::is-published printed '$published', not true/false."; exit 1 ;;
             esac
             if [ "$SECONDS" -ge "$deadline" ]; then
-              echo "::error::$MODULE@v$VERSION is not on proxy.golang.org after 10 minutes. The tag is pushed; re-run this job to retry the fetch (the tag step accepts its own earlier push)."
+              echo "::error::$MODULE@v$VERSION is not on proxy.golang.org after 10 minutes. The tag is pushed; re-run the failed job to retry the fetch (the tag step accepts its own earlier push)."
               exit 1
             fi
             sleep 15

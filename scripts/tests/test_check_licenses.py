@@ -8,6 +8,7 @@ docs/superpowers/specs/2026-09-07-license-compliance-design.md section 7.
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -311,6 +312,77 @@ def test_python_collector_refuses_an_implausibly_small_distribution_set(
     monkeypatch.setattr(cl.subprocess, "run", _fake_run)
     with pytest.raises(cl.CollectorError):
         cl.collect_python(tmp_path)
+
+
+_GO_OWN = "github.com/ArcadeData/arcadedb-drivers/go/arcadedb"
+
+
+def _go_fake_run(
+    report_csv: str, *, extra_modules: int = 0, report_rc: int = 0
+) -> tuple[object, list[tuple[list[str], str]]]:
+    """A stand-in for subprocess.run that answers the three `go` invocations the collector makes."""
+    calls: list[tuple[list[str], str]] = []
+    versions = [{"Path": _GO_OWN, "Main": True}, {"Path": "github.com/google/uuid", "Version": "v1.6.0"}]
+    versions += [{"Path": f"example.com/m{i}", "Version": "v1.0.0"} for i in range(extra_modules)]
+
+    class _Completed:
+        def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0) -> None:
+            self.stdout, self.stderr, self.returncode = stdout, stderr, returncode
+
+    def _run(cmd: list[str], **kwargs: object) -> _Completed:
+        calls.append((cmd, str(kwargs.get("cwd"))))
+        if cmd[:3] == ["go", "list", "tool"]:
+            return _Completed("example.com/tool/cmd\n")
+        if cmd[:4] == ["go", "list", "-m", "-json"]:
+            return _Completed("\n".join(json.dumps(v, indent=1) for v in versions))
+        if report_rc:
+            raise subprocess.CalledProcessError(report_rc, cmd, stderr="boom")
+        return _Completed(report_csv)
+
+    return _run, calls
+
+
+def test_go_collector_parses_report_and_excludes_own_modules(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    csv_text = (
+        f"{_GO_OWN},https://x/LICENSE,Apache-2.0\n"
+        "github.com/ArcadeData/arcadedb-drivers/go/e2e,Unknown,Unknown\n"
+        "github.com/google/uuid,https://github.com/google/uuid/blob/v1.6.0/LICENSE,BSD-3-Clause\n"
+    )
+    fake, calls = _go_fake_run(csv_text)
+    monkeypatch.setattr(cl.subprocess, "run", fake)
+    monkeypatch.setattr(cl, "_MIN_PLAUSIBLE_GO_MODULES", 1)
+
+    records = cl.collect_go(tmp_path)
+
+    # Three modules run the same report, so the duplicate collapses; own modules are gone.
+    assert records == [cl.Record("go", "github.com/google/uuid", "v1.6.0", "BSD-3-Clause", "go-licenses")]
+    reports = [(cmd, cwd) for cmd, cwd in calls if cmd[:4] == ["go", "tool", "go-licenses", "report"]]
+    assert {Path(cwd).name for _, cwd in reports} == {"arcadedb", "e2e", "tools"}
+    for cmd, cwd in reports:
+        if Path(cwd).name == "tools":
+            assert "example.com/tool/cmd" in cmd
+        else:
+            assert "--include_tests" in cmd and cmd[-1] == "./..."
+
+
+def test_go_collector_refuses_an_implausibly_small_module_set(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    fake, _ = _go_fake_run("github.com/google/uuid,https://x,BSD-3-Clause\n")
+    monkeypatch.setattr(cl.subprocess, "run", fake)
+    with pytest.raises(cl.CollectorError, match="module"):
+        cl.collect_go(tmp_path)
+
+
+def test_go_collector_raises_on_tool_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    fake, _ = _go_fake_run("", report_rc=1)
+    monkeypatch.setattr(cl.subprocess, "run", fake)
+    with pytest.raises(cl.CollectorError, match="boom"):
+        cl.collect_go(tmp_path)
+
+
+def test_go_unknown_license_is_a_violation() -> None:
+    records = [cl.Record("go", "example.com/mystery", "v1.0.0", "Unknown", "go-licenses")]
+    violations, _ = cl.check(records)
+    assert violations == records
 
 
 def test_check_separates_violations_from_the_spread() -> None:

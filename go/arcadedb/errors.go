@@ -104,7 +104,7 @@ func decodeBody[T any](typed *T, body []byte) (*T, error) {
 	if typed != nil {
 		return typed, nil
 	}
-	if len(bytes.TrimSpace(body)) == 0 {
+	if trimmed := bytes.TrimSpace(body); len(trimmed) == 0 || string(trimmed) == "null" {
 		return nil, nil
 	}
 	out := new(T)

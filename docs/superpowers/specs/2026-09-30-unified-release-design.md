@@ -58,14 +58,16 @@ a released contract exists.
 
 One table drives both the version script and the workflow, so adding a package is one row.
 
-`scripts/release-packages.sh` holds `RELEASE_PACKAGES` — one row per published package — and
-prints it as JSON for `release.yml` to build its matrices from:
+`scripts/release-packages.py` (Python, stdlib only: it has to parse `package.json`, TOML and
+`uv.lock` and compare versions, which shell does badly) holds `PACKAGES` — one row per published
+package — and prints it as JSON for `release.yml` to build its matrices from:
 
 | Field | `driver` (npm) example |
 |---|---|
 | `id` | `npm-driver` |
 | `language` | `typescript` |
 | `manifest` | `typescript/packages/driver/package.json` |
+| `lockfile` | `typescript/package-lock.json` |
 | `registry` | `npm` |
 | `name` | `@arcadedb/driver` |
 | `workflow` | `publish.yml` |
@@ -127,9 +129,7 @@ start workflows, but the human publishes it, so this event fires.
      returning 200. If present, the row is `skipped` and succeeds.
    - **Dispatches** `workflow` at `ref: v<version>` with inputs `package: <package_input>` and
      `version: <version>`, requesting the new run's ID back from the dispatch API
-     (`return_run_details`). The API parameter and `gh`'s support for it are checked against
-     GitHub's documentation at plan time; if unavailable, the fallback is to correlate on the
-     child's `run-name`, which section 8 makes unique per package and version.
+     (`return_run_details`). This API is confirmed.
    - **Waits** with `gh run watch <id> --exit-status` and adopts the child's result.
 3. **Summarise** (`if: always()`). A table — package, registry, `published` / `skipped` /
    `failed`, link to the child run — goes to the job summary and is appended to the release body,

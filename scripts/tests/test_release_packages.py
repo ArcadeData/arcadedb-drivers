@@ -182,3 +182,91 @@ def test_cli_check_exit_codes(tmp_path: Path) -> None:
     )
     assert res.returncode == 1
     assert "python/packages/driver/pyproject.toml" in res.stderr
+
+
+def _snapshot(root: Path) -> dict[str, bytes]:
+    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def test_set_then_check_agrees(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    rp.set_version(root, "0.2.0")
+    assert rp.check(root, "0.2.0", True) == []
+
+
+def test_set_never_touches_server_versions(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    servers = {r["id"]: rp.REGISTRIES[r["registry"]].read_server_version(root, r) for r in rp.PACKAGES}
+    before = _snapshot(root)
+    rp.set_version(root, "0.2.0")
+    after = _snapshot(root)
+    for r in rp.PACKAGES:
+        assert rp.REGISTRIES[r["registry"]].read_server_version(root, r) == servers[r["id"]]
+    contracts = [name for name in before if name.startswith("contracts/")]
+    assert contracts
+    for name in contracts:
+        assert after[name] == before[name]
+
+
+def test_set_touches_only_table_files(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    before = _snapshot(root)
+    rp.set_version(root, "0.2.0")
+    after = _snapshot(root)
+    assert set(after) == set(before)
+    changed = {name for name in before if before[name] != after[name]}
+    expected = {r["manifest"] for r in rp.PACKAGES} | {r["lockfile"] for r in rp.PACKAGES}
+    assert changed == expected
+
+
+def test_set_preserves_formatting(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    manifest = root / "typescript/packages/driver/package.json"
+    manifest.write_text(
+        json.dumps({"name": "@arcadedb/driver", "version": "0.1.0", "arcadedb": {"serverVersion": "26.10.1"}}, indent=2)
+        + "\n"
+    )
+    pyproject = root / "python/packages/driver/pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "arcadedb-driver"\n# keep me above\nversion = "0.1.0"  # keep me beside\n# keep me below\n\n'
+        '[tool.arcadedb]\nserver-version = "26.10.1"\n'
+    )
+    rp.set_version(root, "0.2.0")
+    text = manifest.read_text()
+    assert text.endswith("}\n") and not text.endswith("\n\n")
+    assert '\n  "version": "0.2.0",\n' in text
+    assert pyproject.read_text() == (
+        '[project]\nname = "arcadedb-driver"\n# keep me above\nversion = "0.2.0"  # keep me beside\n'
+        "# keep me below\n\n"
+        '[tool.arcadedb]\nserver-version = "26.10.1"\n'
+    )
+
+
+def test_set_fails_when_version_matches_twice(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    pyproject = root / "python/packages/driver-grpc/pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text().replace('version = "0.1.0"\n', 'version = "0.1.0"\nversion = "9.9.9"\n')
+    )
+    before = _snapshot(root)
+    with pytest.raises(rp.ReleaseError, match="python/packages/driver-grpc/pyproject.toml"):
+        rp.set_version(root, "0.2.0")
+    assert _snapshot(root) == before
+
+
+def test_set_fails_when_lockfile_block_missing(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    lock = root / "python/uv.lock"
+    lock.write_text(lock.read_text().replace('name = "arcadedb-driver-grpc"', 'name = "arcadedb-other"'))
+    before = _snapshot(root)
+    with pytest.raises(rp.ReleaseError, match="python/uv.lock"):
+        rp.set_version(root, "0.2.0")
+    assert _snapshot(root) == before
+
+
+def test_set_rejects_invalid_version(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    before = _snapshot(root)
+    with pytest.raises(rp.ReleaseError):
+        rp.set_version(root, "v0.2.0")
+    assert _snapshot(root) == before

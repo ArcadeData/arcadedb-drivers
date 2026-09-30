@@ -13,12 +13,18 @@ Subcommands:
 
   json                                   print the table as a JSON array
   check <version> [--allow-snapshot]     exit 1 listing every problem, else exit 0
+  set <version>                          write <version> into every manifest and lockfile
 
 `check` holds the invariant a lockstep release depends on: every manifest reads
 <version>, every lockfile agrees with its manifest, and every package's recorded server
 version matches the single OpenAPI contract and the single .proto contract. A
 `-SNAPSHOT` server version is a problem unless --allow-snapshot is given, because a
 release must not ship against a moving target while `main` legitimately does.
+
+`set` is the only writer. It edits manifests and lockfiles directly, with no network and no
+package manager, and never touches a server version: that moves with the contract, through
+adopt-contract-version.sh. Every new file content is computed in memory first and nothing is
+written unless every edit succeeded, so a failure leaves the tree untouched.
 
 Stdlib only, so it runs anywhere Python 3.11+ does with no environment to build.
 """
@@ -133,15 +139,85 @@ def _pypi_read_server_version(root: Path, row: Row) -> str:
     return _load_toml(root / row["manifest"])["tool"]["arcadedb"]["server-version"]
 
 
+def _dump_json(obj: dict) -> str:
+    # The format npm itself writes: two-space indent and a trailing newline.
+    return json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
+
+
+def _npm_write_version(text: str, row: Row, version: str) -> str:
+    data = json.loads(text)
+    data["version"] = version
+    return _dump_json(data)
+
+
+def _npm_write_lock_version(text: str, row: Row, version: str) -> str:
+    data = json.loads(text)
+    key = f"packages/{row['package_input']}"
+    try:
+        data["packages"][key]["version"] = version
+    except KeyError:
+        raise ReleaseError(f"{row['lockfile']} has no packages[{key!r}] entry") from None
+    return _dump_json(data)
+
+
+def _sub_exactly_once(pattern: str, repl: str, text: str, where: str, what: str) -> str:
+    new, count = re.subn(pattern, repl, text, flags=re.MULTILINE)
+    if count != 1:
+        raise ReleaseError(f"{where}: expected exactly one {what}, found {count}")
+    return new
+
+
+def _pypi_write_version(text: str, row: Row, version: str) -> str:
+    # Confine the edit to the [project] table: [tool.*] tables may carry their own `version`.
+    header = re.search(r"^\[project\][ \t]*$", text, flags=re.MULTILINE)
+    if header is None:
+        raise ReleaseError(f"{row['manifest']}: no [project] table")
+    following = re.search(r"^\[", text[header.end() :], flags=re.MULTILINE)
+    end = header.end() + following.start() if following else len(text)
+    table = _sub_exactly_once(
+        r'^(version\s*=\s*")[^"]*(")',
+        rf"\g<1>{version}\g<2>",
+        text[header.end() : end],
+        row["manifest"],
+        "`version =` line in [project]",
+    )
+    return text[: header.end()] + table + text[end:]
+
+
+def _pypi_write_lock_version(text: str, row: Row, version: str) -> str:
+    return _sub_exactly_once(
+        rf'^(name = "{re.escape(row["name"])}"\nversion = ")[^"]*(")',
+        rf"\g<1>{version}\g<2>",
+        text,
+        row["lockfile"],
+        f"[[package]] block for {row['name']}",
+    )
+
+
 class Registry(NamedTuple):
     read_version: Callable[[Path, Row], str]
     read_lock_version: Callable[[Path, Row], str]
     read_server_version: Callable[[Path, Row], str]
+    # Pure text -> text edits, so `set` can stage every change before writing any.
+    write_version: Callable[[str, Row, str], str]
+    write_lock_version: Callable[[str, Row, str], str]
 
 
 REGISTRIES: dict[str, Registry] = {
-    "npm": Registry(_npm_read_version, _npm_read_lock_version, _npm_read_server_version),
-    "pypi": Registry(_pypi_read_version, _pypi_read_lock_version, _pypi_read_server_version),
+    "npm": Registry(
+        _npm_read_version,
+        _npm_read_lock_version,
+        _npm_read_server_version,
+        _npm_write_version,
+        _npm_write_lock_version,
+    ),
+    "pypi": Registry(
+        _pypi_read_version,
+        _pypi_read_lock_version,
+        _pypi_read_server_version,
+        _pypi_write_version,
+        _pypi_write_lock_version,
+    ),
 }
 
 
@@ -208,6 +284,22 @@ def check(root: Path, version: str, allow_snapshot: bool) -> list[str]:
     return problems
 
 
+def set_version(root: Path, version: str) -> None:
+    """Write `version` into every manifest and lockfile, or into none of them."""
+    validate_version(version)
+
+    staged: dict[Path, str] = {}
+    for row in PACKAGES:
+        reg = REGISTRIES[row["registry"]]
+        manifest = root / row["manifest"]
+        staged[manifest] = reg.write_version(staged.get(manifest) or manifest.read_text(), row, version)
+        lockfile = root / row["lockfile"]
+        staged[lockfile] = reg.write_lock_version(staged.get(lockfile) or lockfile.read_text(), row, version)
+
+    for path, text in staged.items():
+        path.write_text(text)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="repository root (for tests)")
@@ -216,10 +308,21 @@ def main(argv: list[str] | None = None) -> int:
     chk = sub.add_parser("check", help="verify every package agrees on <version>")
     chk.add_argument("version")
     chk.add_argument("--allow-snapshot", action="store_true")
+    st = sub.add_parser("set", help="write <version> into every manifest and lockfile")
+    st.add_argument("version")
     args = parser.parse_args(argv)
 
     if args.command == "json":
         print(json.dumps(PACKAGES, indent=2))
+        return 0
+
+    if args.command == "set":
+        try:
+            set_version(args.root, args.version)
+        except ReleaseError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        print(f"Set {len(PACKAGES)} packages to {args.version}")
         return 0
 
     problems = check(args.root, args.version, args.allow_snapshot)

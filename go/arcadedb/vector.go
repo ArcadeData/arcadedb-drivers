@@ -18,6 +18,13 @@ import (
 // search has no candidate window to overflow; that asymmetry is left as it is rather than
 // papered over with a uniform shape.
 //
+// Truncated on VectorSearchResponse and HybridSearchResponse is a plain bool in the
+// generated model, so a response that omits "truncated" decodes as false, the most
+// reassuring reading of "the server did not say". The contract marks the field required
+// and today's server always sends it, but the generated model cannot tell an omitted
+// field from false. Truncated == false is therefore only as good as the server's promise,
+// not proof that the result is complete.
+//
 // Results stay the generated per-hit structs (Rid, Properties, Distance or Score), not
 // the []map[string]any rows QueryEnvelope produces. That is a real difference in row
 // shape, not an oversight: flattening only the hits would manufacture a third, hybrid

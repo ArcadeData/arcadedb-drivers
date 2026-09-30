@@ -44,6 +44,65 @@ func TestVectorSearchSendsSession(t *testing.T) {
 	}
 }
 
+// vectorCalls runs each of the three methods against db, discarding the response.
+var vectorCalls = map[string]func(context.Context, *Vector) error{
+	"search": func(ctx context.Context, v *Vector) error {
+		_, err := v.Search(ctx, generated.VectorSearchRequest{IndexName: "i", QueryVector: []float32{1}})
+		return err
+	},
+	"hybrid": func(ctx context.Context, v *Vector) error {
+		_, err := v.Hybrid(ctx, generated.HybridSearchRequest{VectorIndexName: "i", QueryVector: []float32{1}})
+		return err
+	},
+	"fulltext": func(ctx context.Context, v *Vector) error {
+		_, err := v.Fulltext(ctx, generated.FullTextSearchRequest{QueryText: "q"})
+		return err
+	},
+}
+
+func TestVectorAllMethodsSendSession(t *testing.T) {
+	for name, call := range vectorCalls {
+		t.Run(name, func(t *testing.T) {
+			var got map[string]any
+			var hdr http.Header
+			srv := fakeServer(t, captureBody(t, `{"count":0,"results":[]}`, &got, &hdr))
+			db := srv.DB("d")
+			db.sessionID = "S1"
+			if err := call(context.Background(), db.Vector()); err != nil {
+				t.Fatal(err)
+			}
+			if hdr.Get("arcadedb-session-id") != "S1" {
+				t.Fatalf("session header = %q", hdr.Get("arcadedb-session-id"))
+			}
+		})
+	}
+}
+
+func TestVectorAllMethodsEmptyBodyIsError(t *testing.T) {
+	for name, call := range vectorCalls {
+		t.Run(name, func(t *testing.T) {
+			srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+			if err := call(context.Background(), srv.DB("d").Vector()); err == nil {
+				t.Fatal("empty 2xx body must be an error")
+			}
+		})
+	}
+}
+
+func TestHybridReturnsTruncated(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"count":0,"truncated":true,"fused":false,"results":[]}`)
+	})
+	resp, err := srv.DB("d").Vector().Hybrid(context.Background(),
+		generated.HybridSearchRequest{VectorIndexName: "i", QueryVector: []float32{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Truncated {
+		t.Fatal("hybrid truncated lost")
+	}
+}
+
 func TestVectorSearchReturnsWholeResponse(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"count":1,"truncated":true,"candidateLimit":40,"indexName":"idx","scoring":"distance_lower_is_better:COSINE","results":[{"rid":"#1:0","distance":0.5,"properties":{}}]}`)

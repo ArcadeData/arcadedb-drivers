@@ -1,0 +1,50 @@
+name: Go driver CI
+
+# buf.yaml is deliberately not in the paths below: no Go code is generated from the .proto
+# contract yet. The gRPC client (M10b) adds it, for the reason ci.yml and ci-python.yml list
+# it: it can change generated output while leaving go/ untouched.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "go/**"
+      - "contracts/**"
+      - "scripts/**"
+      # The drift gate's untracked-file half is a `git status --porcelain` over the
+      # generated directory, which an ignore rule covering it would silence
+      # permanently and invisibly. ci.yml and ci-python.yml list .gitignore for the same reason.
+      - ".gitignore"
+      - ".github/workflows/ci-go.yml"
+  pull_request:
+    paths:
+      - "go/**"
+      - "contracts/**"
+      - "scripts/**"
+      - ".gitignore"
+      - ".github/workflows/ci-go.yml"
+
+jobs:
+  build:
+    name: Lint, drift gate and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go/**/go.sum
+
+      - name: Lint
+        run: go/scripts/lint.sh
+
+      - name: Regenerate and verify no drift
+        run: go/scripts/check-drift.sh
+
+      - name: Unit tests
+        working-directory: go/arcadedb
+        run: go test -race ./...

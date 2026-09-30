@@ -170,7 +170,7 @@ No third-party tool is involved; `gh` is preinstalled on GitHub-hosted runners.
 and remain `workflow_dispatch`-only. They change in three ways:
 
 - a `run-name` carrying package and version (`Publish @arcadedb/<package> <version>`), so a
-  dispatched run is identifiable in the UI and correlatable if needed;
+  dispatched run is legible in the Actions UI (the run ID itself comes from the dispatch API, not from the name);
 - their verify steps become calls to `scripts/release/verify-*.sh` (section 5);
 - their header comments are reframed: dispatched by `release.yml`; dispatching by hand is for
   recovery only, and bypasses the lockstep check.

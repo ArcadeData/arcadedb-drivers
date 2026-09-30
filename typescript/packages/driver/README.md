@@ -8,8 +8,13 @@ sets, bulk inserts - see [`@arcadedb/driver-grpc`](../driver-grpc/README.md), wh
 natively over gRPC rather than paging through repeated HTTP calls.
 
 Published on npm as [`@arcadedb/driver`](https://www.npmjs.com/package/@arcadedb/driver), with a
-provenance attestation: every release is built and published by `publish.yml` from a clean
-checkout of this repository, never from anyone's laptop.
+provenance attestation: every release is built and published by `publish.yml` (dispatched by
+`release.yml`) from a clean checkout of this repository, never from anyone's laptop.
+
+Releases are cut for every package at once: bump all versions with
+`scripts/set-release-version.sh <version>` in a reviewed PR, merge it, dispatch `release.yml` on
+`main`, then review and publish the draft GitHub release it creates. Publishing the draft is what
+starts the registry publish.
 
 ## Requirements
 

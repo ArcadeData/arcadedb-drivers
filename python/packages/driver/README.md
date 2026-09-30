@@ -5,8 +5,14 @@ contract, with a hand-written facade on top for the data plane, transactions, an
 the contract the generator cannot model.
 
 Published on PyPI as [`arcadedb-driver`](https://pypi.org/project/arcadedb-driver/), with
-attestations: every release is built and published by `publish-python.yml` from a clean checkout of
-this repository through PyPI's trusted publishing, with no long-lived token anywhere in the chain.
+attestations: every release is built and published by `publish-python.yml` (dispatched by
+`release.yml`) from a clean checkout of this repository through PyPI's trusted publishing, with no
+long-lived token anywhere in the chain.
+
+Releases are cut for every package at once: bump all versions with
+`scripts/set-release-version.sh <version>` in a reviewed PR, merge it, dispatch `release.yml` on
+`main`, then review and publish the draft GitHub release it creates. Publishing the draft is what
+starts the registry publish.
 
 ## Requirements
 

@@ -84,7 +84,9 @@ cause is upstream: time-series and Grafana scalars typed `"type": "object"`, `PO
 answering `{"result": "ok"}` where an array is declared (both in `python/CLAUDE.md`), and a checksum
 property named `"/unreadableFiles"` with a leading slash, which is deliberate upstream but which
 oapi-codegen turns into an unexported field. The Go client names that field through a generator
-overlay with an expiry test; each quirk's cost in Go is in `go/CLAUDE.md`.
+overlay with an expiry test. Go also meets a fourth, of its own: the time-series query response is
+a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" on either payload and
+`TS().Query` must bypass the typed parse. Each quirk's cost in Go is in `go/CLAUDE.md`.
 
 ## Workflows
 

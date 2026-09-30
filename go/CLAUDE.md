@@ -118,7 +118,8 @@ A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion`
 ## Deliberate asymmetries
 
 - **The facade errors; `Raw()` does not, for a non-2xx status.** Every facade method returns an
-  `*ArcadeDBError` for a non-2xx response. `Server.Raw()` returns the generated
+  `*ArcadeDBError` for a non-2xx response, with one deliberate exception: `Ready` answers a 503
+  (up, but not ready) with `(false, nil)`, because "not ready" is the answer it exists to give. `Server.Raw()` returns the generated
   `*generated.ClientWithResponses`, whose methods return a response and a nil error for any status
   the server answered with; the caller inspects `HTTPResponse.StatusCode`. Do not blur it.
 - **`ErrorMessage`, not `Error`.** Go forbids a field and a method with the same name, and
@@ -131,8 +132,11 @@ A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion`
   not parsed.
 - **Parsing an error never fails.** An absent, non-JSON or partial body yields an `*ArcadeDBError`
   carrying `Status` and whatever parsed; `RequestID` comes from the `X-Request-Id` header and falls
-  back to the body's `requestId`. The one helper that turns a response into this is the unexported
-  `checkResponse` in `errors.go`.
+  back to the body's `requestId`. The one parser is the unexported `newError` in `errors.go`;
+  `checkResponse` (buffered bodies) and `errorFromResponse` (streams and batch, which read the body
+  themselves) both call it, so every non-2xx status is parsed the same way. The errors with no
+  error body to parse - in-band stream and batch errors, a begin with no session id, an
+  unrepresentable graph-serializer result - are built directly.
 - **A 2xx body is decoded even when the generated parser skipped it.** oapi-codegen fills `JSON200`
   only when the status is exactly 200 and the `Content-Type` contains `json`. Every facade method
   falls back to `decodeBody` (`errors.go`) when `JSON200` is nil, so a JSON body behind a proxy that

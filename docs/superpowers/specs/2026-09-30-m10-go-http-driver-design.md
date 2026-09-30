@@ -111,7 +111,7 @@ go/
 ├── CLAUDE.md
 ├── scripts/
 │   ├── generate.sh              # resolve-openapi-contract.sh → oapi-codegen → arcadedb/generated/
-│   ├── check-drift.sh           # the four-part gate (section 6), shared by CI, verify-go.sh, contract-watch
+│   ├── check-drift.sh           # the four-part gate (section 6), shared by ci-go.yml and verify-go.sh
 │   └── lint.sh                  # gofmt, go vet, staticcheck over every module
 ├── tools/
 │   └── go.mod                   # `tool` directives, exact pins: oapi-codegen, staticcheck, go-licenses; cmd/checkzip
@@ -197,6 +197,9 @@ the overlay stays.
    `go.sum`, plus a check for an untracked `go.sum` — the Go equivalent of lockfile drift.
 
 The four parts live in `go/scripts/check-drift.sh`, which `ci-go.yml` and `verify-go.sh` both run.
+`contract-watch.yml` does not: it has just regenerated from a new contract, so parts 1, 2 and 4
+would fail by design. It inlines what still applies instead - `lint.sh`, the unit tests, the
+explicit-PASS `TestEveryOperationIsGenerated` check - and runs the e2e suite against the snapshot.
 Part 3 accepts `<Name>` or `<Name>WithBody`: the four operations with no JSON request body are
 generated only as `...WithBody`.
 
@@ -263,7 +266,7 @@ every method that returns a pointer — never `(nil, nil)`.
 is what makes the type an `error`; the body's `error` string therefore lands in `ErrorMessage`.
 `ExceptionArgs` is a plain string, as the contract types it.
 
-**`Help`, not `Help_`.** Python spells it `help_` to avoid shadowing a builtin and to match its
+**`Help`, not `help_`.** Python spells it `help_` to avoid shadowing a builtin and to match its
 generated model. Go has no such builtin and an exported field must be capitalised anyway; note the
 asymmetry in `errors.go` so nobody ports the underscore.
 
@@ -498,9 +501,10 @@ as `!` plus its lowercase, so `ArcadeData` becomes `!arcade!data`; that escaping
 ### `scripts/release/verify-go.sh`
 
 Shared by `release.yml`'s phase 1 dry run and by `publish-go.yml`, like `verify-npm.sh` and
-`verify-pypi.sh`. It checks the dispatch version against `Version` and `ServerVersion` against the
-contract, runs lint, unit tests, the drift gate and a clean `go mod tidy`, and validates the module zip with
-`golang.org/x/mod/zip.CheckDir` (BSD-3-Clause) through a small `tools/cmd/checkzip`. `gorelease` was
+`verify-pypi.sh`. It checks `ServerVersion` against the contract, runs lint, unit tests, the drift
+gate and a clean `go mod tidy`, and validates the module zip with `golang.org/x/mod/zip.CheckDir`
+(BSD-3-Clause) through a small `tools/cmd/checkzip`. It does not see a dispatch version: the check
+of the dispatch input against `Version` is `publish-go.yml`'s own verify job, before this runs. `gorelease` was
 considered and rejected: its API-compatibility verdicts are noise at v0 (section 12). A file Go's
 module-zip rules reject would make the tag unfetchable, and permanently so.
 

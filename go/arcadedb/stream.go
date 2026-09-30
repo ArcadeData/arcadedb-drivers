@@ -30,7 +30,9 @@ const defaultStreamError = "the stream reported an error"
 
 // QueryStream runs a read statement and yields its rows as they arrive. The request is
 // issued on first iteration, and the response body is closed when iteration ends by any
-// route, including the consumer breaking out.
+// route, including the consumer breaking out. Every range over the returned iterator
+// issues the request again, so treat it as single-use: ranging twice runs the statement
+// twice and may see different rows.
 //
 // The stats trailer is last in a complete stream, so a stream that ends without a Stats
 // event was cut short (a server write timeout, a dropped connection) and the rows seen

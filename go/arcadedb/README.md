@@ -134,7 +134,8 @@ arrives. It cannot today: this client never sends a `serializer`, so the server 
 ## Streaming a query or command: `QueryStream`/`CommandStream`
 
 `QueryStream` and `CommandStream` ask for `application/x-ndjson` and return an
-`iter.Seq2[StreamEvent, error]`. The request is issued on the first iteration:
+`iter.Seq2[StreamEvent, error]`. The request is issued on the first iteration, and again on every
+later range over the same iterator, so treat it as single-use:
 
 ```go
 for ev, err := range db.QueryStream(ctx, arcadedb.SQL, "SELECT FROM Person", nil) {
@@ -330,7 +331,8 @@ metric name for a time-series type is the **type name itself** (`Sensor`), not `
 
 ## Two error models
 
-Every facade method returns an `*ArcadeDBError` for a non-2xx response. Match it with `errors.As`:
+Every facade method returns an `*ArcadeDBError` for a non-2xx response, except `Ready`, which
+answers a 503 (up, but not ready) with `false` and no error. Match it with `errors.As`:
 
 ```go
 _, err := db.Query(ctx, arcadedb.SQL, "SELECT FROM NoSuchType", nil)

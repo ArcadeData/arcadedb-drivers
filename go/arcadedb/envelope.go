@@ -11,6 +11,10 @@ import (
 // query or command request.
 type QueryLanguage string
 
+// The languages the server accepts. Each constant's value is the exact string sent in the
+// request's "language" field; a language the server does not have enabled is refused by the
+// server, not by this client. QueryLanguage is a plain string type, so any other value the
+// server understands can be passed as QueryLanguage("...").
 const (
 	SQL     QueryLanguage = "sql"
 	Cypher  QueryLanguage = "cypher"
@@ -25,14 +29,17 @@ const (
 // pending, so Result is incomplete: a caller that reads Result and ignores Truncated can
 // silently work off a partial answer.
 //
-// Result, Limit, Returned and Truncated each take a default when the server omits them:
-// an empty (non-nil) slice, -1 (uncapped), 0 and false. Those defaults are the most
+// The contract marks limit, returned and truncated required, so a conforming server always
+// sends them; result is optional. Each field still takes a default when a server omits it
+// anyway: an empty (non-nil) slice, -1 (uncapped), 0 and false. Those defaults are the most
 // reassuring possible reading of "the server did not say": they assert a completeness the
-// server never claimed. Today's server always sends all four, but that is a property of
-// the implementation, not a guarantee the type enforces, so do not read Truncated == false
-// as proof of completeness when the server may have omitted it. The generated model is not
-// returned instead because it cannot tell an omitted field from a zero one, and a
-// pointer-typed model would leave callers one careless dereference from a panic.
+// server never claimed, so against a server that breaks the contract by omitting truncated,
+// Truncated == false is no proof of completeness. The generated model is not returned
+// instead because it cannot tell an omitted field from a zero one, and a pointer-typed
+// model would leave callers one careless dereference from a panic.
+//
+// Result's rows are decoded with encoding/json, so every number is a float64 and an integer
+// above 2^53 loses precision.
 type QueryEnvelope struct {
 	Result    []map[string]any
 	Limit     int

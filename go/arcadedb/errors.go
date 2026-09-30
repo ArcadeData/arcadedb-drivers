@@ -21,7 +21,8 @@ var ErrEmptyBody = errors.New("arcadedb: response had an empty body")
 const requestIDHeader = "X-Request-Id"
 
 // ArcadeDBError is returned by every facade method when the server answers with a
-// non-2xx status. Callers match it with errors.As.
+// non-2xx status, except Server.Ready, which reads a 503 as (false, nil). Callers match it
+// with errors.As.
 //
 // It carries the HTTP status plus whatever the server's JSON error body contributed.
 // Every field beyond Status may be empty, because the body may be absent, unparsable,

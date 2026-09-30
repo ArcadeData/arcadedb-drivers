@@ -1,6 +1,6 @@
 # M10: `arcadedb` for Go, the HTTP client
 
-**Status:** design approved in conversation, spec under review, plan pending
+**Status:** implemented; this spec describes what was built
 **Date:** 2026-09-30
 **Parent:** ArcadeData/arcadedb Epic #4894
 **Predecessors:** M1/M1b (TypeScript), M3/M3b (Python), M5 (vector), M7 (ndjson streaming), and the unified release (`2026-09-30-unified-release-design.md`). M9 (Java,
@@ -116,14 +116,14 @@ go/
 ├── tools/
 │   └── go.mod                   # `tool` directives, exact pins: oapi-codegen, staticcheck, go-licenses; cmd/checkzip
 ├── e2e/
-│   └── go.mod                   # testcontainers-go; imports ../arcadedb through go.work
+│   └── go.mod                   # testcontainers-go; imports ../arcadedb through go.work and a replace
 └── arcadedb/                    # module github.com/ArcadeData/arcadedb-drivers/go/arcadedb
     ├── go.mod                   # the three generator runtime deps, nothing else
     ├── README.md  LICENSE
     ├── version.go               # const Version, const ServerVersion
     ├── server.go  database.go  transaction.go  envelope.go  errors.go  auth.go
     ├── vector.go  timeseries.go  dashboards.go  promql.go  batch.go  stream.go
-    ├── internal/unwrap/  internal/batchrows/
+    ├── internal/batchrows/  internal/ndjson/
     └── generated/               # NEVER hand-edited
         ├── oapi-codegen.yaml
         ├── overlay.yaml
@@ -138,7 +138,9 @@ other two languages. `go/arcadedbgrpc/` joins as a fourth module in M10b.
 
 **`tools/go.mod` pins every tool** through Go's `tool` directive and is run as
 `go tool <name>`. It is the whole reproducibility story for generation: Go has no separate
-lockfile, and `go.sum` pins the exact bytes. Dependabot bumps it like any other module.
+lockfile, and `go.sum` pins the exact bytes. Dependabot bumps it like any other module. Its `go`
+line, and `go.work`'s, read `1.26.0` rather than `1.26`: a pinned tool's dependency requires it,
+and `go mod tidy` writes the patch-level form. `arcadedb/go.mod` and `e2e/go.mod` keep `go 1.26`.
 
 **`generated/` is a public package** named `generated`, so `srv.Raw()` can return a typed client
 whose types callers can name; Go's `internal/` would hide it. The name mirrors `_generated/` and
@@ -161,18 +163,23 @@ Each writer asserts it matched exactly once, as the `pyproject.toml` rewrites do
 
 ### The `"/unreadableFiles"` overlay
 
-The contract names one property `"/unreadableFiles"` with a leading slash (line 7871 of the 26.10.1
-contract, in a checksum response). oapi-codegen derives an **unexported** Go field from it, so the
-value is silently dropped on decode and `go vet` fails. This is an upstream contract defect, the
-third after the two `python/CLAUDE.md` records, and Go is the first client where it breaks the
-build.
+The contract names one property `"/unreadableFiles"` with a leading slash, in the 200 body of
+`getDatabaseSnapshotChecksums` (`GET /api/v1/ha/snapshot/{database}/checksums`, line 7871 of the
+26.10.1-SNAPSHOT contract). oapi-codegen derives an **unexported** Go field from it, so the value is
+silently dropped on decode and `go vet` fails. Unlike the two defects `python/CLAUDE.md` records,
+the contract is accurate here: the server sends that key, and the slash is deliberate upstream
+(#7956). The body is a flat map keyed by file name, and a file name never contains a path
+separator, so the one reserved key cannot collide with a file. It is the third contract quirk this
+repository works around, and Go is the first client where it breaks the build.
 
 `generated/overlay.yaml` is an [OpenAPI Overlay](https://spec.openapis.org/overlay/latest.html)
 that oapi-codegen applies at generation time, setting `x-go-name: UnreadableFiles` on that property.
 It is generator configuration, not a contract edit, so it stays inside the rule that generated
 output is fixed through the contract or the generator config. It carries an expiry: a unit test
 fails once the committed contract no longer contains `"/unreadableFiles"`, forcing the overlay's
-deletion when upstream fixes the name. The upstream issue is filed as part of this milestone.
+deletion if upstream ever respells the key. An upstream issue asking whether it can be spelled
+some other collision-proof way is drafted for a human to file or drop; until the contract changes,
+the overlay stays.
 
 ### The gate
 
@@ -185,8 +192,12 @@ deletion when upstream fixes the name. The upstream issue is filed as part of th
    runs it explicitly and fails if it was skipped rather than passed. oapi-codegen skips nothing today; this is the **positive** check M9 proposes, so a
    future generator version cannot start dropping operations silently the way
    `openapi-python-client` does.
-4. `go mod tidy` in each module, then `git diff --exit-code` over every `go.mod` and `go.sum` — the
-   Go equivalent of lockfile drift.
+4. `go mod tidy` in `arcadedb/` and `tools/`, then `git diff --exit-code` over every `go.mod` and
+   `go.sum`, plus a check for an untracked `go.sum` — the Go equivalent of lockfile drift.
+
+The four parts live in `go/scripts/check-drift.sh`, which `ci-go.yml` and `verify-go.sh` both run.
+Part 3 accepts `<Name>` or `<Name>WithBody`: the four operations with no JSON request body are
+generated only as `...WithBody`.
 
 The spike found oapi-codegen's output byte-identical across two runs, stamped only with the
 generator version (which moves only when `tools/go.mod` does). The plan's first step re-verifies
@@ -238,11 +249,18 @@ Errors are returned, never panicked. `*ArcadeDBError` implements `error` and car
 `errors.ts` and `errors.py`; callers match it with `errors.As`. `RequestID` comes from the
 `X-Request-Id` response header. **Parsing an error never itself fails**: an absent, unparsable or
 incomplete body yields an `*ArcadeDBError` carrying only the status, which is `parseBody`'s contract
-in TypeScript and load-bearing on a failure path. `internal/unwrap` holds the one helper that turns
-a generated response into its parsed body or an `*ArcadeDBError`.
+in TypeScript and load-bearing on a failure path. `RequestID` falls back to the body's `requestId`
+when the header is empty. Two unexported helpers in `errors.go` do the unwrapping: `checkResponse`
+turns a non-2xx response into an `*ArcadeDBError`, and `decodeBody[T]` returns the generated
+parser's `JSON200` when it is set and otherwise decodes the body itself. The fallback is needed
+because oapi-codegen fills `JSON200` only for status exactly 200 with a `Content-Type` containing
+`json`, so a JSON body behind a proxy that rewrites the type, or a 203, would otherwise be lost. An
+empty or `null` 2xx body yields `[]` from `ListDatabases`, `false` from `Exists`, and an error from
+every method that returns a pointer — never `(nil, nil)`.
 
 **`ErrorMessage`, not `Error`.** Go forbids a field and a method with the same name, and `Error()`
 is what makes the type an `error`; the body's `error` string therefore lands in `ErrorMessage`.
+`ExceptionArgs` is a plain string, as the contract types it.
 
 **`Help`, not `Help_`.** Python spells it `help_` to avoid shadowing a builtin and to match its
 generated model. Go has no such builtin and an exported field must be capitalised anyway; note the
@@ -261,13 +279,17 @@ type QueryEnvelope struct {
 }
 ```
 
-The contract gives `QueryResponse` no `required` list, so the generated model makes every field a
-pointer. The defaults are those of `facade/data.ts` and `facade/data.py`, and so is the warning the
-doc comment must reproduce: they are the most reassuring possible reading of "the server did not
-say", they assert a completeness the server never claimed, and today's server always sending all
-four is a property of the implementation, not a guarantee the type enforces. Returning the generated
-model would instead hand callers a `*bool` whose `nil` is one careless dereference from a panic or
-one careless default from a silent partial result.
+The 26.10.1-SNAPSHOT contract marks `limit`, `returned` and `truncated` required, so the generated
+model types them as plain values and cannot tell an omitted field from a zero one; `result` stays
+optional. The envelope applies the defaults of `facade/data.ts` and `facade/data.py` when the server
+omits a field, probing the raw body for the `limit` key (whose zero would otherwise read as a cap of
+0) rather than trusting the model, and it does not fail on a response that omits one. The doc
+comment reproduces the other drivers' warning: the defaults are the most reassuring possible reading
+of "the server did not say", and today's server always sending all four is a property of the
+implementation, not a guarantee the type enforces. A graph-serializer `{vertices, edges}` result,
+which the envelope cannot represent, is an `*ArcadeDBError` with status 200; it cannot arrive today
+because no request sets a serializer. Rows are `map[string]any`, so numbers decode as `float64`, as
+in the TypeScript driver.
 
 `params` is `map[string]any`; `language` and `command` pass through to the generated request so a
 contract change to either fails the build here rather than on the wire. As in both other drivers,
@@ -302,6 +324,12 @@ The contract, each clause with its own unit test:
 3. **Commit fails → best-effort rollback** (its own error discarded) so the session is not left for
    `arcadedb.server.httpTxExpireTimeout` to reap, then return the commit error.
 
+Both rollbacks run under `context.WithoutCancel(ctx)`, because the commonest reason `fn` fails is a
+cancelled `ctx`, and a rollback bound to it would never reach the server. `runtime.Goexit` inside
+`fn` rolls back and lets the goroutine keep exiting. `begin` sends the receiver's session id, so
+`tx.Transaction` called on the handle `fn` received is refused by the server (409) rather than
+silently opening an independent transaction; the Python driver never sends it on begin.
+
 ### Streaming
 
 `db.QueryStream` and `db.CommandStream` (M7 ndjson) return `iter.Seq2[StreamEvent, error]`, Go's
@@ -312,17 +340,24 @@ without one was cut short. Yielding only rows would have discarded `truncated`, 
 silent-partial-result hazard `QueryEnvelope` exists to prevent. The request is issued on the first
 iteration and carries `Accept: application/x-ndjson`, which alone switches the server into
 streaming mode. Lines are split on `\n` only, never on other Unicode line breaks, which can appear
-raw inside JSON, and blank lines are skipped. An in-band `{"error": {...}}` line is yielded once as
-`err` (an `*ArcadeDBError` with status 200) and ends the iteration. Leaving the loop early, by
+raw inside JSON, and blank lines are skipped. There is no line-length limit, and a read error that
+is not EOF drops the partial line rather than decoding it, so a cancelled `ctx` surfaces as an error
+`errors.Is(err, context.Canceled)` matches. An in-band `{"error": {...}}` line is yielded once as
+`err` (an `*ArcadeDBError` with status 200) and ends the iteration. An event of an unknown kind, and
+`"record": null`, are skipped, where the Python driver yields an empty event; a trailer with no
+`limit` reads as `-1`. Leaving the loop early, by
 `break`, `return` or an error, closes the response body. `CommandStream` accepts read-only
 statements only; the server answers 400 to a mutating one.
 
 ### Namespaces and `Raw`
 
-`db.Vector()`, `db.TS()`, `db.Grafana()` and `db.PromQL()` group the rest of the surface. As in the Python driver they pass generated request and response models through unaltered;
-`QueryEnvelope` remains the only normalised type, and `db.Vector()` returning whole generated
-responses keeps `truncated`, `count` and `scoring` attached to their rows, for the reason
-`facade/vector.py` gives.
+`db.Vector()`, `db.TS()`, `db.Grafana()` and `db.PromQL()` group the rest of the surface.
+`db.Vector()` and `db.PromQL()` pass generated request and response models through unaltered;
+`db.TS().Query`, `db.TS().Latest` and `db.Grafana().Query` return the parsed body as
+`map[string]any` (section 8). `QueryEnvelope` remains the only normalised type, and `db.Vector()`
+returning whole generated responses keeps `truncated`, `count` and `scoring` attached to their rows,
+for the reason `facade/vector.py` gives. `Truncated` there is a plain `bool` in the generated model,
+so an omitted field reads `false`; the doc comment says so.
 
 `srv.Raw()` returns `*generated.ClientWithResponses` and never errors on a non-2xx status. One Go
 caveat, documented on `Raw`: oapi-codegen represents a nullable field as a pointer, so through `Raw`
@@ -341,33 +376,44 @@ Every item below issues its request through a generated call; none builds HTTP b
 **Non-JSON request bodies** use the generated `...WithBody(ctx, …, contentType, io.Reader)`
 variants:
 
-- `db.BatchLoad(ctx, rows)` and `db.BatchLoadStream(ctx, seq)` encode vertex and edge lines through
-  `internal/batchrows`, a port of `_internal/batch_rows.py` with the same line format and tests.
-  The streaming form writes through an `io.Pipe`, so a large load is never buffered.
-- `db.TS().Write(ctx, lines)` sends the `text/plain` line-protocol body.
+- `db.BatchLoad(ctx, vertices, edges, params)` and `db.BatchLoadStream(ctx, vertices, edges,
+  params)` take the vertices and edges as two `iter.Seq`s, so the vertices-before-edges order cannot
+  be got wrong, and encode them through `internal/batchrows`, a port of `_internal/batch_rows.py`
+  with the same line format and tests. Both write through an `io.Pipe` fed by a goroutine the call
+  always stops and waits for, so a large load is never buffered and no sequence is iterated after
+  the call returns. A property named `@type`, `@class`, `@id`, `@from` or `@to` aborts the upload at
+  that row with `ErrPropertyShadowsControlKey`, where the Python and TypeScript drivers let it
+  silently override the control key; earlier rows may already be committed.
+- `db.TS().Write(ctx, lineProtocol, precision)` sends the `text/plain` line-protocol body.
 - The two protobuf PromQL remote read/write routes are not wrapped, as in the Python driver; they
   stay reachable through `Raw()`'s `...WithBody` variants.
 
-**Upstream defect 1: scalars typed as `"type": "object"`** (time-series rows and bucket values,
-`latest`, Grafana frame values). oapi-codegen types them as `map[string]interface{}`, and
-`json.Unmarshal` of a number into a map is a hard error. `TS().Query`, `TS().Latest` and
-`Grafana().Query` therefore call the plain generated `Client`, which returns `*http.Response`, and
-decode the body into `map[string]any`, as `facade/timeseries.py` and `facade/dashboards.py` do.
-Their doc comments carry Python's warning: do not route them back through the typed parser until the
-contract's element types are fixed.
+**Upstream defect 1: the time-series and Grafana responses.** The contract types their scalar
+elements (time-series rows and bucket values, `latest`, Grafana frame values) as `"type":
+"object"`. That is what crashes the Python client's models, but it does **not** bite Go:
+oapi-codegen emits `interface{}` for those elements, and the values survive. What does bite is the
+time-series query response, a raw/aggregated `oneOf` with no discriminator: both generated `As...`
+accessors "succeed" on either payload, and the typed raw model has no `limit` or `truncated`, so the
+typed parse discards the one flag that says the rows are a partial answer. `TS().Query` therefore
+calls the plain generated `Client`, which returns `*http.Response`, and decodes the body into
+`map[string]any`, as `facade/timeseries.py` does. `TS().Latest` and `Grafana().Query` would parse
+correctly typed, and return `map[string]any` too, so the family hands back one shape with nothing
+dropped or defaulted, as in the Python driver. Their doc comments say not to route them back through
+the typed parser.
 
 **Upstream defect 2: `POST /api/v1/server` returns `{"result": "ok"}`** where the contract declares
-an array. No facade method wraps it, as in the Python driver. Only `Raw()` and the e2e fixture are
-affected, and the fixture creates its database by decoding the plain generated `Client`'s
-`*http.Response` itself.
+an array. The typed `ExecuteServerCommandWithResponse` does not fail on it; it reports `limit`,
+`returned` and `truncated` as zero values the wire never carried. No facade method wraps it, as in
+the Python driver. Only `Raw()` and the e2e fixture are affected, and the fixture creates its
+database through the plain generated `ExecuteServerCommandWithBody`, checking the status and not
+decoding the body.
 
-**Upstream defect 3: `"/unreadableFiles"`**, handled by the overlay in section 6.
+**Upstream quirk 3: `"/unreadableFiles"`**, deliberate upstream, handled by the overlay in
+section 6.
 
-**Verify, don't assume.** A plan step checks each item against a live server before its workaround
-is written. In particular, the time-series query response is a `oneOf` that oapi-codegen models as a
-lazily parsed `json.RawMessage` union, so that one path may not need bypassing at all. The plan
-records the outcome in `go/CLAUDE.md` either way; if a workaround turns out unnecessary it is not
-written.
+**Verified, not assumed.** Each item was checked against a live 26.10.1-SNAPSHOT server before its
+workaround was written, and the outcomes are recorded in `go/CLAUDE.md`. The live check also found
+that the PromQL metric for a time-series type is the type name itself, not `<type>_value`.
 
 ## 9. CI, tests, licenses, Dependabot
 
@@ -376,8 +422,10 @@ written.
 Paths: `go/**`, `contracts/**`, `scripts/**`, `.gitignore`, and itself. Deliberately not
 `buf.yaml`; M10b adds it.
 
-- **`build`** on Go 1.26: `gofmt -l` must print nothing, `go vet ./...`, `go tool staticcheck ./...`,
-  regenerate plus the four-part drift gate, then `go test -race ./...` (unit tests only, offline).
+- **`build`** on Go 1.26: `go/scripts/lint.sh` (`gofmt -l` must print nothing, `go vet ./...`,
+  `go tool staticcheck ./...`, over every module in `go.work`), `go/scripts/check-drift.sh`
+  (regenerate plus the four-part drift gate), then `go test -race ./...` in `go/arcadedb` (unit
+  tests only, offline).
 - **`e2e`** on Go 1.27, `needs: build`, `timeout-minutes: 15`: the `e2e` module against the same
   ArcadeDB image the other e2e jobs use.
 
@@ -397,8 +445,11 @@ mirrors the Python suite feature for feature.
 requires — and maps the results through the existing `NORMALISE` map and allow-list. The spike found
 every expected dependency permissive: oapi-codegen's runtime (Apache-2.0), `go-jsonmerge` (MIT),
 `google/uuid` (BSD-3-Clause), `testcontainers-go` (MIT), `staticcheck` (MIT), `go-licenses`
-(Apache-2.0). No new allow-list entry is anticipated; the reader's first run is what proves it.
-`license-compliance.yml` adds the Go `go.mod`/`go.sum` files to its paths.
+(Apache-2.0). No new allow-list entry was needed. `go-licenses` names packages, so the reader
+resolves each to the longest module path that owns it and records one entry per (module, license)
+pair; a malformed row, a package no module owns, or fewer than 37 modules (74 were measured) raises
+a collector error rather than passing. `license-compliance.yml` adds `go/go.work` and the Go
+`go.mod`/`go.sum` files to its paths.
 
 ### Dependabot
 
@@ -463,15 +514,25 @@ language cannot repeat the gap.
 ### `publish-go.yml` (new)
 
 `workflow_dispatch` only, a child of `release.yml`, with inputs `package` and `version`. It refuses
-any ref but `refs/tags/v<version>`, as its siblings do. It holds `contents: write` and **no registry
-secret**, because Go has no registry credential to hold. It:
+any ref but `refs/tags/v<version>`, as its siblings do. It holds **no registry secret**, because Go
+has no registry credential to hold, and it is two jobs, so that the one write token never shares a
+runner with third-party code:
 
-1. re-runs `verify-go.sh`;
-2. creates and pushes the annotated tag `go/<package>/v<version>` on the tag's commit. If that tag
-   already exists on the same commit it continues; on any other commit it fails;
-3. requests `GOPROXY=https://proxy.golang.org go list -m <module>@v<version>` and polls the `.info`
-   URL until it answers 200. That first fetch is the publish: it records the checksum in
-   `sum.golang.org` and lets `pkg.go.dev` index the version.
+1. **`verify`** (`contents: read`) checks the dispatch input against `Version` and the package-table
+   row's name against `go.mod`'s module path, then runs `verify-go.sh`, which executes code fetched
+   through the module proxy (staticcheck, oapi-codegen, go-licenses, test dependencies).
+2. **`publish`** (`contents: write`) runs only git, the go command's `go list -m`, and
+   `release-packages.py`. It refuses unless `HEAD` is the commit `verify` checked, then creates and
+   pushes the annotated tag `go/<package>/v<version>` on it. The checkout persists no credentials;
+   the token is passed on that one push. If the tag already exists on the same commit it continues;
+   on any other commit it fails.
+3. It then requests `GOPROXY=https://proxy.golang.org go list -m <module>@v<version>` and polls
+   `is-published` until it answers `true`. That first fetch is the publish: it records the checksum
+   in `sum.golang.org` and lets `pkg.go.dev` index the version.
+
+Neither job restores a Go cache (`cache: false`): a publish cannot be undone, so it is not fed state
+an earlier run left behind. A `concurrency` group per package and version keeps two dispatches of
+one version from racing to the tag.
 
 Being dispatched rather than called keeps its OIDC identity and its own filename, for the same
 reason as the npm and PyPI children, although no trusted publisher depends on it today.
@@ -481,7 +542,7 @@ reason as the npm and PyPI children, although no trusted publisher depends on it
 - The README release paragraph and `go/CLAUDE.md` state that a fetched version cannot be deleted
   or replaced; the remedy for a bad one is a `retract` directive in the next version.
 - The tag ruleset still outstanding before 0.2.0 must protect `go/**` tags from deletion and forced
-  moves as well as `v*`.
+  moves as well as `v*`, and must let the Actions bot push them.
 - **v2.** When the lockstep version reaches 2.0.0, this module's path must become `.../go/arcadedb/v2`
   in the same release, and every import in the README and examples with it. `release-packages.py
   check` refuses a `>= 2.0.0` version while the module path lacks the matching `/vN` suffix, so the
@@ -495,12 +556,13 @@ version with every other package's, and `check` refuses any disagreement.
 ## 11. Documentation
 
 - `go/CLAUDE.md`: commands, the three-module layout, generation and the overlay, the deliberate
-  asymmetries (`Help` vs `help_`, callback transactions, `TxError` vs `errors.Join`, no sync/async
-  split, no golangci-lint), and the three contract defects.
+  asymmetries (`ErrorMessage`, `Help` vs `help_`, callback transactions, `TxError` vs `errors.Join`,
+  no sync/async split, no default timeout, `Raw`'s null/absent caveat, no golangci-lint), the three
+  contract quirks with their live findings, and the release permanence note.
 - `go/arcadedb/README.md`: usage, the timeout warning, `Raw`'s null/absent caveat, the compatibility
   table, and the release paragraph with its permanence warning.
 - Root `CLAUDE.md`: `go/` in the opening list, `ci-go.yml` and `publish-go.yml` in Workflows, the
-  `goproxy` registry, and the third contract defect.
+  `goproxy` registry, and the third contract quirk.
 - Root `README.md`: the Go package in the package list.
 
 ## 12. Out of scope
@@ -509,5 +571,6 @@ version with every other package's, and `check` refuses any disagreement.
 - An API-compatibility gate. `gorelease` could enforce one, but at v0 nothing is promised; enabling
   it is a decision for 1.0.
 - A vanity import path (D3).
-- Fixing the three contract defects upstream. This milestone files the `/unreadableFiles` issue and
-  works around all three; fixing them belongs to arcadedb.
+- Fixing the contract upstream. This milestone works around all three quirks and drafts an issue
+  about `/unreadableFiles` for a human to file or drop (the spelling is deliberate upstream);
+  changing the contract belongs to arcadedb.

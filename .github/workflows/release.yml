@@ -468,10 +468,12 @@ jobs:
             # Nothing was dispatched: is-published erred, the tag moved, or setup failed.
             status=failed
           fi
+          # Named after the row, not a fixed result.json: the summary merges every artifact into
+          # one directory, so each row's file must be unique there (see publish-summary).
           mkdir -p result
           jq -n --arg id "$ID" --arg status "$status" --arg url "$RUN_URL" \
-            '{id: $id, status: $status, url: $url}' > result/result.json
-          cat result/result.json
+            '{id: $id, status: $status, url: $url}' > "result/$ID.json"
+          cat "result/$ID.json"
 
       # First use of the artifact actions in this repository: pinned to the commit of each
       # action's latest release tag. overwrite, because re-running a failed row uploads the same
@@ -481,7 +483,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: result-${{ matrix.package.id }}
-          path: result/result.json
+          path: result/${{ matrix.package.id }}.json
           if-no-files-found: error
           overwrite: true
 
@@ -501,6 +503,12 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # merge-multiple puts every artifact's file straight into results/, as results/<id>.json.
+      # Without it the layout depends on how many artifacts match: download-artifact nests each
+      # under results/<artifact-name>/ only when more than one is listed, so a lone result (the
+      # usual re-run of one failed row) would land somewhere else and read as unknown.
+      # Whether a re-run attempt sees the artifacts attempt 1's successful rows uploaded is
+      # unproven; the fork rehearsal (Task 8) exercises it.
       # Allowed to fail: with no result artifacts at all, every row still renders, as unknown.
       - name: Download the results
         continue-on-error: true
@@ -508,6 +516,7 @@ jobs:
         with:
           pattern: result-*
           path: results
+          merge-multiple: true
 
       # One row per package in the table publish-verify emitted, not per artifact found: a row
       # whose result is missing, unreadable or malformed is reported as unknown, never dropped.
@@ -525,7 +534,7 @@ jobs:
             echo "| --- | --- | --- | --- |"
           } > table.md
           while IFS=$'\t' read -r id name registry; do
-            file="results/result-$id/result.json"
+            file="results/$id.json"
             status=$(jq -r --arg id "$id" 'select(.id == $id) | .status' "$file" 2>/dev/null) || status=""
             url=$(jq -r --arg id "$id" 'select(.id == $id) | .url' "$file" 2>/dev/null) || url=""
             case "$status" in

@@ -119,8 +119,11 @@ describes the contract itself and a future Python or Go client reads the same mo
   scripts and workflows, and the manifests and lockfiles the table names.
 - `publish.yml` — the only thing that talks to npm, and it is **workflow_dispatch only**, a child
   of `release.yml`, which dispatches it once per package. Dispatching it by hand is for recovering a
-  partial release and **bypasses the lockstep check**. Nothing publishes on push, tag, or
-  schedule. It re-verifies that the dispatch input, the
+  partial release and **bypasses the lockstep check**. It refuses to run anywhere but the version's
+  own tag (`github.ref` must be `refs/tags/v<version>`), because the UI and `gh workflow run` both
+  default to `main`; recover with exactly
+  `gh workflow run publish.yml --ref v<version> -f package=<pkg> -f version=<version>`. Nothing
+  publishes on push, tag, or schedule. It re-verifies that the dispatch input, the
   package version, and the contract's `info.version` all agree before publishing. It publishes
   **one package per dispatch**, chosen by a `package` input (`driver` or `driver-grpc`), and is
   parameterised rather than duplicated into a sibling workflow for a specific reason: npm keys a
@@ -137,7 +140,10 @@ describes the contract itself and a future Python or Go client reads the same mo
   versions).
 - `publish-python.yml` — the npm workflow's sibling, and the only thing that talks to PyPI; also
   **workflow_dispatch only** and a `release.yml` child, hand-dispatched for recovery only (it too
-  bypasses the lockstep check), with the same dispatch-input/version/contract re-verification.
+  bypasses the lockstep check), with the same refusal of any ref but `refs/tags/v<version>` —
+  recover with exactly
+  `gh workflow run publish-python.yml --ref v<version> -f package=<pkg> -f version=<version>` —
+  and the same dispatch-input/version/contract re-verification.
   It publishes **one package per dispatch**, chosen by a `package` input (`driver` or
   `driver-grpc`), and is parameterised for the same reason `publish.yml` is: PyPI, like npm, keys a
   trusted publisher on the workflow **filename**, so both packages naming this one file means one

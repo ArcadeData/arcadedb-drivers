@@ -5,8 +5,15 @@ run-name: Publish @arcadedb/${{ inputs.package }} ${{ inputs.version }}
 # release.yml dispatches this workflow once per package, after its own lockstep check and dry run.
 # Dispatching it by hand (the Actions UI, or `gh workflow run publish.yml`) is for recovering a
 # partial release - say one package published and the other did not - and it BYPASSES the lockstep
-# check, so the versions being published are then the operator's responsibility. This workflow is
-# the ONLY place that talks to the npm registry.
+# check, so the versions being published are then the operator's responsibility. It must run AT
+# THE TAG - the first step refuses any other ref, and both the UI and `gh workflow run` default to
+# `main` - so recover with exactly:
+#
+#   gh workflow run publish.yml --ref v<version> -f package=<pkg> -f version=<version>
+#
+# where <pkg> is driver or driver-grpc.
+#
+# This workflow is the ONLY place that talks to the npm registry.
 #
 # It publishes ONE package per dispatch, chosen by the `package` input. That input is why this
 # file is parameterised rather than duplicated into a sibling workflow: npm keys a trusted
@@ -45,6 +52,23 @@ jobs:
       PKG: ${{ inputs.package }}
       PKG_DIR: packages/${{ inputs.package }}
     steps:
+      # A version is published only from its own tag. The Actions UI and `gh workflow run` both
+      # default to `main`, and a hand dispatch left on that default would build and publish
+      # whatever main holds today under a version that was tagged, and verified, on another commit.
+      # release.yml always dispatches with ref=v<version>, so this only ever refuses a hand dispatch
+      # on the wrong ref. First, before checkout, so a refused run builds nothing. Both values reach
+      # the shell through the environment: `version` is free text typed by whoever dispatches.
+      - name: Refuse unless dispatched on the tag v<version>
+        env:
+          REF: ${{ github.ref }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$REF" != "refs/tags/v$REQUESTED_VERSION" ]; then
+            echo "::error::Dispatched on $REF, not refs/tags/v$REQUESTED_VERSION. Publish only from the version's tag: gh workflow run publish.yml --ref v$REQUESTED_VERSION -f package=$PKG -f version=$REQUESTED_VERSION"
+            exit 1
+          fi
+          echo "OK: dispatched on $REF"
+
       # actions/checkout is pinned to the same commit SHA ci.yml uses, never a mutable tag - a tag
       # can be moved after the fact, a SHA cannot.
       - name: Checkout

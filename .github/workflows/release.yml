@@ -403,8 +403,9 @@ jobs:
           fi
 
           # Dispatched, not called as a reusable workflow: see this file's header. The ref is the
-          # tag, so the child checks out the tagged commit, and it re-verifies `version` against
-          # the package's manifest itself. return_run_details makes the API answer 200 with the
+          # tag, so the child checks out the tagged commit; the child itself refuses any ref but
+          # refs/tags/v<version> (a same-named branch shadowing the tag would fail there, closed),
+          # and it re-verifies `version` against the package's manifest. return_run_details makes the API answer 200 with the
           # new run's id instead of a bare 204.
           echo "dispatching=true" >> "$GITHUB_OUTPUT"
           run_id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/dispatches" \

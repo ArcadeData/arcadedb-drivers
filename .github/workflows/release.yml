@@ -1,5 +1,7 @@
 name: Release
-run-name: Release v${{ inputs.version }}${{ inputs.dry-run && ' (dry run)' || '' }}
+# "Publish v0.2.0" for phase 2; "Release v0.2.0" / "Release v0.2.0 (dry run)" for phase 1, where
+# `github.event.release` is empty. Display only: nothing here reaches a shell.
+run-name: ${{ github.event_name == 'release' && format('Publish {0}', github.event.release.tag_name) || format('Release v{0}{1}', inputs.version, inputs.dry-run && ' (dry run)' || '') }}
 
 # One lockstep release of every package in scripts/release-packages.py's table, in two phases with
 # a human between them.
@@ -26,9 +28,20 @@ run-name: Release v${{ inputs.version }}${{ inputs.dry-run && ' (dry run)' || ''
 # file its trusted publisher already names, so nothing on either registry changes. Those two
 # workflows stay the ONLY files that talk to npm and PyPI; this one never publishes.
 #
+# Phase 2 re-checks the tag (shape, reachable from main, every manifest at it reads its version),
+# then fans out one job per package. Each asks its registry whether the version is already there
+# and, if not, dispatches that package's publish workflow at the tag and waits for it. A summary
+# job appends what actually shipped - published, skipped, failed, or unknown, with the child run's
+# link - to the release body. There is no rollback, because a registry publish cannot be undone.
+# A partial release is completed by fixing the cause and RE-RUNNING FAILED JOBS on this run: every
+# package that did publish now reads as already published and is skipped, so only the missing ones
+# are dispatched again. If the fix needs a code change, that is a NEW VERSION, released from
+# phase 1 again: the tag never moves and a version is never published from a different commit.
+#
 # Nothing here runs on push, tag or schedule. Every phase 1 job is gated on
 # `github.event_name == 'workflow_dispatch'` so none of them ever runs on the phase 2 event, where
-# `inputs` is empty.
+# `inputs` is empty; every phase 2 job is gated on `github.event_name == 'release'`, so none of
+# them runs on a dispatch.
 on:
   workflow_dispatch:
     inputs:
@@ -41,19 +54,34 @@ on:
         required: false
         type: boolean
         default: false
+  # Fires when a human publishes the draft phase 1 created (a draft made with GITHUB_TOKEN starts
+  # no workflow, and neither does this file's own edit of the published release's body).
+  release:
+    types: [published]
 
-# Every job reads by default. The one job in phase 1 that writes (tag + draft) widens its own
-# grant; nothing in phase 1 gets id-token (it never publishes) or actions: write (it dispatches
-# nothing).
+# Every job reads by default, and each job that needs more widens only its own grant: in phase 1
+# the tag-and-draft job (contents: write); in phase 2 the fan-out (actions: write, to dispatch)
+# and the summary (contents: write, to edit the release). No job holds both of those write
+# grants, and nothing in this file gets id-token: it never publishes - the dispatched publish
+# workflows request their own OIDC tokens.
 permissions:
   contents: read
 
 # Two runs for the same version never overlap: a second dispatch for a version queues behind the
-# first, as does a second phase 2 run for the same release. (Phase 1 keys on `0.2.0` and phase 2 on
-# the tag `v0.2.0`, so the two phases do not share a group; they need not, because phase 2 can only
-# start once phase 1 has finished and a human has published its draft.)
+# first, as does a second phase 2 run for the same release. The event name is part of the key, so
+# the two phases never share a group - they need not, because phase 2 can only start once phase 1
+# has finished and a human has published its draft - and a mistyped dispatch (`version: v0.2.0`)
+# can never queue into, and so displace, a phase 2 run's group.
+#
+# GitHub keeps only ONE pending run per group: a newer queued run cancels an older pending one.
+# That cannot drop a publish here. Phase 2 fires once per published release, and "re-run failed
+# jobs" makes a new attempt of the same run rather than a second run, so a pending phase 2 run is
+# rare - it takes the same tag's release being published again while a run is still going. And
+# whichever run (or attempt) is cancelled while pending has started no job and dispatched
+# nothing, while the newer one that displaced it does the whole fan-out itself, skipping whatever
+# already reached its registry.
 concurrency:
-  group: release-${{ inputs.version || github.event.release.tag_name }}
+  group: release-${{ github.event_name }}-${{ inputs.version || github.event.release.tag_name }}
   # Never cancel: the run being cancelled may be mid-publish, and a registry publish cut off
   # halfway is worse than a queued run.
   cancel-in-progress: false
@@ -234,3 +262,316 @@ jobs:
             echo "2. **Edit** the notes if they need it - most PRs are unlabelled and land under Changes."
             echo "3. **Publish** the release. That is the approval: it starts phase 2, which publishes every package to its registry and cannot be undone."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------------------------
+  # Phase 2 - publish. Everything below runs only on `release: published`.
+  # ---------------------------------------------------------------------------------------------
+
+  publish-verify:
+    name: Re-check the tag
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      sha: ${{ steps.reachable.outputs.sha }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    # The tag name is whatever the person who created the release typed, so it reaches the shell
+    # only through the environment, and is checked against the exact tag shape before anything
+    # uses it as a ref or a version.
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      # A release published on any other tag - a hand-made release, a typo, a prerelease suffix -
+      # publishes nothing. Everything after this step uses the validated version, never $TAG.
+      - name: Refuse a tag that is not v<MAJOR.MINOR.PATCH>
+        id: tag
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tag '$TAG' is not v<MAJOR.MINOR.PATCH>; phase 2 publishes only tags phase 1 made."
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # Full history, so the ancestry check below can walk from the tag to main.
+      - name: Checkout the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/v${{ steps.tag.outputs.version }}
+          fetch-depth: 0
+
+      # Phase 1 tags only a commit on main; a tag anywhere else was made by hand and would publish
+      # code main never had. Fetched explicitly so origin/main is current whatever checkout
+      # fetched. Fails closed: merge-base exits 0 for "is an ancestor", 1 for "is not", and
+      # anything else is an error we cannot read as either.
+      - name: Refuse a tag whose commit is not on main
+        id: reachable
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          set +e
+          git merge-base --is-ancestor HEAD origin/main
+          status=$?
+          set -e
+          case "$status" in
+            0) echo "OK: $(git rev-parse HEAD) is on main" ;;
+            1) echo "::error::The tagged commit $(git rev-parse HEAD) is not reachable from main."; exit 1 ;;
+            *) echo "::error::Could not check the tagged commit's ancestry (git merge-base exited $status)."; exit 1 ;;
+          esac
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The same lockstep check phase 1 ran, strict: no --allow-snapshot, so a -SNAPSHOT server
+      # version is refused here even if someone tagged one by hand (spec D4).
+      - name: Check every package at the tag agrees on the version
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: ./scripts/release-packages.py check "$VERSION"
+
+      # Assigned before it is written, under pipefail, so a failing `json` fails this step rather
+      # than emitting an empty matrix; and an empty table is refused rather than fanned out to
+      # nothing, which would read as a green release that published nothing.
+      - name: Emit the package matrix
+        id: matrix
+        run: |
+          set -o pipefail
+          matrix=$(./scripts/release-packages.py json | jq -c .)
+          echo "$matrix" | jq -e 'type == "array" and length > 0' > /dev/null
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  publish-fan-out:
+    name: Publish ${{ matrix.package.name }}
+    needs: publish-verify
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    # actions: write is what dispatching a workflow takes; contents: read is for the checkout. This
+    # job gets nothing else - it never edits the release (the summary job does) and never
+    # requests an OIDC token (the dispatched publish workflow does, under its own filename).
+    permissions:
+      actions: write
+      contents: read
+    strategy:
+      # Every package is attempted, not just those before the first failure: a package that can
+      # publish should, and the rest are then completed by re-running failed jobs.
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.publish-verify.outputs.matrix) }}
+    env:
+      VERSION: ${{ needs.publish-verify.outputs.version }}
+      VERIFIED_SHA: ${{ needs.publish-verify.outputs.sha }}
+      ID: ${{ matrix.package.id }}
+      WORKFLOW: ${{ matrix.package.workflow }}
+      PACKAGE_INPUT: ${{ matrix.package.package_input }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # The commit publish-verify checked, so the script asking the registry is the verified one.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.publish-verify.outputs.sha }}
+
+      # Progress goes to this step's outputs as it happens, so the always() step after it can tell
+      # "never dispatched" from "dispatched, outcome not seen" even when this step dies midway:
+      #   dispatching=true  - the dispatch request is about to be sent
+      #   run_url           - the child run exists, and this is it
+      #   status            - skipped / published / failed, once known
+      # The row fails (red) unless it ends skipped or published.
+      - name: Publish, unless already published
+        id: publish
+        run: |
+          # Fail closed: `is-published` prints true or false, and exits non-zero when the
+          # registry answers anything but 200 or 404. That error fails this row here rather than
+          # being read as "not published", which would dispatch a publish of a version that may
+          # already exist.
+          published=$(./scripts/release-packages.py is-published "$ID" "$VERSION")
+          case "$published" in
+            true)
+              echo "$ID $VERSION is already on its registry; skipping."
+              echo "status=skipped" >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+            false) ;;
+            *) echo "::error::is-published printed '$published', not true/false."; exit 1 ;;
+          esac
+
+          # The child publishes whatever the tag names when it starts, not this job's checkout, so
+          # refuse if the tag no longer names the commit publish-verify checked. This narrows the
+          # window a moved tag could exploit to the moment between here and the dispatch; it does
+          # not close it (a dispatch takes a ref, not a commit).
+          git fetch --no-tags --depth=1 origin "+refs/tags/v$VERSION:refs/tags/v$VERSION"
+          tagged=$(git rev-parse "refs/tags/v$VERSION^{commit}")
+          if [ "$tagged" != "$VERIFIED_SHA" ]; then
+            echo "::error::Tag v$VERSION now names $tagged, not the verified $VERIFIED_SHA. A tag never moves; nothing dispatched."
+            exit 1
+          fi
+
+          # Dispatched, not called as a reusable workflow: see this file's header. The ref is the
+          # tag, so the child checks out the tagged commit, and it re-verifies `version` against
+          # the package's manifest itself. return_run_details makes the API answer 200 with the
+          # new run's id instead of a bare 204.
+          echo "dispatching=true" >> "$GITHUB_OUTPUT"
+          run_id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/dispatches" \
+            -f ref="v$VERSION" \
+            -f "inputs[package]=$PACKAGE_INPUT" \
+            -f "inputs[version]=$VERSION" \
+            -F return_run_details=true \
+            --jq .workflow_run_id)
+          # A dispatch that answered without a usable id may still have started a run, so this
+          # fails the row, and the always() step reports it as unknown rather than failed.
+          if [[ ! "$run_id" =~ ^[0-9]+$ ]]; then
+            echo "::error::Dispatching $WORKFLOW returned no run id ('$run_id'). A run may have started anyway: check $WORKFLOW's runs before re-running."
+            exit 1
+          fi
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run_id"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
+          echo "Dispatched $WORKFLOW for $PACKAGE_INPUT $VERSION: $run_url"
+
+          # The child's own conclusion is the row's result. If `watch` fails, the child's state
+          # is re-read rather than assumed - watch also fails on an API error mid-watch, with the
+          # child still running: completed-and-not-success is failed; anything unfinished or
+          # unreadable leaves status unset, and the always() step reports it as unknown.
+          set +e
+          gh run watch "$run_id" --exit-status --interval 30
+          watch_status=$?
+          set -e
+          if [ "$watch_status" -eq 0 ]; then
+            echo "status=published" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          state=$(gh run view "$run_id" --json status,conclusion --jq '.status + "/" + .conclusion') || state="unreadable"
+          case "$state" in
+            completed/success)
+              echo "status=published" >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+            completed/*)
+              echo "status=failed" >> "$GITHUB_OUTPUT"
+              echo "::error::$WORKFLOW for $PACKAGE_INPUT $VERSION concluded ${state#completed/}: $run_url"
+              exit 1 ;;
+            *)
+              echo "::error::Lost track of $run_url (state: $state); it may still publish. Check it before re-running."
+              exit 1 ;;
+          esac
+
+      # Runs whatever happened above - a cancel included - so every row reports. The result is a
+      # one-object JSON file built by jq, so no value is spliced into Markdown or shell text here.
+      - name: Record the result
+        if: always()
+        env:
+          STATUS: ${{ steps.publish.outputs.status }}
+          DISPATCHING: ${{ steps.publish.outputs.dispatching }}
+          RUN_URL: ${{ steps.publish.outputs.run_url }}
+        run: |
+          if [ -n "$STATUS" ]; then
+            status=$STATUS
+          elif [ "$DISPATCHING" = "true" ]; then
+            # A dispatch was sent but its outcome never seen: it may yet publish, so neither
+            # "published" nor "failed" would be honest.
+            status=unknown
+          else
+            # Nothing was dispatched: is-published erred, the tag moved, or setup failed.
+            status=failed
+          fi
+          mkdir -p result
+          jq -n --arg id "$ID" --arg status "$status" --arg url "$RUN_URL" \
+            '{id: $id, status: $status, url: $url}' > result/result.json
+          cat result/result.json
+
+      # First use of the artifact actions in this repository: pinned to the commit of each
+      # action's latest release tag. overwrite, because re-running a failed row uploads the same
+      # name again within the same run.
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: result-${{ matrix.package.id }}
+          path: result/result.json
+          if-no-files-found: error
+          overwrite: true
+
+  publish-summary:
+    name: Report what shipped
+    needs: [publish-verify, publish-fan-out]
+    # Runs when rows failed too - that is when the report matters most - but not when the tag
+    # re-check failed: then nothing was dispatched, and publish-verify's error is the report.
+    if: always() && github.event_name == 'release' && needs.publish-verify.result == 'success'
+    runs-on: ubuntu-latest
+    # contents: write edits the release body. Nothing else: this job dispatches nothing.
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.publish-verify.outputs.version }}
+      MATRIX: ${{ needs.publish-verify.outputs.matrix }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Allowed to fail: with no result artifacts at all, every row still renders, as unknown.
+      - name: Download the results
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: result-*
+          path: results
+
+      # One row per package in the table publish-verify emitted, not per artifact found: a row
+      # whose result is missing, unreadable or malformed is reported as unknown, never dropped.
+      # A run link is shown only if it is one of this repository's run URLs.
+      - name: Render the table
+        id: table
+        run: |
+          run_prefix="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/"
+          bad=0
+          {
+            echo "<!-- release.yml:publish-results -->"
+            echo "## Publish results"
+            echo
+            echo "| Package | Registry | Status | Run |"
+            echo "| --- | --- | --- | --- |"
+          } > table.md
+          while IFS=$'\t' read -r id name registry; do
+            file="results/result-$id/result.json"
+            status=$(jq -r --arg id "$id" 'select(.id == $id) | .status' "$file" 2>/dev/null) || status=""
+            url=$(jq -r --arg id "$id" 'select(.id == $id) | .url' "$file" 2>/dev/null) || url=""
+            case "$status" in
+              published|skipped|failed) ;;
+              *) status=unknown ;;
+            esac
+            case "$status" in failed|unknown) bad=1 ;; esac
+            if [[ "$url" == "$run_prefix"* && "${url#"$run_prefix"}" =~ ^[0-9]+$ ]]; then
+              link="[run]($url)"
+            else
+              link="-"
+            fi
+            echo "| \`$name\` | $registry | $status | $link |" >> table.md
+          done < <(echo "$MATRIX" | jq -r '.[] | [.id, .name, .registry] | @tsv')
+          {
+            echo
+            echo "_skipped: already on its registry. unknown: no result recorded, or a run dispatched whose outcome was not seen - check it before re-running failed jobs._"
+            echo "<!-- /release.yml:publish-results -->"
+          } >> table.md
+          cat table.md >> "$GITHUB_STEP_SUMMARY"
+          echo "bad=$bad" >> "$GITHUB_OUTPUT"
+
+      # The release body is user-controlled text, so it only ever moves through files: never into
+      # an expression, an argument, or a variable. A previous attempt's table (re-running failed
+      # jobs reaches this job again) is cut out between its markers first, so the release page
+      # shows the latest result once rather than a history of attempts. Trailing blank lines are
+      # dropped too, so repeated attempts do not pile them up; `\r?` because a body saved from
+      # the web editor may come back with CRLF line endings.
+      - name: Append the table to the release
+        run: |
+          gh release view "v$VERSION" --json body --jq .body > body.md
+          awk '
+            /^<!-- release\.yml:publish-results -->\r?$/ { skip = 1 }
+            !skip { if ($0 ~ /^\r?$/) { blank++; next } while (blank > 0) { print ""; blank-- } print }
+            /^<!-- \/release\.yml:publish-results -->\r?$/ { skip = 0 }
+          ' body.md > body-trimmed.md
+          { cat body-trimmed.md; echo; cat table.md; } > notes.md
+          gh release edit "v$VERSION" --notes-file notes.md
+
+      # Last, after the report is written everywhere, so a partial release still reports - and the
+      # run still shows red rather than green over a package that did not ship.
+      - name: Fail if any package did not ship
+        env:
+          BAD: ${{ steps.table.outputs.bad }}
+        run: |
+          if [ "$BAD" != "0" ]; then
+            echo "::error::At least one package is failed or unknown; see the table. Fix the cause and re-run failed jobs - published packages will be skipped."
+            exit 1
+          fi

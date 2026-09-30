@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -254,4 +256,91 @@ func TestTransactionNestedBeginSendsSession(t *testing.T) {
 	if len(got) < 2 || got[1] != (txCall{"begin", "s1"}) {
 		t.Fatalf("nested begin = %v, want it to carry the outer session", got)
 	}
+}
+
+// Under default semantics (Go 1.21+) panic(nil) recovers as *runtime.PanicNilError, so it
+// is re-panicked like any other value, after the rollback.
+func TestTransactionPanicNilRePanicsPanicNilError(t *testing.T) {
+	f, db := newTxFake(t)
+	defer func() {
+		r := recover()
+		if _, ok := r.(*runtime.PanicNilError); !ok {
+			t.Fatalf("recover() = %T %v, want *runtime.PanicNilError", r, r)
+		}
+		wantCalls(t, f, txCall{"begin", ""}, txCall{"rollback", "s1"})
+	}()
+	_ = db.Transaction(context.Background(), func(*Database) error { panic(nil) })
+	t.Fatal("Transaction returned instead of re-panicking")
+}
+
+// Under GODEBUG=panicnil=1, panic(nil) recovers as nil, which is indistinguishable from
+// runtime.Goexit in the deferred function. Transaction then returns normally, and must not
+// return nil: a nil return reads as committed while the transaction was rolled back. The
+// setting is process-wide, so the check runs in a child process of this test binary.
+func TestTransactionPanicNilUnderPanicnil1ReturnsError(t *testing.T) {
+	if os.Getenv("ARCADEDB_TX_PANICNIL_CHILD") == "1" {
+		f, db := newTxFake(t)
+		err := db.Transaction(context.Background(), func(*Database) error { panic(nil) })
+		if err == nil || !strings.Contains(err.Error(), "rolled back") {
+			t.Fatalf("err = %v, want an error saying the transaction was rolled back", err)
+		}
+		wantCalls(t, f, txCall{"begin", ""}, txCall{"rollback", "s1"})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestTransactionPanicNilUnderPanicnil1ReturnsError$", "-test.v")
+	cmd.Env = append(os.Environ(), "ARCADEDB_TX_PANICNIL_CHILD=1", "GODEBUG=panicnil=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child under GODEBUG=panicnil=1 failed: %v\n%s", err, out)
+	}
+}
+
+// A transaction handle refuses a batch load: the batch endpoint takes no session id, so
+// the load would run outside the transaction and commit on its own.
+func TestBatchLoadRefusesTransactionHandle(t *testing.T) {
+	f, db := newTxFake(t)
+	iterated := false
+	err := db.Transaction(context.Background(), func(tx *Database) error {
+		_, err := tx.BatchLoad(context.Background(),
+			func(func(VertexRow) bool) { iterated = true }, nil, nil)
+		if !errors.Is(err, ErrBatchInTransaction) {
+			t.Errorf("BatchLoad err = %v, want ErrBatchInTransaction", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if iterated {
+		t.Fatal("the vertex sequence was iterated")
+	}
+	wantCalls(t, f, txCall{"begin", ""}, txCall{"commit", "s1"})
+}
+
+func TestBatchLoadStreamRefusesTransactionHandle(t *testing.T) {
+	f, db := newTxFake(t)
+	iterated := false
+	err := db.Transaction(context.Background(), func(tx *Database) error {
+		var errs []error
+		events := 0
+		for ev, err := range tx.BatchLoadStream(context.Background(),
+			func(func(VertexRow) bool) { iterated = true }, nil, nil) {
+			if err != nil {
+				errs = append(errs, err)
+			} else if ev != nil {
+				events++
+			}
+		}
+		if len(errs) != 1 || !errors.Is(errs[0], ErrBatchInTransaction) || events != 0 {
+			t.Errorf("errs = %v, events = %d, want ErrBatchInTransaction once and no events", errs, events)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if iterated {
+		t.Fatal("the vertex sequence was iterated")
+	}
+	wantCalls(t, f, txCall{"begin", ""}, txCall{"commit", "s1"})
 }

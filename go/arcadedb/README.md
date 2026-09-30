@@ -197,8 +197,11 @@ Properties are flattened beside the control keys, and a property named `@type`, 
 key; this one refuses the row.
 
 The body is streamed: your sequences are consumed on a separate goroutine as the upload proceeds,
-so a load larger than memory is never buffered. The call always waits for that goroutine before
-returning, so no sequence is iterated after the call returns.
+through a 64 KiB write buffer, so a load larger than memory is never buffered (rows reach the wire
+a buffer at a time, not one by one). The call always waits for that goroutine before returning, so
+no sequence is iterated after the call returns. A panic inside one of your sequences does not kill
+the process from that goroutine: it aborts the upload and is re-raised, with its original value, on
+the goroutine that called `BatchLoad` (or ranged over `BatchLoadStream`), where you can recover it.
 
 ### A load is not atomic
 
@@ -257,7 +260,17 @@ callback cannot leak a session. The contract has three clauses:
   returned.
 
 Rollbacks run on `context.WithoutCancel(ctx)`, so a callback that failed because `ctx` was
-cancelled still gets its transaction rolled back.
+cancelled still gets its transaction rolled back. `panic(nil)` is re-raised as the
+`*runtime.PanicNilError` Go recovers it as; under `GODEBUG=panicnil=1` it recovers as `nil`, and
+`Transaction` then rolls back and returns an error rather than `nil`, which would read as
+committed.
+
+**A batch load cannot join a transaction.** `POST /api/v1/batch/{database}` takes no session id,
+so a load sent from `tx` would run outside the transaction and commit on its own, whatever the
+transaction later did. `tx.BatchLoad` therefore returns `ErrBatchInTransaction`, and
+`tx.BatchLoadStream` yields it once, before anything is sent or any sequence iterated; match it
+with `errors.Is`. Run the load from the outer `db` instead, knowing it is not atomic with the
+transaction.
 
 ## Vector, hybrid and full-text search: `db.Vector()`
 

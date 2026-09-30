@@ -177,9 +177,15 @@ A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion`
   be committed, because a load is not atomic.
 - **Batch input is streamed from the caller's sequences.** The vertex and edge `iter.Seq`s are
   consumed on a writer goroutine feeding an `io.Pipe`; the call always stops and waits for that
-  goroutine before returning, so no sequence is iterated after the call returns. `BatchLoadStream`
-  returns an iterator that issues the request on first range, so ranging over it twice runs the
-  load twice: treat it as single-use.
+  goroutine before returning, so no sequence is iterated after the call returns. A panic in a
+  sequence is recovered on that goroutine (where it would otherwise kill the process), aborts the
+  upload, and is re-raised with its original value on the caller's goroutine by `upload.stop`.
+  `BatchLoadStream` returns an iterator that issues the request on every range, so ranging over it
+  twice runs the load twice: treat it as single-use.
+- **A batch load refuses a transaction handle.** The batch endpoint takes no session id, so
+  `BatchLoad`/`BatchLoadStream` on the handle `Transaction` passes to `fn` would silently commit
+  outside the transaction. Both refuse with the exported `ErrBatchInTransaction` before any request
+  is sent (the stream yields it once).
 - **Numbers in rows are `float64`.** Rows are `map[string]any` decoded with `encoding/json`, so an
   integer above 2^53 loses precision - the same as the TypeScript driver. `json.Number` is not used,
   because it would make every numeric field a string-backed type callers must convert.
@@ -202,6 +208,9 @@ A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion`
    original value. A failed rollback after an error yields `*TxError` (above); after a panic it is
    discarded and the original panic value wins. `runtime.Goexit` inside `fn` (`t.FailNow` in a
    test) rolls back and lets the goroutine keep exiting; it is never mistaken for a nil return.
+   `panic(nil)` re-panics as `*runtime.PanicNilError`; under `GODEBUG=panicnil=1` it recovers as
+   `nil`, indistinguishable from `Goexit`, so that branch sets the named result to a non-nil error
+   - a nil return there would read as committed.
 3. **The commit fails → best-effort rollback** (its own error discarded) so the session is not left
    for `arcadedb.server.httpTxExpireTimeout` to reap, then the commit's error is returned.
 

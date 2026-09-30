@@ -386,3 +386,57 @@ func TestBatchStreamBreakStopsTheUpload(t *testing.T) {
 		t.Fatal("the sequence was still being consumed after iteration returned")
 	}
 }
+
+// panickingVertices yields one row, then panics with v. unwound is closed as the panic
+// leaves the sequence's frame, so a test can tell the writer goroutine got that far.
+func panickingVertices(v any, unwound chan struct{}) iter.Seq[VertexRow] {
+	return func(yield func(VertexRow) bool) {
+		defer close(unwound)
+		if !yield(VertexRow{Type: "V", ID: "a"}) {
+			return
+		}
+		panic(v)
+	}
+}
+
+// The caller's sequence runs on the library's writer goroutine, where an unrecovered panic
+// would kill the process. It is recovered there and re-raised, with its original value, on
+// the caller's goroutine, after the upload is aborted and the writer has finished.
+func TestBatchLoadSequencePanicReRaisedOnCallerGoroutine(t *testing.T) {
+	srv, _ := batchServer(t, 200, "application/json", `{}`)
+	unwound := make(chan struct{})
+	func() {
+		defer func() {
+			if r := recover(); r != "row boom" {
+				t.Fatalf("recover() = %v, want row boom", r)
+			}
+		}()
+		_, _ = srv.DB("d").BatchLoad(context.Background(), panickingVertices("row boom", unwound), nil, nil)
+		t.Fatal("BatchLoad returned instead of re-panicking")
+	}()
+	select {
+	case <-unwound:
+	default:
+		t.Fatal("the writer goroutine had not finished when the panic was re-raised")
+	}
+}
+
+func TestBatchLoadStreamSequencePanicReRaisedOnCallerGoroutine(t *testing.T) {
+	srv, _ := batchServer(t, 200, "application/x-ndjson", "{\"summary\":{}}\n")
+	unwound := make(chan struct{})
+	func() {
+		defer func() {
+			if r := recover(); r != "row boom" {
+				t.Fatalf("recover() = %v, want row boom", r)
+			}
+		}()
+		for range srv.DB("d").BatchLoadStream(context.Background(), panickingVertices("row boom", unwound), nil, nil) {
+		}
+		t.Fatal("iteration ended instead of re-panicking")
+	}()
+	select {
+	case <-unwound:
+	default:
+		t.Fatal("the writer goroutine had not finished when the panic was re-raised")
+	}
+}

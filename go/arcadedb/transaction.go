@@ -2,6 +2,7 @@ package arcadedb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
@@ -10,6 +11,10 @@ import (
 // sessionHeader carries a transaction's session id: in the begin response, and on every
 // request that takes part in the transaction.
 const sessionHeader = "arcadedb-session-id"
+
+// errPanicNilOrGoexit is what Transaction returns when fn neither returned nor panicked
+// with a recoverable value: panic(nil) under GODEBUG=panicnil=1.
+var errPanicNilOrGoexit = errors.New("arcadedb: transaction callback panicked with nil or exited; rolled back")
 
 // TxError is returned by Transaction when fn failed AND the rollback that followed also
 // failed. Err is the error fn returned; RollbackErr is the rollback's failure.
@@ -63,13 +68,20 @@ func (e *TxError) Unwrap() error { return e.Err }
 //
 // If fn ends its goroutine with runtime.Goexit (t.FailNow in a test, for instance) the
 // transaction is rolled back and Goexit continues; it is never mistaken for a nil return
-// and never committed.
+// and never committed. panic(nil) is re-raised as the *runtime.PanicNilError it recovers
+// as by default; under GODEBUG=panicnil=1 it recovers as nil, which cannot be told apart
+// from Goexit, so Transaction rolls back and returns a non-nil error rather than nil,
+// which would read as committed.
+//
+// The handle fn receives cannot run BatchLoad or BatchLoadStream: the batch endpoint takes
+// no session id, so a load would commit outside the transaction. Both refuse with
+// ErrBatchInTransaction before sending anything.
 //
 // A begin that answers 2xx without a session id yields an *ArcadeDBError and fn is not
 // called. Calling Transaction on the handle fn received sends that handle's session id
 // with the begin, so the server refuses the nesting (409) rather than silently opening an
 // independent transaction.
-func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error) error {
+func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error) (err error) {
 	sid, err := d.beginTransaction(ctx)
 	if err != nil {
 		return err
@@ -88,8 +100,11 @@ func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error)
 		if r != nil {
 			panic(r)
 		}
-		// r == nil: runtime.Goexit (panic(nil) recovers as *runtime.PanicNilError since
-		// Go 1.21). Returning lets the goroutine continue exiting.
+		// r == nil: runtime.Goexit, or panic(nil) under GODEBUG=panicnil=1 (by default it
+		// recovers as *runtime.PanicNilError and is re-raised above). For Goexit the
+		// goroutine continues exiting and the result is never seen; for panic(nil) the
+		// call returns, and it must not return nil, which would read as committed.
+		err = errPanicNilOrGoexit
 	}()
 	fnErr := fn(tx)
 	returned = true

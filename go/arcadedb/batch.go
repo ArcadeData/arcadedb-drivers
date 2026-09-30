@@ -46,6 +46,14 @@ type EdgeRow struct {
 // lets such a property silently override the control key; this one refuses the row.
 var ErrPropertyShadowsControlKey = batchrows.ErrPropertyShadowsControlKey
 
+// ErrBatchInTransaction is returned by BatchLoad, and yielded once by BatchLoadStream, when
+// either is called on the handle Transaction passes to its callback. The batch endpoint
+// takes no session id, so a load sent from that handle would run outside the transaction
+// and commit on its own whatever the transaction later did; the call refuses before any
+// request is sent or any sequence iterated. Match it with errors.Is. Run a batch load
+// from a handle outside the transaction instead, accepting that it is not atomic with it.
+var ErrBatchInTransaction = errors.New("arcadedb: batch load cannot join a transaction; the batch endpoint takes no session id")
+
 const (
 	ndjsonMediaType   = "application/x-ndjson"
 	defaultBatchError = "the batch load reported an error"
@@ -62,11 +70,18 @@ const (
 // Every vertex is sent before any edge, whatever order the caller built them in: the
 // server resolves an edge's From/To only against ids declared earlier in the same payload.
 //
-// The body is streamed: rows are encoded as the sequences yield them and written through an
-// io.Pipe, so a load larger than memory is never buffered. The sequences are consumed on a
-// separate goroutine, which the call always stops and waits for before returning, so no
-// sequence is iterated after the call returns; a sequence that blocks forever therefore
-// blocks the call. Each sequence is iterated at most once.
+// The body is streamed: rows are encoded as the sequences yield them, through a 64 KiB write
+// buffer, into an io.Pipe, so a load larger than memory is never buffered (rows reach the
+// wire a buffer at a time, not one by one). The sequences are consumed on a separate
+// goroutine, which the call always stops and waits for before returning, so no sequence is
+// iterated after the call returns; a sequence that blocks forever therefore blocks the
+// call. Each sequence is iterated at most once. A panic inside a sequence is recovered on
+// that goroutine, the upload aborted, and the panic re-raised with its original value on
+// the caller's goroutine, so it can be recovered there rather than killing the process.
+//
+// Called on the handle Transaction passes to its callback, it returns ErrBatchInTransaction
+// without sending anything: the endpoint takes no session id, so the load would silently
+// commit outside the transaction.
 //
 // A load is NOT atomic: the server commits every commitEvery records, so a failure partway
 // through leaves earlier chunks durably committed, and an error from a failed load can
@@ -80,6 +95,9 @@ const (
 // A non-2xx status is an *ArcadeDBError. A row validation error is returned in preference
 // to the transport or status error the aborted upload causes.
 func (d *Database) BatchLoad(ctx context.Context, vertices iter.Seq[VertexRow], edges iter.Seq[EdgeRow], params *generated.ExecuteBatchParams) (map[string]any, error) {
+	if d.sessionID != "" {
+		return nil, ErrBatchInTransaction
+	}
 	p := copyBatchParams(params)
 	p.Accept = nil
 	up := startUpload(vertices, edges)
@@ -109,7 +127,10 @@ func (d *Database) BatchLoad(ctx context.Context, vertices iter.Seq[VertexRow], 
 // yields each event as parsed JSON, as received: a progress event at every vertex commit
 // and every commitEvery edges, then exactly one summary event carrying what BatchLoad
 // would have returned, with idMappingStreamed in place of idMapping. The request is
-// issued on first iteration; the caller's params are not modified.
+// issued on first iteration, and every range over the returned iterator issues it again:
+// treat the iterator as single-use, since a second range re-sends the load (and a
+// sequence that can only be iterated once would then send nothing). The caller's params
+// are not modified.
 //
 // A progress event's idMapping is only the fragment that chunk resolved. Fragments are
 // never merged across events, since accumulating them would rebuild client-side the
@@ -123,10 +144,16 @@ func (d *Database) BatchLoad(ctx context.Context, vertices iter.Seq[VertexRow], 
 // reported an error" when absent), and exception and exceptionArgs when present. Events
 // yielded before the error stay delivered: a partial commit is durable, and those progress
 // counts are how the caller learns what may have landed. The non-atomic rules, the
-// validation rules and the sequence-goroutine rules are BatchLoad's; breaking out of the
-// loop aborts the upload and waits for that goroutine.
+// validation rules and the sequence-goroutine rules are BatchLoad's, a panicking sequence
+// included; breaking out of the loop aborts the upload and waits for that goroutine. On
+// the handle Transaction passes to its callback it yields ErrBatchInTransaction once and
+// sends nothing, for BatchLoad's reason.
 func (d *Database) BatchLoadStream(ctx context.Context, vertices iter.Seq[VertexRow], edges iter.Seq[EdgeRow], params *generated.ExecuteBatchParams) iter.Seq2[map[string]any, error] {
 	return func(yield func(map[string]any, error) bool) {
+		if d.sessionID != "" {
+			yield(nil, ErrBatchInTransaction)
+			return
+		}
 		p := copyBatchParams(params)
 		accept := generated.ExecuteBatchParamsAcceptApplicationxNdjson
 		p.Accept = &accept
@@ -174,23 +201,54 @@ func copyBatchParams(params *generated.ExecuteBatchParams) generated.ExecuteBatc
 // upload feeds the encoded rows into a pipe from its own goroutine.
 type upload struct {
 	body *io.PipeReader
-	done chan error
+	done chan uploadResult
 	once sync.Once
 	err  error
+	// panicked and panicValue carry a panic from the caller's sequence across to the
+	// caller's goroutine; rethrown makes stop re-raise it once, not from every later call.
+	panicked   bool
+	panicValue any
+	rethrown   bool
 }
+
+// uploadResult is how the writer goroutine ended.
+type uploadResult struct {
+	err        error
+	panicked   bool
+	panicValue any
+}
+
+// errUploadAbandoned aborts the request body when the writer goroutine did not finish
+// normally: a sequence panicked, or called runtime.Goexit.
+var errUploadAbandoned = errors.New("arcadedb: batch row sequence panicked or exited")
 
 func startUpload(vertices iter.Seq[VertexRow], edges iter.Seq[EdgeRow]) *upload {
 	pr, pw := io.Pipe()
-	up := &upload{body: pr, done: make(chan error, 1)}
+	up := &upload{body: pr, done: make(chan uploadResult, 1)}
 	go func() {
+		// The caller's sequences run on this goroutine, where an unrecovered panic would
+		// kill the process. It is recovered here, the request body aborted, and the value
+		// handed to stop, which re-raises it on the caller's goroutine. finished tells a
+		// normal return from panic(nil) under GODEBUG=panicnil=1 or runtime.Goexit, where
+		// recover returns nil; either way done is always sent, so stop never blocks.
+		finished := false
+		defer func() {
+			if finished {
+				return
+			}
+			r := recover()
+			_ = pw.CloseWithError(errUploadAbandoned)
+			up.done <- uploadResult{err: errUploadAbandoned, panicked: r != nil, panicValue: r}
+		}()
 		bw := bufio.NewWriterSize(pw, uploadBufferSize)
 		err := batchrows.Write(bw, vertexSeq(vertices), edgeSeq(edges))
 		if err == nil {
 			err = bw.Flush()
 		}
+		finished = true
 		// A nil err closes the body with EOF; any other aborts the request with it.
 		_ = pw.CloseWithError(err)
-		up.done <- err
+		up.done <- uploadResult{err: err}
 	}()
 	return up
 }
@@ -200,13 +258,22 @@ func startUpload(vertices iter.Seq[VertexRow], edges iter.Seq[EdgeRow]) *upload 
 // (a row that did not validate or encode), or nil when the writer succeeded or only lost
 // its pipe. The transport also closes the read side when a request fails, which is where
 // that io.ErrClosedPipe comes from: it is derived, never the cause, so it is not reported.
+//
+// If a sequence panicked, the first stop re-raises that panic, with its original value, on
+// the calling goroutine; later calls (a deferred stop during that panic) return quietly.
 func (u *upload) stop() error {
 	u.once.Do(func() {
 		_ = u.body.Close()
-		if err := <-u.done; err != nil && !errors.Is(err, io.ErrClosedPipe) {
-			u.err = err
+		res := <-u.done
+		u.panicked, u.panicValue = res.panicked, res.panicValue
+		if res.err != nil && !errors.Is(res.err, io.ErrClosedPipe) {
+			u.err = res.err
 		}
 	})
+	if u.panicked && !u.rethrown {
+		u.rethrown = true
+		panic(u.panicValue)
+	}
 	return u.err
 }
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.metadata
 from collections.abc import Iterator
 from types import TracebackType
 
@@ -19,7 +20,11 @@ from .stream import time_series_query as _time_series_query
 from .stream import time_series_write_stream as _time_series_write_stream
 from .transaction import Transaction, TransactionHandle
 
-__version__ = "0.1.0"
+# Read from the installed distribution's metadata, never written here: pyproject.toml's
+# [project] version is the one place a release sets (set-release-version.sh), and a literal
+# here would escape both `set` and `check` - a wheel published as a new version would go on
+# reporting the old one.
+__version__ = importlib.metadata.version("arcadedb-driver-grpc")
 
 __all__ = [
     "ArcadeDBGrpcClient",

@@ -119,7 +119,8 @@ describes the contract itself and a future Python or Go client reads the same mo
 - `ci-release.yml` — tests the release scripts and runs `release-packages.py check` on the version
   `main` currently carries (with `--allow-snapshot`, since `main`'s contract is a SNAPSHOT), so
   `main` cannot hold packages at different versions. `paths`-filtered to the table, the release
-  scripts and workflows, and the manifests and lockfiles the table names.
+  scripts and workflows, the manifests and lockfiles the table names, and `contracts/` (which
+  `check` compares every server version against).
 - `publish.yml` — the only thing that talks to npm, and it is **workflow_dispatch only**, a child
   of `release.yml`, which dispatches it once per package. Dispatching it by hand is for recovering a
   partial release and **bypasses the lockstep check**. It refuses to run anywhere but the version's

@@ -2,8 +2,8 @@ name: CI (release tooling)
 
 # Guards the release package table and the lockstep invariant behind it: every published
 # package reads one version, every lockfile agrees, every server version matches the
-# contracts. Runs on any change to the table, the release scripts and workflows, or a
-# manifest/lockfile the table names, so `main` can never hold packages at different versions.
+# contracts. Runs on any change to the table, the release scripts and workflows, a
+# manifest/lockfile the table names, or the contracts, so `main` can never hold packages at different versions.
 on:
   push:
     branches: [main]
@@ -23,6 +23,9 @@ on:
       - python/packages/driver/pyproject.toml
       - python/packages/driver-grpc/pyproject.toml
       - python/uv.lock
+      # `check` compares every package's server version against these, so a contract move
+      # (adopt-contract-version.sh) is as much a lockstep change as a manifest edit.
+      - contracts/**
   pull_request:
     branches: [main]
     paths: *paths

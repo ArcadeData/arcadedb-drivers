@@ -1,0 +1,221 @@
+name: Release
+run-name: Release v${{ inputs.version }}${{ inputs.dry-run && ' (dry run)' || '' }}
+
+# One lockstep release of every package in scripts/release-packages.py's table, in two phases with
+# a human between them.
+#
+# Phase 1 - prepare (workflow_dispatch, this file's jobs named prepare-*). A human dispatches it
+# from `main` with the version to release. It verifies that every manifest, lockfile and recorded
+# server version agrees (`release-packages.py check`), dry-runs every package's pre-publish gates
+# (the same scripts/release/verify-*.sh the publish workflows run, so the two cannot diverge),
+# then pushes an annotated tag `v<version>` on the verified commit and creates a DRAFT GitHub
+# release on it with generated notes. It writes nothing to any registry, ever. `dry-run: true`
+# stops after the dry runs: no tag, no draft.
+#
+# Phase 2 - publish (`release: published`). Publishing the draft IS the human approval for the
+# irreversible step: a registry publish cannot be undone, so nothing reaches npm or PyPI until a
+# person has read the draft, edited its notes if needed, and pressed Publish. The draft is created
+# with GITHUB_TOKEN, whose events start no workflows, so only a human's publish fires phase 2.
+#
+# Why phase 2 DISPATCHES publish.yml and publish-python.yml instead of calling them as reusable
+# workflows (`uses: ./.github/workflows/publish.yml`): npm and PyPI trusted publishers are keyed on
+# the TOP-LEVEL workflow filename of the run that requests the OIDC token. Called as a reusable
+# workflow, the publish job would present release.yml as that filename, and every trusted
+# publisher on both registries would have to be reconfigured - and PyPI does not accept a reusable
+# workflow as a trusted publisher at all. Dispatched, each publish is a top-level run of the very
+# file its trusted publisher already names, so nothing on either registry changes. Those two
+# workflows stay the ONLY files that talk to npm and PyPI; this one never publishes.
+#
+# Nothing here runs on push, tag or schedule. Every phase 1 job is gated on
+# `github.event_name == 'workflow_dispatch'` so none of them ever runs on the phase 2 event, where
+# `inputs` is empty.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, MAJOR.MINOR.PATCH with no leading "v". Every package manifest must already read it - set-release-version.sh in a reviewed PR, not this workflow, writes it.'
+        required: true
+        type: string
+      dry-run:
+        description: "Verify and dry-run every package, but push no tag and create no draft. Also relaxes the SNAPSHOT-contract refusal to a warning, so it can run on today's main."
+        required: false
+        type: boolean
+        default: false
+
+# Every job reads by default. The one job in phase 1 that writes (tag + draft) widens its own
+# grant; nothing in phase 1 gets id-token (it never publishes) or actions: write (it dispatches
+# nothing).
+permissions:
+  contents: read
+
+jobs:
+  prepare-verify:
+    name: Verify the release
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    # Inputs reach the shell only through the environment, never interpolated into `run:` text:
+    # `version` is free text typed by whoever dispatches, and an expression expanded into a script
+    # is script injection. `release-packages.py check` validates it as MAJOR.MINOR.PATCH before
+    # anything uses it as a tag name or passes it to git.
+    env:
+      VERSION: ${{ inputs.version }}
+      DRY_RUN: ${{ inputs.dry-run }}
+    steps:
+      # A release is cut from `main` and nowhere else: the tag lands on the commit this run
+      # verified, and a tag on a feature branch's commit would publish code `main` never had.
+      # Refused with a failing step rather than a job-level `if`, which would skip silently and
+      # leave a green run that did nothing.
+      - name: Refuse unless dispatched on main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::release.yml must be dispatched on main, not $REF."
+            exit 1
+          fi
+
+      # Same pin as publish.yml / publish-python.yml.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Every manifest reads $VERSION, every lockfile agrees with its manifest, and every package's
+      # recorded server version matches the committed OpenAPI and .proto contracts. A -SNAPSHOT
+      # server version is refused (spec D4): a release must not ship against a moving target.
+      # Under dry-run that one refusal becomes a warning, so phase 1 can be exercised on today's
+      # main, whose contract legitimately is a SNAPSHOT; a real run always enforces it.
+      - name: Check every package agrees on the version
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::warning::dry-run: the SNAPSHOT-contract refusal (D4) is relaxed for this run. A real release still enforces it."
+            ./scripts/release-packages.py check "$VERSION" --allow-snapshot
+          else
+            ./scripts/release-packages.py check "$VERSION"
+          fi
+
+      # A tag never moves and a version is never re-released from another commit. Asked of the
+      # remote, not the local clone, because a fresh checkout carries no tags. Fails closed:
+      # `--exit-code` makes ls-remote exit 2 when nothing matches, 0 when the tag exists, and
+      # anything else is an error we cannot read as "absent".
+      - name: Refuse if the tag already exists
+        run: |
+          set +e
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null
+          status=$?
+          set -e
+          case "$status" in
+            2) echo "OK: v$VERSION is not tagged on origin" ;;
+            0) echo "::error::Tag v$VERSION already exists on origin. A released version is never re-tagged; release a new version."; exit 1 ;;
+            *) echo "::error::Could not ask origin whether v$VERSION exists (git ls-remote exited $status)."; exit 1 ;;
+          esac
+
+      # The dry-run matrix is built from the package table rather than repeated here, so adding a
+      # package is one row in release-packages.py and no edit to this file.
+      - name: Emit the package matrix
+        id: matrix
+        run: echo "matrix=$(./scripts/release-packages.py json | jq -c .)" >> "$GITHUB_OUTPUT"
+
+  prepare-dry-run:
+    name: Dry run ${{ matrix.package.name }}
+    needs: prepare-verify
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      # Every package reports, not just the first to fail: a release blocked by two packages
+      # should say so in one run, not two.
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.prepare-verify.outputs.matrix) }}
+    env:
+      PACKAGE_INPUT: ${{ matrix.package.package_input }}
+    # Each registry's steps are the install steps of its publish workflow followed by that
+    # workflow's own verify script - everything publish.yml / publish-python.yml do except the
+    # dispatch-input check (phase 1's `check` covers every package at once) and the publish.
+    # Action SHAs are the publish workflows' own.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        if: matrix.package.registry == 'npm'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+
+      - name: Install dependencies (npm)
+        if: matrix.package.registry == 'npm'
+        working-directory: typescript
+        run: npm ci
+
+      - name: Verify the package (npm)
+        if: matrix.package.registry == 'npm'
+        run: ./scripts/release/verify-npm.sh "$PACKAGE_INPUT"
+
+      - name: Install uv
+        if: matrix.package.registry == 'pypi'
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: python/uv.lock
+
+      - name: Install dependencies (PyPI)
+        if: matrix.package.registry == 'pypi'
+        working-directory: python
+        run: uv sync --frozen
+
+      - name: Verify the package (PyPI)
+        if: matrix.package.registry == 'pypi'
+        run: ./scripts/release/verify-pypi.sh "$PACKAGE_INPUT"
+
+  prepare-tag-and-draft:
+    name: Tag and draft the release
+    needs: prepare-dry-run
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry-run
+    runs-on: ubuntu-latest
+    # The only phase 1 job that writes: it pushes the tag and creates the draft. Both live in this
+    # one job so the write grant is not widened to a second.
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Checks out $GITHUB_SHA - the commit prepare-verify and every dry run verified - with
+      # credentials (this job's contents: write token) left in place so the tag push below works.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Annotated, so the tag records who made it and when; on $GITHUB_SHA explicitly rather than
+      # HEAD, so the tag is the verified commit even if this step ever runs after something else
+      # moved HEAD. A plain push never overwrites an existing tag.
+      - name: Tag the verified commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Release v$VERSION" "$GITHUB_SHA"
+          git push origin "v$VERSION"
+
+      # `--verify-tag` refuses unless the tag just pushed exists, so gh never creates a tag of its
+      # own on some other commit. The header (every package, its registry, the server version it
+      # was generated against) is rendered from the package table, so it cannot disagree with what
+      # phase 2 publishes; `--notes-file` content precedes the generated notes, which are grouped
+      # by .github/release.yml.
+      - name: Create the draft release
+        run: |
+          ./scripts/release-packages.py header "$VERSION" > header.md
+          url=$(gh release create "v$VERSION" --draft --verify-tag --title "v$VERSION" \
+            --generate-notes --notes-file header.md)
+          {
+            echo "## Draft release v$VERSION created"
+            echo
+            echo "$url"
+            echo
+            echo "Nothing has been published yet. Next:"
+            echo
+            echo "1. **Review** the draft: the package table, and the generated notes below it."
+            echo "2. **Edit** the notes if they need it - most PRs are unlabelled and land under Changes."
+            echo "3. **Publish** the release. That is the approval: it starts phase 2, which publishes every package to its registry and cannot be undone."
+          } >> "$GITHUB_STEP_SUMMARY"

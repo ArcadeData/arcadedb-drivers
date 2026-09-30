@@ -1,0 +1,30 @@
+# Categories for the notes `gh release create --generate-notes` writes into the draft release
+# that release.yml's phase 1 creates. GitHub groups merged PRs by LABEL, first matching category
+# wins, and `*` catches everything left over. PRs are not labelled consistently today, so most
+# human PRs land in "Changes"; that is acceptable because a human reviews and edits the draft
+# before publishing it - which is the point of the draft.
+#
+# Every label named here must exist in the repository. A category naming a label nobody can apply
+# is silently empty, not an error.
+changelog:
+  exclude:
+    labels:
+      - invalid
+      - duplicate
+      - wontfix
+  categories:
+    - title: Dependencies
+      labels:
+        - dependencies
+        - github_actions
+    - title: Contract
+      labels:
+        - contract
+        - contract-drift
+    - title: CI and build
+      labels:
+        - build
+        - release
+    - title: Changes
+      labels:
+        - "*"

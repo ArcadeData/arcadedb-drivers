@@ -183,10 +183,23 @@ jobs:
     env:
       PACKAGE_INPUT: ${{ matrix.package.package_input }}
     # Each registry's steps are the install steps of its publish workflow followed by that
-    # workflow's own verify script - everything publish.yml / publish-python.yml do except the
-    # dispatch-input check (phase 1's `check` covers every package at once) and the publish.
-    # Action SHAs are the publish workflows' own.
+    # workflow's own verify script - everything publish.yml / publish-python.yml / publish-go.yml
+    # do except the dispatch-input check (phase 1's `check` covers every package at once) and the
+    # publish. Action SHAs are the publish workflows' own.
     steps:
+      # Every step below is gated on the row's registry, so a registry with no steps here would
+      # run only the checkout and pass - a package verified by nothing, then tagged and released.
+      # That is the gap a new language opens by adding a table row without adding its steps, so
+      # this refuses it first. A new registry means adding its steps below AND its name here.
+      - name: Refuse a registry this workflow has no steps for
+        if: ${{ !contains(fromJSON('["npm","pypi","goproxy"]'), matrix.package.registry) }}
+        env:
+          ID: ${{ matrix.package.id }}
+          REGISTRY: ${{ matrix.package.registry }}
+        run: |
+          echo "::error::Package $ID targets registry \"$REGISTRY\", which release.yml's prepare-dry-run has no setup or verify steps for. Add them, and add \"$REGISTRY\" to this step's list."
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -222,6 +235,17 @@ jobs:
       - name: Verify the package (PyPI)
         if: matrix.package.registry == 'pypi'
         run: ./scripts/release/verify-pypi.sh "$PACKAGE_INPUT"
+
+      - name: Setup Go
+        if: matrix.package.registry == 'goproxy'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go/**/go.sum
+
+      - name: Verify the package (Go)
+        if: matrix.package.registry == 'goproxy'
+        run: ./scripts/release/verify-go.sh "$PACKAGE_INPUT"
 
   prepare-tag-and-draft:
     name: Tag and draft the release

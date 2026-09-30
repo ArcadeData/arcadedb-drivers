@@ -1,0 +1,204 @@
+name: Publish Go module
+run-name: Publish Go ${{ inputs.package }} ${{ inputs.version }}
+
+# Manual release only. Nothing in this repository publishes the Go module on push, tag, or
+# schedule. release.yml dispatches this workflow once per Go package, after its own lockstep
+# check and dry run. Dispatching it by hand (the Actions UI, or `gh workflow run
+# publish-go.yml`) is for recovering a partial release - say the npm and PyPI packages published
+# and this one did not - and it BYPASSES the lockstep check, so the version being published is
+# then the operator's responsibility. It must run AT THE TAG - the first step refuses any other
+# ref, and both the UI and `gh workflow run` default to `main` - so recover with exactly:
+#
+#   gh workflow run publish-go.yml --ref v<version> -f package=arcadedb -f version=<version>
+#
+# Go has no registry to upload to and no credential to hold. A Go module version is "published"
+# by two things this workflow does, in order: it pushes the module's own tag,
+# go/<package>/v<version>, on the commit the release tag v<version> names; then it asks
+# proxy.golang.org for that version. That first fetch IS the publish: the proxy caches the module
+# zip, sum.golang.org records its checksum, and pkg.go.dev indexes it.
+#
+# A FETCHED VERSION IS PERMANENT. The proxy never forgets a version, and the checksum database
+# pins its content forever, so a bad version can be neither deleted nor replaced - moving or
+# deleting the git tag afterwards changes nothing except to break anyone who fetches around the
+# proxy. The only remedy is a `retract` directive in go.mod, shipped in the NEXT version. That is
+# why verify-go.sh runs here again, and why the module-zip check runs before the tag exists.
+#
+# It publishes ONE package per dispatch, chosen by the `package` input, and is dispatched rather
+# than called as a reusable workflow for the same reason as publish.yml and publish-python.yml:
+# each keeps its own top-level filename and OIDC identity. No trusted publisher depends on that
+# here today, but a Go package added later joins this file as one more `package` option rather
+# than as a sibling workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Which Go module to publish (go/<package>). Each dispatch publishes exactly one."
+        required: true
+        type: choice
+        options:
+          - arcadedb
+      version:
+        description: 'Version being published, without the leading "v". Must equal the module''s version.go "Version" exactly - this is a guardrail against dispatching the wrong release, not a bump mechanism.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish go/${{ inputs.package }} to the Go module proxy
+    runs-on: ubuntu-latest
+    # contents: write is for pushing the go/<package>/v<version> tag, and is the only write this
+    # workflow holds: there is no registry secret and no id-token, because Go has neither.
+    permissions:
+      contents: write
+    # Every step below addresses the chosen module through these two, never through a literal
+    # directory name.
+    env:
+      PKG: ${{ inputs.package }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      # A version is published only from its own tag. The Actions UI and `gh workflow run` both
+      # default to `main`, and a hand dispatch left on that default would tag and fetch whatever
+      # main holds today under a version that was tagged, and verified, on another commit.
+      # release.yml always dispatches with ref=v<version>, so this only ever refuses a hand dispatch
+      # on the wrong ref. First, before checkout, so a refused run builds nothing. Both values reach
+      # the shell through the environment: `version` is free text typed by whoever dispatches.
+      - name: Refuse unless dispatched on the tag v<version>
+        env:
+          REF: ${{ github.ref }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$REF" != "refs/tags/v$REQUESTED_VERSION" ]; then
+            echo "::error::Dispatched on $REF, not refs/tags/v$REQUESTED_VERSION. Publish only from the version's tag: gh workflow run publish-go.yml --ref v$REQUESTED_VERSION -f package=$PKG -f version=$REQUESTED_VERSION"
+            exit 1
+          fi
+          echo "OK: dispatched on $REF"
+
+      # Full history so the tag step's `git tag` and `git push` work against a complete repository
+      # rather than a depth-1 graft. The checkout's persisted GITHUB_TOKEN is what pushes the tag.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go/**/go.sum
+
+      - name: Verify the dispatch input matches the module version
+        id: module
+        working-directory: go/${{ inputs.package }}
+        run: |
+          actual=$(sed -nE 's/^const Version = "([^"]*)"$/\1/p' version.go)
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::Dispatch input \"$VERSION\" does not match go/$PKG/version.go Version \"$actual\". Bump the module version first, or dispatch with the correct version."
+            exit 1
+          fi
+          # GOWORK=off: inside the go.work workspace `go list -m` names every module, not this one.
+          module=$(GOWORK=off go list -m)
+          # The package table row this dispatch publishes, found by workflow and package input
+          # rather than by a naming convention, so is-published below asks about the right row.
+          # Its recorded module name must be the module go.mod declares.
+          row=$(../../scripts/release-packages.py json \
+            | jq -c --arg p "$PKG" '[.[] | select(.workflow == "publish-go.yml" and .package_input == $p)]')
+          if [ "$(jq length <<<"$row")" != 1 ]; then
+            echo "::error::Expected exactly one release-packages.py row for publish-go.yml package $PKG, found: $row"
+            exit 1
+          fi
+          id=$(jq -r '.[0].id' <<<"$row")
+          name=$(jq -r '.[0].name' <<<"$row")
+          if [ "$name" != "$module" ]; then
+            echo "::error::release-packages.py row $id names $name, but go/$PKG/go.mod declares $module."
+            exit 1
+          fi
+          echo "module=$module" >> "$GITHUB_OUTPUT"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "OK: dispatch input matches $module@v$actual (release row $id)"
+
+      # The pre-publish gates (lint, unit tests, the drift gate, ServerVersion vs the committed
+      # contract, the module-zip check) live in scripts/release/verify-go.sh, so that release.yml's
+      # dry run runs the very same checks and the two can never diverge. Their explanatory comments
+      # live there, next to the code they explain.
+      - name: Verify the module before tagging
+        run: ./scripts/release/verify-go.sh "$PKG"
+
+      # The Go toolchain finds a version of a module in a subdirectory by the tag
+      # <subdirectory>/v<version>, so v<version> alone publishes nothing for go/<package>. The tag
+      # goes on HEAD, which is the commit v<version> names (the ref check above and the checkout of
+      # that ref guarantee it).
+      #
+      # Idempotent for a re-run: a tag already on this very commit is an earlier attempt of this
+      # release that failed after pushing it, so the step continues to the fetch. A tag on any
+      # other commit is refused - a Go module tag never moves, since the proxy may already have
+      # fetched what it named. `git ls-remote` lists an annotated tag twice, the tag object under
+      # refs/tags/<tag> and the commit it peels to under refs/tags/<tag>^{}; the peeled commit is
+      # the one compared, falling back to the unpeeled line for a lightweight tag.
+      - name: Tag go/<package>/v<version> on the release commit
+        run: |
+          TAG="go/$PKG/v$VERSION"
+          head=$(git rev-parse HEAD)
+          listing=$(git ls-remote --tags origin "refs/tags/$TAG" "refs/tags/$TAG^{}")
+          peeled=$(awk -v ref="refs/tags/$TAG^{}" '$2 == ref { print $1 }' <<<"$listing")
+          direct=$(awk -v ref="refs/tags/$TAG" '$2 == ref { print $1 }' <<<"$listing")
+          remote=${peeled:-$direct}
+          if [ -z "$remote" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "$TAG" HEAD
+            git push origin "refs/tags/$TAG"
+            echo "OK: pushed $TAG on $head"
+          elif [ "$remote" = "$head" ]; then
+            echo "OK: $TAG already names $head (an earlier attempt pushed it); continuing"
+          else
+            echo "::error::Tag $TAG already exists on origin and names $remote, not the release commit $head. A Go module tag never moves; release a new version."
+            exit 1
+          fi
+
+      # The first fetch through proxy.golang.org is the publish. GOWORK=off in a scratch directory
+      # so the request resolves against the proxy, not against the workspace's own copy of this
+      # module. The fetch is retried because the proxy can briefly miss a tag pushed seconds ago.
+      # Then the proxy's .info URL - the same one release.yml's is-published check asks - is polled
+      # until it answers 200, so this run goes green only once the version is really there.
+      - name: Fetch the version through proxy.golang.org
+        working-directory: ${{ runner.temp }}
+        env:
+          MODULE: ${{ steps.module.outputs.module }}
+          ID: ${{ steps.module.outputs.id }}
+          GOWORK: "off"
+          GOPROXY: https://proxy.golang.org
+          GOFLAGS: -mod=mod
+          RELEASE_PACKAGES: ${{ github.workspace }}/scripts/release-packages.py
+        run: |
+          fetched=false
+          for attempt in 1 2 3 4 5; do
+            if go list -m "$MODULE@v$VERSION"; then
+              fetched=true
+              break
+            fi
+            echo "go list -m $MODULE@v$VERSION failed (attempt $attempt of 5); retrying in 15s"
+            sleep 15
+          done
+          if [ "$fetched" != true ]; then
+            echo "::warning::go list -m $MODULE@v$VERSION never succeeded; polling the proxy anyway."
+          fi
+
+          # is-published prints true or false, and exits non-zero when the proxy answers anything
+          # but 200, 404 or 410 - that error fails this step rather than reading as "not yet".
+          deadline=$((SECONDS + 600))
+          while :; do
+            published=$("$RELEASE_PACKAGES" is-published "$ID" "$VERSION")
+            case "$published" in
+              true) echo "OK: $MODULE@v$VERSION is on proxy.golang.org"; exit 0 ;;
+              false) ;;
+              *) echo "::error::is-published printed '$published', not true/false."; exit 1 ;;
+            esac
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::$MODULE@v$VERSION is not on proxy.golang.org after 10 minutes. The tag is pushed; re-run this job to retry the fetch (the tag step accepts its own earlier push)."
+              exit 1
+            fi
+            sleep 15
+          done

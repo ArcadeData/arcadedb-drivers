@@ -178,3 +178,42 @@ func TestStreamLineLongerThan64KiB(t *testing.T) {
 		t.Fatalf("long line lost: err=%v n=%d", err, len(evs))
 	}
 }
+
+func TestStreamSkipsUnknownEventKinds(t *testing.T) {
+	srv := fakeServer(t, ndjsonBody("{\"record\":{\"a\":1}}\n{\"progress\":{}}\n{\"record\":null}\n{\"record\":{\"a\":2}}\n"))
+	evs, err := drain(t, srv)
+	if err != nil || len(evs) != 2 || evs[1].Record["a"] != float64(2) {
+		t.Fatalf("evs=%+v err=%v", evs, err)
+	}
+}
+
+func TestStreamCancelSurfacesContextError(t *testing.T) {
+	done := make(chan struct{})
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = io.WriteString(w, "{\"record\":{\"a\":1}}\n{\"record\":{\"b\":")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+		close(done)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var events int
+	var gotErr error
+	for _, err := range srv.DB("d").QueryStream(ctx, SQL, "select", nil) {
+		if err != nil {
+			gotErr = err
+			continue
+		}
+		events++
+		cancel()
+	}
+	if events != 1 || !errors.Is(gotErr, context.Canceled) {
+		t.Fatalf("events=%d err=%v", events, gotErr)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("body not closed")
+	}
+}

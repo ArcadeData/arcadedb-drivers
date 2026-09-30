@@ -37,7 +37,8 @@ const defaultStreamError = "the stream reported an error"
 // event was cut short (a server write timeout, a dropped connection) and the rows seen
 // may be a partial answer. An in-band error, sent after the 200 status line, is yielded
 // once as an *ArcadeDBError with status 200, and iteration then stops; so does a
-// transport or decode error. A non-2xx status is an *ArcadeDBError.
+// transport or decode error. Events of an unknown kind are ignored, so a newer server can
+// add kinds without breaking this client. A non-2xx status is an *ArcadeDBError.
 func (d *Database) QueryStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...QueryOption) iter.Seq2[StreamEvent, error] {
 	return d.stream(func() (io.ReadCloser, error) {
 		accept := generated.ExecuteQueryPostParamsAcceptApplicationxNdjson
@@ -86,7 +87,10 @@ func (d *Database) stream(open func() (io.ReadCloser, error)) iter.Seq2[StreamEv
 				yield(StreamEvent{}, err)
 				return
 			}
-			ev, err := decodeStreamLine(line)
+			ev, ok, err := decodeStreamLine(line)
+			if !ok && err == nil {
+				continue
+			}
 			if !yield(ev, err) || err != nil {
 				return
 			}
@@ -108,10 +112,11 @@ type eventWire struct {
 	} `json:"error"`
 }
 
-func decodeStreamLine(line []byte) (StreamEvent, error) {
+// decodeStreamLine reports ok=false with a nil error for an event of an unknown kind.
+func decodeStreamLine(line []byte) (StreamEvent, bool, error) {
 	var w eventWire
 	if err := json.Unmarshal(line, &w); err != nil {
-		return StreamEvent{}, fmt.Errorf("arcadedb: decode stream event: %w", err)
+		return StreamEvent{}, false, fmt.Errorf("arcadedb: decode stream event: %w", err)
 	}
 	switch {
 	case w.Error != nil:
@@ -119,15 +124,15 @@ func decodeStreamLine(line []byte) (StreamEvent, error) {
 		if msg == "" {
 			msg = defaultStreamError
 		}
-		return StreamEvent{}, &ArcadeDBError{Status: 200, ErrorMessage: msg}
+		return StreamEvent{}, true, &ArcadeDBError{Status: 200, ErrorMessage: msg}
 	case w.Stats != nil:
 		s := &StreamStats{Limit: -1, Returned: w.Stats.Returned, Truncated: w.Stats.Truncated}
 		if w.Stats.Limit != nil {
 			s.Limit = *w.Stats.Limit
 		}
-		return StreamEvent{Stats: s}, nil
+		return StreamEvent{Stats: s}, true, nil
 	case w.Record != nil:
-		return StreamEvent{Record: w.Record}, nil
+		return StreamEvent{Record: w.Record}, true, nil
 	}
-	return StreamEvent{}, fmt.Errorf("arcadedb: stream event has none of record, stats or error: %s", line)
+	return StreamEvent{}, false, nil
 }

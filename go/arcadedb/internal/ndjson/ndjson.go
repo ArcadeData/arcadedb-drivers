@@ -11,7 +11,7 @@ import (
 
 // Lines yields each non-blank line of r without its terminator. It splits on '\n' and
 // nothing else: U+2028, U+2029, U+0085 and '\r' are legal raw characters inside a JSON
-// string and must not end a line. A final unterminated line is flushed. There is no line
+// string and must not end a line. A final unterminated line is flushed only on a clean EOF; on a read error the partial line is dropped. There is no line
 // length limit (bufio.Scanner would fail past 64 KiB). Each yielded slice is owned by the
 // caller. A read error is yielded once and ends the sequence.
 func Lines(r io.Reader) iter.Seq2[[]byte, error] {
@@ -24,6 +24,12 @@ func Lines(r io.Reader) iter.Seq2[[]byte, error] {
 			if errors.Is(err, bufio.ErrBufferFull) {
 				continue
 			}
+			if err != nil && !errors.Is(err, io.EOF) {
+				// A read failure (cancel, reset) may have cut a line: never flush the
+				// partial one, or it surfaces as a bogus decode error or a truncated event.
+				yield(nil, err)
+				return
+			}
 			line := bytes.TrimSuffix(pending, []byte("\n"))
 			if len(bytes.TrimSpace(line)) > 0 {
 				if !yield(append([]byte(nil), line...), nil) {
@@ -32,9 +38,6 @@ func Lines(r io.Reader) iter.Seq2[[]byte, error] {
 			}
 			pending = pending[:0]
 			if err != nil {
-				if !errors.Is(err, io.EOF) {
-					yield(nil, err)
-				}
 				return
 			}
 		}

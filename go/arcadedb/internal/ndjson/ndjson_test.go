@@ -1,6 +1,7 @@
 package ndjson
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -39,5 +40,36 @@ func TestLinesNoLengthLimit(t *testing.T) {
 	got := collect(t, big+"\n"+big)
 	if len(got) != 2 || len(got[0]) != 1<<20 || len(got[1]) != 1<<20 {
 		t.Fatal("long lines truncated")
+	}
+}
+
+type errAfter struct {
+	data string
+	err  error
+	done bool
+}
+
+func (e *errAfter) Read(p []byte) (int, error) {
+	if e.done {
+		return 0, e.err
+	}
+	e.done = true
+	return copy(p, e.data), nil
+}
+
+func TestLinesReadErrorDropsPartialLine(t *testing.T) {
+	boom := errors.New("boom")
+	var lines, errs []string
+	var gotErr error
+	for line, err := range Lines(&errAfter{data: "{\"a\":1}\n{\"b\":", err: boom}) {
+		if err != nil {
+			gotErr = err
+			errs = append(errs, err.Error())
+			continue
+		}
+		lines = append(lines, string(line))
+	}
+	if len(lines) != 1 || lines[0] != `{"a":1}` || len(errs) != 1 || !errors.Is(gotErr, boom) {
+		t.Fatalf("lines=%q errs=%q", lines, errs)
 	}
 }

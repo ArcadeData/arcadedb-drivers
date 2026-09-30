@@ -111,7 +111,9 @@ describes the contract itself and a future Python or Go client reads the same mo
   `release.yml` to npm and PyPI, forcing every publisher to be reconfigured, and PyPI rejects a
   reusable workflow as a trusted publisher outright. A partial release is completed by
   **re-running failed jobs** on the phase 2 run (packages already on their registry read as
-  `skipped`); a fix that needs code is a **new version**, never a moved tag. Real runs refuse a
+  `skipped`) — after waiting a few minutes, because the npm registry can briefly 404 a version it
+  has just published, and a premature re-run re-dispatches it and npm refuses the duplicate (red,
+  but harmless); a fix that needs code is a **new version**, never a moved tag. Real runs refuse a
   `-SNAPSHOT` server version (D4) so a release cannot ship against a moving target; a dry run
   relaxes that to a warning and may run on any ref. A new package joins by adding one row to the
   package table, plus a `REGISTRIES` entry if it targets a registry not already there. The notes

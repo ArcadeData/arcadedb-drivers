@@ -38,8 +38,10 @@ run-name: ${{ github.event_name == 'release' && format('Publish {0}', github.eve
 # link - to the release body. There is no rollback, because a registry publish cannot be undone.
 # A partial release is completed by fixing the cause and RE-RUNNING FAILED JOBS on this run: every
 # package that did publish now reads as already published and is skipped, so only the missing ones
-# are dispatched again. If the fix needs a code change, that is a NEW VERSION, released from
-# phase 1 again: the tag never moves and a version is never published from a different commit.
+# are dispatched again. Wait a few minutes after a failed run before re-running it: the npm
+# registry can briefly answer 404 for a version it has just published, and a premature re-run
+# then re-dispatches that package and npm refuses the duplicate - a red row, but a harmless one.
+# If the fix needs a code change, that is a NEW VERSION, released from phase 1 again: the tag never moves and a version is never published from a different commit.
 #
 # Nothing here runs on push, tag or schedule. Every phase 1 job is gated on
 # `github.event_name == 'workflow_dispatch'` so none of them ever runs on the phase 2 event, where

@@ -111,9 +111,10 @@ go/
 ├── CLAUDE.md
 ├── scripts/
 │   ├── generate.sh              # resolve-openapi-contract.sh → oapi-codegen → arcadedb/generated/
-│   └── check-codegen-coverage.sh
+│   ├── check-drift.sh           # the four-part gate (section 6), shared by CI, verify-go.sh, contract-watch
+│   └── lint.sh                  # gofmt, go vet, staticcheck over every module
 ├── tools/
-│   └── go.mod                   # `tool` directives, exact pins: oapi-codegen, staticcheck, go-licenses, gorelease
+│   └── go.mod                   # `tool` directives, exact pins: oapi-codegen, staticcheck, go-licenses; cmd/checkzip
 ├── e2e/
 │   └── go.mod                   # testcontainers-go; imports ../arcadedb through go.work
 └── arcadedb/                    # module github.com/ArcadeData/arcadedb-drivers/go/arcadedb
@@ -179,8 +180,9 @@ deletion when upstream fixes the name. The upstream issue is filed as part of th
 
 1. `git diff --exit-code -- go/arcadedb/generated` — a modified generated file.
 2. `git status --porcelain -- go/arcadedb/generated` — an added or renamed one.
-3. `check-codegen-coverage.sh` — every `operationId` in the contract has a generated client
-   method. oapi-codegen skips nothing today; this is the **positive** check M9 proposes, so a
+3. `TestEveryOperationIsGenerated` — a Go test that reads every `operationId` from the contract
+   and asserts, by reflection over `*generated.Client`, that each has a generated method. The gate
+   runs it explicitly and fails if it was skipped rather than passed. oapi-codegen skips nothing today; this is the **positive** check M9 proposes, so a
    future generator version cannot start dropping operations silently the way
    `openapi-python-client` does.
 4. `go mod tidy` in each module, then `git diff --exit-code` over every `go.mod` and `go.sum` — the
@@ -232,12 +234,15 @@ states it as plainly as `python/CLAUDE.md` does.
 ### Errors
 
 Errors are returned, never panicked. `*ArcadeDBError` implements `error` and carries `Status`,
-`Error`, `Exception`, `Detail`, `RequestID`, `Help` and `ExceptionArgs`, transliterating
+`ErrorMessage`, `Exception`, `Detail`, `RequestID`, `Help` and `ExceptionArgs`, transliterating
 `errors.ts` and `errors.py`; callers match it with `errors.As`. `RequestID` comes from the
 `X-Request-Id` response header. **Parsing an error never itself fails**: an absent, unparsable or
 incomplete body yields an `*ArcadeDBError` carrying only the status, which is `parseBody`'s contract
 in TypeScript and load-bearing on a failure path. `internal/unwrap` holds the one helper that turns
 a generated response into its parsed body or an `*ArcadeDBError`.
+
+**`ErrorMessage`, not `Error`.** Go forbids a field and a method with the same name, and `Error()`
+is what makes the type an `error`; the body's `error` string therefore lands in `ErrorMessage`.
 
 **`Help`, not `Help_`.** Python spells it `help_` to avoid shadowing a builtin and to match its
 generated model. Go has no such builtin and an exported field must be capitalised anyway; note the
@@ -442,9 +447,18 @@ as `!` plus its lowercase, so `ArcadeData` becomes `!arcade!data`; that escaping
 
 Shared by `release.yml`'s phase 1 dry run and by `publish-go.yml`, like `verify-npm.sh` and
 `verify-pypi.sh`. It checks the dispatch version against `Version` and `ServerVersion` against the
-contract, runs lint, unit tests, the drift gate and a clean `go mod tidy`, and runs
-`go tool gorelease` (`golang.org/x/exp`, BSD-3-Clause) to validate the module zip. A file Go's
+contract, runs lint, unit tests, the drift gate and a clean `go mod tidy`, and validates the module zip with
+`golang.org/x/mod/zip.CheckDir` (BSD-3-Clause) through a small `tools/cmd/checkzip`. `gorelease` was
+considered and rejected: its API-compatibility verdicts are noise at v0 (section 12). A file Go's
 module-zip rules reject would make the tag unfetchable, and permanently so.
+
+### `release.yml`
+
+The unified release design expected no edit per language, but its phase 1 dry-run matrix gates its
+setup and verify steps on `matrix.package.registry`, so a registry with no matching steps runs only
+a checkout and passes silently. M10 adds the `goproxy` steps (set up Go 1.26, run `verify-go.sh`)
+and a fail-closed first step that refuses any registry the workflow has no steps for, so the next
+language cannot repeat the gap.
 
 ### `publish-go.yml` (new)
 

@@ -48,3 +48,27 @@ jobs:
       - name: Unit tests
         working-directory: go/arcadedb
         run: go test -race ./...
+
+  e2e:
+    name: End-to-end against a real server
+    needs: build
+    runs-on: ubuntu-latest
+    # Container pull plus ArcadeDB JVM startup can run well past what the unit job
+    # needs; an explicit cap keeps a hung container from burning the runner's
+    # default multi-hour budget instead of failing fast.
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # 1.27, not the build job's 1.26: the two jobs together cover the declared
+          # floor and the current release without a matrix.
+          go-version: "1.27"
+          cache-dependency-path: go/**/go.sum
+
+      - name: E2E tests against a real ArcadeDB server
+        working-directory: go/e2e
+        run: go test -v ./...

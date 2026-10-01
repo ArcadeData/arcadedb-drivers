@@ -50,8 +50,9 @@ version bump is a two-step operation: fetch both contracts, then run
 `adopt-contract-version.sh <version>`, which deletes the retired contract and generated module,
 rewrites the version-stamped imports, and updates each package's recorded server version
 (`arcadedb.serverVersion` in a TypeScript `package.json`, `[tool.arcadedb] server-version` in a
-Python `pyproject.toml`, `const ServerVersion` in a Go module's `version.go`). It deliberately does not touch the compatibility tables in the READMEs —
-those rows are a historical record tied to a package version, and adding one is a human decision.
+Python `pyproject.toml`, `const ServerVersion` in a Go module's `version.go`). It deliberately does
+not touch the compatibility tables in the READMEs — those rows are a historical record tied to a
+package version, and adding one is a human decision.
 
 `adopt-contract-version.sh` is language-aware: which files it rewrites is driven by an explicit
 `LANGUAGES` table (file suffixes and directories to skip, per language) rather than by crawling
@@ -263,8 +264,10 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   places. arcadedb guards `native/pom.xml`, whose GraalVM pin has to move in lockstep with a
   builder JDK Dependabot cannot see; the equivalent invariant here is this file's own first rule,
   so the guard refuses instead to auto-merge anything touching `contracts/` or generated output
-  (every client's generated directory, `go/arcadedbgrpc/generated/` included) —
-  a bump that edits either is not a bump, it is drift or a contract move, and a human adopts those
+  (its `GUARDED` pattern lists exactly `contracts/`, `typescript/packages/driver/src/generated/`,
+  `typescript/packages/driver-grpc/src/gen/`, `python/packages/*/src/*/_generated/`,
+  `go/arcadedb/generated/` and `go/arcadedbgrpc/generated/`, and a new client's generated
+  directory must be added there) — a bump that edits either is not a bump, it is drift or a contract move, and a human adopts those
   with `adopt-contract-version.sh`. And arcadedb merges on one approval with no CI condition at
   all, inherited from the Mergify rule it replaced; this one refuses on a failing or still-running
   check, because the drift gates are the only thing that catches a generator bump changing
@@ -329,33 +332,33 @@ accidental omission.
 demand. The weekly run is not redundant: a package can be **relicensed** on a version
 already pinned in a lockfile, and no manifest changes when that happens.
 
-Five entries above are this repository's own additions to ArcadeDB's list, each made on
-evidence from this tree rather than in the abstract: `BlueOak-1.0.0` (5 npm dev packages —
-`jackspeak`, `minimatch`, `minipass`, `package-json-from-dist`, `path-scurry`),
-`PSF-2.0`/`Python-2.0` (`typing_extensions`, a runtime dependency of `arcadedb-driver`),
-`Unlicense` (one npm dev package, `tweetnacl`; CLAUDE.md already allowed "CC0/Public
-Domain" and this is that category under its SPDX name), `MPL-2.0` — already allowed
-upstream for libraries, recorded explicitly here because `certifi` makes it a **runtime**
-dependency (pulled in through `httpx`) rather than the dev-scope case ArcadeDB originally
-blessed; and `MIT-0` ("MIT No Attribution", MIT without its attribution clause, so strictly more
-permissive than the allowed `MIT`), carried by one Go module, `github.com/segmentio/asm`, which is
-reached only through the `buf` code generator in `go/tools` — a tool dependency, never shipped to a
-consumer of either Go module. go-licenses cannot classify MIT-0 and reports that module as
-`Unknown`, which no spelling in `NORMALISE` can fix, so `scripts/check-licenses.py` carries a
-narrow per-module override (`_GO_LICENSE_OVERRIDES`) applied only when go-licenses says exactly
-`Unknown` for exactly that module; any other `Unknown`, or a different license reported for that
-module, stays a violation. No other Go module needed an addition. `go.mod` records no license, so the Go collector runs
-`go-licenses report` (pinned in `go/tools/go.mod`) over `go/arcadedb`, `go/arcadedbgrpc` and `go/e2e` with their
-test dependencies included, and over the tools `go/tools` declares, resolves each reported package to the module that owns it, and
-fails closed on a malformed row, a package no module owns, or a report that saw implausibly few
-modules.
+Five entries above are this repository's own additions to ArcadeDB's list, each made on evidence
+from this tree rather than in the abstract: `BlueOak-1.0.0` (5 npm dev packages — `jackspeak`,
+`minimatch`, `minipass`, `package-json-from-dist`, `path-scurry`), `PSF-2.0`/`Python-2.0`
+(`typing_extensions`, a runtime dependency of `arcadedb-driver`), `Unlicense` (one npm dev package,
+`tweetnacl`; CLAUDE.md already allowed "CC0/Public Domain" and this is that category under its SPDX
+name), `MPL-2.0` — already allowed upstream for libraries, recorded explicitly here because
+`certifi` makes it a **runtime** dependency (pulled in through `httpx`) rather than the dev-scope
+case ArcadeDB originally blessed; and `MIT-0` ("MIT No Attribution", MIT without its attribution
+clause, so strictly more permissive than the allowed `MIT`), carried by one Go module,
+`github.com/segmentio/asm`, which is reached only through the `buf` code generator in `go/tools` — a
+tool dependency, never shipped to a consumer of either Go module. go-licenses cannot classify MIT-0
+and reports that module as `Unknown`, which no spelling in `NORMALISE` can fix, so
+`scripts/check-licenses.py` carries a narrow per-module override (`_GO_LICENSE_OVERRIDES`) applied
+only when go-licenses says exactly `Unknown` for exactly that module; any other `Unknown`, or a
+different license reported for that module, stays a violation. No other Go module needed an
+addition. `go.mod` records no license, so the Go collector runs `go-licenses report` (pinned in
+`go/tools/go.mod`) over `go/arcadedb`, `go/arcadedbgrpc` and `go/e2e` with their test dependencies
+included, and over the tools `go/tools` declares, resolves each reported package to the module that
+owns it, and fails closed on a malformed row, a package no module owns, or a report that saw
+implausibly few modules.
 
-**What the gate cannot check.** "Libraries only, unmodified" is a rule for humans. The
-checker sees a license identifier attached to a package; it cannot know whether this
-repository has vendored, patched or re-published that package's source. A green run does
-not certify that nobody copied an MPL-2.0 file into the tree. Nothing is vendored today —
-the generated code under `_generated/`, `src/gen/`, `go/arcadedb/generated/` and
-`go/arcadedbgrpc/generated/` comes from ArcadeDB's own Apache-2.0 contracts — and if that ever changes, both this rule and the absence of an
+**What the gate cannot check.** "Libraries only, unmodified" is a rule for humans. The checker sees
+a license identifier attached to a package; it cannot know whether this repository has vendored,
+patched or re-published that package's source. A green run does not certify that nobody copied an
+MPL-2.0 file into the tree. Nothing is vendored today — the generated code under `_generated/`,
+`src/gen/`, `go/arcadedb/generated/` and `go/arcadedbgrpc/generated/` comes from ArcadeDB's own
+Apache-2.0 contracts — and if that ever changes, both this rule and the absence of an
 `ATTRIBUTIONS.md` need revisiting.
 
 Adding a license to the ALLOWED row means editing `ALLOWED_IDS` in
@@ -374,7 +377,7 @@ before reworking a client's public surface.
 Every package README and the code comments document failure modes and deliberate asymmetries at
 length (why `truncated` matters, why `exists` cannot prove absence, why the TypeScript gRPC client
 throws `ConnectError` and not `ArcadeDBError` while its Python sibling raises `grpc.RpcError`
-directly, why `bulkInsert` cannot join a `transaction()`, why the Go client's `TxError` does not
-use `errors.Join`, why the Go gRPC client's `RawAdmin` returns an error over plaintext). When you change behaviour in one of
-those areas, update the prose with it — those passages are load-bearing documentation, not
-decoration.
+directly, why `bulkInsert` cannot join a `transaction()`, why the Go client's `TxError` does not use
+`errors.Join`, why the Go gRPC client's `RawAdmin` returns an error over plaintext). When you change
+behaviour in one of those areas, update the prose with it — those passages are load-bearing
+documentation, not decoration.

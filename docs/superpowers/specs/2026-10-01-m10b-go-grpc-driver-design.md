@@ -197,18 +197,19 @@ unless the credentials opt out — the same reason Python avoids `metadata_call_
 
 ### The two guards
 
-- **#5048.** `NewClient` returns `ErrInsecureChannel` when password auth would cross a connection
-  without transport credentials and `WithInsecure()` was not given. Bearer tokens over plaintext are
+- **#5048.** `NewClient` returns `ErrInsecureChannel` when password auth is configured without
+  `WithTransportCredentials` and without `WithInsecure()`. Bearer tokens over plaintext are
   allowed.
 - **Admin.** `RawAdmin() (generated.ArcadeDbAdminServiceClient, error)` returns `ErrInsecureChannel`
-  unless the client has transport credentials or `WithInsecure()`. The guard is unconditional on
+  unless the client was built with `WithTransportCredentials` or `WithInsecure()`. The guard is unconditional on
   auth, because 42 of the 44 admin RPCs carry `DatabaseCredentials` in the request body, where the
   #5048 check cannot see; it covers Health and Ready too, because carving out two RPCs would mean
   wrapping the other 42. Python raises when the property is read; Go returns an error, its idiom for
   a recoverable refusal.
 
-`WithInsecure()` is the single explicit opt-in that satisfies both guards; supplying transport
-credentials satisfies both as well.
+`WithInsecure()` is the single explicit opt-in that satisfies both guards; `WithTransportCredentials`
+satisfies both as well. TLS passed only through `WithDialOptions` satisfies neither: it is honoured
+on the connection, but the guards cannot see it and fail closed (see "Credential order" above).
 
 ### Errors
 
@@ -381,6 +382,6 @@ The module joins the lockstep at the next release, as `go/arcadedb` does.
 Out of scope:
 
 - wrapping the 44 admin RPCs (reachable through `RawAdmin()`; Python does not wrap them either);
-- `InsertStream` on `TxHandle` (#46);
+- `InsertStream` on `TxHandle` (ArcadeData/arcadedb-drivers#46);
 - `BulkInsert`, `InsertBidirectional`, `GraphBatchLoad` (raw-only, as in Python and TypeScript);
 - connect-go (D2).

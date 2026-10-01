@@ -84,9 +84,9 @@ published module never sees the `1.26.7`. CI runs unit, lint and drift gate on G
 `ci.yml` and `ci-python.yml` use.
 
 **Never run `go work sync`.** It pushes the workspace's resolved versions down into every module's
-`go.mod`, which bumps `arcadedbgrpc`'s `go` line to `1.26.7` (raising the floor every consumer
-sees) and raises the published modules' dependency versions to whatever the tools module needs. Tidy each module with `go mod tidy`
-instead, which is what the drift gate's part 4 runs.
+`go.mod`, which bumps `arcadedbgrpc`'s `go` line to `1.26.7` (raising the floor every consumer sees)
+and raises the published modules' dependency versions to whatever the tools module needs. Tidy each
+module with `go mod tidy` instead, which is what the drift gate's part 4 runs.
 
 `generated/` is a public package (named `generated`), not `internal/`, so `Server.Raw()` can return
 a typed client whose types callers can name. `internal/batchrows` (the GraphBatch line encoder, a
@@ -152,10 +152,11 @@ These are the HTTP module's, except the last, which binds the whole workspace. T
 are under "The gRPC module" below.
 
 - **The facade errors; `Raw()` does not, for a non-2xx status.** Every facade method returns an
-  `*ArcadeDBError` for a non-2xx response, with one deliberate exception: `Ready` answers a 503
-  (up, but not ready) with `(false, nil)`, because "not ready" is the answer it exists to give. `Server.Raw()` returns the generated
-  `*generated.ClientWithResponses`, whose methods return a response and a nil error for any status
-  the server answered with; the caller inspects `HTTPResponse.StatusCode`. Do not blur it.
+  `*ArcadeDBError` for a non-2xx response, with one deliberate exception: `Ready` answers a 503 (up,
+  but not ready) with `(false, nil)`, because "not ready" is the answer it exists to give.
+  `Server.Raw()` returns the generated `*generated.ClientWithResponses`, whose methods return a
+  response and a nil error for any status the server answered with; the caller inspects
+  `HTTPResponse.StatusCode`. Do not blur it.
 - **`ErrorMessage`, not `Error`.** Go forbids a field and a method with the same name, and
   `Error()` is what makes `*ArcadeDBError` an `error`, so the body's `error` string lands in
   `ErrorMessage`. `Error()` returns `ErrorMessage`, else `Detail`, else a generic message naming the
@@ -202,13 +203,13 @@ are under "The gRPC module" below.
   as a pointer, so through `Raw()` a `null` and a missing key both decode to `nil`. A field the
   contract marks required is a plain value, and an omitted one reads as its zero value.
 - **Streams skip what they do not understand.** `QueryStream`/`CommandStream` return
-  `iter.Seq2[StreamEvent, error]`; each `StreamEvent` has exactly one of `Record` or `Stats` set.
-  An event of an unknown kind, and `"record": null`, are **skipped**, where the Python driver yields
-  an empty event. An in-band `{"error": ...}` event is yielded once as an `*ArcadeDBError` with
-  status 200 and the response's `X-Request-Id`, and ends the iteration. A stats trailer with no `limit` reads as `-1`. A non-EOF read
-  error drops the partial line rather than decoding it, so a cancelled context surfaces as an error
-  `errors.Is(err, context.Canceled)` matches, not as a bogus decode error. There is no line-length
-  limit (`bufio.Scanner` would fail past 64 KiB).
+  `iter.Seq2[StreamEvent, error]`; each `StreamEvent` has exactly one of `Record` or `Stats` set. An
+  event of an unknown kind, and `"record": null`, are **skipped**, where the Python driver yields an
+  empty event. An in-band `{"error": ...}` event is yielded once as an `*ArcadeDBError` with status
+  200 and the response's `X-Request-Id`, and ends the iteration. A stats trailer with no `limit`
+  reads as `-1`. A non-EOF read error drops the partial line rather than decoding it, so a cancelled
+  context surfaces as an error `errors.Is(err, context.Canceled)` matches, not as a bogus decode
+  error. There is no line-length limit (`bufio.Scanner` would fail past 64 KiB).
 - **A property that shadows a batch control key is refused.** `BatchLoad`/`BatchLoadStream` reject
   a row whose `Properties` contain `@type`, `@class`, `@id`, `@from` or `@to` with an error wrapping
   `ErrPropertyShadowsControlKey`. The Python and TypeScript drivers let such a property silently
@@ -517,8 +518,9 @@ the two `.pb.go` files for the other), so each module is checked for its own.
 
 **v2 changes the import path.** When the lockstep version reaches 2.0.0, each module's path must
 become `.../go/arcadedb/v2` and `.../go/arcadedbgrpc/v2` in the same release, with every import in
-both READMEs (and `generated/buf.gen.yaml`'s `go_package` override, which names the import path). `release-packages.py
-check` and `checkzip` both refuse a `>= 2.0.0` version on a path without the matching `/vN`.
+both READMEs (and `generated/buf.gen.yaml`'s `go_package` override, which names the import path).
+`release-packages.py check` and `checkzip` both refuse a `>= 2.0.0` version on a path without the
+matching `/vN`.
 
 The repository's tag ruleset, still outstanding, must protect `go/**` tags from deletion and forced
 moves as well as `v*`, and must let the Actions bot push them.
@@ -529,5 +531,5 @@ The root `CLAUDE.md`'s note on prose conventions applies here too: both package 
 comments document failure modes and deliberate asymmetries at length (why `Truncated` matters, why
 `Exists` cannot prove absence, why `TxError` does not use `errors.Join`, why the time-series family
 bypasses the typed parser, why `RawAdmin` refuses a plaintext connection, why `Precision` is a
-pointer, why a failed `Send` returns `CloseAndRecv`'s status). When you change behaviour in one of those areas, update the prose with
-it.
+pointer, why a failed `Send` returns `CloseAndRecv`'s status). When you change behaviour in one of
+those areas, update the prose with it.

@@ -103,11 +103,13 @@ type Client struct {
 // grpc-go would otherwise read the scheme as an unknown resolver name. Like grpc.NewClient
 // it performs no I/O; the connection is made on the first call.
 //
-// Without WithTransportCredentials the connection uses insecure.NewCredentials(). Combining
-// WithPasswordAuth with a plaintext connection returns ErrInsecureChannel unless
-// WithInsecure is given (ArcadeData/arcadedb#5048): the password would cross the wire in
-// cleartext metadata. A bearer token over plaintext is allowed. The check keys on whether
-// transport credentials were stated, never on inspecting the target.
+// Without WithTransportCredentials the connection defaults to insecure.NewCredentials(),
+// unless TLS passed through WithDialOptions overrides that default (the guards still treat
+// such a client as plaintext; see WithDialOptions). Combining WithPasswordAuth with a
+// plaintext connection returns ErrInsecureChannel unless WithInsecure is given
+// (ArcadeData/arcadedb#5048): the password would cross the wire in cleartext metadata. A
+// bearer token over plaintext is allowed. The check keys on whether transport credentials
+// were stated, never on inspecting the target.
 //
 // There is no default timeout; bound each call with its ctx.
 func NewClient(target string, opts ...Option) (*Client, error) {

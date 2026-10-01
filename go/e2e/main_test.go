@@ -74,9 +74,11 @@ func run(m *testing.M) int {
 	}
 	baseURL = fmt.Sprintf("http://%s:%s", host, port.Port())
 
-	// The gRPC container is separate from the HTTP one: a gRPC plugin failure must not
-	// redden the HTTP suite. Its termination is deferred here too, so both containers go
-	// down on every path, a setup failure included.
+	// The gRPC container is separate from the HTTP one, so once both are up the two suites
+	// share no server state. It is not isolation from startup failure: if the gRPC container
+	// fails to start, TestMain returns 1 and no test runs, HTTP tests included. Its
+	// termination is deferred here too, so both containers go down on every path, a setup
+	// failure included.
 	gctr, err := startGrpcContainer(ctx, image)
 	if gctr != nil {
 		defer func() { _ = testcontainers.TerminateContainer(gctr) }()

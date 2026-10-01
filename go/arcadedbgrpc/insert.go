@@ -140,9 +140,10 @@ func (c *Client) InsertStream(ctx context.Context, req InsertStreamRequest, opts
 // express the contract's per-chunk default measurement; to mix measurements in one
 // stream, set Type on each TimeSeriesPoint instead.
 //
-// Precision is required (D-M6-1) and is a pointer for that reason. The generated
-// TimeSeriesPrecision's zero value is TS_PRECISION_MILLISECONDS, a real unit, so a plain
-// enum field could not tell "unset" from "milliseconds". The HTTP /ts write endpoint
+// Precision is required (decision D-M6-1, recorded in
+// docs/superpowers/plans/2026-09-12-m6-time-series-grpc.md) and is a pointer for that
+// reason. The generated TimeSeriesPrecision's zero value is TS_PRECISION_MILLISECONDS, a
+// real unit, so a plain enum field could not tell "unset" from "milliseconds". The HTTP /ts write endpoint
 // speaks InfluxDB line protocol, whose omitted precision means nanoseconds, a factor of
 // 10^6 away: an ingest ported from HTTP that forgot this field would have every timestamp
 // silently misread. A nil Precision is an error from TimeSeriesWriteStream before any RPC.

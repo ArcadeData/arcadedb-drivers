@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc"
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc/generated"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
@@ -72,6 +75,9 @@ func TestGrpcBearerAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = hresp.Body.Close() }()
+	if hresp.StatusCode != http.StatusOK {
+		t.Fatalf("login status = %d", hresp.StatusCode)
+	}
 	var login struct {
 		Token string `json:"token"`
 	}
@@ -151,7 +157,18 @@ func TestGrpcEmptyInsertStream(t *testing.T) {
 func TestGrpcTransactionCommitAndRollback(t *testing.T) {
 	ctx := context.Background()
 	db := newGrpcDatabase(t)
-	c := newGrpcClient(t, db)
+	var (
+		mu    sync.Mutex
+		calls []string
+	)
+	recorder := grpc.WithChainUnaryInterceptor(func(ctx context.Context, method string, req, reply any,
+		cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		mu.Lock()
+		calls = append(calls, method[strings.LastIndex(method, "/")+1:])
+		mu.Unlock()
+		return invoker(ctx, method, req, reply, cc, opts...)
+	})
+	c := newGrpcClient(t, db, arcadedbgrpc.WithDialOptions(recorder))
 
 	committed := uniqueMarker("tc")
 	err := c.Transaction(ctx, db, func(tx *arcadedbgrpc.TxHandle) error {
@@ -179,6 +196,15 @@ func TestGrpcTransactionCommitAndRollback(t *testing.T) {
 	if got := personNames(t, c, db, rolledBack); len(got) != 0 {
 		t.Fatalf("rows survived the rollback: %v", got)
 	}
+	// Row absence alone cannot tell a rollback from an abandoned or silently failed
+	// transaction; the recorded calls prove the mechanism. The commit case above issued
+	// one CommitTransaction, so exactly one is expected overall.
+	mu.Lock()
+	defer mu.Unlock()
+	count := func(m string) int { return strings.Count(strings.Join(calls, ","), m) }
+	if count("RollbackTransaction") != 1 || count("CommitTransaction") != 1 {
+		t.Fatalf("calls = %v, want one RollbackTransaction and one CommitTransaction (the earlier commit)", calls)
+	}
 }
 
 // The handle outlives its callback in Go, unlike Python's context manager. What the server
@@ -199,8 +225,8 @@ func TestGrpcHandleAfterCommitIsRefused(t *testing.T) {
 	}
 	_, err := captured.ExecuteCommand(ctx, insertPersonSQL(marker+"-late"))
 	t.Logf("ExecuteCommand on a committed handle: err=%v code=%v", err, status.Code(err))
-	if err == nil {
-		t.Errorf("the server accepted a command on a committed transaction id")
+	if got := status.Code(err); got != codes.FailedPrecondition {
+		t.Errorf("status code = %v (err %v), want FailedPrecondition from the server", got, err)
 	}
 	if got := personNames(t, c, db, marker); len(got) != 0 {
 		t.Errorf("row inserted through a committed handle: %v", got)

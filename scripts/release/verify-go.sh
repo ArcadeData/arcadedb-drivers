@@ -4,7 +4,8 @@
 # Usage: scripts/release/verify-go.sh <arcadedb|arcadedbgrpc>
 #
 # Run from anywhere (it changes into go/ itself), in a git checkout: the drift gate inspects git
-# state. Runs, in order: lint, the unit tests under the race detector, the four-part drift gate
+# state. Runs, in order: lint, the unit tests under the race detector, a build, vet and test of the
+# module with GOWORK=off (as a consumer builds it), the four-part drift gate
 # (which includes a clean `go mod tidy`), the recorded-server-version check against the module's
 # own committed contract (OpenAPI for arcadedb, the .proto for arcadedbgrpc), and the module-zip
 # check. Exits non-zero on the first failure. It tags nothing and fetches nothing through the
@@ -32,6 +33,18 @@ echo "==> Lint (gofmt, go vet, staticcheck) every module in go.work"
 
 echo "==> Run the unit tests under the race detector"
 (cd "$PKG_DIR" && go test -race ./...)
+
+echo "==> Build, vet and test the module outside the workspace, as a consumer does"
+# Everything above runs inside go.work, which resolves the highest version of each dependency
+# across every module in it - tools/ included - so a dependency the published go.mod pins too low
+# is masked there. A consumer's build never reads go.work. GOWORK=off builds against this module's
+# own go.mod alone, which is what catches generated code outrunning the runtime go.mod declares:
+# protoc-gen-go-grpc v1.6 emits grpc.SupportPackageIsVersion9 and the generic stream types, so a
+# go/tools bump of the generator with arcadedbgrpc still on grpc < v1.64 compiles inside go.work
+# (which resolves tools' grpc v1.84) and fails here. Not every skew is caught: protobuf's
+# protoimpl.EnforceVersion only rejects a runtime older than v1.20, so a protoc-gen-go a few minors
+# ahead of the protobuf runtime compiles unless the generated code calls an API the runtime lacks.
+(cd "$PKG_DIR" && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test ./...)
 
 echo "==> Run the drift gate"
 ./scripts/check-drift.sh

@@ -62,6 +62,22 @@ jobs:
         working-directory: go/arcadedbgrpc
         run: go test -race ./...
 
+      # Every step above runs inside go.work, which resolves the highest version of each
+      # dependency across all four modules (go/tools' tree included), so a published go.mod that
+      # pins something too low passes there and breaks for a consumer, whose build never reads
+      # go.work. GOWORK=off builds each published module against its own go.mod alone; it is what
+      # catches generated code outrunning the runtime go/arcadedbgrpc/go.mod declares (e.g.
+      # protoc-gen-go-grpc v1.6's grpc.SupportPackageIsVersion9 against grpc < v1.64).
+      # scripts/release/verify-go.sh runs the same check before a publish.
+      - name: Build, vet and test the published modules outside the workspace
+        env:
+          GOWORK: "off"
+        run: |
+          for mod in go/arcadedb go/arcadedbgrpc; do
+            echo "==> $mod"
+            (cd "$mod" && go build ./... && go vet ./... && go test ./...)
+          done
+
   e2e:
     name: End-to-end against a real server
     needs: build

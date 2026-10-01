@@ -234,7 +234,8 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   `sum.golang.org` and letting `pkg.go.dev` index it. It is **two jobs**, split so the write token
   never shares a runner with third-party code. `verify` holds `contents: read`, checks the dispatch
   input against `version.go`'s `Version` and the package table row against `go.mod`'s module path,
-  and runs `scripts/release/verify-go.sh <package>` (lint, unit tests under `-race`, the drift gate,
+  and runs `scripts/release/verify-go.sh <package>` (lint, unit tests under `-race`, a build, vet
+  and test of the module with `GOWORK=off` as a consumer builds it, the drift gate,
   `ServerVersion` against the module's **own** contract — `arcadedb` against the OpenAPI
   `info.version`, `arcadedbgrpc` against the `.proto` filename's version, the same split
   `verify-pypi.sh` makes — and the module-zip check, `go/tools/cmd/checkzip` on

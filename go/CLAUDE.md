@@ -149,6 +149,18 @@ there should not be one: part 3 already covers what that check would.
 A third contract test, `TestServerVersionMatchesContract`, holds `ServerVersion` to the contract's
 `info.version`.
 
+Everything above runs **inside** `go.work`, which resolves the highest version of each dependency
+across all four modules, `tools/` included, so a published `go.mod` that pins something too low
+passes there. A consumer's build never reads `go.work`. `ci-go.yml`'s build job and `verify-go.sh`
+therefore also build, vet and test `arcadedb/` and `arcadedbgrpc/` with `GOWORK=off`, against each
+module's own `go.mod` alone. The case it was added for: a `tools/` bump of protoc-gen-go-grpc whose
+output needs a newer grpc than `arcadedbgrpc/go.mod` declares (v1.6 emits
+`grpc.SupportPackageIsVersion9` and the generic stream types, so grpc < v1.64 fails to compile)
+builds fine in the workspace, which resolves `tools/`' grpc v1.84, and fails only here. It is not a
+complete generator-versus-runtime check: protobuf's `protoimpl.EnforceVersion` only rejects a
+runtime older than v1.20, so a protoc-gen-go a few minors ahead of the declared protobuf runtime
+still compiles unless the generated code calls an API that runtime lacks.
+
 ## Deliberate asymmetries
 
 These are the HTTP module's, except the last, which binds the whole workspace. The gRPC module's

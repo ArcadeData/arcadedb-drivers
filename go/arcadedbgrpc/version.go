@@ -1,4 +1,3 @@
-// Package arcadedbgrpc is the Go client for ArcadeDB's gRPC API.
 package arcadedbgrpc
 
 // Version is this module's release version. It is written by

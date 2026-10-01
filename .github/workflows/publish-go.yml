@@ -57,7 +57,8 @@ concurrency:
 
 # Two jobs, split so that the write token never shares a runner with third-party code. `verify`
 # runs verify-go.sh, which executes code fetched through the module proxy (staticcheck,
-# oapi-codegen, go-licenses, test dependencies), and so holds only contents: read. `publish` holds
+# oapi-codegen, buf, protoc-gen-go and protoc-gen-go-grpc - the last three run by the drift gate -
+# go-licenses, test dependencies), and so holds only contents: read. `publish` holds
 # contents: write and runs nothing but git, the go command itself (`go list -m`) and
 # scripts/release-packages.py. Neither job restores a Go cache: a publish cannot be undone, so it
 # is not fed state an earlier run left behind.

@@ -5,9 +5,10 @@
 #
 # Run from anywhere (it changes into go/ itself), in a git checkout: the drift gate inspects git
 # state. Runs, in order: lint, the unit tests under the race detector, the four-part drift gate
-# (which includes a clean `go mod tidy`), the recorded-server-version check against the module's own
-# committed contract (OpenAPI for arcadedb, the .proto for arcadedbgrpc), and the module-zip check. Exits non-zero on the first failure. It tags nothing
-# and fetches nothing through the proxy - that is publish-go.yml's job, after this passes.
+# (which includes a clean `go mod tidy`), the recorded-server-version check against the module's
+# own committed contract (OpenAPI for arcadedb, the .proto for arcadedbgrpc), and the module-zip
+# check. Exits non-zero on the first failure. It tags nothing and fetches nothing through the
+# proxy - that is publish-go.yml's job, after this passes.
 # publish-go.yml calls it before tagging; release.yml calls it as a dry run.
 set -euo pipefail
 

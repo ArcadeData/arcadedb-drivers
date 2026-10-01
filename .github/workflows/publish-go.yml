@@ -9,7 +9,9 @@ run-name: Publish Go ${{ inputs.package }} ${{ inputs.version }}
 # then the operator's responsibility. It must run AT THE TAG - the first step refuses any other
 # ref, and both the UI and `gh workflow run` default to `main` - so recover with exactly:
 #
-#   gh workflow run publish-go.yml --ref v<version> -f package=arcadedb -f version=<version>
+#   gh workflow run publish-go.yml --ref v<version> -f package=<package> -f version=<version>
+#
+# where <package> is arcadedb (the HTTP client) or arcadedbgrpc (the gRPC client).
 #
 # Go has no registry to upload to and no credential to hold. A Go module version is "published"
 # by two things this workflow does, in order: it pushes the module's own tag,

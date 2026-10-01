@@ -153,11 +153,14 @@ func (c *Client) Transaction(ctx context.Context, database string, fn func(tx *T
 // Client.Raw() or in a later transaction, would send that dead id to the server: #5040's
 // shape reached by aliasing, in the type built to prevent it.
 //
+// A request's own Credentials field, where it has one, is passed through as given, never
+// bound: which principal may act inside the transaction is the server's to decide.
+//
 // InsertStream and TimeSeriesWriteStream are deliberately absent, as in the Python client.
-// InsertStream on the handle is pending #46 (the server fix, #6607, shipped in 26.9.1);
-// TimeSeriesWriteChunk has no transaction field, so a write
-// stream cannot join a transaction at all. Reach either through Client.Raw(), outside any
-// transaction.
+// InsertStream on the handle is pending ArcadeData/arcadedb-drivers#46 (the server fix,
+// ArcadeData/arcadedb#6607, shipped in 26.9.1); TimeSeriesWriteChunk has no transaction
+// field, so a write stream cannot join a transaction at all. Reach either through the
+// Client, outside any transaction.
 //
 // A handle outlives nothing useful: once Transaction returns, its calls carry an id the
 // server has committed or rolled back, and the server refuses them. Do not retain it.

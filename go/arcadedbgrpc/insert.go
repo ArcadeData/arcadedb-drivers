@@ -23,6 +23,15 @@ import (
 // puts the real status on the receive side; returning the Send error would hide every
 // server-side failure (InvalidArgument, PermissionDenied, ...) behind EOF. A Send error
 // other than io.EOF is grpc-go's own status for a stream it aborted, and is returned as is.
+//
+// The receive side can also hold a reply rather than a status: a server that ends the
+// stream early with a summary makes Send fail with io.EOF and CloseAndRecv return that
+// summary with a nil error. The summary, not the nil error, says how many rows landed, so
+// read its counts; a nil error alone does not mean every batch was sent.
+//
+// Cancelling ctx cancels the RPC, but it cannot interrupt the caller's sequence while it is
+// blocked producing its next batch: the wrapper only regains control when the sequence
+// yields. A sequence that waits on I/O or a channel should watch ctx itself.
 
 // InsertStreamRequest is a client-streaming insert.
 //

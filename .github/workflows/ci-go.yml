@@ -1,8 +1,10 @@
 name: Go driver CI
 
-# buf.yaml is in the paths below because the gRPC client is generated from the .proto
-# contract: it can change generated output while leaving go/ untouched (ci.yml and
-# ci-python.yml list it for the same reason).
+# buf.yaml is in the paths below as a precaution, not because the Go generator reads it
+# today: go/scripts/generate-grpc.sh stages the contract beside a minimal buf.yaml of its
+# own. The root file is the repository's buf module (ci.yml lists it because the TypeScript
+# generator does read it), so an edit there is the kind of change that could move generated
+# output while leaving go/ untouched. ci-python.yml, whose generator is protoc, omits it.
 
 on:
   push:

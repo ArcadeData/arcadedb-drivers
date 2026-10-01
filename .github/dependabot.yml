@@ -23,6 +23,7 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/go/arcadedb"
+      - "/go/arcadedbgrpc"
       - "/go/e2e"
       - "/go/tools"
     schedule:

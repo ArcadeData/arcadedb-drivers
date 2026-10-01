@@ -9,7 +9,9 @@ run-name: Publish Go ${{ inputs.package }} ${{ inputs.version }}
 # then the operator's responsibility. It must run AT THE TAG - the first step refuses any other
 # ref, and both the UI and `gh workflow run` default to `main` - so recover with exactly:
 #
-#   gh workflow run publish-go.yml --ref v<version> -f package=arcadedb -f version=<version>
+#   gh workflow run publish-go.yml --ref v<version> -f package=<package> -f version=<version>
+#
+# where <package> is arcadedb (the HTTP client) or arcadedbgrpc (the gRPC client).
 #
 # Go has no registry to upload to and no credential to hold. A Go module version is "published"
 # by two things this workflow does, in order: it pushes the module's own tag,
@@ -37,6 +39,7 @@ on:
         type: choice
         options:
           - arcadedb
+          - arcadedbgrpc
       version:
         description: 'Version being published, without the leading "v". Must equal the module''s version.go "Version" exactly - this is a guardrail against dispatching the wrong release, not a bump mechanism.'
         required: true
@@ -54,7 +57,8 @@ concurrency:
 
 # Two jobs, split so that the write token never shares a runner with third-party code. `verify`
 # runs verify-go.sh, which executes code fetched through the module proxy (staticcheck,
-# oapi-codegen, go-licenses, test dependencies), and so holds only contents: read. `publish` holds
+# oapi-codegen, buf, protoc-gen-go and protoc-gen-go-grpc - the last three run by the drift gate -
+# go-licenses, test dependencies), and so holds only contents: read. `publish` holds
 # contents: write and runs nothing but git, the go command itself (`go list -m`) and
 # scripts/release-packages.py. Neither job restores a Go cache: a publish cannot be undone, so it
 # is not fed state an earlier run left behind.
@@ -99,7 +103,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          # go.work's `go` line (1.26.7), not "1.26": see ci-go.yml's build job for why.
+          go-version-file: go/go.work
           cache: false
 
       - name: Verify the dispatch input matches the module version
@@ -183,7 +188,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          # go.work's `go` line (1.26.7), not "1.26": see ci-go.yml's build job for why.
+          go-version-file: go/go.work
           cache: false
 
       # Both jobs checked out the ref v<version>, separately. A tag moved between them would have

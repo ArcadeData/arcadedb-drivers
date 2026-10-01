@@ -91,6 +91,11 @@ ALLOWED_IDS = {
     # "CC0 / Public Domain"; this is that same category under its own SPDX id. Ships in
     # 1 npm package.
     "Unlicense",
+    # MIT without its attribution clause: strictly more permissive than MIT, which is allowed.
+    # Ships in 1 Go module, github.com/segmentio/asm (LICENSE first line "MIT No Attribution"),
+    # reached only through the `buf` tool in go/tools and never shipped to a consumer.
+    # go-licenses cannot classify it; see _GO_LICENSE_OVERRIDES.
+    "MIT-0",
 }
 
 # Allowed (license, exception) pairs for SPDX `WITH`. This set is looked up ATOMICALLY and
@@ -566,17 +571,25 @@ def collect_python(python_dir: Path) -> list[Record]:
     return sorted(records)
 
 
-# Measured at 74 distinct third-party modules (83 module+license records) across the three Go
-# modules. Half of the module count, for the same reason as the floors above: low enough never to
+# Measured at 129 distinct third-party modules (141 module+license records) across the four Go
+# modules, buf's 86 included. Half of the module count, for the same reason as the floors above: low enough never to
 # fire on a legitimate tree, high enough to catch a report that saw almost nothing.
-_MIN_PLAUSIBLE_GO_MODULES = 37
+_MIN_PLAUSIBLE_GO_MODULES = 64
 
 _GO_OWN_MODULE_PREFIX = "github.com/ArcadeData/arcadedb-drivers/"
 
 # go/tools is a tool-only module: nothing imports its packages, so `./...` would report
 # on the module's own (empty) code and miss every tool. Its packages are `go list tool`.
 _GO_TOOL_MODULE = "tools"
-_GO_MODULES = ("arcadedb", "e2e", _GO_TOOL_MODULE)
+_GO_MODULES = ("arcadedb", "arcadedbgrpc", "e2e", _GO_TOOL_MODULE)
+
+# go-licenses does not recognise MIT-0 and reports every package of github.com/segmentio/asm as
+# "Unknown". This is NOT a NORMALISE spelling: the report carries no license text at all, so the
+# module's license is asserted here, on evidence (its LICENSE file begins "MIT No Attribution").
+# Applied only when go-licenses says exactly "Unknown" for exactly this module, so a different
+# Unknown anywhere else, or a different license reported for this module (a relicense), stays a
+# violation.
+_GO_LICENSE_OVERRIDES = {"github.com/segmentio/asm": "MIT-0"}
 
 
 def _go_run(cmd: list[str], cwd: Path) -> str:
@@ -643,7 +656,10 @@ def collect_go(go_dir: Path) -> list[Record]:
             # Our own modules are the thing being licensed, not a dependency of it.
             if name.startswith(_GO_OWN_MODULE_PREFIX):
                 continue
-            pairs.add((_go_owning_module(name, versions), signal))
+            owner = _go_owning_module(name, versions)
+            if signal == "Unknown" and owner in _GO_LICENSE_OVERRIDES:
+                signal = _GO_LICENSE_OVERRIDES[owner]
+            pairs.add((owner, signal))
 
     found = {name for name, _ in pairs}
     if len(found) < _MIN_PLAUSIBLE_GO_MODULES:

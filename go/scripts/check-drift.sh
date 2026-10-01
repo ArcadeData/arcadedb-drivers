@@ -8,37 +8,49 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 # Git pathspecs below are relative to the repository root, so the script works from any cwd.
 ROOT="$(git rev-parse --show-toplevel)"
-GEN=go/arcadedb/generated
+GEN="go/arcadedb/generated go/arcadedbgrpc/generated"
 git() { command git -C "$ROOT" "$@"; }
 
-# Part 1: catches a MODIFIED generated file (existing path, changed content).
+# Part 1: catches a MODIFIED generated file (existing path, changed content). Both trees:
+# the HTTP client's (generate.sh) and the gRPC client's (generate-grpc.sh).
+# $GEN is deliberately unquoted below: it is a list of pathspecs.
 ./scripts/generate.sh
-if ! git diff --exit-code -- "$GEN"; then
-  echo "Generated output drifted from the committed contract - run go/scripts/generate.sh and commit the result." >&2
+./scripts/generate-grpc.sh
+# shellcheck disable=SC2086
+if ! git diff --exit-code -- $GEN; then
+  echo "Generated output drifted from the committed contract - run go/scripts/generate.sh and go/scripts/generate-grpc.sh and commit the result." >&2
   exit 1
 fi
 
 # Part 2: catches an ADDED or RENAMED generated file. `git diff` is blind to untracked
 # paths, so a contract that introduces a new file would leave part 1 green.
-if [[ -n "$(git status --porcelain -- "$GEN")" ]]; then
+# shellcheck disable=SC2086
+if [[ -n "$(git status --porcelain -- $GEN)" ]]; then
   echo "Generated output changed (untracked and/or modified files below) - commit the regenerated output:" >&2
-  git status --porcelain -- "$GEN" >&2
+  # shellcheck disable=SC2086
+  git status --porcelain -- $GEN >&2
   exit 1
 fi
 
-# Part 3: every contract operation is generated. oapi-codegen can drop an operation it
-# cannot model and exit 0, which neither check above can see. The test SKIPS when it
-# cannot find contracts/, and a skip must not read as a pass, so require an explicit PASS.
-out="$(cd arcadedb && go test -count=1 -run '^TestEveryOperationIsGenerated$' -v ./ 2>&1)" || {
-  echo "$out" >&2
-  echo "TestEveryOperationIsGenerated failed - the generator dropped or skipped a contract operation." >&2
-  exit 1
+# Part 3: every contract operation (HTTP) and RPC (gRPC) is generated. oapi-codegen can
+# drop an operation it cannot model and exit 0, which neither check above can see; the gRPC
+# test guards the same for the .proto. Each test SKIPS when it cannot find contracts/, and a
+# skip must not read as a pass, so require an explicit PASS.
+check_generated_test() {
+  local module="$1" test="$2" what="$3" out
+  out="$(cd "$module" && go test -count=1 -run "^${test}\$" -v ./ 2>&1)" || {
+    echo "$out" >&2
+    echo "$test failed - the generator dropped or skipped a contract $what." >&2
+    exit 1
+  }
+  if ! grep -q -- "--- PASS: $test" <<<"$out"; then
+    echo "$out" >&2
+    echo "$test did not pass (a skip counts as a failure) - the contract could not be checked." >&2
+    exit 1
+  fi
 }
-if ! grep -q -- '--- PASS: TestEveryOperationIsGenerated' <<<"$out"; then
-  echo "$out" >&2
-  echo "TestEveryOperationIsGenerated did not pass (a skip counts as a failure) - the contract could not be checked." >&2
-  exit 1
-fi
+check_generated_test arcadedb TestEveryOperationIsGenerated operation
+check_generated_test arcadedbgrpc TestEveryRPCIsGenerated RPC
 
 # Part 4: go.mod / go.sum are tidy. `go mod tidy` ignores go.work, so run it per module:
 # EVERY module go.work uses, read from go.work itself rather than listed here, so a new

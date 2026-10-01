@@ -1,8 +1,10 @@
 name: Go driver CI
 
-# buf.yaml is deliberately not in the paths below: no Go code is generated from the .proto
-# contract yet. The gRPC client (M10b) adds it, for the reason ci.yml and ci-python.yml list
-# it: it can change generated output while leaving go/ untouched.
+# buf.yaml is in the paths below as a precaution, not because the Go generator reads it
+# today: go/scripts/generate-grpc.sh stages the contract beside a minimal buf.yaml of its
+# own. The root file is the repository's buf module (ci.yml lists it because the TypeScript
+# generator does read it), so an edit there is the kind of change that could move generated
+# output while leaving go/ untouched. ci-python.yml, whose generator is protoc, omits it.
 
 on:
   push:
@@ -16,6 +18,7 @@ on:
       # generated directory, which an ignore rule covering it would silence
       # permanently and invisibly. ci.yml and ci-python.yml list .gitignore for the same reason.
       - ".gitignore"
+      - "buf.yaml"
       - ".github/workflows/ci-go.yml"
   pull_request:
     paths:
@@ -23,6 +26,7 @@ on:
       - "contracts/**"
       - "scripts/**"
       - ".gitignore"
+      - "buf.yaml"
       - ".github/workflows/ci-go.yml"
 
 jobs:
@@ -36,7 +40,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          # go.work, not a literal "1.26": go.work's `go 1.26.7` is the floor for anything run
+          # inside the workspace (buf needs that patch), and a bare "1.26" lets setup-go pick
+          # whatever older 1.26.x the runner has cached. Reading the file pins exactly that
+          # floor and moves with it when go.work changes; consumers of the published modules
+          # still only need the go.mod floor, go 1.26.
+          go-version-file: go/go.work
           cache-dependency-path: go/**/go.sum
 
       - name: Lint
@@ -45,9 +54,29 @@ jobs:
       - name: Regenerate and verify no drift
         run: go/scripts/check-drift.sh
 
-      - name: Unit tests
+      - name: Unit tests (HTTP client)
         working-directory: go/arcadedb
         run: go test -race ./...
+
+      - name: Unit tests (gRPC client)
+        working-directory: go/arcadedbgrpc
+        run: go test -race ./...
+
+      # Every step above runs inside go.work, which resolves the highest version of each
+      # dependency across all four modules (go/tools' tree included), so a published go.mod that
+      # pins something too low passes there and breaks for a consumer, whose build never reads
+      # go.work. GOWORK=off builds each published module against its own go.mod alone; it is what
+      # catches generated code outrunning the runtime go/arcadedbgrpc/go.mod declares (e.g.
+      # protoc-gen-go-grpc v1.6's grpc.SupportPackageIsVersion9 against grpc < v1.64).
+      # scripts/release/verify-go.sh runs the same check before a publish.
+      - name: Build, vet and test the published modules outside the workspace
+        env:
+          GOWORK: "off"
+        run: |
+          for mod in go/arcadedb go/arcadedbgrpc; do
+            echo "==> $mod"
+            (cd "$mod" && go build ./... && go vet ./... && go test ./...)
+          done
 
   e2e:
     name: End-to-end against a real server
@@ -64,8 +93,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # 1.27, not the build job's 1.26: the two jobs together cover the declared
-          # floor and the current release without a matrix.
+          # 1.27, not the build job's go.work floor (1.26.7): the two jobs together cover
+          # the declared floor and the current release without a matrix.
           go-version: "1.27"
           cache-dependency-path: go/**/go.sum
 

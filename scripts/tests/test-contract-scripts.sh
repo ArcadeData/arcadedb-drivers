@@ -41,7 +41,8 @@ make_fixture() {
            "$root/typescript/packages/driver-grpc/test" \
            "$root/typescript/packages/driver" \
            "$root/python/packages/driver" \
-           "$root/go/arcadedb/generated"
+           "$root/go/arcadedb/generated" \
+           "$root/go/arcadedbgrpc"
   cp "$SCRIPTS_DIR/resolve-openapi-contract.sh" "$SCRIPTS_DIR/resolve-proto-contract.sh" \
      "$SCRIPTS_DIR/adopt-contract-version.sh" "$SCRIPTS_DIR/fetch-contract.sh" "$root/scripts/"
   mkdir -p "$root/fake-arcadedb/grpc/src/main/proto"
@@ -92,6 +93,12 @@ MD
 PY
   cat > "$root/go/arcadedb/version.go" <<GO
 package arcadedb
+
+const Version = "0.1.0"
+const ServerVersion = "${version}"
+GO
+  cat > "$root/go/arcadedbgrpc/version.go" <<GO
+package arcadedbgrpc
 
 const Version = "0.1.0"
 const ServerVersion = "${version}"
@@ -314,6 +321,23 @@ if grep -q '26.9.1-SNAPSHOT' "$FIX/go/arcadedb/generated/client.gen.go"; then
   ok "leaves go/arcadedb/generated untouched"
 else
   bad "leaves go/arcadedb/generated untouched (the old version literal was rewritten)"
+fi
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1
+all_ok=1
+for m in arcadedb arcadedbgrpc; do
+  f="$FIX/go/$m/version.go"
+  grep -qx 'const ServerVersion = "26.10.1-SNAPSHOT"' "$f" || all_ok=0
+  grep -qx 'const Version = "0.1.0"' "$f" || all_ok=0
+done
+if [ "$all_ok" = 1 ]; then
+  ok "rewrites ServerVersion in every Go module"
+else
+  bad "rewrites ServerVersion in every Go module (got: $(grep -h ServerVersion "$FIX"/go/*/version.go | tr '\n' ' '))"
 fi
 rm -rf "$FIX"
 

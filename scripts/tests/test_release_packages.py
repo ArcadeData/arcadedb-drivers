@@ -19,6 +19,8 @@ _SCRIPT = Path(__file__).resolve().parent.parent / "release-packages.py"
 _REPO = _SCRIPT.parent.parent
 
 _ROW_KEYS = {"id", "language", "manifest", "lockfile", "registry", "name", "workflow", "package_input"}
+# Optional: which single contract a goproxy row's server version is held to ("openapi" or "proto").
+_OPTIONAL_ROW_KEYS = {"contract"}
 
 
 def _load() -> ModuleType:
@@ -87,14 +89,19 @@ def _uv_lock(root: Path, version: str) -> None:
 _GO_NAME = "github.com/ArcadeData/arcadedb-drivers/go/arcadedb"
 
 
-def _go_module(root: Path, version: str, server: str, module: str = _GO_NAME) -> None:
+_GO_GRPC_NAME = "github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc"
+
+
+def _go_module(
+    root: Path, version: str, server: str, module: str = _GO_NAME, directory: str = "go/arcadedb"
+) -> None:
     _write(
-        root / "go/arcadedb/version.go",
+        root / f"{directory}/version.go",
         "package arcadedb\n\n// Version is the release version.\n"
         f'const Version = "{version}"\n\n// ServerVersion is the server.\n'
         f'const ServerVersion = "{server}"\n',
     )
-    _write(root / "go/arcadedb/go.mod", f"module {module}\n\ngo 1.26\n")
+    _write(root / f"{directory}/go.mod", f"module {module}\n\ngo 1.26\n")
 
 
 def fixture_repo(tmp_path: Path, version: str = "0.1.0", server: str = "26.10.1") -> Path:
@@ -104,6 +111,7 @@ def fixture_repo(tmp_path: Path, version: str = "0.1.0", server: str = "26.10.1"
     _package_lock(tmp_path, version)
     _uv_lock(tmp_path, version)
     _go_module(tmp_path, version, server)
+    _go_module(tmp_path, version, server, _GO_GRPC_NAME, "go/arcadedbgrpc")
     _write(tmp_path / f"contracts/arcadedb-openapi-{server}.json", json.dumps({"info": {"version": server}}))
     _write(tmp_path / f"contracts/arcadedb-server-{server}.proto", 'syntax = "proto3";\n')
     return tmp_path
@@ -112,9 +120,12 @@ def fixture_repo(tmp_path: Path, version: str = "0.1.0", server: str = "26.10.1"
 def test_json_lists_every_package_with_every_field() -> None:
     proc = subprocess.run([sys.executable, str(_SCRIPT), "json"], capture_output=True, text=True, check=True)
     rows = json.loads(proc.stdout)
-    assert [r["id"] for r in rows] == ["npm-driver", "npm-driver-grpc", "pypi-driver", "pypi-driver-grpc", "go-arcadedb"]
+    assert [r["id"] for r in rows] == ["npm-driver", "npm-driver-grpc", "pypi-driver", "pypi-driver-grpc", "go-arcadedb", "go-arcadedbgrpc"]
     for row in rows:
-        assert set(row) == _ROW_KEYS
+        assert _ROW_KEYS <= set(row) <= _ROW_KEYS | _OPTIONAL_ROW_KEYS
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["go-arcadedb"]["contract"] == "openapi"
+    assert by_id["go-arcadedbgrpc"]["contract"] == "proto"
 
 
 def test_table_paths_exist_in_this_repository() -> None:
@@ -359,6 +370,13 @@ def test_published_url_goproxy() -> None:
     )
 
 
+def test_published_url_goproxy_grpc() -> None:
+    assert (
+        rp.published_url(_row("go-arcadedbgrpc"), "0.2.0")
+        == "https://proxy.golang.org/github.com/!arcade!data/arcadedb-drivers/go/arcadedbgrpc/@v/v0.2.0.info"
+    )
+
+
 def test_is_published_maps_410_to_false() -> None:
     row = _row("go-arcadedb")
     assert rp.is_published(row, "0.2.0", fetch=lambda url: 200) is True
@@ -379,6 +397,34 @@ def test_check_go_server_version_compares_against_openapi_only(tmp_path: Path) -
     _go_module(root, "0.1.0", "26.9.1")
     problems = rp.check(root, "0.1.0", False)
     assert any("go/arcadedb/version.go" in p and "26.9.1" in p for p in problems)
+
+
+def test_go_grpc_server_version_checked_against_proto(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    (root / "contracts/arcadedb-openapi-26.10.1.json").unlink()
+    _write(root / "contracts/arcadedb-openapi-26.9.9.json", json.dumps({"info": {"version": "26.9.9"}}))
+    _go_module(root, "0.1.0", "26.9.9")  # go/arcadedb follows OpenAPI; go/arcadedbgrpc stays on the proto's 26.10.1
+    assert not [p for p in rp.check(root, "0.1.0", False) if "go/arcadedb" in p]
+    _go_module(root, "0.1.0", "26.10.1")
+    problems = rp.check(root, "0.1.0", False)
+    assert any("go/arcadedb/version.go" in p and "26.9.9" in p for p in problems)
+    assert not any("go/arcadedbgrpc" in p for p in problems)
+
+
+def test_go_grpc_server_version_mismatch_reported(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    _go_module(root, "0.1.0", "26.9.1", _GO_GRPC_NAME, "go/arcadedbgrpc")
+    problems = rp.check(root, "0.1.0", False)
+    assert any("go/arcadedbgrpc/version.go" in p and "26.9.1" in p and "26.10.1" in p for p in problems)
+
+
+def test_set_writes_both_go_versions(tmp_path: Path) -> None:
+    root = fixture_repo(tmp_path)
+    rp.set_version(root, "0.2.0")
+    for d in ("go/arcadedb", "go/arcadedbgrpc"):
+        text = (root / d / "version.go").read_text()
+        assert 'const Version = "0.2.0"' in text
+        assert 'const ServerVersion = "26.10.1"' in text
 
 
 def test_check_go_module_line_must_match_name(tmp_path: Path) -> None:

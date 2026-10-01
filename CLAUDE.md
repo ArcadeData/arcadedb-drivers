@@ -17,8 +17,9 @@ See `typescript/CLAUDE.md` for the TypeScript workspace and `python/CLAUDE.md` f
 workspace (commands, package layout, conventions). The Python workspace hosts two packages the
 same way the TypeScript one does: `arcadedb-driver`, the HTTP client, and `arcadedb-driver-grpc`,
 the gRPC client generated from the `.proto` contract. See `go/CLAUDE.md` for the Go workspace,
-which hosts one module so far, `github.com/ArcadeData/arcadedb-drivers/go/arcadedb`, the HTTP
-client; a Go gRPC client (M10b) will join it as a sibling module.
+which hosts two published modules the same way: `github.com/ArcadeData/arcadedb-drivers/go/arcadedb`,
+the HTTP client, and `github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc`, the gRPC client.
+Neither imports the other.
 
 ## The contracts
 
@@ -49,8 +50,9 @@ version bump is a two-step operation: fetch both contracts, then run
 `adopt-contract-version.sh <version>`, which deletes the retired contract and generated module,
 rewrites the version-stamped imports, and updates each package's recorded server version
 (`arcadedb.serverVersion` in a TypeScript `package.json`, `[tool.arcadedb] server-version` in a
-Python `pyproject.toml`, `const ServerVersion` in a Go module's `version.go`). It deliberately does not touch the compatibility tables in the READMEs —
-those rows are a historical record tied to a package version, and adding one is a human decision.
+Python `pyproject.toml`, `const ServerVersion` in a Go module's `version.go`). It deliberately does
+not touch the compatibility tables in the READMEs — those rows are a historical record tied to a
+package version, and adding one is a human decision.
 
 `adopt-contract-version.sh` is language-aware: which files it rewrites is driven by an explicit
 `LANGUAGES` table (file suffixes and directories to skip, per language) rather than by crawling
@@ -71,13 +73,21 @@ directory separator, so the contract is staged under a fixed, unstamped name bef
 `adopt-contract-version.sh`'s existing glob over `python/packages/*/pyproject.toml` already picks up
 `arcadedb-driver-grpc`'s `server-version` key for free.
 
+The Go gRPC client (`go/arcadedbgrpc`, M10b) repeated that outcome as a design choice (the M10b
+spec's D5) rather than because its generator forced it: `go/scripts/generate-grpc.sh` stages the
+contract as `arcadedb_server.proto` so the generated files carry no version, and the script again
+needed **no** change. Its `go/*/version.go` glob already rewrites the new module's
+`ServerVersion`, and `scripts/tests/test-contract-scripts.sh` pins that both Go modules are
+rewritten.
+
 In `--release` / `--image` mode the fetched OpenAPI spec is rejected unless it is structurally
 post-M0 (the `/api/v1/begin/{database}` 204 response carrying the `arcadedb-session-id` header).
 A version string alone is not accepted as proof of a spec's content.
 
 `buf.yaml` lives at the repository root, not under `typescript/`, because the gRPC module
-describes the contract itself and every gRPC client, a future Go one included, reads the same
-module.
+describes the contract itself rather than any one client. Today only the TypeScript generator reads
+it: Python generates with `protoc`, and Go's `generate-grpc.sh` stages the contract beside a minimal
+`buf.yaml` of its own.
 
 The OpenAPI contract has three known quirks that each look like a client bug until you know the
 cause is upstream: time-series and Grafana scalars typed `"type": "object"`, `POST /api/v1/server`
@@ -106,22 +116,30 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   mirroring `check_codegen_skips.py` would imply a risk that does not exist here.
 - `ci-go.yml` — the same shape for the Go client: a `build` job on Go 1.26, the declared floor,
   running `go/scripts/lint.sh` (`gofmt`, `go vet`, `staticcheck` over every module in `go.work`),
-  then `go/scripts/check-drift.sh`, then `go test -race ./...` in `go/arcadedb`; and an `e2e` job on
-  Go 1.27 against a real container. Its drift gate is **four**-part: regenerate and diff, catch
-  untracked new generated files, `TestEveryOperationIsGenerated`, and `go mod tidy` leaving no
-  `go.mod`/`go.sum` diff. The third part is the positive form of `check_codegen_skips.py`: rather
-  than pinning which operations the generator skipped, it asserts by reflection that every
-  `operationId` in the contract has a generated method. The test skips when it cannot find
-  `contracts/`, so the gate requires an explicit `--- PASS` and reads a skip as a failure. Its
-  `paths` include `.gitignore` for the reason `ci.yml`'s do, and deliberately not `buf.yaml`: no Go
-  code is generated from the `.proto` yet, and the Go gRPC client (M10b) adds it.
+  then `go/scripts/check-drift.sh`, then `go test -race ./...` in `go/arcadedb` and in
+  `go/arcadedbgrpc`; and an `e2e` job on Go 1.27 that runs both clients' suites against two real
+  containers (the second with the gRPC plugin enabled). Its drift gate is **four**-part, each part
+  over both generated trees: regenerate and diff, catch untracked new generated files,
+  `TestEveryOperationIsGenerated` and `TestEveryRPCIsGenerated`, and `go mod tidy` leaving no
+  `go.mod`/`go.sum` diff. For the HTTP module the third part is the positive form of
+  `check_codegen_skips.py`: rather than pinning which operations the generator skipped, it asserts
+  by reflection that every `operationId` in the contract has a generated method. For the gRPC
+  module it departs on purpose from `ci-python.yml`'s two-part gRPC gate: buf, like `protoc`, fails
+  loudly rather than skipping, so the test guards instead against an RPC vanishing through a plugin
+  or managed-mode change, and pins the RPC counts so a growing contract is noticed. Both tests skip
+  when they cannot find `contracts/`, so the gate requires an explicit `--- PASS` and reads a skip
+  as a failure. Its `paths` include `.gitignore` for the reason `ci.yml`'s do, and root `buf.yaml`
+  as a precaution: Go's generator does not read it today (it stages its own), but an edit there is
+  the kind of change that could move generated output without touching `go/`.
 - `contract-watch.yml` — daily, refreshes contracts from the SNAPSHOT server built off arcadedb's
   `main`. A changed contract gets an issue plus an adopt-and-regenerate PR; an unchanged contract
   with a red suite gets an issue only (it is a server regression no PR here can fix). Both are
   filed idempotently against one tracking issue and one branch. It regenerates and verifies
   **all three** language clients (TypeScript, Python, Go), each verdict its own step, and every
   verdict feeds the finding's fingerprint: dropping one would let that language recover or break
-  while the tracking issue stayed silent.
+  while the tracking issue stayed silent. The Go verdict covers both modules: it runs both
+  generators, each module's unit tests and generated-coverage test (`TestEveryOperationIsGenerated`,
+  `TestEveryRPCIsGenerated`, a literal `--- PASS` required), and the shared e2e suite.
 - `release.yml` — the one way a release happens: every package in `scripts/release-packages.py`'s
   table, at one version, in two phases with a human between them. **Phase 1** (`workflow_dispatch`
   from `main`) runs `release-packages.py check`, dry-runs every package's gates
@@ -155,10 +173,11 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
 - `ci-release.yml` — tests the release scripts and runs `release-packages.py check` on the version
   `main` currently carries (with `--allow-snapshot`, since `main`'s contract is a SNAPSHOT), so
   `main` cannot hold packages at different versions. `paths`-filtered to the table, the release
-  scripts and workflows, the manifests and lockfiles the table names (for the Go module,
-  `go/arcadedb/version.go` and `go/arcadedb/go.mod`, whose `module` line `check` holds to the row's
+  scripts and workflows, the manifests and lockfiles the table names (for each Go module,
+  `go/<module>/version.go` and `go/<module>/go.mod`, whose `module` line `check` holds to the row's
   name, with a `/vN` suffix from v2 on), and `contracts/` (which `check` compares every server
-  version against).
+  version against: the npm and PyPI rows against both contracts, each Go row against the one its
+  `contract` key names).
 - `publish.yml` — the only thing that talks to npm, and it is **workflow_dispatch only**, a child
   of `release.yml`, which dispatches it once per package. Dispatching it by hand is for recovering a
   partial release and **bypasses the lockstep check**. It refuses to run anywhere but the version's
@@ -203,19 +222,25 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   See the workflow file's comments for the caveat that does carry over from npm (check the
   workflow filename in PyPI's publisher settings against this file's actual name whenever either
   changes).
-- `publish-go.yml` — the third sibling, for the Go module: **workflow_dispatch only**, a
+- `publish-go.yml` — the third sibling, for the two Go modules: **workflow_dispatch only**, a
   `release.yml` child, hand-dispatched for recovery only (bypassing the lockstep check), refusing
   any ref but `refs/tags/v<version>` — recover with exactly
-  `gh workflow run publish-go.yml --ref v<version> -f package=arcadedb -f version=<version>` — and
-  one module per dispatch through a `package` input. Go has no registry and no credential: a
-  version is the tag `go/<package>/v<version>`, and the first fetch through `proxy.golang.org` *is*
-  the publish, recording the checksum in `sum.golang.org` and letting `pkg.go.dev` index it. It is
-  **two jobs**, split so the write token never shares a runner with third-party code. `verify`
-  holds `contents: read`, checks the dispatch input against `version.go`'s `Version` and the
-  package table row against `go.mod`'s module path, and runs `scripts/release/verify-go.sh` (lint,
-  unit tests under `-race`, the drift gate, `ServerVersion` against the OpenAPI contract, and the
-  module-zip check, `go/tools/cmd/checkzip` on `golang.org/x/mod/zip.CheckDir`) — every step that
-  executes code fetched through the module proxy. `publish` holds `contents: write` and runs only
+  `gh workflow run publish-go.yml --ref v<version> -f package=<pkg> -f version=<version>` — and
+  one module per dispatch through a `package` input (`arcadedb` or `arcadedbgrpc`), parameterised
+  rather than duplicated as `publish.yml` and `publish-python.yml` are, though no trusted publisher
+  depends on the filename here. Go has no registry and no credential: a version is the tag
+  `go/<package>/v<version>` (`go/arcadedb/v<version>`, `go/arcadedbgrpc/v<version>`), and the
+  first fetch through `proxy.golang.org` *is* the publish, recording the checksum in
+  `sum.golang.org` and letting `pkg.go.dev` index it. It is **two jobs**, split so the write token
+  never shares a runner with third-party code. `verify` holds `contents: read`, checks the dispatch
+  input against `version.go`'s `Version` and the package table row against `go.mod`'s module path,
+  and runs `scripts/release/verify-go.sh <package>` (lint, unit tests under `-race`, a build, vet
+  and test of the module with `GOWORK=off` as a consumer builds it, the drift gate,
+  `ServerVersion` against the module's **own** contract — `arcadedb` against the OpenAPI
+  `info.version`, `arcadedbgrpc` against the `.proto` filename's version, the same split
+  `verify-pypi.sh` makes — and the module-zip check, `go/tools/cmd/checkzip` on
+  `golang.org/x/mod/zip.CheckDir`, given each module's required files) — every step that executes
+  code fetched through the module proxy. `publish` holds `contents: write` and runs only
   git, the go command's own `go list -m`, and `release-packages.py`: it refuses unless `HEAD` is the
   commit `verify` checked, pushes the annotated module tag with the token passed on that one push
   (the checkout persists no credentials), continues if the tag already names this commit (an
@@ -232,14 +257,18 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   push or pull request that touches a lockfile, a package manifest, `go/go.work` or any Go
   `go.mod`/`go.sum` (not `go.work.sum`, which only carries checksums), the checker itself, its
   tests, or this file (a policy edit must re-run the gate it changes), plus weekly and on demand.
+  The `go/**` globs already cover `go/arcadedbgrpc`; the Go collector names it explicitly.
   The weekly run is not redundant with the path filters: a package can be relicensed on a version
   already pinned in a lockfile, which changes no manifest for the path filters to catch.
 - `dependabot-auto-merge.yml` — merges an approved Dependabot PR against `main`, ported from
   ArcadeData/arcadedb. It is **not** byte-identical to its copy there, and differs in exactly two
   places. arcadedb guards `native/pom.xml`, whose GraalVM pin has to move in lockstep with a
   builder JDK Dependabot cannot see; the equivalent invariant here is this file's own first rule,
-  so the guard refuses instead to auto-merge anything touching `contracts/` or generated output —
-  a bump that edits either is not a bump, it is drift or a contract move, and a human adopts those
+  so the guard refuses instead to auto-merge anything touching `contracts/` or generated output
+  (its `GUARDED` pattern lists exactly `contracts/`, `typescript/packages/driver/src/generated/`,
+  `typescript/packages/driver-grpc/src/gen/`, `python/packages/*/src/*/_generated/`,
+  `go/arcadedb/generated/` and `go/arcadedbgrpc/generated/`, and a new client's generated
+  directory must be added there) — a bump that edits either is not a bump, it is drift or a contract move, and a human adopts those
   with `adopt-contract-version.sh`. And arcadedb merges on one approval with no CI condition at
   all, inherited from the Mergify rule it replaced; this one refuses on a failing or still-running
   check, because the drift gates are the only thing that catches a generator bump changing
@@ -290,7 +319,7 @@ repositories are expected to agree; ArcadeDB's own copy lives in its `CLAUDE.md`
   EDL-1.0, LGPL-2.1+ (i.e. 2.1 or 3.0, libraries only), MPL-2.0 (libraries only, unmodified),
   CDDL-1.0/1.1 (libraries only, unmodified), GPL-2.0 **WITH** the Classpath Exception
   specifically (never a bare GPL), CC0-1.0 / Public Domain, Unlicense, BlueOak-1.0.0,
-  PSF-2.0 / Python-2.0
+  PSF-2.0 / Python-2.0, MIT-0
 - ❌ **FORBIDDEN:** GPL, AGPL, SSPL, Commons Clause, BUSL-1.1, Elastic-2.0, and
   proprietary licenses without explicit permission
 
@@ -304,27 +333,33 @@ accidental omission.
 demand. The weekly run is not redundant: a package can be **relicensed** on a version
 already pinned in a lockfile, and no manifest changes when that happens.
 
-Four entries above are this repository's own additions to ArcadeDB's list, each made on
-evidence from this tree rather than in the abstract: `BlueOak-1.0.0` (5 npm dev packages —
-`jackspeak`, `minimatch`, `minipass`, `package-json-from-dist`, `path-scurry`),
-`PSF-2.0`/`Python-2.0` (`typing_extensions`, a runtime dependency of `arcadedb-driver`),
-`Unlicense` (one npm dev package, `tweetnacl`; CLAUDE.md already allowed "CC0/Public
-Domain" and this is that category under its SPDX name), and `MPL-2.0` — already allowed
-upstream for libraries, recorded explicitly here because `certifi` makes it a **runtime**
-dependency (pulled in through `httpx`) rather than the dev-scope case ArcadeDB originally
-blessed. The Go modules needed no addition: every module the Go client builds, tests or tools
-with carries a license already on the list. `go.mod` records no license, so the Go collector runs
-`go-licenses report` (pinned in `go/tools/go.mod`) over `go/arcadedb` and `go/e2e` with their
-test dependencies included, and over the tools `go/tools` declares, resolves each reported package to the module that owns it, and
-fails closed on a malformed row, a package no module owns, or a report that saw implausibly few
-modules.
+Five entries above are this repository's own additions to ArcadeDB's list, each made on evidence
+from this tree rather than in the abstract: `BlueOak-1.0.0` (5 npm dev packages — `jackspeak`,
+`minimatch`, `minipass`, `package-json-from-dist`, `path-scurry`), `PSF-2.0`/`Python-2.0`
+(`typing_extensions`, a runtime dependency of `arcadedb-driver`), `Unlicense` (one npm dev package,
+`tweetnacl`; CLAUDE.md already allowed "CC0/Public Domain" and this is that category under its SPDX
+name), `MPL-2.0` — already allowed upstream for libraries, recorded explicitly here because
+`certifi` makes it a **runtime** dependency (pulled in through `httpx`) rather than the dev-scope
+case ArcadeDB originally blessed; and `MIT-0` ("MIT No Attribution", MIT without its attribution
+clause, so strictly more permissive than the allowed `MIT`), carried by one Go module,
+`github.com/segmentio/asm`, which is reached only through the `buf` code generator in `go/tools` — a
+tool dependency, never shipped to a consumer of either Go module. go-licenses cannot classify MIT-0
+and reports that module as `Unknown`, which no spelling in `NORMALISE` can fix, so
+`scripts/check-licenses.py` carries a narrow per-module override (`_GO_LICENSE_OVERRIDES`) applied
+only when go-licenses says exactly `Unknown` for exactly that module; any other `Unknown`, or a
+different license reported for that module, stays a violation. No other Go module needed an
+addition. `go.mod` records no license, so the Go collector runs `go-licenses report` (pinned in
+`go/tools/go.mod`) over `go/arcadedb`, `go/arcadedbgrpc` and `go/e2e` with their test dependencies
+included, and over the tools `go/tools` declares, resolves each reported package to the module that
+owns it, and fails closed on a malformed row, a package no module owns, or a report that saw
+implausibly few modules.
 
-**What the gate cannot check.** "Libraries only, unmodified" is a rule for humans. The
-checker sees a license identifier attached to a package; it cannot know whether this
-repository has vendored, patched or re-published that package's source. A green run does
-not certify that nobody copied an MPL-2.0 file into the tree. Nothing is vendored today —
-the generated code under `_generated/`, `src/gen/` and `go/arcadedb/generated/` comes from ArcadeDB's own Apache-2.0
-contracts — and if that ever changes, both this rule and the absence of an
+**What the gate cannot check.** "Libraries only, unmodified" is a rule for humans. The checker sees
+a license identifier attached to a package; it cannot know whether this repository has vendored,
+patched or re-published that package's source. A green run does not certify that nobody copied an
+MPL-2.0 file into the tree. Nothing is vendored today — the generated code under `_generated/`,
+`src/gen/`, `go/arcadedb/generated/` and `go/arcadedbgrpc/generated/` comes from ArcadeDB's own
+Apache-2.0 contracts — and if that ever changes, both this rule and the absence of an
 `ATTRIBUTIONS.md` need revisiting.
 
 Adding a license to the ALLOWED row means editing `ALLOWED_IDS` in
@@ -343,7 +378,7 @@ before reworking a client's public surface.
 Every package README and the code comments document failure modes and deliberate asymmetries at
 length (why `truncated` matters, why `exists` cannot prove absence, why the TypeScript gRPC client
 throws `ConnectError` and not `ArcadeDBError` while its Python sibling raises `grpc.RpcError`
-directly, why `bulkInsert` cannot join a `transaction()`, why the Go client's `TxError` does not
-use `errors.Join`). When you change behaviour in one of
-those areas, update the prose with it — those passages are load-bearing documentation, not
-decoration.
+directly, why `bulkInsert` cannot join a `transaction()`, why the Go client's `TxError` does not use
+`errors.Join`, why the Go gRPC client's `RawAdmin` returns an error over plaintext). When you change
+behaviour in one of those areas, update the prose with it — those passages are load-bearing
+documentation, not decoration.

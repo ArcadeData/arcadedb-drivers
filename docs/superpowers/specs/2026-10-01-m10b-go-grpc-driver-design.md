@@ -1,6 +1,7 @@
 # M10b: `arcadedbgrpc` for Go, the gRPC client
 
-**Status:** design approved in conversation, spec under review, plan pending
+**Status:** implemented (plan: `docs/superpowers/plans/2026-10-01-m10b-go-grpc-driver.md`); this spec is updated where the build
+departed from it
 **Date:** 2026-10-01
 **Parent:** ArcadeData/arcadedb Epic #4894
 **Predecessors:** M10 (`2026-09-30-m10-go-http-driver-design.md`, merged as #85), whose repository
@@ -50,6 +51,13 @@ A throwaway probe against the committed 26.10.1-SNAPSHOT contract found:
   No Attribution), which go-licenses reports as Unknown and the allow-list does not name. D7.
 - `go tool` must run with a working directory inside a module, so generation runs from `go/tools`
   (or the workspace) and passes the staged module and template by path.
+- *(Found during the build.)* go-licenses pulls in the 2020 monolithic `google.golang.org/genproto`,
+  which also contains the googleapis packages buf imports, making those imports ambiguous with the
+  split `genproto/googleapis/*` modules. A `go get` pin or an `exclude` does not survive
+  `go mod tidy`, so `go/tools/go.mod` carries a commented `replace google.golang.org/genproto => ...`.
+  It is tools-only and is to be revisited whenever buf or go-licenses is bumped.
+- *(Found during the build.)* `go work sync` must not be run: it pushes the workspace's resolved
+  versions into every module and bumps `go/arcadedbgrpc`'s `go` line to `1.26.7`.
 
 ### D7: MIT-0
 
@@ -112,9 +120,12 @@ edited; managed mode supplies the missing `go_package`.
 
 1. `git diff --exit-code` over `go/arcadedbgrpc/generated`;
 2. no untracked files there;
-3. `TestEveryRPCIsGenerated` passes — it reads every `rpc` from the contract and asserts, by
-   reflection over the generated `ArcadeDbServiceClient` and `ArcadeDbAdminServiceClient`
-   interfaces, that each has a method; a skip fails the gate;
+3. `TestEveryRPCIsGenerated` passes — it reads every `rpc` from the contract (with `//` and
+   `/* */` comments stripped first, so a commented-out RPC or a stray brace cannot count) and
+   asserts, by reflection over the generated `ArcadeDbServiceClient` and
+   `ArcadeDbAdminServiceClient` interfaces, that each has a method. It also pins the counts (21
+   and 44), so a contract that grows an RPC fails it until the count is updated deliberately. A
+   skip fails the gate;
 4. `go mod tidy` is clean in every workspace module (already the case since M10's final fix wave).
 
 Part 3 deliberately departs from the Python gRPC gate, which has no third part because `protoc`
@@ -154,8 +165,23 @@ target form, as Python does. Options: `WithPasswordAuth(user, password, database
 may be empty), `WithBearerToken(token)`, `WithTransportCredentials(credentials.TransportCredentials)`,
 `WithInsecure()`, and `WithDialOptions(...grpc.DialOption)` for anything else. Without transport
 credentials the connection uses `insecure.NewCredentials()`. `Close()` closes the connection and is
-safe to call twice. There is no default timeout; callers bound calls with `ctx`, as with the HTTP
-client.
+safe to call twice; the first call returns the real error, later ones nil. There is no default
+timeout; callers bound calls with `ctx`, as with the HTTP client.
+
+As built, three refinements:
+
+- A target starting (case-insensitively, after trimming space) with `http://` or `https://` is
+  refused: grpc-go would read the scheme as an unknown resolver. `host:port`, `[::1]:port`,
+  `dns:///`, `passthrough:///` and `unix:` targets are accepted.
+- An empty user in `WithPasswordAuth` or an empty token in `WithBearerToken` is an error from
+  `NewClient`.
+- **Credential order.** `grpc.WithTransportCredentials` is last-wins, so the implicit plaintext
+  default is applied **before** the caller's `WithDialOptions` and an explicit
+  `WithTransportCredentials` **after** them. TLS passed only inside `WithDialOptions` is therefore
+  honoured, never downgraded; but the guards below cannot see it and fail closed (password auth
+  and `RawAdmin` still need `WithTransportCredentials` or `WithInsecure`). The documented way to
+  pass TLS is `WithTransportCredentials`. An earlier draft appended the default after the caller's
+  options, which silently replaced their TLS with plaintext; that was fixed during review.
 
 ### Auth
 
@@ -197,8 +223,9 @@ RPC failures are returned as grpc-go status errors, unwrapped: callers use `stat
   one record at a time across the `QueryResult` batches. `RetrievalMode` and `BatchSize` pass through
   untouched.
 - `TimeSeriesQuery(ctx, *generated.TimeSeriesQueryRequest) iter.Seq2[*generated.TimeSeriesQueryResult, error]`
-  yields whole messages, because `Truncated` is only meaningful on the message with `Last` set and
-  distinguishes "ended" from "cut off by `limit`".
+  yields whole messages, because `Truncated` is only meaningful on the message with `Last` set,
+  where it is set when the request's `limit` cut the answer short, distinguishing "ended" from
+  "cut off".
 
 Both derive a cancellable context, so leaving the loop early (`break`, `return`, an error) cancels
 the RPC and releases the stream. `io.EOF` ends iteration normally; any other error is yielded once
@@ -213,20 +240,28 @@ around (a panic on a library goroutine, a writer outliving the call) cannot aris
 
 - `InsertStream(ctx, InsertStreamRequest) (*generated.InsertSummary, error)` with
   `InsertStreamRequest{Database string; Chunks iter.Seq[[]*generated.GrpcRecord]; Options *generated.InsertOptions; Credentials *generated.DatabaseCredentials; Transaction *generated.TransactionContext}`
-  ports Python's envelope: one random `session_id` per stream; `chunk_seq` 1..n; chunk 1 carries
-  `database` and the options with `options.database` forced; `credentials` and `transaction` on
-  every chunk; `last=true` only on the final chunk, found by one-batch lookahead, so a `nil` batch
-  is not mistaken for the end; an empty input sends one empty chunk with `last=true` and
-  `chunk_seq=1`. Returns the server's summary unchanged.
+  ports Python's envelope: one random `session_id` per stream (16 `crypto/rand` bytes, hex);
+  `chunk_seq` 1..n; chunk 1 carries `database` and a `proto.Clone` of the options with
+  `options.database` forced, while later chunks carry the caller's options as given (Python
+  parity); `credentials` and `transaction` on every chunk; `last=true` only on the final chunk,
+  found by `iter.Pull` lookahead, so a `nil` or empty batch is a zero-row chunk, not the end; an
+  empty input sends one empty chunk with `last=true` and `chunk_seq=1`. The generated chunk's row
+  field is `Rows`. Returns the server's summary unchanged.
 - `TimeSeriesWriteStream(ctx, TimeSeriesWriteStreamRequest) (*generated.TimeSeriesWriteSummary, error)`
   repeats `database`, `type`, `precision` and `credentials` on every chunk. `Precision` is required —
   an unset precision is an error before any RPC — because the proto's zero value (milliseconds)
-  silently disagrees with HTTP line protocol's default (nanoseconds). Empty input sends zero chunks.
-  Writes are non-atomic; `Written < Received` is possible on success.
+  silently disagrees with HTTP line protocol's default (nanoseconds). It is a
+  `*generated.TimeSeriesPrecision`, nil meaning unset: the enum has no `UNSPECIFIED` value, so a
+  plain field could not tell "unset" from `TS_PRECISION_MILLISECONDS`. Empty input sends zero
+  chunks. Writes are non-atomic; `Written < Received` is possible on success.
 
-When `Send` fails, both return the status from `CloseAndRecv`/`RecvMsg`: grpc-go reports a failed
-`Send` as a bare `io.EOF` and puts the real status on the receive side. Returning the `Send` error
-would hide every server-side failure behind `EOF`.
+When `Send` fails with `io.EOF`, both return the result of `CloseAndRecv`: grpc-go reports a
+failed `Send` as a bare `io.EOF` and puts the real status on the receive side. Returning the `Send`
+error would hide every server-side failure behind `EOF`. Two consequences the docs state: a server
+that ends the stream early with `SendAndClose` makes the call return its summary with a nil error,
+so the summary, not the nil error, says how many rows landed; and because the caller's sequence
+runs on the caller's goroutine, cancelling `ctx` cannot interrupt a sequence blocked producing its
+next batch (a sequence that waits should watch `ctx` itself).
 
 ### Transactions
 
@@ -253,11 +288,15 @@ taking `(ctx, req, ...grpc.CallOption)`), plus bound `StreamQuery` and `TimeSeri
 `TransactionContext{TransactionId, Database}` — a replace, never a merge, so caller-set inline
 `begin`/`commit`/`rollback` flags are wiped. The caller's message is never mutated: binding in place
 would let a later reuse of the same message carry a dead transaction id, recreating
-ArcadeData/arcadedb#5040 by aliasing.
+ArcadeData/arcadedb#5040 by aliasing. The binding is plain typed assignment
+(`r.Database, r.Transaction = h.binding()`), not protoreflect, so a regenerated contract that
+renamed either field breaks the build instead of sending a call unbound. A request's own
+`Credentials` field passes through unbound. A handle used after `Transaction` returns is refused by
+the server with `FailedPrecondition` ("Unknown or expired transaction id"), verified live in e2e.
 
 `InsertStream` and `TimeSeriesWriteStream` are absent from the handle, as in Python: the first
-pending #46 (the server fix, #6607, shipped in 26.9.1), the second because `TimeSeriesWriteChunk`
-has no transaction field.
+pending ArcadeData/arcadedb-drivers#46 (the server fix, ArcadeData/arcadedb#6607, shipped in
+26.9.1), the second because `TimeSeriesWriteChunk` has no transaction field.
 
 ## 6. Testing
 
@@ -284,19 +323,29 @@ merely looks closed), ports 2480 and 50051, ready on HTTP then on the log line
 `python/e2e/test_grpc.py` one for one: password and bearer auth (a token minted over HTTP login),
 stream query, insert stream (and an empty one), commit, rollback, vector / hybrid / full-text search
 raw and through `TxHandle`, and time-series write-stream, query and latest — asserting real values.
+As built there are twelve, adding to that list a handle used after commit (refused with
+`FailedPrecondition`), an empty time-series write stream, and `RawAdmin().Health` with
+`WithInsecure`. The gRPC container is started by the same `TestMain` as the HTTP one, so either
+failing to start fails the whole run.
 
 ## 7. CI, licenses, release, Dependabot
 
 - **`ci-go.yml`:** paths gain root `buf.yaml` (M10 left it out until a Go module reads the proto).
+  As built it is a precaution only: `generate-grpc.sh` stages its own minimal `buf.yaml` and never
+  reads the root one.
   The build job runs `lint.sh`, `check-drift.sh` and `go test -race` in each module; the e2e job runs
   both containers' tests.
 - **License gate:** `MIT-0` in `ALLOWED_IDS` and the root `CLAUDE.md` together (D7); `collect_go`
-  gains the `arcadedbgrpc` module; `_MIN_PLAUSIBLE_GO_MODULES` moves to half the new measured count.
+  gains the `arcadedbgrpc` module; `_MIN_PLAUSIBLE_GO_MODULES` moves to half the new measured count
+  (64 of 129).
 - **`release-packages.py`:** a second `goproxy` row — id `go-arcadedbgrpc`, manifest
   `go/arcadedbgrpc/version.go`, name `github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc`,
   workflow `publish-go.yml`, package input `arcadedbgrpc`, no lockfile. Its server version is checked
-  against the `.proto` filename version, so `goproxy` rows learn per-row contract selection (as
-  `pypi-driver-grpc` already has).
+  against the `.proto` filename version, so rows learn per-row contract selection: an optional
+  `contract` key (`"openapi"` on `go-arcadedb`, `"proto"` on `go-arcadedbgrpc`). The npm and PyPI
+  rows carry no key and stay checked against both contracts. (An earlier draft said
+  `pypi-driver-grpc` already had per-row selection in `release-packages.py`; it does not —
+  that split lives in `verify-pypi.sh`.)
 - **`verify-go.sh` and `publish-go.yml`:** the `package` choice and the script's `case` gain
   `arcadedbgrpc`; that branch compares `ServerVersion` to the proto filename; `checkzip` takes the
   module's required files as arguments instead of hard-coding `generated/client.gen.go`. The tag is

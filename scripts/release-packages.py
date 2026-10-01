@@ -20,9 +20,11 @@ Subcommands:
 `check` holds the invariant a lockstep release depends on: every manifest reads
 <version>, every lockfile agrees with its manifest (the Go module has none: its version is a
 constant in version.go and the git tag), and every package's recorded server version matches the
-single OpenAPI contract and the single .proto contract (the Go module, generated from the OpenAPI
-contract alone, is held to that one). The Go module's go.mod must also name the row's module path,
-with a /vN suffix from v2 on. A
+single OpenAPI contract and the single .proto contract. A Go row is the exception: it carries an
+optional `contract` key ("openapi" or "proto") naming the one contract it is generated from, and is
+held to that contract alone (go/arcadedb to the OpenAPI version, go/arcadedbgrpc to the version in
+the .proto filename). The key is optional so the npm and PyPI rows keep the both-contracts rule. Each
+Go module's go.mod must also name the row's module path, with a /vN suffix from v2 on. A
 `-SNAPSHOT` server version is a problem unless --allow-snapshot is given, because a
 release must not ship against a moving target while `main` legitimately does.
 
@@ -99,6 +101,18 @@ PACKAGES: list[dict[str, str]] = [
         "name": "github.com/ArcadeData/arcadedb-drivers/go/arcadedb",
         "workflow": "publish-go.yml",
         "package_input": "arcadedb",
+        "contract": "openapi",
+    },
+    {
+        "id": "go-arcadedbgrpc",
+        "language": "go",
+        "manifest": "go/arcadedbgrpc/version.go",
+        "lockfile": "",
+        "registry": "goproxy",
+        "name": "github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc",
+        "workflow": "publish-go.yml",
+        "package_input": "arcadedbgrpc",
+        "contract": "proto",
     },
 ]
 
@@ -290,11 +304,12 @@ REGISTRIES: dict[str, Registry] = {
 }
 
 
-def _contract_versions(root: Path) -> tuple[list[str], list[str], list[str]]:
-    """Return problems, the contract versions found (OpenAPI, then proto), and the OpenAPI one alone."""
+def _contract_versions(root: Path) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Return problems, the contract versions found (OpenAPI, then proto), then the OpenAPI and proto ones alone."""
     problems: list[str] = []
     versions: list[str] = []
     openapi_only: list[str] = []
+    proto_only: list[str] = []
 
     openapi = sorted((root / "contracts").glob("arcadedb-openapi-*.json"))
     if len(openapi) != 1:
@@ -313,9 +328,10 @@ def _contract_versions(root: Path) -> tuple[list[str], list[str], list[str]]:
             + ", ".join(p.name for p in protos)
         )
     else:
-        versions.append(protos[0].name.removeprefix("arcadedb-server-").removesuffix(".proto"))
+        proto_only.append(protos[0].name.removeprefix("arcadedb-server-").removesuffix(".proto"))
+        versions.append(proto_only[0])
 
-    return problems, versions, openapi_only
+    return problems, versions, openapi_only, proto_only
 
 
 def check(root: Path, version: str, allow_snapshot: bool) -> list[str]:
@@ -324,7 +340,8 @@ def check(root: Path, version: str, allow_snapshot: bool) -> list[str]:
     except ReleaseError as exc:
         return [str(exc)]
 
-    problems, contract_versions, openapi_versions = _contract_versions(root)
+    problems, contract_versions, openapi_versions, proto_versions = _contract_versions(root)
+    by_contract = {"openapi": openapi_versions, "proto": proto_versions}
 
     for row in PACKAGES:
         reg = REGISTRIES[row["registry"]]
@@ -362,8 +379,9 @@ def check(root: Path, version: str, allow_snapshot: bool) -> list[str]:
         server = reg.read_server_version(root, row)
         if server.endswith("-SNAPSHOT") and not allow_snapshot:
             problems.append(f"{manifest}: server version {server} is a SNAPSHOT; a release needs a fixed server version")
-        # The Go client is generated from the OpenAPI contract alone, so it is not held to the .proto.
-        for contract in openapi_versions if row["registry"] == "goproxy" else contract_versions:
+        # A row naming its `contract` is generated from that one contract alone (the Go modules);
+        # every other row is held to both.
+        for contract in by_contract[row["contract"]] if "contract" in row else contract_versions:
             if server != contract:
                 problems.append(f"{manifest}: server version {server} does not match the contract version {contract}")
 

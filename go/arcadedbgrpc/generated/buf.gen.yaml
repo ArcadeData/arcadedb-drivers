@@ -1,0 +1,22 @@
+# buf generation template for the gRPC client's stubs (buf v2).
+#
+# Managed mode is on because the contract carries no go_package option, and protoc-gen-go
+# refuses to generate without one. Overriding it here keeps the contract untouched (it is
+# copied verbatim from ArcadeDB) and puts the import path in one reviewed place.
+#
+# The input is not the contract file itself but a staged copy under the fixed name
+# arcadedb_server.proto (see go/scripts/generate-grpc.sh): the contract's filename carries
+# the server version, which would otherwise leak into the generated filenames.
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      value: github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc/generated
+plugins:
+  - local: ["go", "tool", "protoc-gen-go"]
+    out: .
+    opt: paths=source_relative
+  - local: ["go", "tool", "protoc-gen-go-grpc"]
+    out: .
+    opt: paths=source_relative

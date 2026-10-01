@@ -4,7 +4,9 @@ go 1.26
 
 require (
 	github.com/ArcadeData/arcadedb-drivers/go/arcadedb v0.0.0
+	github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc v0.0.0
 	github.com/testcontainers/testcontainers-go v0.44.0
+	google.golang.org/grpc v1.84.0
 )
 
 require (
@@ -58,8 +60,14 @@ require (
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/crypto v0.54.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/ArcadeData/arcadedb-drivers/go/arcadedb => ../arcadedb
+
+replace github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc => ../arcadedbgrpc

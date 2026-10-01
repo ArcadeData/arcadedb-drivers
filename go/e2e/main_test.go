@@ -73,6 +73,18 @@ func run(m *testing.M) int {
 		return 1
 	}
 	baseURL = fmt.Sprintf("http://%s:%s", host, port.Port())
+
+	// The gRPC container is separate from the HTTP one: a gRPC plugin failure must not
+	// redden the HTTP suite. Its termination is deferred here too, so both containers go
+	// down on every path, a setup failure included.
+	gctr, err := startGrpcContainer(ctx, image)
+	if gctr != nil {
+		defer func() { _ = testcontainers.TerminateContainer(gctr) }()
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "starting ArcadeDB gRPC container:", err)
+		return 1
+	}
 	return m.Run()
 }
 

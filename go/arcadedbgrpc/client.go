@@ -1,8 +1,8 @@
 package arcadedbgrpc
 
 import (
+	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"sync"
 
@@ -14,7 +14,8 @@ import (
 
 type config struct {
 	auth     authMetadata
-	password bool // auth carries a plaintext password (the #5048 guard keys on this)
+	authErr  error // a malformed auth option, reported by NewClient
+	password bool  // auth carries a plaintext password (the #5048 guard keys on this)
 	creds    credentials.TransportCredentials
 	insecure bool
 	dialOpts []grpc.DialOption
@@ -26,30 +27,39 @@ type Option func(*config)
 // WithPasswordAuth authenticates every call with x-arcade-user, x-arcade-password and,
 // when database is non-empty, x-arcade-database metadata. The password travels as
 // metadata, so NewClient refuses it over a plaintext connection unless WithInsecure is
-// given (see ErrInsecureChannel). It replaces any earlier WithPasswordAuth or
-// WithBearerToken.
+// given (see ErrInsecureChannel). An empty user is an error from NewClient. It replaces
+// any earlier WithPasswordAuth or WithBearerToken.
 func WithPasswordAuth(user, password, database string) Option {
 	return func(c *config) {
 		c.auth = passwordMetadata(user, password, database)
 		c.password = true
+		c.authErr = nil
+		if user == "" {
+			c.authErr = errors.New("arcadedbgrpc: WithPasswordAuth: user is empty")
+		}
 	}
 }
 
 // WithBearerToken authenticates every call with "authorization: Bearer <token>" metadata.
-// Unlike a password it is allowed over a plaintext connection without WithInsecure. It
-// replaces any earlier WithPasswordAuth or WithBearerToken.
+// Unlike a password it is allowed over a plaintext connection without WithInsecure. An
+// empty token is an error from NewClient. It replaces any earlier WithPasswordAuth or
+// WithBearerToken.
 func WithBearerToken(token string) Option {
 	return func(c *config) {
 		c.auth = bearerMetadata(token)
 		c.password = false
+		c.authErr = nil
+		if token == "" {
+			c.authErr = errors.New("arcadedbgrpc: WithBearerToken: token is empty")
+		}
 	}
 }
 
 // WithTransportCredentials secures the connection with creds, for example
 // credentials.NewTLS(cfg). It satisfies both guards: password auth is allowed and
-// RawAdmin is available. Pass transport credentials through this option rather than
-// through WithDialOptions: the guards cannot see inside dial options, and these
-// credentials are applied after them, so they win over any set there.
+// RawAdmin is available. Pass TLS through this option, not WithDialOptions: the guards
+// cannot see credentials inside WithDialOptions. These credentials are applied after the
+// dial options, so when both set transport credentials, these are the ones used.
 func WithTransportCredentials(creds credentials.TransportCredentials) Option {
 	return func(c *config) { c.creds = creds }
 }
@@ -66,6 +76,13 @@ func WithInsecure() Option {
 // WithDialOptions passes extra options to grpc.NewClient, for anything this package has no
 // option of its own for (keepalive, a custom dialer, message size limits). Repeated uses
 // accumulate.
+//
+// Pass TLS through WithTransportCredentials; the guards cannot see credentials inside
+// WithDialOptions. A grpc.WithTransportCredentials given here is still honoured, never
+// downgraded: the package's plaintext default is applied before these options, so it only
+// takes effect when nothing here overrides it. The guards stay conservative in that case:
+// they see no transport credentials, so WithPasswordAuth and RawAdmin still need
+// WithInsecure (or WithTransportCredentials) and otherwise fail closed.
 func WithDialOptions(opts ...grpc.DialOption) Option {
 	return func(c *config) { c.dialOpts = append(c.dialOpts, opts...) }
 }
@@ -94,15 +111,16 @@ type Client struct {
 //
 // There is no default timeout; bound each call with its ctx.
 func NewClient(target string, opts ...Option) (*Client, error) {
-	if scheme, _, ok := strings.Cut(target, ":"); ok {
-		if s := strings.ToLower(scheme); s == "http" || s == "https" {
-			return nil, fmt.Errorf("arcadedbgrpc: target %q is a URL; NewClient takes grpc-go's host:port form, e.g. \"localhost:50051\"", target)
-		}
+	if t := strings.ToLower(strings.TrimSpace(target)); strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") {
+		return nil, fmt.Errorf("arcadedbgrpc: target %q is a URL; NewClient takes grpc-go's host:port form, e.g. \"localhost:50051\"", target)
 	}
 
 	cfg := &config{}
 	for _, o := range opts {
 		o(cfg)
+	}
+	if cfg.authErr != nil {
+		return nil, cfg.authErr
 	}
 	if cfg.password && cfg.creds == nil && !cfg.insecure {
 		return nil, fmt.Errorf("%w: NewClient would send a plaintext password to %q; pass WithTransportCredentials(creds), "+
@@ -110,11 +128,14 @@ func NewClient(target string, opts ...Option) (*Client, error) {
 			ErrInsecureChannel, target)
 	}
 
-	creds := cfg.creds
-	if creds == nil {
-		creds = insecure.NewCredentials()
+	// grpc.WithTransportCredentials is last-wins. The implicit plaintext default goes
+	// BEFORE the caller's dial options, so TLS supplied there is never silently replaced by
+	// plaintext; explicit WithTransportCredentials goes AFTER them.
+	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	dialOpts = append(dialOpts, cfg.dialOpts...)
+	if cfg.creds != nil {
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(cfg.creds))
 	}
-	dialOpts := append(slices.Clone(cfg.dialOpts), grpc.WithTransportCredentials(creds))
 	if cfg.auth != nil {
 		dialOpts = append(dialOpts,
 			grpc.WithChainUnaryInterceptor(cfg.auth.unaryInterceptor()),

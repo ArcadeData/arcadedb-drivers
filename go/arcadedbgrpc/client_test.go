@@ -8,10 +8,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc/generated"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 func TestPasswordAuthOverPlaintextIsRefused(t *testing.T) {
@@ -223,7 +227,7 @@ func TestCloseTwiceIsSafe(t *testing.T) {
 }
 
 func TestNewClientRejectsURLTarget(t *testing.T) {
-	for _, target := range []string{"http://localhost:50051", "https://h:1", "HTTPS://h:1"} {
+	for _, target := range []string{"http://localhost:50051", "https://h:1", "HTTPS://h:1", " HTTP://h:1"} {
 		c, err := NewClient(target, WithInsecure())
 		if err == nil {
 			_ = c.Close()
@@ -234,12 +238,47 @@ func TestNewClientRejectsURLTarget(t *testing.T) {
 			t.Errorf("NewClient(%q) error %q does not mention host:port", target, err)
 		}
 	}
-	for _, target := range []string{"dns:///h:1", "passthrough:///h:1", "h:1", "unix:/tmp/arcadedb.sock"} {
+	for _, target := range []string{
+		"dns:///h:1", "passthrough:///h:1", "h:1", "unix:/tmp/arcadedb.sock",
+		"http:50051", // a host literally named "http" is not a URL
+		"[::1]:50051", "dns:///[::1]:50051",
+	} {
 		c, err := NewClient(target, WithInsecure())
 		if err != nil {
 			t.Errorf("NewClient(%q): %v", target, err)
 			continue
 		}
 		_ = c.Close()
+	}
+}
+
+// A caller who supplies TLS only through WithDialOptions must never have it silently
+// replaced by the package's plaintext default: the RPC against the plaintext fake has to
+// fail the handshake, not succeed in cleartext.
+func TestDialOptionTLSIsNeverDowngraded(t *testing.T) {
+	tlsCreds := credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+	c := newFake(t, recordingService{}, nil, WithBearerToken("tok"),
+		WithDialOptions(grpc.WithTransportCredentials(tlsCreds)))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := c.Raw().ExecuteQuery(ctx, &generated.ExecuteQueryRequest{})
+	if err == nil {
+		t.Fatal("ExecuteQuery succeeded over plaintext; the caller's TLS dial option was downgraded")
+	}
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("ExecuteQuery err = %v, want Unavailable (a failed TLS handshake)", err)
+	}
+}
+
+func TestEmptyCredentialsAreRejected(t *testing.T) {
+	for name, opt := range map[string]Option{
+		"empty bearer token": WithBearerToken(""),
+		"empty user":         WithPasswordAuth("", "pw", "db"),
+	} {
+		c, err := NewClient("localhost:50051", opt, WithInsecure())
+		if err == nil {
+			_ = c.Close()
+			t.Errorf("%s: NewClient succeeded, want an error", name)
+		}
 	}
 }

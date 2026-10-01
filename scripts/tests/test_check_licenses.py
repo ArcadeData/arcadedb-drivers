@@ -13,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 
@@ -152,10 +153,10 @@ def test_an_unbalanced_expression_fails_closed_rather_than_raising() -> None:
     assert reason
 
 
-def test_the_four_policy_additions_are_present() -> None:
-    # Section 5.3 of the spec. Each was added on evidence from this repo's own tree;
-    # removing one should break a test, not silently start failing the real run.
-    for spdx in ("BlueOak-1.0.0", "PSF-2.0", "Python-2.0", "Unlicense", "MPL-2.0"):
+def test_the_policy_additions_are_present() -> None:
+    # Each was added on evidence from this repo's own tree; removing one should break a
+    # test, not silently start failing the real run.
+    for spdx in ("BlueOak-1.0.0", "PSF-2.0", "Python-2.0", "Unlicense", "MPL-2.0", "MIT-0"):
         assert cl.evaluate(spdx)[0] is True, spdx
 
 
@@ -318,11 +319,12 @@ _GO_OWN = "github.com/ArcadeData/arcadedb-drivers/go/arcadedb"
 
 
 def _go_fake_run(
-    report_csv: str, *, extra_modules: int = 0, report_rc: int = 0
+    report_csv: str, *, extra_modules: int = 0, report_rc: int = 0, extra_versions: tuple[dict[str, str], ...] = ()
 ) -> tuple[object, list[tuple[list[str], str]]]:
     """A stand-in for subprocess.run that answers the three `go` invocations the collector makes."""
     calls: list[tuple[list[str], str]] = []
     versions = [{"Path": _GO_OWN, "Main": True}, {"Path": "github.com/google/uuid", "Version": "v1.6.0"}]
+    versions += list(extra_versions)
     versions += [{"Path": f"example.com/m{i}", "Version": "v1.0.0"} for i in range(extra_modules)]
 
     class _Completed:
@@ -357,7 +359,7 @@ def test_go_collector_parses_report_and_excludes_own_modules(monkeypatch: pytest
     # Three modules run the same report, so the duplicate collapses; own modules are gone.
     assert records == [cl.Record("go", "github.com/google/uuid", "v1.6.0", "BSD-3-Clause", "go-licenses")]
     reports = [(cmd, cwd) for cmd, cwd in calls if cmd[:4] == ["go", "tool", "go-licenses", "report"]]
-    assert {Path(cwd).name for _, cwd in reports} == {"arcadedb", "e2e", "tools"}
+    assert {Path(cwd).name for _, cwd in reports} == {"arcadedb", "arcadedbgrpc", "e2e", "tools"}
     for cmd, cwd in reports:
         if Path(cwd).name == "tools":
             assert "example.com/tool/cmd" in cmd
@@ -416,6 +418,39 @@ def test_go_collector_raises_on_a_malformed_report_row(monkeypatch: pytest.Monke
     monkeypatch.setattr(cl, "_MIN_PLAUSIBLE_GO_MODULES", 1)
     with pytest.raises(cl.CollectorError, match="malformed"):
         cl.collect_go(tmp_path)
+
+
+def test_mit_0_is_allowed() -> None:
+    assert cl.evaluate("MIT-0")[0] is True
+
+
+def _go_override_records(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, csv_text: str) -> list[Any]:
+    asm = {"Path": "github.com/segmentio/asm", "Version": "v1.2.1"}
+    fake, _ = _go_fake_run(csv_text, extra_versions=(asm,))
+    monkeypatch.setattr(cl.subprocess, "run", fake)
+    monkeypatch.setattr(cl, "_MIN_PLAUSIBLE_GO_MODULES", 1)
+    records: list[Any] = cl.collect_go(tmp_path)
+    return records
+
+
+def test_go_override_applies_only_to_unknown_for_that_module(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    records = _go_override_records(monkeypatch, tmp_path, "github.com/segmentio/asm/ascii,Unknown,Unknown\n")
+    assert records == [cl.Record("go", "github.com/segmentio/asm", "v1.2.1", "MIT-0", "go-licenses")]
+    assert cl.check(records)[0] == []
+
+    # Any other module reporting Unknown stays a violation.
+    records = _go_override_records(monkeypatch, tmp_path, "github.com/google/uuid,Unknown,Unknown\n")
+    assert [r.signal for r in records] == ["Unknown"]
+    assert cl.check(records)[0] == records
+
+    # A different license reported for the overridden module is not papered over.
+    records = _go_override_records(monkeypatch, tmp_path, "github.com/segmentio/asm/ascii,https://x,GPL-3.0\n")
+    assert [r.signal for r in records] == ["GPL-3.0"]
+    assert cl.check(records)[0] == records
+
+
+def test_go_collector_includes_the_grpc_module() -> None:
+    assert "arcadedbgrpc" in cl._GO_MODULES
 
 
 def test_go_unknown_license_is_a_violation() -> None:

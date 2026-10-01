@@ -290,7 +290,7 @@ repositories are expected to agree; ArcadeDB's own copy lives in its `CLAUDE.md`
   EDL-1.0, LGPL-2.1+ (i.e. 2.1 or 3.0, libraries only), MPL-2.0 (libraries only, unmodified),
   CDDL-1.0/1.1 (libraries only, unmodified), GPL-2.0 **WITH** the Classpath Exception
   specifically (never a bare GPL), CC0-1.0 / Public Domain, Unlicense, BlueOak-1.0.0,
-  PSF-2.0 / Python-2.0
+  PSF-2.0 / Python-2.0, MIT-0
 - ❌ **FORBIDDEN:** GPL, AGPL, SSPL, Commons Clause, BUSL-1.1, Elastic-2.0, and
   proprietary licenses without explicit permission
 
@@ -304,7 +304,7 @@ accidental omission.
 demand. The weekly run is not redundant: a package can be **relicensed** on a version
 already pinned in a lockfile, and no manifest changes when that happens.
 
-Four entries above are this repository's own additions to ArcadeDB's list, each made on
+Five entries above are this repository's own additions to ArcadeDB's list, each made on
 evidence from this tree rather than in the abstract: `BlueOak-1.0.0` (5 npm dev packages —
 `jackspeak`, `minimatch`, `minipass`, `package-json-from-dist`, `path-scurry`),
 `PSF-2.0`/`Python-2.0` (`typing_extensions`, a runtime dependency of `arcadedb-driver`),
@@ -312,9 +312,15 @@ evidence from this tree rather than in the abstract: `BlueOak-1.0.0` (5 npm dev 
 Domain" and this is that category under its SPDX name), and `MPL-2.0` — already allowed
 upstream for libraries, recorded explicitly here because `certifi` makes it a **runtime**
 dependency (pulled in through `httpx`) rather than the dev-scope case ArcadeDB originally
-blessed. The Go modules needed no addition: every module the Go client builds, tests or tools
-with carries a license already on the list. `go.mod` records no license, so the Go collector runs
-`go-licenses report` (pinned in `go/tools/go.mod`) over `go/arcadedb` and `go/e2e` with their
+blessed. And `MIT-0` ("MIT No Attribution", MIT without its attribution clause, so strictly more
+permissive than the allowed `MIT`), carried by one Go module, `github.com/segmentio/asm`, which is
+reached only through the `buf` code generator in `go/tools` — a tool dependency, never shipped to a
+consumer of either Go module. go-licenses cannot classify MIT-0 and reports that module as
+`Unknown`, which no spelling in `NORMALISE` can fix, so `scripts/check-licenses.py` carries a
+narrow per-module override (`_GO_LICENSE_OVERRIDES`) applied only when go-licenses says exactly
+`Unknown` for exactly that module; any other `Unknown`, or a different license reported for that
+module, stays a violation. No other Go module needed an addition. `go.mod` records no license, so the Go collector runs
+`go-licenses report` (pinned in `go/tools/go.mod`) over `go/arcadedb`, `go/arcadedbgrpc` and `go/e2e` with their
 test dependencies included, and over the tools `go/tools` declares, resolves each reported package to the module that owns it, and
 fails closed on a malformed row, a package no module owns, or a report that saw implausibly few
 modules.

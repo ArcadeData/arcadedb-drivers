@@ -43,9 +43,14 @@ func startGrpcContainer(ctx context.Context, image string) (testcontainers.Conta
 			// The log line appears only once the plugin is actually listening, so it is the
 			// signal, not the open TCP port.
 			WaitingFor: wait.ForAll(
+				// Each sub-strategy carries its own 90s timeout: ForAll's deadline bounds the
+				// whole wait, but leaves every sub-strategy at its default 60s, which would
+				// fail a slow JVM startup well before the deadline.
 				wait.ForHTTP("/api/v1/ready").WithPort("2480/tcp").
-					WithStatusCodeMatcher(func(s int) bool { return s == 204 }),
-				wait.ForLog("gRPC server started on 0.0.0.0:50051"),
+					WithStatusCodeMatcher(func(s int) bool { return s == 204 }).
+					WithStartupTimeout(90*time.Second),
+				wait.ForLog("gRPC server started on 0.0.0.0:50051").
+					WithStartupTimeout(90*time.Second),
 			).WithDeadline(90 * time.Second),
 		},
 		Started: true,

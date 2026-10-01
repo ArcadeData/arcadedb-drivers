@@ -1,8 +1,8 @@
 name: Go driver CI
 
-# buf.yaml is deliberately not in the paths below: no Go code is generated from the .proto
-# contract yet. The gRPC client (M10b) adds it, for the reason ci.yml and ci-python.yml list
-# it: it can change generated output while leaving go/ untouched.
+# buf.yaml is in the paths below because the gRPC client is generated from the .proto
+# contract: it can change generated output while leaving go/ untouched (ci.yml and
+# ci-python.yml list it for the same reason).
 
 on:
   push:
@@ -16,6 +16,7 @@ on:
       # generated directory, which an ignore rule covering it would silence
       # permanently and invisibly. ci.yml and ci-python.yml list .gitignore for the same reason.
       - ".gitignore"
+      - "buf.yaml"
       - ".github/workflows/ci-go.yml"
   pull_request:
     paths:
@@ -23,6 +24,7 @@ on:
       - "contracts/**"
       - "scripts/**"
       - ".gitignore"
+      - "buf.yaml"
       - ".github/workflows/ci-go.yml"
 
 jobs:
@@ -37,7 +39,9 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.26"
-          cache-dependency-path: go/**/go.sum
+          cache-dependency-path: |
+            go/**/go.sum
+            go/arcadedbgrpc/go.sum
 
       - name: Lint
         run: go/scripts/lint.sh
@@ -45,8 +49,12 @@ jobs:
       - name: Regenerate and verify no drift
         run: go/scripts/check-drift.sh
 
-      - name: Unit tests
+      - name: Unit tests (HTTP client)
         working-directory: go/arcadedb
+        run: go test -race ./...
+
+      - name: Unit tests (gRPC client)
+        working-directory: go/arcadedbgrpc
         run: go test -race ./...
 
   e2e:

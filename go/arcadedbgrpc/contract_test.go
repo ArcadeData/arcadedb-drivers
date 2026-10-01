@@ -50,11 +50,19 @@ var (
 	rpcRe     = regexp.MustCompile(`\brpc\s+(\w+)\s*\(`)
 )
 
+var commentRe = regexp.MustCompile(`(?s)/\*.*?\*/|//[^\n]*`)
+
+// stripComments removes // line comments and /* */ blocks so a brace or an "rpc Foo (" in a
+// comment cannot truncate a service block or invent an RPC. Contract strings holding "//"
+// (URLs in option values) are harmless here: only RPC names and braces are read.
+func stripComments(src string) string { return commentRe.ReplaceAllString(src, "") }
+
 // parseServices returns, per service name, the RPC names declared in its block. A block
 // runs from the service's opening brace to the next top-level closing brace; the contract
 // declares no nested braces inside a service except the occasional `{}` option body, so
 // brace depth is tracked rather than assuming the first `}` closes it.
 func parseServices(src string) map[string][]string {
+	src = stripComments(src)
 	out := map[string][]string{}
 	for _, m := range serviceRe.FindAllStringSubmatchIndex(src, -1) {
 		name := src[m[2]:m[3]]
@@ -103,6 +111,9 @@ func TestEveryRPCIsGenerated(t *testing.T) {
 	}
 	for svc, iface := range clients {
 		rpcs := services[svc]
+		if want := map[string]int{"ArcadeDbService": 21, "ArcadeDbAdminService": 44}[svc]; len(rpcs) != want {
+			t.Errorf("%s: parsed %d RPCs, want %d; if the contract grew, update this count deliberately", svc, len(rpcs), want)
+		}
 		if len(rpcs) == 0 {
 			t.Fatalf("found no RPCs for service %s in the contract; the parser or the contract changed", svc)
 		}
@@ -112,6 +123,14 @@ func TestEveryRPCIsGenerated(t *testing.T) {
 		}
 		t.Logf("%s: %d RPCs", svc, len(rpcs))
 	}
+
+	t.Run("parser ignores comments", func(t *testing.T) {
+		src := "service S {\n  // rpc Commented (A) returns (B);\n  // stray { brace\n  rpc Real (A) returns (B);\n  /* rpc Block (A) returns (B); } */\n  rpc Real2 (A) returns (B);\n}\n"
+		got := parseServices(src)["S"]
+		if len(got) != 2 || got[0] != "Real" || got[1] != "Real2" {
+			t.Fatalf("parser found %v, want [Real Real2]", got)
+		}
+	})
 
 	t.Run("parser reports an RPC no interface has", func(t *testing.T) {
 		fake := "service ArcadeDbService {\n  rpc ExecuteQuery (Req) returns (Resp);\n  rpc NoSuchRpcAnywhere (Req) returns (Resp);\n}\n"

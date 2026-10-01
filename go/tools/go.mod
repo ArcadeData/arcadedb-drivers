@@ -129,4 +129,8 @@ require (
 	pluginrpc.com/pluginrpc v0.5.0 // indirect
 )
 
+// go-licenses pulls the 2020 monolithic google.golang.org/genproto, which still contains
+// the googleapis packages buf imports, so those imports become ambiguous with the split
+// genproto/googleapis/* modules. `go get` pins and `exclude` do not survive `go mod tidy`;
+// this replace does. Tools-only: it is never shipped. Revisit when go-licenses or buf is bumped.
 replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20260928230214-8a89bd6388cc

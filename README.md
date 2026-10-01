@@ -17,11 +17,11 @@ if the checked-in generated code and a fresh regeneration disagree.
 
 ## Packages
 
-Five clients: an HTTP and a gRPC client for TypeScript and for Python, and an HTTP client for Go.
-Each links to its registry page; the badge shows the version currently on that registry, so this
-table cannot go stale the way a hardcoded number would. Go has no registry: its module is fetched
-through the Go module proxy and documented on pkg.go.dev, and it is not released yet - it joins
-the lockstep at the next release.
+Six clients: an HTTP and a gRPC client each for TypeScript, Python and Go. Each links to its
+registry page; the badge shows the version currently on that registry, so this table cannot go
+stale the way a hardcoded number would. Go has no registry: its modules are fetched through the Go
+module proxy and documented on pkg.go.dev, and neither is released yet - both join the lockstep at
+the next release.
 
 | | Package | API | Install |
 |---|---|---|---|
@@ -30,8 +30,9 @@ the lockstep at the next release.
 | [![PyPI](https://img.shields.io/pypi/v/arcadedb-driver?logo=pypi&logoColor=white&label=)](https://pypi.org/project/arcadedb-driver/) | [`arcadedb-driver`](https://pypi.org/project/arcadedb-driver/) | HTTP | `pip install arcadedb-driver` |
 | [![PyPI](https://img.shields.io/pypi/v/arcadedb-driver-grpc?logo=pypi&logoColor=white&label=)](https://pypi.org/project/arcadedb-driver-grpc/) | [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/) | gRPC | `pip install arcadedb-driver-grpc` |
 | [![Go Reference](https://pkg.go.dev/badge/github.com/ArcadeData/arcadedb-drivers/go/arcadedb.svg)](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedb) | [`github.com/ArcadeData/arcadedb-drivers/go/arcadedb`](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedb) | HTTP | `go get github.com/ArcadeData/arcadedb-drivers/go/arcadedb@latest` |
+| [![Go Reference](https://pkg.go.dev/badge/github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc.svg)](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc) | [`github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc`](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc) | gRPC | `go get github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc@latest` |
 
-Usage lives in each package's own README, linked from `## Layout` below. Every one of the five is
+Usage lives in each package's own README, linked from `## Layout` below. Every one of the six is
 Apache-2.0 and generated from the contracts in `contracts/`.
 
 ## Layout
@@ -50,10 +51,14 @@ Apache-2.0 and generated from the contracts in `contracts/`.
   - [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/), the gRPC client.
     See `python/packages/driver-grpc/README.md` for usage, including why it raises
     `grpc.RpcError` directly rather than a package-specific error.
-- `go/` - the Go client, one module in a Go workspace:
+- `go/` - two Go clients, separate modules in one Go workspace, sharing one toolchain and one CI
+  workflow:
   - [`github.com/ArcadeData/arcadedb-drivers/go/arcadedb`](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedb),
     the HTTP client. See `go/arcadedb/README.md` for usage, including why its releases are
-    permanent. A Go gRPC client will join it as a sibling module.
+    permanent.
+  - [`github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc`](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc),
+    the gRPC client. See `go/arcadedbgrpc/README.md` for usage, including why `RawAdmin` refuses a
+    plaintext connection and why RPC failures are grpc-go status errors.
 - `scripts/fetch-contract.sh` - fetches the OpenAPI contract from a released ArcadeDB version or a
   running Docker image, or copies the Protobuf contract out of a local `arcadedb` checkout, and
   writes the result into `contracts/`. See "The contracts" below.

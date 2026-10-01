@@ -40,10 +40,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
-          cache-dependency-path: |
-            go/**/go.sum
-            go/arcadedbgrpc/go.sum
+          # go.work, not a literal "1.26": go.work's `go 1.26.7` is the floor for anything run
+          # inside the workspace (buf needs that patch), and a bare "1.26" lets setup-go pick
+          # whatever older 1.26.x the runner has cached. Reading the file pins exactly that
+          # floor and moves with it when go.work changes; consumers of the published modules
+          # still only need the go.mod floor, go 1.26.
+          go-version-file: go/go.work
+          cache-dependency-path: go/**/go.sum
 
       - name: Lint
         run: go/scripts/lint.sh
@@ -74,8 +77,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          # 1.27, not the build job's 1.26: the two jobs together cover the declared
-          # floor and the current release without a matrix.
+          # 1.27, not the build job's go.work floor (1.26.7): the two jobs together cover
+          # the declared floor and the current release without a matrix.
           go-version: "1.27"
           cache-dependency-path: go/**/go.sum
 

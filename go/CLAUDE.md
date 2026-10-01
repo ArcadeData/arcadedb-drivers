@@ -79,9 +79,12 @@ The `go` line differs by module and that is not an oversight: `arcadedb/go.mod`,
 `arcadedbgrpc/go.mod` and `e2e/go.mod` say `go 1.26`, the declared floor, while `tools/go.mod`
 says `go 1.26.7`, because buf v1.73.0 requires that patch release in the module that runs it, and
 `go.work` says the same because it must be at least every module's `go` line. A consumer of either
-published module never sees the `1.26.7`. CI runs unit, lint and drift gate on Go 1.26 (which
-`setup-go` resolves to the latest 1.26 patch) and e2e on 1.27, the floor-and-current split
-`ci.yml` and `ci-python.yml` use.
+published module never sees the `1.26.7`. So the effective CI floor is **1.26.7** for anything run
+inside the workspace, while consumers still need only 1.26. Every `setup-go` step that runs the
+floor reads `go-version-file: go/go.work` rather than a literal `"1.26"`: a bare `"1.26"` without
+`check-latest` lets `setup-go` pick an older 1.26.x the runner has cached, which fails outright under
+`GOTOOLCHAIN=local` and silently downloads 1.26.7 otherwise. CI runs unit, lint and drift gate on
+that floor and e2e on 1.27, the floor-and-current split `ci.yml` and `ci-python.yml` use.
 
 **Never run `go work sync`.** It pushes the workspace's resolved versions down into every module's
 `go.mod`, which bumps `arcadedbgrpc`'s `go` line to `1.26.7` (raising the floor every consumer sees)

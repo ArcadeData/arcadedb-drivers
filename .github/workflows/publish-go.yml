@@ -37,6 +37,7 @@ on:
         type: choice
         options:
           - arcadedb
+          - arcadedbgrpc
       version:
         description: 'Version being published, without the leading "v". Must equal the module''s version.go "Version" exactly - this is a guardrail against dispatching the wrong release, not a bump mechanism.'
         required: true

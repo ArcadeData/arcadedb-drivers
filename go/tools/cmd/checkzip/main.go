@@ -3,12 +3,13 @@
 // deleted nor replaced, so a file the module-zip rules reject would leave that version
 // permanently unfetchable. This is the check that runs before the tag, not after.
 //
-// Usage: go run ./cmd/checkzip <module path> <version> <module dir>
+// Usage: go run ./cmd/checkzip <module path> <version> <module dir> <required file>...
 //
 // It validates the module path and version as a pair (module.Check: a v2+ version needs a
 // /vN path suffix), lists the files zip.CheckDir omits and rejects, and exits 1 if any file
-// is invalid, the tree is too large, or one of the files the published module cannot work
-// without is missing from the zip.
+// is invalid, the tree is too large, or one of the required files (relative to the module root,
+// at least one, named by the caller because each module needs different ones) is missing from
+// the zip.
 //
 // CheckDir reads the working tree, not a git commit, while the proxy builds its zip from the
 // tagged commit. Run it in a clean checkout (as release.yml and publish-go.yml do) so the two
@@ -25,19 +26,18 @@ import (
 	"golang.org/x/mod/zip"
 )
 
-// required are the files, relative to the module root, that the published module must carry:
-// its go.mod, its license, the version constants and the generated client.
-var required = []string{"go.mod", "LICENSE", "version.go", "generated/client.gen.go"}
-
 func main() {
-	if len(os.Args) != 4 {
-		fmt.Fprintln(os.Stderr, "usage: checkzip <module path> <version> <module dir>")
+	if len(os.Args) < 5 {
+		fmt.Fprintln(os.Stderr, "usage: checkzip <module path> <version> <module dir> <required file>...")
 		os.Exit(2)
 	}
-	os.Exit(run(os.Args[1], os.Args[2], os.Args[3]))
+	os.Exit(run(os.Args[1], os.Args[2], os.Args[3], os.Args[4:]))
 }
 
-func run(modPath, version, dir string) int {
+// run checks dir as the module modPath at version. required are the files, relative to the
+// module root, that the published module must carry (typically go.mod, LICENSE, version.go and
+// its generated code).
+func run(modPath, version, dir string, required []string) int {
 	if err := module.Check(modPath, version); err != nil {
 		fmt.Fprintf(os.Stderr, "checkzip: %v\n", err)
 		return 1

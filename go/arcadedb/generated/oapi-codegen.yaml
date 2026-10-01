@@ -1,0 +1,16 @@
+# oapi-codegen configuration for the generated HTTP client (design spec section 6).
+# Run through go/scripts/generate.sh, which passes the single contract in contracts/.
+# Generated output is never hand-edited: fix it here or in overlay.yaml.
+package: generated
+output: client.gen.go
+generate:
+  models: true
+  client: true
+output-options:
+  # Seven contract schemas (LoginResponse, VectorSearchResponse, ...) collide with the
+  # generator's own response wrappers under the default naming; the suffix keeps them apart.
+  response-type-suffix: Resp
+  # The contract names one property "/unreadableFiles" (leading slash); the overlay gives
+  # it an exported Go name.
+  overlay:
+    path: overlay.yaml

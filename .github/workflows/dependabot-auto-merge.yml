@@ -56,7 +56,7 @@ jobs:
           # no business touching either, so a Dependabot PR that does is not a dependency bump any
           # more - it is codegen output that drifted, or a contract that moved, and a human should
           # look at it before it lands.
-          GUARDED='^(contracts/|typescript/packages/driver-grpc/src/gen/|python/packages/[^/]+/src/[^/]+/_generated/)'
+          GUARDED='^(contracts/|typescript/packages/driver-grpc/src/gen/|python/packages/[^/]+/src/[^/]+/_generated/|go/arcadedb/generated/)'
           if jq -r '.files[].path' pr.json | grep -qE "$GUARDED"; then
             echo "This PR touches contracts/ or generated output. Those move by hand" \
                  "(scripts/adopt-contract-version.sh, then regenerate). Leaving it open."

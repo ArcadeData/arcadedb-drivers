@@ -14,6 +14,11 @@ on:
       - "typescript/**/package.json"
       - "python/uv.lock"
       - "python/**/pyproject.toml"
+      # Not go/go.work.sum: it only carries checksums, and the resolved module set (and so
+      # every license) comes from the go.mod files, which are listed.
+      - "go/go.work"
+      - "go/**/go.mod"
+      - "go/**/go.sum"
       # The checker and the policy are themselves gated: an edit to either must re-run
       # the gate it changes, or a widened allow-list lands unverified.
       - "scripts/check-licenses.py"
@@ -26,6 +31,11 @@ on:
       - "typescript/**/package.json"
       - "python/uv.lock"
       - "python/**/pyproject.toml"
+      # Not go/go.work.sum: it only carries checksums, and the resolved module set (and so
+      # every license) comes from the go.mod files, which are listed.
+      - "go/go.work"
+      - "go/**/go.mod"
+      - "go/**/go.sum"
       # The checker and the policy are themselves gated: an edit to either must re-run
       # the gate it changes, or a widened allow-list lands unverified.
       - "scripts/check-licenses.py"
@@ -57,6 +67,12 @@ jobs:
           cache: npm
           cache-dependency-path: typescript/package-lock.json
 
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26"
+          cache-dependency-path: go/**/go.sum
+
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -77,6 +93,10 @@ jobs:
         # metadata API that breaks on a newer Python would surface here as a `uv run`
         # failure the collector reports as an unsynced workspace - the wrong diagnosis.
         run: uv sync --frozen --python 3.10
+
+      - name: Download Go modules
+        working-directory: go/arcadedb
+        run: go mod download
 
       - name: Test the checker
         working-directory: python

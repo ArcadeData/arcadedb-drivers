@@ -6,7 +6,7 @@ discovered by crawling `typescript/packages/*` and `python/packages/*`, for the 
 reason adopt-contract-version.sh has an explicit LANGUAGES table: a new directory
 appearing next to the old ones is not a decision to publish it. Adding a package to a
 registry already known here is one row. Adding a registry is one REGISTRIES entry (how
-to read a manifest and lockfile for it) plus its rows - nothing else in this file
+to read a manifest and lockfile for it, or none) plus its rows - nothing else in this file
 changes, and release.yml builds its matrices from `json` rather than repeating the list.
 
 Subcommands:
@@ -18,8 +18,11 @@ Subcommands:
   header <version>                       print the release-notes header (Markdown)
 
 `check` holds the invariant a lockstep release depends on: every manifest reads
-<version>, every lockfile agrees with its manifest, and every package's recorded server
-version matches the single OpenAPI contract and the single .proto contract. A
+<version>, every lockfile agrees with its manifest (the Go module has none: its version is a
+constant in version.go and the git tag), and every package's recorded server version matches the
+single OpenAPI contract and the single .proto contract (the Go module, generated from the OpenAPI
+contract alone, is held to that one). The Go module's go.mod must also name the row's module path,
+with a /vN suffix from v2 on. A
 `-SNAPSHOT` server version is a problem unless --allow-snapshot is given, because a
 release must not ship against a moving target while `main` legitimately does.
 
@@ -87,6 +90,16 @@ PACKAGES: list[dict[str, str]] = [
         "workflow": "publish-python.yml",
         "package_input": "driver-grpc",
     },
+    {
+        "id": "go-arcadedb",
+        "language": "go",
+        "manifest": "go/arcadedb/version.go",
+        "lockfile": "",
+        "registry": "goproxy",
+        "name": "github.com/ArcadeData/arcadedb-drivers/go/arcadedb",
+        "workflow": "publish-go.yml",
+        "package_input": "arcadedb",
+    },
 ]
 
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
@@ -142,6 +155,48 @@ def _pypi_read_lock_version(root: Path, row: Row) -> str:
 
 def _pypi_read_server_version(root: Path, row: Row) -> str:
     return _load_toml(root / row["manifest"])["tool"]["arcadedb"]["server-version"]
+
+
+def _go_const_pattern(name: str) -> str:
+    # `const Version` and `const ServerVersion` are two separate top-level lines, never a const
+    # block, so a line-anchored match cannot confuse one for the other.
+    return rf'^(const {name} = ")([^"\n]*)(")'
+
+
+def _go_read_const(root: Path, row: Row, name: str) -> str:
+    text = (root / row["manifest"]).read_text()
+    matches = re.findall(_go_const_pattern(name), text, flags=re.MULTILINE)
+    if len(matches) != 1:
+        raise ReleaseError(f"{row['manifest']}: expected exactly one `const {name} =` line, found {len(matches)}")
+    return matches[0][1]
+
+
+def _go_read_version(root: Path, row: Row) -> str:
+    return _go_read_const(root, row, "Version")
+
+
+def _go_read_server_version(root: Path, row: Row) -> str:
+    return _go_read_const(root, row, "ServerVersion")
+
+
+def _go_read_module(root: Path, row: Row) -> str | None:
+    go_mod = (root / row["manifest"]).parent / "go.mod"
+    match = re.search(r"^module\s+(\S+)", go_mod.read_text(), flags=re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _go_write_version(text: str, row: Row, version: str) -> str:
+    return _sub_exactly_once(
+        _go_const_pattern("Version"),
+        rf"\g<1>{version}\g<3>",
+        text,
+        row["manifest"],
+        "`const Version =` line",
+    )
+
+
+def _goproxy_no_lock(*_args: object) -> str:
+    raise ReleaseError("goproxy has no lockfile")
 
 
 def _dump_json(obj: dict) -> str:
@@ -223,13 +278,23 @@ REGISTRIES: dict[str, Registry] = {
         _pypi_write_version,
         _pypi_write_lock_version,
     ),
+    # A Go module has no lockfile of its own: go.mod records dependencies, not this module's
+    # version, which is the git tag. The lock callables exist only to refuse being called.
+    "goproxy": Registry(
+        _go_read_version,
+        _goproxy_no_lock,
+        _go_read_server_version,
+        _go_write_version,
+        _goproxy_no_lock,
+    ),
 }
 
 
-def _contract_versions(root: Path) -> tuple[list[str], list[str]]:
-    """Return problems and the contract versions found (OpenAPI, then proto)."""
+def _contract_versions(root: Path) -> tuple[list[str], list[str], list[str]]:
+    """Return problems, the contract versions found (OpenAPI, then proto), and the OpenAPI one alone."""
     problems: list[str] = []
     versions: list[str] = []
+    openapi_only: list[str] = []
 
     openapi = sorted((root / "contracts").glob("arcadedb-openapi-*.json"))
     if len(openapi) != 1:
@@ -239,6 +304,7 @@ def _contract_versions(root: Path) -> tuple[list[str], list[str]]:
         )
     else:
         versions.append(_load_json(openapi[0])["info"]["version"])
+        openapi_only.append(versions[0])
 
     protos = sorted((root / "contracts").glob("arcadedb-server-*.proto"))
     if len(protos) != 1:
@@ -249,7 +315,7 @@ def _contract_versions(root: Path) -> tuple[list[str], list[str]]:
     else:
         versions.append(protos[0].name.removeprefix("arcadedb-server-").removesuffix(".proto"))
 
-    return problems, versions
+    return problems, versions, openapi_only
 
 
 def check(root: Path, version: str, allow_snapshot: bool) -> list[str]:
@@ -258,7 +324,7 @@ def check(root: Path, version: str, allow_snapshot: bool) -> list[str]:
     except ReleaseError as exc:
         return [str(exc)]
 
-    problems, contract_versions = _contract_versions(root)
+    problems, contract_versions, openapi_versions = _contract_versions(root)
 
     for row in PACKAGES:
         reg = REGISTRIES[row["registry"]]
@@ -268,21 +334,36 @@ def check(root: Path, version: str, allow_snapshot: bool) -> list[str]:
         if got != version:
             problems.append(f"{manifest}: version is {got}, expected {version}")
 
-        try:
-            locked = reg.read_lock_version(root, row)
-        except (KeyError, ReleaseError) as exc:
-            problems.append(f"{row['lockfile']}: no entry for {row['name']} ({exc})")
-        else:
-            if locked != got:
+        if row["lockfile"]:
+            try:
+                locked = reg.read_lock_version(root, row)
+            except (KeyError, ReleaseError) as exc:
+                problems.append(f"{row['lockfile']}: no entry for {row['name']} ({exc})")
+            else:
+                if locked != got:
+                    problems.append(
+                        f"{row['lockfile']}: {row['name']} is locked at {locked} "
+                        f"but {manifest} says {got}; regenerate the lockfile"
+                    )
+
+        if row["registry"] == "goproxy":
+            module = _go_read_module(root, row)
+            if module != row["name"]:
                 problems.append(
-                    f"{row['lockfile']}: {row['name']} is locked at {locked} "
-                    f"but {manifest} says {got}; regenerate the lockfile"
+                    f"{Path(manifest).parent}/go.mod: module is {module}, expected {row['name']}"
+                )
+            major = int(version.split(".")[0])
+            if major >= 2 and not row["name"].endswith(f"/v{major}"):
+                problems.append(
+                    f"{row['name']}: a Go module at v{major} must carry the /v{major} suffix in its "
+                    "module path (and go.mod); the table name and go.mod need the suffix before this release"
                 )
 
         server = reg.read_server_version(root, row)
         if server.endswith("-SNAPSHOT") and not allow_snapshot:
             problems.append(f"{manifest}: server version {server} is a SNAPSHOT; a release needs a fixed server version")
-        for contract in contract_versions:
+        # The Go client is generated from the OpenAPI contract alone, so it is not held to the .proto.
+        for contract in openapi_versions if row["registry"] == "goproxy" else contract_versions:
             if server != contract:
                 problems.append(f"{manifest}: server version {server} does not match the contract version {contract}")
 
@@ -298,16 +379,23 @@ def set_version(root: Path, version: str) -> None:
         reg = REGISTRIES[row["registry"]]
         manifest = root / row["manifest"]
         staged[manifest] = reg.write_version(staged.get(manifest) or manifest.read_text(), row, version)
-        lockfile = root / row["lockfile"]
-        staged[lockfile] = reg.write_lock_version(staged.get(lockfile) or lockfile.read_text(), row, version)
+        if row["lockfile"]:
+            lockfile = root / row["lockfile"]
+            staged[lockfile] = reg.write_lock_version(staged.get(lockfile) or lockfile.read_text(), row, version)
 
     for path, text in staged.items():
         path.write_text(text)
 
 
+def _goproxy_escape(path: str) -> str:
+    """The module proxy's case encoding: every uppercase letter becomes `!` and its lowercase."""
+    return re.sub(r"[A-Z]", lambda m: "!" + m.group(0).lower(), path)
+
+
 _REGISTRY_URLS: dict[str, Callable[[str, str], str]] = {
     "npm": lambda name, version: f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='@')}/{version}",
     "pypi": lambda name, version: f"https://pypi.org/pypi/{name}/{version}/json",
+    "goproxy": lambda name, version: f"https://proxy.golang.org/{_goproxy_escape(name)}/@v/v{version}.info",
 }
 
 
@@ -328,7 +416,7 @@ def _http_status(url: str) -> int:
 
 
 def is_published(row: Row, version: str, fetch: Callable[[str], int] = _http_status) -> bool:
-    """Fail closed: only 200 means published and only 404 means not; anything else is an error.
+    """Fail closed: only 200 means published and only 404 (410 on the Go proxy) means not; else an error.
 
     Guessing "not published" on a 5xx or a network failure would let a retry re-publish a
     version that already exists, so the caller is told it does not know.
@@ -340,7 +428,7 @@ def is_published(row: Row, version: str, fetch: Callable[[str], int] = _http_sta
         raise ReleaseError(f"could not query {url}: {exc}") from exc
     if status == 200:
         return True
-    if status == 404:
+    if status in (404, 410):
         return False
     raise ReleaseError(f"unexpected HTTP {status} from {url}")
 

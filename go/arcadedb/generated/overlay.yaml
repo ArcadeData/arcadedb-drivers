@@ -1,0 +1,17 @@
+# OpenAPI Overlay applied by oapi-codegen at generation time (design spec section 6).
+#
+# The contract names one property "/unreadableFiles" with a leading slash, in a checksum
+# response. oapi-codegen derives an UNEXPORTED Go field from it, so the value is silently
+# dropped on decode and `go vet` fails. This is generator configuration, not a contract edit.
+#
+# It expires: TestOverlayStillNeeded fails once the contract no longer contains
+# "/unreadableFiles", at which point delete this file and the `overlay` key in
+# oapi-codegen.yaml.
+overlay: 1.0.0
+info:
+  title: Export an unreadableFiles field name
+  version: 1.0.0
+actions:
+  - target: $..properties["/unreadableFiles"]
+    update:
+      x-go-name: UnreadableFiles

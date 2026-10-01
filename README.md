@@ -3,6 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![TypeScript CI](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci.yml)
 [![Python CI](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci-python.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci-python.yml)
+[![Go CI](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci-go.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/ci-go.yml)
 [![Contract Watch](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/contract-watch.yml/badge.svg)](https://github.com/ArcadeData/arcadedb-drivers/actions/workflows/contract-watch.yml)
 
 Language clients for [ArcadeDB](https://arcadedb.com)'s HTTP and gRPC APIs, generated from shared
@@ -16,8 +17,11 @@ if the checked-in generated code and a fresh regeneration disagree.
 
 ## Packages
 
-Four published clients, two per language. Each links to its registry page; the badge shows the
-version currently on that registry, so this table cannot go stale the way a hardcoded number would.
+Five clients: an HTTP and a gRPC client for TypeScript and for Python, and an HTTP client for Go.
+Each links to its registry page; the badge shows the version currently on that registry, so this
+table cannot go stale the way a hardcoded number would. Go has no registry: its module is fetched
+through the Go module proxy and documented on pkg.go.dev, and it is not released yet - it joins
+the lockstep at the next release.
 
 | | Package | API | Install |
 |---|---|---|---|
@@ -25,8 +29,9 @@ version currently on that registry, so this table cannot go stale the way a hard
 | [![npm](https://img.shields.io/npm/v/@arcadedb/driver-grpc?logo=npm&label=)](https://www.npmjs.com/package/@arcadedb/driver-grpc) | [`@arcadedb/driver-grpc`](https://www.npmjs.com/package/@arcadedb/driver-grpc) | gRPC | `npm install @arcadedb/driver-grpc` |
 | [![PyPI](https://img.shields.io/pypi/v/arcadedb-driver?logo=pypi&logoColor=white&label=)](https://pypi.org/project/arcadedb-driver/) | [`arcadedb-driver`](https://pypi.org/project/arcadedb-driver/) | HTTP | `pip install arcadedb-driver` |
 | [![PyPI](https://img.shields.io/pypi/v/arcadedb-driver-grpc?logo=pypi&logoColor=white&label=)](https://pypi.org/project/arcadedb-driver-grpc/) | [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/) | gRPC | `pip install arcadedb-driver-grpc` |
+| [![Go Reference](https://pkg.go.dev/badge/github.com/ArcadeData/arcadedb-drivers/go/arcadedb.svg)](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedb) | [`github.com/ArcadeData/arcadedb-drivers/go/arcadedb`](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedb) | HTTP | `go get github.com/ArcadeData/arcadedb-drivers/go/arcadedb@latest` |
 
-Usage lives in each package's own README, linked from `## Layout` below. Every one of the four is
+Usage lives in each package's own README, linked from `## Layout` below. Every one of the five is
 Apache-2.0 and generated from the contracts in `contracts/`.
 
 ## Layout
@@ -45,12 +50,16 @@ Apache-2.0 and generated from the contracts in `contracts/`.
   - [`arcadedb-driver-grpc`](https://pypi.org/project/arcadedb-driver-grpc/), the gRPC client.
     See `python/packages/driver-grpc/README.md` for usage, including why it raises
     `grpc.RpcError` directly rather than a package-specific error.
+- `go/` - the Go client, one module in a Go workspace:
+  - [`github.com/ArcadeData/arcadedb-drivers/go/arcadedb`](https://pkg.go.dev/github.com/ArcadeData/arcadedb-drivers/go/arcadedb),
+    the HTTP client. See `go/arcadedb/README.md` for usage, including why its releases are
+    permanent. A Go gRPC client will join it as a sibling module.
 - `scripts/fetch-contract.sh` - fetches the OpenAPI contract from a released ArcadeDB version or a
   running Docker image, or copies the Protobuf contract out of a local `arcadedb` checkout, and
   writes the result into `contracts/`. See "The contracts" below.
 
-`go/` and other language directories will appear here as siblings of `typescript/` and `python/` as
-this repository grows; none exist yet.
+Other language directories will appear here as siblings of `typescript/`, `python/` and `go/` as
+this repository grows.
 
 ## The contracts
 

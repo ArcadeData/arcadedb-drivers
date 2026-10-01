@@ -40,7 +40,8 @@ make_fixture() {
            "$root/typescript/packages/driver-grpc/src/gen" \
            "$root/typescript/packages/driver-grpc/test" \
            "$root/typescript/packages/driver" \
-           "$root/python/packages/driver"
+           "$root/python/packages/driver" \
+           "$root/go/arcadedb/generated"
   cp "$SCRIPTS_DIR/resolve-openapi-contract.sh" "$SCRIPTS_DIR/resolve-proto-contract.sh" \
      "$SCRIPTS_DIR/adopt-contract-version.sh" "$SCRIPTS_DIR/fetch-contract.sh" "$root/scripts/"
   mkdir -p "$root/fake-arcadedb/grpc/src/main/proto"
@@ -89,6 +90,14 @@ MD
   cat > "$root/python/packages/driver/src_index.py" <<PY
 # The contract this client is generated from is ${version}, in prose.
 PY
+  cat > "$root/go/arcadedb/version.go" <<GO
+package arcadedb
+
+const Version = "0.1.0"
+const ServerVersion = "${version}"
+GO
+  printf '// Code generated. Contract %s.\npackage generated\n' "$version" \
+    > "$root/go/arcadedb/generated/client.gen.go"
   echo "$root"
 }
 
@@ -282,6 +291,49 @@ printf '[tool.arcadedb]\n' > "$FIX/python/packages/driver/pyproject.toml"
 check "$rc" "1" "refuses a pyproject.toml with no server-version key"
 rm -rf "$FIX"
 
+echo "adopt-contract-version.sh - Go"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1; rc=$?
+check "$rc" "0" "adopts a new version with a Go module present"
+
+GOVER="$FIX/go/arcadedb/version.go"
+if grep -qx 'const ServerVersion = "26.10.1-SNAPSHOT"' "$GOVER"; then
+  ok "rewrites ServerVersion in go/arcadedb/version.go"
+else
+  bad "rewrites ServerVersion in go/arcadedb/version.go (got: $(grep ServerVersion "$GOVER"))"
+fi
+if grep -qx 'const Version = "0.1.0"' "$GOVER"; then
+  ok "leaves Version in go/arcadedb/version.go untouched"
+else
+  bad "leaves Version in go/arcadedb/version.go untouched (got: $(grep '^const Version' "$GOVER"))"
+fi
+if grep -q '26.9.1-SNAPSHOT' "$FIX/go/arcadedb/generated/client.gen.go"; then
+  ok "leaves go/arcadedb/generated untouched"
+else
+  bad "leaves go/arcadedb/generated untouched (the old version literal was rewritten)"
+fi
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+printf 'package arcadedb\n\nconst ServerVersion = "26.9.1-SNAPSHOT"\nconst ServerVersion = "26.9.1-SNAPSHOT"\n' \
+  > "$FIX/go/arcadedb/version.go"
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses a version.go carrying two ServerVersion consts"
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1-SNAPSHOT)"
+echo '{}' > "$FIX/contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json"
+echo 'syntax = "proto3";' > "$FIX/contracts/arcadedb-server-26.10.1-SNAPSHOT.proto"
+printf 'package arcadedb\n\nconst Version = "0.1.0"\n' > "$FIX/go/arcadedb/version.go"
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1-SNAPSHOT >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses a version.go with no ServerVersion const"
+rm -rf "$FIX"
+
 echo "adopt-contract-version.sh - version-rewrite guard (issue #44)"
 
 # The literal substitution cannot tell a filename from a claim, and cannot know
@@ -465,14 +517,14 @@ echo "report-contract-watch.sh (pure functions, no gh)"
 
 # Sourced, not executed: main() is guarded so these can be exercised offline.
 # shellcheck source=/dev/null
-STATE=contract-changed VERSION=26.10.1-SNAPSHOT IMAGE=img VERIFY_TS=success VERIFY_PY=success RUN_URL=x \
+STATE=contract-changed VERSION=26.10.1-SNAPSHOT IMAGE=img VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success RUN_URL=x \
   source "$SCRIPTS_DIR/report-contract-watch.sh"
 
 # THE defect this replaced: the body embeds the run URL, which is unique per run,
 # so comparing rendered bodies is never equal and posts a "the finding changed"
 # comment every single day while the code claims to be quiet. The fingerprint
 # must ignore the run and track only the finding.
-STATE=contract-changed VERSION=26.10.1-SNAPSHOT VERIFY_TS=success VERIFY_PY=success CHANGED_FILES=" M a"
+STATE=contract-changed VERSION=26.10.1-SNAPSHOT VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success CHANGED_FILES=" M a"
 RUN_URL="https://example.invalid/runs/1"; a="$(finding_fingerprint)"
 RUN_URL="https://example.invalid/runs/2"; b="$(finding_fingerprint)"
 check "$a" "$b" "fingerprint ignores the run URL, so an unchanged finding stays unchanged"
@@ -481,8 +533,8 @@ CHANGED_FILES=" M a
  M b"; c="$(finding_fingerprint)"
 if [[ "$c" != "$a" ]]; then ok "fingerprint moves when the affected files move"; else bad "fingerprint moves when the affected files move"; fi
 
-# Both verdicts have to feed the fingerprint independently. If either one were
-# dropped, that language recovering while the other stayed red would leave the
+# Every verdict has to feed the fingerprint independently. If any one were
+# dropped, that language recovering while another stayed red would leave the
 # fingerprint unchanged, and report_finding would silently decline to comment
 # on a finding that genuinely changed - a silent production failure with no
 # other check that would catch it.
@@ -493,6 +545,17 @@ VERIFY_TS=success
 VERIFY_PY=failure; e="$(finding_fingerprint)"
 if [[ "$e" != "$a" ]]; then ok "fingerprint moves when the Python verdict flips alone"; else bad "fingerprint moves when the Python verdict flips alone"; fi
 VERIFY_PY=success
+
+VERIFY_GO=failure; g="$(finding_fingerprint)"
+if [[ "$g" != "$a" ]]; then ok "fingerprint moves when the Go verdict flips alone"; else bad "fingerprint moves when the Go verdict flips alone"; fi
+VERIFY_GO=success
+
+# verify_line names the Go client when it is the only one failing.
+IMAGE=img; VERIFY_GO=failure; vl="$(verify_line)"; VERIFY_GO=success
+case "$vl" in
+  *'`github.com/ArcadeData/arcadedb-drivers/go/arcadedb` (Go): **failing**'*) ok "verify_line names the Go client when it fails" ;;
+  *) bad "verify_line names the Go client when it fails (got: $vl)" ;;
+esac
 
 # The round trip that decides whether a comment is posted.
 IMAGE="arcadedata/arcadedb:26.10.1-SNAPSHOT"
@@ -525,6 +588,59 @@ check "$(marker_of "no marker here at all")" "" "an unmarked body yields no mark
 # warns about. Restore the harness's own invariant (no -e, ever) before relying
 # on it again.
 set +e
+
+# main() must require VERIFY_GO rather than treating an unset verdict as success.
+out="$(env -i PATH="$PATH" STATE=quiet VERSION=v IMAGE=i VERIFY_TS=success VERIFY_PY=success RUN_URL=x \
+  bash "$SCRIPTS_DIR/report-contract-watch.sh" 2>&1)"; rc=$?
+if [[ "$rc" -ne 0 && "$out" == *VERIFY_GO* ]]; then ok "main refuses to run without VERIFY_GO"; else bad "main refuses to run without VERIFY_GO (rc=$rc out: $out)"; fi
+
+# open_refresh_pr must COMMIT every language directory the regeneration touched.
+# It once staged `contracts typescript python` and not `go`, so every automated
+# refresh PR carried a Go client generated from the retired contract and turned
+# the Go gates red - while CHANGED_FILES, computed from a separate list, did name
+# go/. Driven against a throwaway repository with a local bare remote, and gh
+# stubbed out, so nothing leaves the machine.
+RPR="$(mktemp -d)"
+git init -q --bare "$RPR/remote.git"
+git init -q -b main "$RPR/work"
+(
+  cd "$RPR/work" || exit 1
+  git config user.name t; git config user.email t@t
+  mkdir -p contracts typescript python go
+  for d in contracts typescript python go; do echo old > "$d/f"; done
+  git add . && git commit -qm init
+  git remote add origin "$RPR/remote.git"
+  for d in contracts typescript python go; do echo new > "$d/f"; echo gen > "$d/untracked"; done
+) >/dev/null 2>&1
+(
+  cd "$RPR/work" || exit 1
+  # shellcheck disable=SC2329 # invoked by open_refresh_pr, not here
+  gh() { :; }
+  VERSION=v IMAGE=i VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success REFRESH_BRANCH=chore/contract-refresh
+  open_refresh_pr 1
+) >/dev/null 2>&1
+committed="$(git -C "$RPR/work" show --name-only --format= chore/contract-refresh 2>/dev/null | sort | tr '\n' ' ')"
+for d in contracts typescript python go; do
+  case " $committed" in
+    *" $d/f $d/untracked "*) ok "open_refresh_pr commits the refreshed $d/ (modified and new files)" ;;
+    *) bad "open_refresh_pr commits the refreshed $d/ (committed: $committed)" ;;
+  esac
+done
+leftover="$(git -C "$RPR/work" status --porcelain 2>/dev/null)"
+check "$leftover" "" "open_refresh_pr leaves nothing the watch detected uncommitted"
+rm -rf "$RPR"
+
+# The watch's detect step and the script share ONE list of refreshed paths, so a
+# new language directory cannot be detected but not committed (or the reverse).
+WATCH_YML="$REPO_ROOT/.github/workflows/contract-watch.yml"
+# shellcheck disable=SC2016 # the literal text of the workflow line, unexpanded
+if grep -q 'git status --porcelain -- "${REFRESH_PATHS\[@\]}"' "$WATCH_YML" \
+   && grep -q 'source scripts/report-contract-watch.sh' "$WATCH_YML"; then
+  ok "contract-watch.yml detects changes over the script's REFRESH_PATHS"
+else
+  bad "contract-watch.yml detects changes over the script's REFRESH_PATHS"
+fi
+check "${REFRESH_PATHS[*]:-}" "contracts typescript python go" "REFRESH_PATHS names the contracts and every language directory"
 
 echo "resolve-proto-contract.sh"
 

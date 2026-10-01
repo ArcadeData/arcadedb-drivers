@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Fails when any dependency of this repository declares a license outside the allow-list.
 
-Covers BOTH ecosystems - the npm workspace under typescript/ and the uv workspace under
-python/ - and both runtime and development dependencies, under one allow-list. See
+Covers THREE ecosystems - the npm workspace under typescript/, the uv workspace under
+python/ and the Go modules under go/ (tools and test dependencies included) - and both
+runtime and development dependencies, under one allow-list. See
 docs/superpowers/specs/2026-09-07-license-compliance-design.md.
 
 This is a port of ArcadeDB's .github/scripts/check-license-allowlist.py. What ports is its
@@ -19,9 +20,10 @@ installed tool:
      exits "No packages found in this path.", because our packages live under packages/*.
 
 Usage:
-    scripts/check-licenses.py                # check both ecosystems
+    scripts/check-licenses.py                # check every ecosystem
     scripts/check-licenses.py --ecosystem npm
     scripts/check-licenses.py --ecosystem python
+    scripts/check-licenses.py --ecosystem go
 
 Exit codes: 0 clean, 1 policy violation, 2 usage or environment error.
 """
@@ -29,6 +31,7 @@ Exit codes: 0 clean, 1 policy violation, 2 usage or environment error.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import subprocess
 import sys
@@ -563,6 +566,108 @@ def collect_python(python_dir: Path) -> list[Record]:
     return sorted(records)
 
 
+# Measured at 74 distinct third-party modules (83 module+license records) across the three Go
+# modules. Half of the module count, for the same reason as the floors above: low enough never to
+# fire on a legitimate tree, high enough to catch a report that saw almost nothing.
+_MIN_PLAUSIBLE_GO_MODULES = 37
+
+_GO_OWN_MODULE_PREFIX = "github.com/ArcadeData/arcadedb-drivers/"
+
+# go/tools is a tool-only module: nothing imports its packages, so `./...` would report
+# on the module's own (empty) code and miss every tool. Its packages are `go list tool`.
+_GO_TOOL_MODULE = "tools"
+_GO_MODULES = ("arcadedb", "e2e", _GO_TOOL_MODULE)
+
+
+def _go_run(cmd: list[str], cwd: Path) -> str:
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True, check=True, cwd=cwd)
+    except OSError as err:
+        raise CollectorError(f"could not run `{' '.join(cmd)}` in {cwd}: {err}") from err
+    except subprocess.CalledProcessError as err:
+        raise CollectorError(f"`{' '.join(cmd)}` failed in {cwd}.\n{err.stderr}") from err
+    return str(completed.stdout)
+
+
+def _go_module_versions(cwd: Path) -> dict[str, str]:
+    """Maps module path to version from `go list -m -json all`, a stream of JSON objects."""
+    text = _go_run(["go", "list", "-m", "-json", "all"], cwd)
+    decoder = json.JSONDecoder()
+    versions: dict[str, str] = {}
+    pos = 0
+    try:
+        while pos < len(text):
+            if text[pos].isspace():
+                pos += 1
+                continue
+            obj, pos = decoder.raw_decode(text, pos)
+            versions[str(obj.get("Path", ""))] = str(obj.get("Version", ""))
+    except json.JSONDecodeError as err:
+        raise CollectorError(f"could not parse `go list -m -json all`: {err}") from err
+    return versions
+
+
+def collect_go(go_dir: Path) -> list[Record]:
+    """Collects every module the Go client builds, tests or tools with, via go-licenses v2.
+
+    Test-only dependencies (testcontainers-go and its tree) are included through
+    `go-licenses report --include_tests`, which v2.0.1 supports - measured, so the fallback
+    of enumerating `go list -deps -test ./...` was not needed. The `go/tools` module is
+    reported over the packages `go list tool` names. `go tool` only resolves inside the
+    workspace, so every command runs with a module directory under go/ as its cwd.
+    """
+    versions = _go_module_versions(go_dir / "arcadedb")
+    # go-licenses names PACKAGES (golang.org/x/sys/unix), so each row is resolved to the module that
+    # owns it, and the Record carries the MODULE path. One module can hold packages under different
+    # licenses (klauspost/compress: MIT, Apache-2.0, BSD-3-Clause), so every distinct
+    # (module, license) pair is its own Record and each license is evaluated.
+    pairs: set[tuple[str, str]] = set()
+    for module in _GO_MODULES:
+        cwd = go_dir / module
+        is_tool = module == _GO_TOOL_MODULE
+        if is_tool:
+            packages = _go_run(["go", "list", "tool"], cwd).split()
+            if not packages:
+                raise CollectorError(f"`go list tool` named no packages in {cwd}.")
+        else:
+            packages = ["./..."]
+        include_tests = [] if is_tool else ["--include_tests"]
+        cmd = ["go", "tool", "go-licenses", "report", *include_tests, *packages]
+        for line in _go_run(cmd, cwd).splitlines():
+            if not line.strip():
+                continue
+            row = next(csv.reader([line]))
+            if len(row) != 3:
+                raise CollectorError(f"malformed go-licenses row in {cwd} (expected 3 fields): {line!r}")
+            name, _url, signal = row
+            # Our own modules are the thing being licensed, not a dependency of it.
+            if name.startswith(_GO_OWN_MODULE_PREFIX):
+                continue
+            pairs.add((_go_owning_module(name, versions), signal))
+
+    found = {name for name, _ in pairs}
+    if len(found) < _MIN_PLAUSIBLE_GO_MODULES:
+        raise CollectorError(
+            f"only {len(found)} Go module(s) found under {go_dir}, fewer than the "
+            f"{_MIN_PLAUSIBLE_GO_MODULES} a real tree has - is the Go toolchain working and the module cache populated "
+            f"(`go mod download` in {go_dir / 'arcadedb'})?"
+        )
+
+    return [Record("go", name, versions[name], signal, "go-licenses") for name, signal in sorted(pairs)]
+
+
+def _go_owning_module(package: str, versions: dict[str, str]) -> str:
+    """The longest module path that is `package` or a parent of it; fails closed when none is."""
+    owner = max(
+        (mod for mod in versions if package == mod or package.startswith(mod + "/")),
+        key=len,
+        default=None,
+    )
+    if owner is None or not versions[owner]:
+        raise CollectorError(f"go-licenses reported {package!r}, which no module in `go list -m all` owns.")
+    return owner
+
+
 # ---------------------------------------------------------------------------
 # Driver and CLI.
 # ---------------------------------------------------------------------------
@@ -588,8 +693,9 @@ def report(violations: list[Record], spread: Counter[str]) -> int:
     # this guard is not optional.
     if total == 0:
         print("No dependencies found - nothing was checked.", file=sys.stderr)
-        print("This usually means node_modules is absent or the uv workspace is not", file=sys.stderr)
-        print("synced. Run `npm ci` in typescript/ and `uv sync` in python/.", file=sys.stderr)
+        print("This usually means node_modules is absent, the uv workspace is not synced, or", file=sys.stderr)
+        print("the Go module cache is empty. Run `npm ci` in typescript/, `uv sync` in python/", file=sys.stderr)
+        print("and `go mod download` in go/arcadedb.", file=sys.stderr)
         return 2
 
     if violations:
@@ -622,7 +728,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check dependency licenses against the allow-list.")
     parser.add_argument(
         "--ecosystem",
-        choices=("npm", "python", "all"),
+        choices=("npm", "python", "go", "all"),
         default="all",
         help="which dependency tree to check (default: all)",
     )
@@ -634,6 +740,8 @@ def main(argv: list[str] | None = None) -> int:
             records += collect_npm(REPO_ROOT / "typescript")
         if args.ecosystem in ("python", "all"):
             records += collect_python(REPO_ROOT / "python")
+        if args.ecosystem in ("go", "all"):
+            records += collect_go(REPO_ROOT / "go")
     except CollectorError as err:
         print(f"ERROR: {err}", file=sys.stderr)
         return 2

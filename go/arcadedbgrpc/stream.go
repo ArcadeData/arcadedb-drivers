@@ -54,8 +54,14 @@ func recvAll[T any](ctx context.Context, open func(context.Context) (grpc.Server
 // arrives as a final (nil, err) pair carrying the grpc-go status error unchanged; records
 // already yielded stay yielded.
 func (c *Client) StreamQuery(ctx context.Context, req *generated.StreamQueryRequest, opts ...grpc.CallOption) iter.Seq2[*generated.GrpcRecord, error] {
+	return streamQuery(ctx, c.raw, req, opts)
+}
+
+// streamQuery is StreamQuery over any ArcadeDbServiceClient, shared by Client and
+// TxHandle so the flattening exists once. req is sent exactly as given.
+func streamQuery(ctx context.Context, raw generated.ArcadeDbServiceClient, req *generated.StreamQueryRequest, opts []grpc.CallOption) iter.Seq2[*generated.GrpcRecord, error] {
 	batches := recvAll(ctx, func(ctx context.Context) (grpc.ServerStreamingClient[generated.QueryResult], error) {
-		return c.raw.StreamQuery(ctx, req, opts...)
+		return raw.StreamQuery(ctx, req, opts...)
 	})
 	return func(yield func(*generated.GrpcRecord, error) bool) {
 		for batch, err := range batches {
@@ -80,7 +86,13 @@ func (c *Client) StreamQuery(ctx context.Context, req *generated.StreamQueryRequ
 // The returned iterator has the same lazy, re-rangeable, cancel-on-break and error
 // behaviour as StreamQuery.
 func (c *Client) TimeSeriesQuery(ctx context.Context, req *generated.TimeSeriesQueryRequest, opts ...grpc.CallOption) iter.Seq2[*generated.TimeSeriesQueryResult, error] {
+	return timeSeriesQuery(ctx, c.raw, req, opts)
+}
+
+// timeSeriesQuery is TimeSeriesQuery over any ArcadeDbServiceClient, shared by Client and
+// TxHandle. req is sent exactly as given.
+func timeSeriesQuery(ctx context.Context, raw generated.ArcadeDbServiceClient, req *generated.TimeSeriesQueryRequest, opts []grpc.CallOption) iter.Seq2[*generated.TimeSeriesQueryResult, error] {
 	return recvAll(ctx, func(ctx context.Context) (grpc.ServerStreamingClient[generated.TimeSeriesQueryResult], error) {
-		return c.raw.TimeSeriesQuery(ctx, req, opts...)
+		return raw.TimeSeriesQuery(ctx, req, opts...)
 	})
 }

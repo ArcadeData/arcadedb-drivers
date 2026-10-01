@@ -59,6 +59,11 @@ section together, with the evidence recorded the way the existing additions are:
 `segmentio/asm`, reached only through the `buf` tool, never shipped. ArcadeDB's own `CLAUDE.md` is
 expected to agree with this list; the matching line is drafted for a human to commit there.
 
+go-licenses does not classify MIT-0 and reports `segmentio/asm` as `Unknown`, so a `NORMALISE`
+spelling cannot fix it. `check-licenses.py` gains a narrow per-module override
+(`github.com/segmentio/asm` → `MIT-0`) applied only when go-licenses says `Unknown` for exactly that
+module; any other `Unknown`, or a different license reported for that module, stays a violation.
+
 ## 3. Repository layout
 
 ```

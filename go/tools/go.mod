@@ -11,7 +11,7 @@ tool (
 	honnef.co/go/tools/cmd/staticcheck
 )
 
-require golang.org/x/mod v0.40.0
+require golang.org/x/mod v0.41.0
 
 require (
 	buf.build/gen/go/bufbuild/bufplugin/protocolbuffers/go v1.36.12-20260722160903-4d94f3df3a7b.2 // indirect

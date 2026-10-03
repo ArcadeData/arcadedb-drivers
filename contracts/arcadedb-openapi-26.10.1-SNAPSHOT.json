@@ -285,6 +285,10 @@
             "description": "Chat this exchange belongs to, on 'done'. Added by this server, not by the gateway, and the chat is persisted before this event is written - so a client that has seen it can read the chat back immediately.",
             "type": "string"
           },
+          "code": {
+            "description": "Machine-readable reason, on 'error' only: 'gateway_interrupted' when the gateway's connection dropped, 'gateway_timeout' when it stopped sending, 'internal_error' otherwise. The same vocabulary as the 'code' member of the error bodies the chat operations answer before a stream starts. The interrupted exchange was not persisted.",
+            "type": "string"
+          },
           "commands": {
             "description": "SQL commands the assistant proposes, on 'done'. Absent or empty when it proposes none",
             "items": {
@@ -293,7 +297,7 @@
             "type": "array"
           },
           "error": {
-            "description": "Why the tool failed, on 'tool_end' only, and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller.",
+            "description": "Why the tool failed, on 'tool_end', and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller. On an 'error' event, a message fit to show the user saying why the stream ended early.",
             "type": "string"
           },
           "response": {
@@ -305,11 +309,12 @@
             "type": "string"
           },
           "type": {
-            "description": "Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.",
+            "description": "Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. 'error' terminates a stream cut short after it started - the gateway's connection dropped or fell silent - and says why; no 'done' follows it. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.",
             "enum": [
               "tool_start",
               "tool_end",
-              "done"
+              "done",
+              "error"
             ],
             "type": "string"
           }
@@ -846,6 +851,33 @@
             },
             "type": "array"
           },
+          "bootstrapDeciding": {
+            "description": "The databases a first-formation bootstrap pass is still deciding on for this node. Present on every answer. The pass reaches a node with its probe long before the committed baseline reaches it, and until then the copy on disk may be the one the pass decides against, so '/api/v1/ready' answers 503. Normally well under a second. Not a resync, so 'localResync' does not reflect it; the 'bootstrap-deciding-databases' alert does.",
+            "properties": {
+              "count": {
+                "description": "How many databases are being decided on, before the authorization filter below",
+                "type": "integer"
+              },
+              "databases": {
+                "description": "The databases being decided on, reduced to the ones the caller is authorized on",
+                "items": {
+                  "description": "Database name",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "inProgress": {
+                "description": "True while at least one database is being decided on",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "count",
+              "databases",
+              "inProgress"
+            ],
+            "type": "object"
+          },
           "bootstrapInstalls": {
             "description": "The databases this node is installing from the leader's first-formation bootstrap snapshot. Present on every answer. While an install replaces a copy this node already holds, '/api/v1/ready' answers 503: that copy is the one the cluster's committed baseline decided against. Not a resync, so 'localResync' does not reflect it; the 'bootstrap-install-in-progress' alert does.",
             "properties": {
@@ -1196,6 +1228,53 @@
             "description": "Raft lifecycle state",
             "type": "string"
           },
+          "securityConvergence": {
+            "description": "What the security-convergence readiness gate sees on this node. Present on every answer. The three security documents (users, groups, API tokens) do not travel in the Raft snapshot and reach a new peer only through the admission seed, so a member that is caught up can still hold none of the cluster's copies. While 'held', '/api/v1/ready' answers 503 until the leader confirms them. The wait is bounded by arcadedb.ha.securityConvergenceReadinessTimeout: past it the node reports READY while enforcing its own copies ('gaveUp'). Not a resync, so 'localResync' does not reflect it; the 'security-documents-unconverged' alert does. Reading this document counts as observing the node: it evaluates the same shared window as the readiness probe, so the first read that finds the node otherwise ready opens the window, exactly as a probe would.",
+            "properties": {
+              "armed": {
+                "description": "True for a runtime joiner (a node added to a running cluster), false for a statically configured member held after a snapshot install",
+                "type": "boolean"
+              },
+              "gaveUp": {
+                "description": "True once the window expired unconverged: the node is READY and serving traffic while enforcing its own copies of the documents, which may hold a user dropped, a group narrowed or a token revoked while it was away",
+                "type": "boolean"
+              },
+              "held": {
+                "description": "True while '/api/v1/ready' is answering 503 because of this gate",
+                "type": "boolean"
+              },
+              "sinceIndex": {
+                "description": "The Raft log index of the join or of the snapshot install the window is keyed by, 0 when there is none",
+                "type": "integer"
+              },
+              "skippedBecauseLeading": {
+                "description": "True while this node leads: nobody can confirm a leader's documents, so it is not held for them. It is held again with a full window if it steps down while still unconfirmed",
+                "type": "boolean"
+              },
+              "unconvergedDocuments": {
+                "description": "The documents the cluster has not confirmed on this node, in the order users, groups, API tokens. Empty when converged or when the gate does not apply (no HA layer, or readiness that does not require HA)",
+                "items": {
+                  "description": "Security document",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "windowOpenedAt": {
+                "description": "When the current window opened, as epoch milliseconds, 0 while none is open",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "armed",
+              "gaveUp",
+              "held",
+              "sinceIndex",
+              "skippedBecauseLeading",
+              "unconvergedDocuments",
+              "windowOpenedAt"
+            ],
+            "type": "object"
+          },
           "uptime": {
             "description": "Milliseconds since the Raft server started",
             "type": "integer"
@@ -1203,6 +1282,7 @@
         },
         "required": [
           "alerts",
+          "bootstrapDeciding",
           "bootstrapInstalls",
           "capabilities",
           "clusterName",
@@ -1227,6 +1307,7 @@
           "peers",
           "raftLogFailure",
           "raftState",
+          "securityConvergence",
           "uptime"
         ],
         "type": "object"
@@ -1665,6 +1746,10 @@
                   "properties": {
                     "bucketInterval": {
                       "description": "Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and the time range when omitted. When stated it must be positive: a value of zero or less is refused with an error frame for this target rather than replaced by a derived interval.",
+                      "type": "integer"
+                    },
+                    "bucketOrigin": {
+                      "description": "Where the bucket grid starts, in epoch milliseconds. Buckets are multiples of 'bucketInterval' counted from this instant. Optional; the default is the Unix epoch, which was a Thursday at 00:00 UTC, so a one-week bucket starts on a Thursday and a one-day bucket at 00:00 UTC. A Monday origin gives Monday weeks and a local-midnight origin gives local days.",
                       "type": "integer"
                     },
                     "requests": {
@@ -2676,11 +2761,27 @@
           "error": {
             "description": "A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.",
             "properties": {
+              "exception": {
+                "description": "Class name of the reported exception, the value the buffered error body carries in its 'exception' member.",
+                "type": "string"
+              },
+              "exceptionArgs": {
+                "description": "Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.",
+                "type": "string"
+              },
               "message": {
                 "description": "Why the stream failed",
                 "type": "string"
+              },
+              "status": {
+                "description": "HTTP status the buffered encoding would have answered the same failure with, decided by the same error mapping: 503 for a retryable conflict, 409 for a duplicated key, 403 for a security refusal, 413 when arcadedb.server.httpQueryMaxResultRows cut the result short, 500 for an unexpected failure (issue #8235). Key on this rather than on 'message' to decide whether to retry.",
+                "type": "integer"
               }
             },
+            "required": [
+              "message",
+              "status"
+            ],
             "type": "object"
           },
           "record": {
@@ -3241,6 +3342,10 @@
             "description": "Cluster topology and per-database replication state. Present with mode=cluster only, and only when this server runs an HA implementation. The per-database rows are scoped to the caller's authorized databases; the topology members are not.\n\nIts 'securityRefresh' member says whether the replicated group changes THIS node received have been enforced here, not merely received: entriesApplied, refreshesRequested, refreshesCoalesced, sweepsCompleted, sweepsFailed, databasesRefreshed, databaseRefreshFailures, and the epoch-millisecond lastEntryAppliedAt / lastSweepAt. entriesApplied rising while sweepsCompleted does not is a node enforcing permissions it has already been told to replace; the same numbers are scrapable as the arcadedb.ha.security.* meters.",
             "type": "object"
           },
+          "instanceId": {
+            "description": "Instance id ('adb-' followed by a UUID) of this server, to copy into the ArcadeData support portal. Never a credential",
+            "type": "string"
+          },
           "languages": {
             "description": "Query languages this build can run, e.g. sql, sqlscript, cypher, gremlin",
             "items": {
@@ -3252,6 +3357,14 @@
           "metrics": {
             "additionalProperties": true,
             "description": "Profiler counters, request meters, executor pools and sparse-vector index statistics. Present with mode=default only. An open map: the counter set follows the build and the plugins loaded.",
+            "type": "object"
+          },
+          "ports": {
+            "additionalProperties": {
+              "description": "Bound TCP port",
+              "type": "integer"
+            },
+            "description": "The client-facing listeners of the active plugins other than HTTP, by service name (for example 'gremlin'), with the port each one is bound to. Present with mode=cluster only, empty when no plugin listens. A remote client that must reach such a listener reads it here instead of assuming the protocol's default port (issue #8578). Service names are unique: a second plugin advertising a name already taken is ignored.",
             "type": "object"
           },
           "serverName": {
@@ -3390,6 +3503,327 @@
         ],
         "type": "object"
       },
+      "SupportAnswerRequest": {
+        "description": "The answer to a support request",
+        "properties": {
+          "durationMs": {
+            "description": "How long the query ran",
+            "type": "integer"
+          },
+          "outcome": {
+            "description": "answered, declined or failed",
+            "type": "string"
+          },
+          "reason": {
+            "description": "declined, or failed: why, at most 500 characters",
+            "type": "string"
+          },
+          "result": {
+            "description": "answered only: {columns: [{name, type}], rows: [[...]], truncated, masked: {cells: [[row, column]], columns: [name], mode: redact|hash}}. Masked values are replaced before they are sent; either result or text, not both",
+            "type": "object"
+          },
+          "text": {
+            "description": "answered only: pasted text instead of a result, at most 20000 characters",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "SupportAnswersRequest": {
+        "description": "Several answers, written as one comment",
+        "properties": {
+          "responses": {
+            "description": "A list of 1 to 20 answers, each as SupportAnswerRequest with its requestId",
+            "type": "object"
+          }
+        },
+        "required": [
+          "responses"
+        ],
+        "type": "object"
+      },
+      "SupportAttachRequest": {
+        "description": "The preview to send to the issue",
+        "properties": {
+          "previewId": {
+            "description": "Identifier returned by the preview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "previewId"
+        ],
+        "type": "object"
+      },
+      "SupportBundleRequest": {
+        "description": "The preview to download",
+        "properties": {
+          "previewId": {
+            "description": "Identifier returned by the preview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "previewId"
+        ],
+        "type": "object"
+      },
+      "SupportCommentRequest": {
+        "description": "A reply",
+        "properties": {
+          "body": {
+            "description": "At most 20000 characters",
+            "type": "string"
+          },
+          "screenshots": {
+            "description": "Ids of held screenshots (at most 5) the reply shows: they are attached to the issue first",
+            "type": "object"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "type": "object"
+      },
+      "SupportCreateIssueRequest": {
+        "description": "A support issue",
+        "properties": {
+          "body": {
+            "description": "At most 20000 characters",
+            "type": "string"
+          },
+          "kind": {
+            "description": "bug, question, performance or other, optional",
+            "type": "string"
+          },
+          "previewId": {
+            "description": "Preview whose files are attached, optional",
+            "type": "string"
+          },
+          "severity": {
+            "description": "S1, S2, S3 or S4",
+            "type": "string"
+          },
+          "title": {
+            "description": "1 to 200 characters",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "title"
+        ],
+        "type": "object"
+      },
+      "SupportPeerQueryRequest": {
+        "description": "A read-only query to run on other cluster nodes",
+        "properties": {
+          "database": {
+            "description": "The database name",
+            "type": "string"
+          },
+          "language": {
+            "description": "sql or opencypher",
+            "type": "string"
+          },
+          "nodes": {
+            "description": "'all' or the name of one cluster node (default all)",
+            "type": "string"
+          },
+          "statement": {
+            "description": "The statement (1 to 2000 characters)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SupportPreview": {
+        "description": "The redacted files, ready to send or download",
+        "properties": {
+          "expiresAt": {
+            "description": "When the preview is deleted",
+            "type": "string"
+          },
+          "files": {
+            "description": "One entry per file",
+            "items": {
+              "additionalProperties": true,
+              "description": "{name, sizeBytes, lines, redactions, entries?}",
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "githubSummary": {
+            "description": "Markdown of the environment and log summary for a public GitHub issue, without logs",
+            "type": "string"
+          },
+          "logTimeZone": {
+            "additionalProperties": true,
+            "description": "{id, name, offset, note}",
+            "type": "object"
+          },
+          "previewId": {
+            "description": "Identifier of the preview, valid 15 minutes",
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Warnings, e.g. an empty window",
+            "items": {
+              "description": "A warning",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "window": {
+            "additionalProperties": true,
+            "description": "{from, to} as instants, when logs were requested",
+            "type": "object"
+          }
+        },
+        "required": [
+          "files",
+          "previewId",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "SupportPreviewRequest": {
+        "description": "What to put in the bundle",
+        "properties": {
+          "includeDiagnostics": {
+            "description": "Include diagnostics.json (default true)",
+            "type": "boolean"
+          },
+          "includeLogs": {
+            "description": "Include the logs of the window (default false)",
+            "type": "boolean"
+          },
+          "includeThreads": {
+            "description": "Include a thread dump, threads.txt (default false)",
+            "type": "boolean"
+          },
+          "window": {
+            "additionalProperties": true,
+            "description": "{preset: 10m|30m|1h|12h|24h|1w} or {from, to} in ISO-8601. A value without an offset is read in the time zone of the log",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "SupportRegisterRequest": {
+        "description": "Credentials of the customer portal",
+        "properties": {
+          "clientId": {
+            "description": "The Client ID (workspace id) of the portal",
+            "type": "string"
+          },
+          "key": {
+            "description": "The Client key ('wsk_...') created in the portal. Never returned by any API",
+            "type": "string"
+          },
+          "verifyOnly": {
+            "description": "true to check the credentials with the portal without storing them: answers {verified, workspaceName, plan, sla, keyLabel, scopes}",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "clientId",
+          "key"
+        ],
+        "type": "object"
+      },
+      "SupportScreenshotRequest": {
+        "description": "A screenshot",
+        "properties": {
+          "data": {
+            "description": "The picture, base64 encoded (at most 5 MB decoded)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "SupportSetOpenRequest": {
+        "description": "Close or reopen",
+        "properties": {
+          "open": {
+            "description": "true to reopen, false to close",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "open"
+        ],
+        "type": "object"
+      },
+      "SupportStatus": {
+        "description": "The registration of this server with the support portal",
+        "properties": {
+          "canWriteConfig": {
+            "description": "Whether the configuration directory accepts the registration file",
+            "type": "boolean"
+          },
+          "clientId": {
+            "description": "The Client ID (workspace id)",
+            "type": "string"
+          },
+          "fromSettings": {
+            "description": "The registration comes from the settings, not from support.json",
+            "type": "boolean"
+          },
+          "instanceId": {
+            "description": "The instance id of this server",
+            "type": "string"
+          },
+          "keyHint": {
+            "description": "The last four characters of the key, prefixed by an ellipsis: all that is ever shown",
+            "type": "string"
+          },
+          "logTimeZone": {
+            "additionalProperties": true,
+            "description": "The time zone the log timestamps are written in: {id, name, offset, note}",
+            "type": "object"
+          },
+          "plan": {
+            "additionalProperties": true,
+            "description": "{entitled, label, units, endsOn} as the portal reports it",
+            "type": "object"
+          },
+          "portalError": {
+            "additionalProperties": true,
+            "description": "Present when the portal did not answer: {error, message}",
+            "type": "object"
+          },
+          "portalUrl": {
+            "description": "The portal URL in use",
+            "type": "string"
+          },
+          "registered": {
+            "description": "Whether a Client ID and key are configured",
+            "type": "boolean"
+          },
+          "sla": {
+            "additionalProperties": true,
+            "description": "First-response times {S1, S2, S3, S4, coverage}, or null",
+            "type": "object"
+          },
+          "workspaceName": {
+            "description": "Name of the workspace, from the portal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "canWriteConfig",
+          "portalUrl",
+          "registered"
+        ],
+        "type": "object"
+      },
       "TimeSeriesAggregatedResponse": {
         "description": "Aggregated samples",
         "properties": {
@@ -3482,6 +3916,10 @@
             "properties": {
               "bucketInterval": {
                 "description": "Bucket width in the same unit as the timestamps. Required, and must be a positive WHOLE number: a value of zero or less is refused with 400 rather than read as a single bucket over the whole range, and one with a fractional part is refused rather than truncated, because a bucket width is exactly the sort of value a client computes by division.",
+                "type": "integer"
+              },
+              "bucketOrigin": {
+                "description": "Where the bucket grid starts, in epoch milliseconds. Buckets are multiples of 'bucketInterval' counted from this instant. Optional; the default is the Unix epoch, which was a Thursday at 00:00 UTC, so a one-week bucket starts on a Thursday and a one-day bucket at 00:00 UTC. A Monday origin gives Monday weeks and a local-midnight origin gives local days.",
                 "type": "integer"
               },
               "requests": {
@@ -4639,7 +5077,7 @@
                 }
               }
             },
-            "description": "Server-Sent Events stream. Each event is one 'data: ' line carrying a JSON object, followed by a blank line; the schema below is the schema of that object. A complete stream ends with a 'done' event, and exactly one: a stream that ends without it was cut short, and the reply it would have carried was never persisted.",
+            "description": "Server-Sent Events stream. Each event is one 'data: ' line carrying a JSON object, followed by a blank line; the schema below is the schema of that object. A complete stream ends with a 'done' event, and exactly one: a stream that ends without it was cut short, and the reply it would have carried was never persisted. A stream the server knows it cut short ends with an 'error' event instead.",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -5279,6 +5717,15 @@
             }
           },
           {
+            "description": "Session id returned by 'beginTransaction'. It makes the load run under that session's lock and principal and refreshes its idle timer, and it turns a session id this server no longer knows - or one owned by another user - into a 404 rather than a silent load outside the transaction you believe you are in.\n\nIt does NOT put the loaded records in that transaction. The load commits every 'commitEvery' records whatever you have open, so the records are readable by everyone before you commit anything and rolling the transaction back does not remove them; a failed load does not roll it back either. Records the transaction wrote but has not committed are not visible to the load.\n\nThe load holds the session's lock until it ends. Other calls of the same session, including its commit and rollback, wait for it and fail with 503 if it outlasts the session's lock wait, so do not overlap them with a load.",
+            "in": "header",
+            "name": "arcadedb-session-id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "description": "Records buffered per GraphBatch flush. Default 100000.",
             "in": "query",
             "name": "batchSize",
@@ -5484,6 +5931,12 @@
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
+              },
+              "arcadedb-session-id": {
+                "description": "Echo of the session id this call ran inside. Absent when the call ran outside a transaction.",
+                "schema": {
+                  "type": "string"
+                }
               }
             }
           },
@@ -5540,7 +5993,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found, or the 'arcadedb-session-id' names a session this server cannot resolve",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -9855,7 +10308,7 @@
                 }
               }
             },
-            "description": "Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server. On an HA cluster the leader applies the same check to the hop a follower forwarded the mint over",
+            "description": "Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server and report https through X-Forwarded-Proto or the RFC 7239 Forwarded header. On an HA cluster the leader applies the same check to the hop a follower forwarded the mint over",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -10237,6 +10690,2761 @@
         "summary": "Create or update group",
         "tags": [
           "Security"
+        ]
+      }
+    },
+    "/api/v1/server/support": {
+      "get": {
+        "description": "Whether the server is registered with the ArcadeData customer portal, and the workspace, plan and first-response times the portal reports. The Client key is never returned, only its last four characters ('keyHint'). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "getSupportStatus",
+        "parameters": [
+          {
+            "description": "true to ask the portal again instead of using the answer cached for one minute",
+            "in": "query",
+            "name": "refresh",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportStatus"
+                }
+              }
+            },
+            "description": "Support status",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Read the support registration of this server",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/bundle": {
+      "post": {
+        "description": "Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.",
+        "operationId": "downloadSupportBundle",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportBundleRequest"
+              }
+            }
+          },
+          "description": "The preview to download",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The zip file",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The preview does not exist or has expired",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Download the redacted support bundle",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/connect": {
+      "delete": {
+        "description": "Ends the wait. A key that was already received stays registered. Restricted to the root user.",
+        "operationId": "cancelSupportConnect",
+        "responses": {
+          "204": {
+            "description": "Stopped",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Stop waiting for the approval",
+        "tags": [
+          "Support"
+        ]
+      },
+      "get": {
+        "description": "{status: none|pending|connected|expired|denied|error|cancelled}; pending carries userCode, verifyUrl and expiresOn; connected carries workspaceName and registration (the outcome of registering the installation); error carries {error, message}. Restricted to the root user.",
+        "operationId": "getSupportConnect",
+        "responses": {
+          "200": {
+            "description": "The state of the last connection",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "State of the connection to the portal",
+        "tags": [
+          "Support"
+        ]
+      },
+      "post": {
+        "description": "Asks the portal for a code ('device authorization'): answers {userCode, verifyUrl, expiresIn}. Studio shows the code and opens verifyUrl in a new tab; once a workspace owner or admin approves it there, the server receives the workspace key (never shown to the browser), stores it as a registration and registers itself as an installation. One connection waits at a time. Restricted to the root user (HTTP Basic). Without Studio, from a shell or the console ('connect portal'): `curl -s -u root:PASSWORD -X POST -H 'Content-Type: application/json' -d '{\"label\":\"prod-1\"}' http://localhost:2480/api/v1/server/support/connect` answers {\"userCode\":\"WDJB-MJHT\",\"verifyUrl\":\"https://portal.arcadedb.com/#/connect?code=WDJB-MJHT\",\"expiresIn\":600}; open verifyUrl in any browser, check that the code matches and approve; then `curl -s -u root:PASSWORD http://localhost:2480/api/v1/server/support/connect` until status is no longer 'pending' (every 2 seconds is plenty); `curl -s -u root:PASSWORD -X DELETE http://localhost:2480/api/v1/server/support/connect` stops waiting (204). The optional body field 'label' (up to 60 characters) names the key in the portal. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "startSupportConnect",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The code to show: {userCode, verifyUrl, expiresIn}",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user may connect",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot connect servers from Studio yet",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A connection is already waiting (connect_in_progress), the registration comes from the settings, or the configuration directory is not writable. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refuses too many attempts from this server",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Start connecting this server to the portal",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/installation": {
+      "post": {
+        "description": "Sends the redacted diagnostics of this server to the portal, which creates the installation in the workspace of the Client key, or completes the blank fields of the one it already has. Answers {status: created|updated|unchanged, installationId, name, filled, differs}. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "registerSupportInstallation",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What the portal did with the installation",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user may register",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The server is not registered, or the portal refused the identity it reported. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Register this server as an installation in the portal",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/issues": {
+      "get": {
+        "description": "Proxy of the portal list (only public timeline data). The body is the portal's, unchanged, with the Client key scrubbed. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "listSupportIssues",
+        "parameters": [
+          {
+            "description": "open, closed or all (default open)",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The issues, as the portal answers",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The server is not registered",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "List the support issues of the workspace",
+        "tags": [
+          "Support"
+        ]
+      },
+      "post": {
+        "description": "Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "createSupportIssue",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportCreateIssueRequest"
+              }
+            }
+          },
+          "description": "The issue",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The number and the portal link of the issue",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The server is not registered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Open a support issue",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/issues/{number}": {
+      "get": {
+        "description": "Proxy of the portal issue with its public timeline. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "getSupportIssue",
+        "parameters": [
+          {
+            "description": "Issue number",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The issue, as the portal answers",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The server is not registered",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Read a support issue",
+        "tags": [
+          "Support"
+        ]
+      },
+      "put": {
+        "description": "Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "setSupportIssueOpen",
+        "parameters": [
+          {
+            "description": "Issue number",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportSetOpenRequest"
+              }
+            }
+          },
+          "description": "Open or closed",
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Done",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The server is not registered",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Close or reopen a support issue",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/issues/{number}/attachments": {
+      "post": {
+        "description": "Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "attachToSupportIssue",
+        "parameters": [
+          {
+            "description": "Issue number",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportAttachRequest"
+              }
+            }
+          },
+          "description": "The preview to send",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The attachments, as the portal answers",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The server is not registered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Send more files to a support issue",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/issues/{number}/comments": {
+      "post": {
+        "description": "Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "commentSupportIssue",
+        "parameters": [
+          {
+            "description": "Issue number",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportCommentRequest"
+              }
+            }
+          },
+          "description": "The reply",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The timeline entry, as the portal answers",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The server is not registered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Reply on a support issue",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/issues/{number}/requests/{requestId}/response": {
+      "post": {
+        "description": "Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "answerSupportRequest",
+        "parameters": [
+          {
+            "description": "Issue number",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Request id (rq_ and 8 hex digits)",
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportAnswerRequest"
+              }
+            }
+          },
+          "description": "The answer",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The client comment, as the portal answers",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The request was already answered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Answer a support request",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/issues/{number}/responses": {
+      "post": {
+        "description": "As answering one, for \"Run all\": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "answerSupportRequests",
+        "parameters": [
+          {
+            "description": "Issue number",
+            "in": "path",
+            "name": "number",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportAnswersRequest"
+              }
+            }
+          },
+          "description": "The answers",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The client comment, as the portal answers",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "402": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The support plan is not active",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The issue or the preview was not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A request was already answered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The upload is too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limited by the portal; see Retry-After",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Answer several support requests at once",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/peer-query": {
+      "post": {
+        "description": "Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "runSupportPeerQuery",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportPeerQueryRequest"
+              }
+            }
+          },
+          "description": "What to run and where",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The result of every node asked",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Run a read-only support query on other cluster nodes",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/peers": {
+      "get": {
+        "description": "{ha: boolean, peers: [name]}: the names Studio offers as targets of a support request. No addresses are returned. Empty and ha=false when this server is not part of a cluster. Restricted to the root user.",
+        "operationId": "getSupportPeers",
+        "responses": {
+          "200": {
+            "description": "The peer names",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "The other members of the cluster, by name",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/preview": {
+      "post": {
+        "description": "Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "previewSupportBundle",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportPreviewRequest"
+              }
+            }
+          },
+          "description": "What to include",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportPreview"
+                }
+              }
+            },
+            "description": "The preview",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Build and preview the redacted support bundle",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/register": {
+      "delete": {
+        "description": "Deletes support.json. A registration configured through the settings arcadedb.support.clientId and arcadedb.support.clientKey cannot be removed here. Restricted to the root user.",
+        "operationId": "unregisterSupport",
+        "responses": {
+          "204": {
+            "description": "Unregistered",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Remove the support registration",
+        "tags": [
+          "Support"
+        ]
+      },
+      "post": {
+        "description": "Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "registerSupport",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportRegisterRequest"
+              }
+            }
+          },
+          "description": "Client ID and key",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupportStatus"
+                }
+              }
+            },
+            "description": "Registered: the same document as GET /server/support",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal refused the Client ID or key, or a value is not valid",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user may register",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The registration comes from the settings, or the configuration directory is not writable. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The portal cannot be reached",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Register this server with the support portal",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/screenshots": {
+      "post": {
+        "description": "A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.",
+        "operationId": "stageSupportScreenshot",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupportScreenshotRequest"
+              }
+            }
+          },
+          "description": "The picture",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "{id, type, size}",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not a PNG, JPEG, GIF or WebP image, or too many are waiting",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The picture is larger than 5 MB",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Hold a screenshot until it is sent",
+        "tags": [
+          "Support"
+        ]
+      }
+    },
+    "/api/v1/server/support/screenshots/{id}": {
+      "delete": {
+        "description": "The user removed it before sending. Unknown ids are not an error. Restricted to the root user.",
+        "operationId": "discardSupportScreenshot",
+        "parameters": [
+          {
+            "description": "Screenshot id",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden: only the root user",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Remove a held screenshot",
+        "tags": [
+          "Support"
         ]
       }
     },
@@ -13531,6 +16739,10 @@
     {
       "description": "Model Context Protocol endpoint and configuration",
       "name": "MCP"
+    },
+    {
+      "description": "Registration with the ArcadeData customer portal, redacted diagnostics bundles and support issues",
+      "name": "Support"
     },
     {
       "description": "Raft high-availability cluster management",

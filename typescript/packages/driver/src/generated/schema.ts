@@ -898,6 +898,346 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/server/support": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the support registration of this server
+         * @description Whether the server is registered with the ArcadeData customer portal, and the workspace, plan and first-response times the portal reports. The Client key is never returned, only its last four characters ('keyHint'). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        get: operations["getSupportStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download the redacted support bundle
+         * @description Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+         */
+        post: operations["downloadSupportBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * State of the connection to the portal
+         * @description {status: none|pending|connected|expired|denied|error|cancelled}; pending carries userCode, verifyUrl and expiresOn; connected carries workspaceName and registration (the outcome of registering the installation); error carries {error, message}. Restricted to the root user.
+         */
+        get: operations["getSupportConnect"];
+        put?: never;
+        /**
+         * Start connecting this server to the portal
+         * @description Asks the portal for a code ('device authorization'): answers {userCode, verifyUrl, expiresIn}. Studio shows the code and opens verifyUrl in a new tab; once a workspace owner or admin approves it there, the server receives the workspace key (never shown to the browser), stores it as a registration and registers itself as an installation. One connection waits at a time. Restricted to the root user (HTTP Basic). Without Studio, from a shell or the console ('connect portal'): `curl -s -u root:PASSWORD -X POST -H 'Content-Type: application/json' -d '{"label":"prod-1"}' http://localhost:2480/api/v1/server/support/connect` answers {"userCode":"WDJB-MJHT","verifyUrl":"https://portal.arcadedb.com/#/connect?code=WDJB-MJHT","expiresIn":600}; open verifyUrl in any browser, check that the code matches and approve; then `curl -s -u root:PASSWORD http://localhost:2480/api/v1/server/support/connect` until status is no longer 'pending' (every 2 seconds is plenty); `curl -s -u root:PASSWORD -X DELETE http://localhost:2480/api/v1/server/support/connect` stops waiting (204). The optional body field 'label' (up to 60 characters) names the key in the portal. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["startSupportConnect"];
+        /**
+         * Stop waiting for the approval
+         * @description Ends the wait. A key that was already received stays registered. Restricted to the root user.
+         */
+        delete: operations["cancelSupportConnect"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/installation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register this server as an installation in the portal
+         * @description Sends the redacted diagnostics of this server to the portal, which creates the installation in the workspace of the Client key, or completes the blank fields of the one it already has. Answers {status: created|updated|unchanged, installationId, name, filled, differs}. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["registerSupportInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the support issues of the workspace
+         * @description Proxy of the portal list (only public timeline data). The body is the portal's, unchanged, with the Client key scrubbed. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        get: operations["listSupportIssues"];
+        put?: never;
+        /**
+         * Open a support issue
+         * @description Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["createSupportIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/issues/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a support issue
+         * @description Proxy of the portal issue with its public timeline. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        get: operations["getSupportIssue"];
+        /**
+         * Close or reopen a support issue
+         * @description Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        put: operations["setSupportIssueOpen"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/issues/{number}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send more files to a support issue
+         * @description Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["attachToSupportIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/issues/{number}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply on a support issue
+         * @description Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["commentSupportIssue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/issues/{number}/requests/{requestId}/response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a support request
+         * @description Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["answerSupportRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/issues/{number}/responses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer several support requests at once
+         * @description As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["answerSupportRequests"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/peer-query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run a read-only support query on other cluster nodes
+         * @description Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["runSupportPeerQuery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/peers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The other members of the cluster, by name
+         * @description {ha: boolean, peers: [name]}: the names Studio offers as targets of a support request. No addresses are returned. Empty and ha=false when this server is not part of a cluster. Restricted to the root user.
+         */
+        get: operations["getSupportPeers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build and preview the redacted support bundle
+         * @description Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["previewSupportBundle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register this server with the support portal
+         * @description Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["registerSupport"];
+        /**
+         * Remove the support registration
+         * @description Deletes support.json. A registration configured through the settings arcadedb.support.clientId and arcadedb.support.clientKey cannot be removed here. Restricted to the root user.
+         */
+        delete: operations["unregisterSupport"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/screenshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hold a screenshot until it is sent
+         * @description A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+         */
+        post: operations["stageSupportScreenshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/server/support/screenshots/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a held screenshot
+         * @description The user removed it before sending. Unknown ids are not an error. Restricted to the root user.
+         */
+        delete: operations["discardSupportScreenshot"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/server/users": {
         parameters: {
             query?: never;
@@ -1413,19 +1753,21 @@ export interface components {
             };
             /** @description Chat this exchange belongs to, on 'done'. Added by this server, not by the gateway, and the chat is persisted before this event is written - so a client that has seen it can read the chat back immediately. */
             chatId?: string;
+            /** @description Machine-readable reason, on 'error' only: 'gateway_interrupted' when the gateway's connection dropped, 'gateway_timeout' when it stopped sending, 'internal_error' otherwise. The same vocabulary as the 'code' member of the error bodies the chat operations answer before a stream starts. The interrupted exchange was not persisted. */
+            code?: string;
             /** @description SQL commands the assistant proposes, on 'done'. Absent or empty when it proposes none */
             commands?: components["schemas"]["AiCommand"][];
-            /** @description Why the tool failed, on 'tool_end' only, and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller. */
+            /** @description Why the tool failed, on 'tool_end', and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller. On an 'error' event, a message fit to show the user saying why the stream ended early. */
             error?: string;
             /** @description The assistant's reply, on 'done'. The same value POST /api/v1/ai/chat returns under this name */
             response?: string;
             /** @description Name of the tool being run, on 'tool_start' and 'tool_end'. The same name appears on both, which is how a consumer pairs them */
             tool?: string;
             /**
-             * @description Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
+             * @description Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. 'error' terminates a stream cut short after it started - the gateway's connection dropped or fell silent - and says why; no 'done' follows it. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
              * @enum {string}
              */
-            type: "tool_start" | "tool_end" | "done";
+            type: "tool_start" | "tool_end" | "done" | "error";
         };
         /** @description One command the assistant proposes. Proposed only: the server never runs it, the caller does */
         AiCommand: {
@@ -1641,6 +1983,15 @@ export interface components {
                 /** @description One line naming the condition, for a dashboard row */
                 title: string;
             }[];
+            /** @description The databases a first-formation bootstrap pass is still deciding on for this node. Present on every answer. The pass reaches a node with its probe long before the committed baseline reaches it, and until then the copy on disk may be the one the pass decides against, so '/api/v1/ready' answers 503. Normally well under a second. Not a resync, so 'localResync' does not reflect it; the 'bootstrap-deciding-databases' alert does. */
+            bootstrapDeciding: {
+                /** @description How many databases are being decided on, before the authorization filter below */
+                count: number;
+                /** @description The databases being decided on, reduced to the ones the caller is authorized on */
+                databases: string[];
+                /** @description True while at least one database is being decided on */
+                inProgress: boolean;
+            };
             /** @description The databases this node is installing from the leader's first-formation bootstrap snapshot. Present on every answer. While an install replaces a copy this node already holds, '/api/v1/ready' answers 503: that copy is the one the cluster's committed baseline decided against. Not a resync, so 'localResync' does not reflect it; the 'bootstrap-install-in-progress' alert does. */
             bootstrapInstalls: {
                 /** @description How many databases are being installed, before the authorization filter below */
@@ -1781,6 +2132,23 @@ export interface components {
             } | null;
             /** @description Raft lifecycle state */
             raftState: string;
+            /** @description What the security-convergence readiness gate sees on this node. Present on every answer. The three security documents (users, groups, API tokens) do not travel in the Raft snapshot and reach a new peer only through the admission seed, so a member that is caught up can still hold none of the cluster's copies. While 'held', '/api/v1/ready' answers 503 until the leader confirms them. The wait is bounded by arcadedb.ha.securityConvergenceReadinessTimeout: past it the node reports READY while enforcing its own copies ('gaveUp'). Not a resync, so 'localResync' does not reflect it; the 'security-documents-unconverged' alert does. Reading this document counts as observing the node: it evaluates the same shared window as the readiness probe, so the first read that finds the node otherwise ready opens the window, exactly as a probe would. */
+            securityConvergence: {
+                /** @description True for a runtime joiner (a node added to a running cluster), false for a statically configured member held after a snapshot install */
+                armed: boolean;
+                /** @description True once the window expired unconverged: the node is READY and serving traffic while enforcing its own copies of the documents, which may hold a user dropped, a group narrowed or a token revoked while it was away */
+                gaveUp: boolean;
+                /** @description True while '/api/v1/ready' is answering 503 because of this gate */
+                held: boolean;
+                /** @description The Raft log index of the join or of the snapshot install the window is keyed by, 0 when there is none */
+                sinceIndex: number;
+                /** @description True while this node leads: nobody can confirm a leader's documents, so it is not held for them. It is held again with a full window if it steps down while still unconfirmed */
+                skippedBecauseLeading: boolean;
+                /** @description The documents the cluster has not confirmed on this node, in the order users, groups, API tokens. Empty when converged or when the gate does not apply (no HA layer, or readiness that does not require HA) */
+                unconvergedDocuments: string[];
+                /** @description When the current window opened, as epoch milliseconds, 0 while none is open */
+                windowOpenedAt: number;
+            };
             /** @description Milliseconds since the Raft server started */
             uptime: number;
         };
@@ -1964,6 +2332,8 @@ export interface components {
                 aggregation?: {
                     /** @description Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and the time range when omitted. When stated it must be positive: a value of zero or less is refused with an error frame for this target rather than replaced by a derived interval. */
                     bucketInterval?: number;
+                    /** @description Where the bucket grid starts, in epoch milliseconds. Buckets are multiples of 'bucketInterval' counted from this instant. Optional; the default is the Unix epoch, which was a Thursday at 00:00 UTC, so a one-week bucket starts on a Thursday and a one-day bucket at 00:00 UTC. A Monday origin gives Monday weeks and a local-midnight origin gives local days. */
+                    bucketOrigin?: number;
                     /** @description Aggregations to compute. Must name at least one; an empty array is refused with an error frame. */
                     requests: {
                         /** @description Output field name. Defaults to the field name suffixed with the lower-cased aggregation type. */
@@ -2390,8 +2760,14 @@ export interface components {
         NdJsonQueryEvent: {
             /** @description A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows. */
             error?: {
+                /** @description Class name of the reported exception, the value the buffered error body carries in its 'exception' member. */
+                exception?: string;
+                /** @description Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key. */
+                exceptionArgs?: string;
                 /** @description Why the stream failed */
-                message?: string;
+                message: string;
+                /** @description HTTP status the buffered encoding would have answered the same failure with, decided by the same error mapping: 503 for a retryable conflict, 409 for a duplicated key, 403 for a security refusal, 413 when arcadedb.server.httpQueryMaxResultRows cut the result short, 500 for an unexpected failure (issue #8235). Key on this rather than on 'message' to decide whether to retry. */
+                status: number;
             };
             /** @description One result row, identical to an element of the 'result' array of the buffered application/json response. An open map: a row's keys are the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record. */
             record?: {
@@ -2625,11 +3001,17 @@ export interface components {
             ha?: {
                 [key: string]: unknown;
             };
+            /** @description Instance id ('adb-' followed by a UUID) of this server, to copy into the ArcadeData support portal. Never a credential */
+            instanceId?: string;
             /** @description Query languages this build can run, e.g. sql, sqlscript, cypher, gremlin */
             languages: string[];
             /** @description Profiler counters, request meters, executor pools and sparse-vector index statistics. Present with mode=default only. An open map: the counter set follows the build and the plugins loaded. */
             metrics?: {
                 [key: string]: unknown;
+            };
+            /** @description The client-facing listeners of the active plugins other than HTTP, by service name (for example 'gremlin'), with the port each one is bound to. Present with mode=cluster only, empty when no plugin listens. A remote client that must reach such a listener reads it here instead of assuming the protocol's default port (issue #8578). Service names are unique: a second plugin advertising a name already taken is ignored. */
+            ports?: {
+                [key: string]: number;
             };
             /** @description This server's configured name */
             serverName: string;
@@ -2679,6 +3061,155 @@ export interface components {
                 userAgent: string | null;
             }[];
         };
+        /** @description The answer to a support request */
+        SupportAnswerRequest: {
+            /** @description How long the query ran */
+            durationMs?: number;
+            /** @description answered, declined or failed */
+            outcome: string;
+            /** @description declined, or failed: why, at most 500 characters */
+            reason?: string;
+            /** @description answered only: {columns: [{name, type}], rows: [[...]], truncated, masked: {cells: [[row, column]], columns: [name], mode: redact|hash}}. Masked values are replaced before they are sent; either result or text, not both */
+            result?: Record<string, never>;
+            /** @description answered only: pasted text instead of a result, at most 20000 characters */
+            text?: string;
+        };
+        /** @description Several answers, written as one comment */
+        SupportAnswersRequest: {
+            /** @description A list of 1 to 20 answers, each as SupportAnswerRequest with its requestId */
+            responses: Record<string, never>;
+        };
+        /** @description The preview to send to the issue */
+        SupportAttachRequest: {
+            /** @description Identifier returned by the preview */
+            previewId: string;
+        };
+        /** @description The preview to download */
+        SupportBundleRequest: {
+            /** @description Identifier returned by the preview */
+            previewId: string;
+        };
+        /** @description A reply */
+        SupportCommentRequest: {
+            /** @description At most 20000 characters */
+            body: string;
+            /** @description Ids of held screenshots (at most 5) the reply shows: they are attached to the issue first */
+            screenshots?: Record<string, never>;
+        };
+        /** @description A support issue */
+        SupportCreateIssueRequest: {
+            /** @description At most 20000 characters */
+            body?: string;
+            /** @description bug, question, performance or other, optional */
+            kind?: string;
+            /** @description Preview whose files are attached, optional */
+            previewId?: string;
+            /** @description S1, S2, S3 or S4 */
+            severity: string;
+            /** @description 1 to 200 characters */
+            title: string;
+        };
+        /** @description A read-only query to run on other cluster nodes */
+        SupportPeerQueryRequest: {
+            /** @description The database name */
+            database?: string;
+            /** @description sql or opencypher */
+            language?: string;
+            /** @description 'all' or the name of one cluster node (default all) */
+            nodes?: string;
+            /** @description The statement (1 to 2000 characters) */
+            statement?: string;
+        };
+        /** @description The redacted files, ready to send or download */
+        SupportPreview: {
+            /** @description When the preview is deleted */
+            expiresAt?: string;
+            /** @description One entry per file */
+            files: {
+                [key: string]: unknown;
+            }[];
+            /** @description Markdown of the environment and log summary for a public GitHub issue, without logs */
+            githubSummary?: string;
+            /** @description {id, name, offset, note} */
+            logTimeZone?: {
+                [key: string]: unknown;
+            };
+            /** @description Identifier of the preview, valid 15 minutes */
+            previewId: string;
+            /** @description Warnings, e.g. an empty window */
+            warnings: string[];
+            /** @description {from, to} as instants, when logs were requested */
+            window?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description What to put in the bundle */
+        SupportPreviewRequest: {
+            /** @description Include diagnostics.json (default true) */
+            includeDiagnostics?: boolean;
+            /** @description Include the logs of the window (default false) */
+            includeLogs?: boolean;
+            /** @description Include a thread dump, threads.txt (default false) */
+            includeThreads?: boolean;
+            /** @description {preset: 10m|30m|1h|12h|24h|1w} or {from, to} in ISO-8601. A value without an offset is read in the time zone of the log */
+            window?: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Credentials of the customer portal */
+        SupportRegisterRequest: {
+            /** @description The Client ID (workspace id) of the portal */
+            clientId: string;
+            /** @description The Client key ('wsk_...') created in the portal. Never returned by any API */
+            key: string;
+            /** @description true to check the credentials with the portal without storing them: answers {verified, workspaceName, plan, sla, keyLabel, scopes} */
+            verifyOnly?: boolean;
+        };
+        /** @description A screenshot */
+        SupportScreenshotRequest: {
+            /** @description The picture, base64 encoded (at most 5 MB decoded) */
+            data: string;
+        };
+        /** @description Close or reopen */
+        SupportSetOpenRequest: {
+            /** @description true to reopen, false to close */
+            open: boolean;
+        };
+        /** @description The registration of this server with the support portal */
+        SupportStatus: {
+            /** @description Whether the configuration directory accepts the registration file */
+            canWriteConfig: boolean;
+            /** @description The Client ID (workspace id) */
+            clientId?: string;
+            /** @description The registration comes from the settings, not from support.json */
+            fromSettings?: boolean;
+            /** @description The instance id of this server */
+            instanceId?: string;
+            /** @description The last four characters of the key, prefixed by an ellipsis: all that is ever shown */
+            keyHint?: string;
+            /** @description The time zone the log timestamps are written in: {id, name, offset, note} */
+            logTimeZone?: {
+                [key: string]: unknown;
+            };
+            /** @description {entitled, label, units, endsOn} as the portal reports it */
+            plan?: {
+                [key: string]: unknown;
+            };
+            /** @description Present when the portal did not answer: {error, message} */
+            portalError?: {
+                [key: string]: unknown;
+            };
+            /** @description The portal URL in use */
+            portalUrl: string;
+            /** @description Whether a Client ID and key are configured */
+            registered: boolean;
+            /** @description First-response times {S1, S2, S3, S4, coverage}, or null */
+            sla?: {
+                [key: string]: unknown;
+            };
+            /** @description Name of the workspace, from the portal */
+            workspaceName?: string;
+        };
         /** @description Aggregated samples */
         TimeSeriesAggregatedResponse: {
             /** @description Aliases of the computed aggregations, in bucket value order */
@@ -2710,6 +3241,8 @@ export interface components {
             aggregation?: {
                 /** @description Bucket width in the same unit as the timestamps. Required, and must be a positive WHOLE number: a value of zero or less is refused with 400 rather than read as a single bucket over the whole range, and one with a fractional part is refused rather than truncated, because a bucket width is exactly the sort of value a client computes by division. */
                 bucketInterval: number;
+                /** @description Where the bucket grid starts, in epoch milliseconds. Buckets are multiples of 'bucketInterval' counted from this instant. Optional; the default is the Unix epoch, which was a Thursday at 00:00 UTC, so a one-week bucket starts on a Thursday and a one-day bucket at 00:00 UTC. A Monday origin gives Monday weeks and a local-midnight origin gives local days. */
+                bucketOrigin?: number;
                 /** @description Aggregations to compute. Must name at least one; an empty array is refused with 400. */
                 requests: {
                     /** @description Output name. Defaults to the field name suffixed with the lower-cased aggregation type. */
@@ -3290,7 +3823,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Server-Sent Events stream. Each event is one 'data: ' line carrying a JSON object, followed by a blank line; the schema below is the schema of that object. A complete stream ends with a 'done' event, and exactly one: a stream that ends without it was cut short, and the reply it would have carried was never persisted. */
+            /** @description Server-Sent Events stream. Each event is one 'data: ' line carrying a JSON object, followed by a blank line; the schema below is the schema of that object. A complete stream ends with a 'done' event, and exactly one: a stream that ends without it was cut short, and the reply it would have carried was never persisted. A stream the server knows it cut short ends with an 'error' event instead. */
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -3750,6 +4283,14 @@ export interface operations {
             header?: {
                 /** @description Send 'application/x-ndjson' to receive per-chunk acknowledgements while the request body is still being uploaded, instead of one object after the whole load. Anything else - including an absent header - returns the buffered application/json body unchanged. */
                 Accept?: "application/json" | "application/x-ndjson";
+                /**
+                 * @description Session id returned by 'beginTransaction'. It makes the load run under that session's lock and principal and refreshes its idle timer, and it turns a session id this server no longer knows - or one owned by another user - into a 404 rather than a silent load outside the transaction you believe you are in.
+                 *
+                 *     It does NOT put the loaded records in that transaction. The load commits every 'commitEvery' records whatever you have open, so the records are readable by everyone before you commit anything and rolling the transaction back does not remove them; a failed load does not roll it back either. Records the transaction wrote but has not committed are not visible to the load.
+                 *
+                 *     The load holds the session's lock until it ends. Other calls of the same session, including its commit and rollback, wait for it and fail with 503 if it outlasts the session's lock wait, so do not overlap them with a load.
+                 */
+                "arcadedb-session-id"?: string;
             };
             path: {
                 /** @description Database name */
@@ -3800,6 +4341,8 @@ export interface operations {
             200: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Echo of the session id this call ran inside. Absent when the call ran outside a transaction. */
+                    "arcadedb-session-id"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -3837,7 +4380,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found, or the 'arcadedb-session-id' names a session this server cannot resolve */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6539,7 +7082,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server. On an HA cluster the leader applies the same check to the hop a follower forwarded the mint over */
+            /** @description Precondition failed - the transport is not confidential. The token is returned in plaintext exactly once, so it is not written back over a cleartext connection to a non-loopback client when arcadedb.server.apiTokenRequireSecureTransport is enabled. Reconnect over HTTPS, or have a reverse proxy listed in arcadedb.server.apiTokenTrustedProxies terminate TLS in front of the server and report https through X-Forwarded-Proto or the RFC 7239 Forwarded header. On an HA cluster the leader applies the same check to the hop a follower forwarded the mint over */
             412: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -6862,6 +7405,1867 @@ export interface operations {
             };
             /** @description On an HA follower, the command is forwarded to the leader and the leader did not answer within 'arcadedb.ha.proxyReadTimeout' (or 'arcadedb.ha.proxyLongCommandTimeout' for a restore or an import). It may still be running on the leader: check there before retrying */
             504: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getSupportStatus: {
+        parameters: {
+            query?: {
+                /** @description true to ask the portal again instead of using the answer cached for one minute */
+                refresh?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Support status */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportStatus"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    downloadSupportBundle: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The preview to download */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportBundleRequest"];
+            };
+        };
+        responses: {
+            /** @description The zip file */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The preview does not exist or has expired */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getSupportConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state of the last connection */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    startSupportConnect: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The code to show: {userCode, verifyUrl, expiresIn} */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user may connect */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot connect servers from Studio yet */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A connection is already waiting (connect_in_progress), the registration comes from the settings, or the configuration directory is not writable. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refuses too many attempts from this server */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancelSupportConnect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    registerSupportInstallation: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What the portal did with the installation */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user may register */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The server is not registered, or the portal refused the identity it reported. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listSupportIssues: {
+        parameters: {
+            query?: {
+                /** @description open, closed or all (default open) */
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The issues, as the portal answers */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The server is not registered */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createSupportIssue: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The issue */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportCreateIssueRequest"];
+            };
+        };
+        responses: {
+            /** @description The number and the portal link of the issue */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The server is not registered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getSupportIssue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Issue number */
+                number: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The issue, as the portal answers */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The server is not registered */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    setSupportIssueOpen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Issue number */
+                number: string;
+            };
+            cookie?: never;
+        };
+        /** @description Open or closed */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportSetOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description Done */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The server is not registered */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    attachToSupportIssue: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path: {
+                /** @description Issue number */
+                number: string;
+            };
+            cookie?: never;
+        };
+        /** @description The preview to send */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportAttachRequest"];
+            };
+        };
+        responses: {
+            /** @description The attachments, as the portal answers */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The server is not registered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    commentSupportIssue: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path: {
+                /** @description Issue number */
+                number: string;
+            };
+            cookie?: never;
+        };
+        /** @description The reply */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The timeline entry, as the portal answers */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The server is not registered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    answerSupportRequest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path: {
+                /** @description Issue number */
+                number: string;
+                /** @description Request id (rq_ and 8 hex digits) */
+                requestId: string;
+            };
+            cookie?: never;
+        };
+        /** @description The answer */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description The client comment, as the portal answers */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The request was already answered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    answerSupportRequests: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path: {
+                /** @description Issue number */
+                number: string;
+            };
+            cookie?: never;
+        };
+        /** @description The answers */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportAnswersRequest"];
+            };
+        };
+        responses: {
+            /** @description The client comment, as the portal answers */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The support plan is not active */
+            402: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The issue or the preview was not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A request was already answered. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The upload is too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limited by the portal; see Retry-After */
+            429: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal refused the key of this server (invalid_key, client_mismatch, scope_denied) or answered with an error */
+            502: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    runSupportPeerQuery: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What to run and where */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportPeerQueryRequest"];
+            };
+        };
+        responses: {
+            /** @description The result of every node asked */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getSupportPeers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The peer names */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    previewSupportBundle: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What to include */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The preview */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportPreview"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Request body too large */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    registerSupport: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Client ID and key */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportRegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Registered: the same document as GET /server/support */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupportStatus"];
+                };
+            };
+            /** @description The portal refused the Client ID or key, or a value is not valid */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user may register */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The registration comes from the settings, or the configuration directory is not writable. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The portal cannot be reached */
+            503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    unregisterSupport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unregistered */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    stageSupportScreenshot: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The picture */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupportScreenshotRequest"];
+            };
+        };
+        responses: {
+            /** @description {id, type, size} */
+            201: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Not a PNG, JPEG, GIF or WebP image, or too many are waiting */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The picture is larger than 5 MB */
+            413: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    discardSupportScreenshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Screenshot id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden: only the root user */
+            403: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;

@@ -2967,10 +2967,16 @@ class TimeSeriesAggregation(_message.Message):
 
     BUCKET_INTERVAL_MS_FIELD_NUMBER: _builtins.int
     REQUESTS_FIELD_NUMBER: _builtins.int
+    BUCKET_ORIGIN_MS_FIELD_NUMBER: _builtins.int
     bucket_interval_ms: _builtins.int
     """Bucket width in milliseconds. Must be POSITIVE: a non-positive value is refused with INVALID_ARGUMENT
     rather than read as one bucket over the whole range, which is what the engine's own API means by it. The
     two HTTP time-series endpoints enforce the same rule on their own `bucketInterval` member (issue #7675).
+    """
+    bucket_origin_ms: _builtins.int
+    """Where the bucket grid starts, in epoch milliseconds: buckets are multiples of the interval counted from here. Zero
+    (the default) is the Unix epoch, a Thursday, so a one-week bucket starts on a Thursday; a Monday origin gives
+    Monday weeks and a local-midnight origin gives local days (issue #8798).
     """
     @_builtins.property
     def requests(self) -> _containers.RepeatedCompositeFieldContainer[Global___TimeSeriesAggregationRequest]:
@@ -2983,10 +2989,11 @@ class TimeSeriesAggregation(_message.Message):
         *,
         bucket_interval_ms: _builtins.int = ...,
         requests: _abc.Iterable[Global___TimeSeriesAggregationRequest] | None = ...,
+        bucket_origin_ms: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["bucket_interval_ms", b"bucket_interval_ms", "requests", b"requests"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["bucket_interval_ms", b"bucket_interval_ms", "bucket_origin_ms", b"bucket_origin_ms", "requests", b"requests"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -4424,6 +4431,7 @@ class ApiTokenInfo(_message.Message):
     PERMISSIONS_JSON_FIELD_NUMBER: _builtins.int
     TOKEN_HASH_FIELD_NUMBER: _builtins.int
     TOKEN_SUFFIX_FIELD_NUMBER: _builtins.int
+    EXPIRED_FIELD_NUMBER: _builtins.int
     name: _builtins.str
     database: _builtins.str
     expires_at: _builtins.int
@@ -4436,6 +4444,10 @@ class ApiTokenInfo(_message.Message):
     """SHA-256 of the token. This is the handle DeleteApiToken takes."""
     token_suffix: _builtins.str
     """The token's last four characters, so an operator can tell two tokens apart in a list."""
+    expired: _builtins.bool
+    """Whether the token's expiry has passed, derived by the server at listing time (issue #7601) so the caller does not
+    compare expires_at against its own clock. Set by the listing only; a freshly minted token reports false.
+    """
     def __init__(
         self,
         *,
@@ -4446,10 +4458,11 @@ class ApiTokenInfo(_message.Message):
         permissions_json: _builtins.str = ...,
         token_hash: _builtins.str = ...,
         token_suffix: _builtins.str = ...,
+        expired: _builtins.bool = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "database", b"database", "expires_at", b"expires_at", "name", b"name", "permissions_json", b"permissions_json", "token_hash", b"token_hash", "token_suffix", b"token_suffix"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["created_at", b"created_at", "database", b"database", "expired", b"expired", "expires_at", b"expires_at", "name", b"name", "permissions_json", b"permissions_json", "token_hash", b"token_hash", "token_suffix", b"token_suffix"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

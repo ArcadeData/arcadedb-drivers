@@ -37,19 +37,22 @@ func (e AiChatMessagesRole) Valid() bool {
 
 // Defines values for AiChatStreamEventType.
 const (
-	Done      AiChatStreamEventType = "done"
-	ToolEnd   AiChatStreamEventType = "tool_end"
-	ToolStart AiChatStreamEventType = "tool_start"
+	AiChatStreamEventTypeDone      AiChatStreamEventType = "done"
+	AiChatStreamEventTypeError     AiChatStreamEventType = "error"
+	AiChatStreamEventTypeToolEnd   AiChatStreamEventType = "tool_end"
+	AiChatStreamEventTypeToolStart AiChatStreamEventType = "tool_start"
 )
 
 // Valid indicates whether the value is a known member of the AiChatStreamEventType enum.
 func (e AiChatStreamEventType) Valid() bool {
 	switch e {
-	case Done:
+	case AiChatStreamEventTypeDone:
 		return true
-	case ToolEnd:
+	case AiChatStreamEventTypeError:
 		return true
-	case ToolStart:
+	case AiChatStreamEventTypeToolEnd:
+		return true
+	case AiChatStreamEventTypeToolStart:
 		return true
 	default:
 		return false
@@ -475,13 +478,13 @@ func (e PromQLDataResponseStatus) Valid() bool {
 
 // Defines values for PromQLErrorResponseStatus.
 const (
-	Error PromQLErrorResponseStatus = "error"
+	PromQLErrorResponseStatusError PromQLErrorResponseStatus = "error"
 )
 
 // Valid indicates whether the value is a known member of the PromQLErrorResponseStatus enum.
 func (e PromQLErrorResponseStatus) Valid() bool {
 	switch e {
-	case Error:
+	case PromQLErrorResponseStatusError:
 		return true
 	default:
 		return false
@@ -856,10 +859,13 @@ type AiChatStreamEvent struct {
 	// ChatId Chat this exchange belongs to, on 'done'. Added by this server, not by the gateway, and the chat is persisted before this event is written - so a client that has seen it can read the chat back immediately.
 	ChatId *string `json:"chatId,omitempty"`
 
+	// Code Machine-readable reason, on 'error' only: 'gateway_interrupted' when the gateway's connection dropped, 'gateway_timeout' when it stopped sending, 'internal_error' otherwise. The same vocabulary as the 'code' member of the error bodies the chat operations answer before a stream starts. The interrupted exchange was not persisted.
+	Code *string `json:"code,omitempty"`
+
 	// Commands SQL commands the assistant proposes, on 'done'. Absent or empty when it proposes none
 	Commands *[]AiCommand `json:"commands,omitempty"`
 
-	// Error Why the tool failed, on 'tool_end' only, and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller.
+	// Error Why the tool failed, on 'tool_end', and only when it did. Its absence is what says the run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the caller. On an 'error' event, a message fit to show the user saying why the stream ended early.
 	Error *string `json:"error,omitempty"`
 
 	// Response The assistant's reply, on 'done'. The same value POST /api/v1/ai/chat returns under this name
@@ -868,11 +874,11 @@ type AiChatStreamEvent struct {
 	// Tool Name of the tool being run, on 'tool_start' and 'tool_end'. The same name appears on both, which is how a consumer pairs them
 	Tool *string `json:"tool,omitempty"`
 
-	// Type Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
+	// Type Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. 'error' terminates a stream cut short after it started - the gateway's connection dropped or fell silent - and says why; no 'done' follows it. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
 	Type AiChatStreamEventType `json:"type"`
 }
 
-// AiChatStreamEventType Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
+// AiChatStreamEventType Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran locally, and 'done' terminates a complete stream. 'error' terminates a stream cut short after it started - the gateway's connection dropped or fell silent - and says why; no 'done' follows it. The gateway's own 'session' and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
 type AiChatStreamEventType string
 
 // AiCommand One command the assistant proposes. Proposed only: the server never runs it, the caller does
@@ -1148,6 +1154,18 @@ type ClusterStatus struct {
 		Title string `json:"title"`
 	} `json:"alerts"`
 
+	// BootstrapDeciding The databases a first-formation bootstrap pass is still deciding on for this node. Present on every answer. The pass reaches a node with its probe long before the committed baseline reaches it, and until then the copy on disk may be the one the pass decides against, so '/api/v1/ready' answers 503. Normally well under a second. Not a resync, so 'localResync' does not reflect it; the 'bootstrap-deciding-databases' alert does.
+	BootstrapDeciding struct {
+		// Count How many databases are being decided on, before the authorization filter below
+		Count int `json:"count"`
+
+		// Databases The databases being decided on, reduced to the ones the caller is authorized on
+		Databases []string `json:"databases"`
+
+		// InProgress True while at least one database is being decided on
+		InProgress bool `json:"inProgress"`
+	} `json:"bootstrapDeciding"`
+
 	// BootstrapInstalls The databases this node is installing from the leader's first-formation bootstrap snapshot. Present on every answer. While an install replaces a copy this node already holds, '/api/v1/ready' answers 503: that copy is the one the cluster's committed baseline decided against. Not a resync, so 'localResync' does not reflect it; the 'bootstrap-install-in-progress' alert does.
 	BootstrapInstalls struct {
 		// Count How many databases are being installed, before the authorization filter below
@@ -1339,6 +1357,30 @@ type ClusterStatus struct {
 
 	// RaftState Raft lifecycle state
 	RaftState string `json:"raftState"`
+
+	// SecurityConvergence What the security-convergence readiness gate sees on this node. Present on every answer. The three security documents (users, groups, API tokens) do not travel in the Raft snapshot and reach a new peer only through the admission seed, so a member that is caught up can still hold none of the cluster's copies. While 'held', '/api/v1/ready' answers 503 until the leader confirms them. The wait is bounded by arcadedb.ha.securityConvergenceReadinessTimeout: past it the node reports READY while enforcing its own copies ('gaveUp'). Not a resync, so 'localResync' does not reflect it; the 'security-documents-unconverged' alert does. Reading this document counts as observing the node: it evaluates the same shared window as the readiness probe, so the first read that finds the node otherwise ready opens the window, exactly as a probe would.
+	SecurityConvergence struct {
+		// Armed True for a runtime joiner (a node added to a running cluster), false for a statically configured member held after a snapshot install
+		Armed bool `json:"armed"`
+
+		// GaveUp True once the window expired unconverged: the node is READY and serving traffic while enforcing its own copies of the documents, which may hold a user dropped, a group narrowed or a token revoked while it was away
+		GaveUp bool `json:"gaveUp"`
+
+		// Held True while '/api/v1/ready' is answering 503 because of this gate
+		Held bool `json:"held"`
+
+		// SinceIndex The Raft log index of the join or of the snapshot install the window is keyed by, 0 when there is none
+		SinceIndex int `json:"sinceIndex"`
+
+		// SkippedBecauseLeading True while this node leads: nobody can confirm a leader's documents, so it is not held for them. It is held again with a full window if it steps down while still unconfirmed
+		SkippedBecauseLeading bool `json:"skippedBecauseLeading"`
+
+		// UnconvergedDocuments The documents the cluster has not confirmed on this node, in the order users, groups, API tokens. Empty when converged or when the gate does not apply (no HA layer, or readiness that does not require HA)
+		UnconvergedDocuments []string `json:"unconvergedDocuments"`
+
+		// WindowOpenedAt When the current window opened, as epoch milliseconds, 0 while none is open
+		WindowOpenedAt int `json:"windowOpenedAt"`
+	} `json:"securityConvergence"`
 
 	// Uptime Milliseconds since the Raft server started
 	Uptime int `json:"uptime"`
@@ -1566,6 +1608,9 @@ type GrafanaQueryRequest struct {
 		Aggregation *struct {
 			// BucketInterval Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and the time range when omitted. When stated it must be positive: a value of zero or less is refused with an error frame for this target rather than replaced by a derived interval.
 			BucketInterval *int `json:"bucketInterval,omitempty"`
+
+			// BucketOrigin Where the bucket grid starts, in epoch milliseconds. Buckets are multiples of 'bucketInterval' counted from this instant. Optional; the default is the Unix epoch, which was a Thursday at 00:00 UTC, so a one-week bucket starts on a Thursday and a one-day bucket at 00:00 UTC. A Monday origin gives Monday weeks and a local-midnight origin gives local days.
+			BucketOrigin *int `json:"bucketOrigin,omitempty"`
 
 			// Requests Aggregations to compute. Must name at least one; an empty array is refused with an error frame.
 			Requests []struct {
@@ -2095,8 +2140,17 @@ type NdJsonBatchEvent struct {
 type NdJsonQueryEvent struct {
 	// Error A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.
 	Error *struct {
+		// Exception Class name of the reported exception, the value the buffered error body carries in its 'exception' member.
+		Exception *string `json:"exception,omitempty"`
+
+		// ExceptionArgs Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.
+		ExceptionArgs *string `json:"exceptionArgs,omitempty"`
+
 		// Message Why the stream failed
-		Message *string `json:"message,omitempty"`
+		Message string `json:"message"`
+
+		// Status HTTP status the buffered encoding would have answered the same failure with, decided by the same error mapping: 503 for a retryable conflict, 409 for a duplicated key, 403 for a security refusal, 413 when arcadedb.server.httpQueryMaxResultRows cut the result short, 500 for an unexpected failure (issue #8235). Key on this rather than on 'message' to decide whether to retry.
+		Status int `json:"status"`
 	} `json:"error,omitempty"`
 
 	// Record One result row, identical to an element of the 'result' array of the buffered application/json response. An open map: a row's keys are the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record.
@@ -2387,11 +2441,17 @@ type ServerInfo struct {
 	// Its 'securityRefresh' member says whether the replicated group changes THIS node received have been enforced here, not merely received: entriesApplied, refreshesRequested, refreshesCoalesced, sweepsCompleted, sweepsFailed, databasesRefreshed, databaseRefreshFailures, and the epoch-millisecond lastEntryAppliedAt / lastSweepAt. entriesApplied rising while sweepsCompleted does not is a node enforcing permissions it has already been told to replace; the same numbers are scrapable as the arcadedb.ha.security.* meters.
 	Ha *map[string]interface{} `json:"ha,omitempty"`
 
+	// InstanceId Instance id ('adb-' followed by a UUID) of this server, to copy into the ArcadeData support portal. Never a credential
+	InstanceId *string `json:"instanceId,omitempty"`
+
 	// Languages Query languages this build can run, e.g. sql, sqlscript, cypher, gremlin
 	Languages []string `json:"languages"`
 
 	// Metrics Profiler counters, request meters, executor pools and sparse-vector index statistics. Present with mode=default only. An open map: the counter set follows the build and the plugins loaded.
 	Metrics *map[string]interface{} `json:"metrics,omitempty"`
+
+	// Ports The client-facing listeners of the active plugins other than HTTP, by service name (for example 'gremlin'), with the port each one is bound to. Present with mode=cluster only, empty when no plugin listens. A remote client that must reach such a listener reads it here instead of assuming the protocol's default port (issue #8578). Service names are unique: a second plugin advertising a name already taken is ignored.
+	Ports *map[string]int `json:"ports,omitempty"`
 
 	// ServerName This server's configured name
 	ServerName string `json:"serverName"`
@@ -2460,6 +2520,186 @@ type SessionList struct {
 	} `json:"result"`
 }
 
+// SupportAnswerRequest The answer to a support request
+type SupportAnswerRequest struct {
+	// DurationMs How long the query ran
+	DurationMs *int `json:"durationMs,omitempty"`
+
+	// Outcome answered, declined or failed
+	Outcome string `json:"outcome"`
+
+	// Reason declined, or failed: why, at most 500 characters
+	Reason *string `json:"reason,omitempty"`
+
+	// Result answered only: {columns: [{name, type}], rows: [[...]], truncated, masked: {cells: [[row, column]], columns: [name], mode: redact|hash}}. Masked values are replaced before they are sent; either result or text, not both
+	Result *map[string]interface{} `json:"result,omitempty"`
+
+	// Text answered only: pasted text instead of a result, at most 20000 characters
+	Text *string `json:"text,omitempty"`
+}
+
+// SupportAnswersRequest Several answers, written as one comment
+type SupportAnswersRequest struct {
+	// Responses A list of 1 to 20 answers, each as SupportAnswerRequest with its requestId
+	Responses map[string]interface{} `json:"responses"`
+}
+
+// SupportAttachRequest The preview to send to the issue
+type SupportAttachRequest struct {
+	// PreviewId Identifier returned by the preview
+	PreviewId string `json:"previewId"`
+}
+
+// SupportBundleRequest The preview to download
+type SupportBundleRequest struct {
+	// PreviewId Identifier returned by the preview
+	PreviewId string `json:"previewId"`
+}
+
+// SupportCommentRequest A reply
+type SupportCommentRequest struct {
+	// Body At most 20000 characters
+	Body string `json:"body"`
+
+	// Screenshots Ids of held screenshots (at most 5) the reply shows: they are attached to the issue first
+	Screenshots *map[string]interface{} `json:"screenshots,omitempty"`
+}
+
+// SupportCreateIssueRequest A support issue
+type SupportCreateIssueRequest struct {
+	// Body At most 20000 characters
+	Body *string `json:"body,omitempty"`
+
+	// Kind bug, question, performance or other, optional
+	Kind *string `json:"kind,omitempty"`
+
+	// PreviewId Preview whose files are attached, optional
+	PreviewId *string `json:"previewId,omitempty"`
+
+	// Severity S1, S2, S3 or S4
+	Severity string `json:"severity"`
+
+	// Title 1 to 200 characters
+	Title string `json:"title"`
+}
+
+// SupportPeerQueryRequest A read-only query to run on other cluster nodes
+type SupportPeerQueryRequest struct {
+	// Database The database name
+	Database *string `json:"database,omitempty"`
+
+	// Language sql or opencypher
+	Language *string `json:"language,omitempty"`
+
+	// Nodes 'all' or the name of one cluster node (default all)
+	Nodes *string `json:"nodes,omitempty"`
+
+	// Statement The statement (1 to 2000 characters)
+	Statement *string `json:"statement,omitempty"`
+}
+
+// SupportPreview The redacted files, ready to send or download
+type SupportPreview struct {
+	// ExpiresAt When the preview is deleted
+	ExpiresAt *string `json:"expiresAt,omitempty"`
+
+	// Files One entry per file
+	Files []map[string]interface{} `json:"files"`
+
+	// GithubSummary Markdown of the environment and log summary for a public GitHub issue, without logs
+	GithubSummary *string `json:"githubSummary,omitempty"`
+
+	// LogTimeZone {id, name, offset, note}
+	LogTimeZone *map[string]interface{} `json:"logTimeZone,omitempty"`
+
+	// PreviewId Identifier of the preview, valid 15 minutes
+	PreviewId string `json:"previewId"`
+
+	// Warnings Warnings, e.g. an empty window
+	Warnings []string `json:"warnings"`
+
+	// Window {from, to} as instants, when logs were requested
+	Window *map[string]interface{} `json:"window,omitempty"`
+}
+
+// SupportPreviewRequest What to put in the bundle
+type SupportPreviewRequest struct {
+	// IncludeDiagnostics Include diagnostics.json (default true)
+	IncludeDiagnostics *bool `json:"includeDiagnostics,omitempty"`
+
+	// IncludeLogs Include the logs of the window (default false)
+	IncludeLogs *bool `json:"includeLogs,omitempty"`
+
+	// IncludeThreads Include a thread dump, threads.txt (default false)
+	IncludeThreads *bool `json:"includeThreads,omitempty"`
+
+	// Window {preset: 10m|30m|1h|12h|24h|1w} or {from, to} in ISO-8601. A value without an offset is read in the time zone of the log
+	Window *map[string]interface{} `json:"window,omitempty"`
+}
+
+// SupportRegisterRequest Credentials of the customer portal
+type SupportRegisterRequest struct {
+	// ClientId The Client ID (workspace id) of the portal
+	ClientId string `json:"clientId"`
+
+	// Key The Client key ('wsk_...') created in the portal. Never returned by any API
+	Key string `json:"key"`
+
+	// VerifyOnly true to check the credentials with the portal without storing them: answers {verified, workspaceName, plan, sla, keyLabel, scopes}
+	VerifyOnly *bool `json:"verifyOnly,omitempty"`
+}
+
+// SupportScreenshotRequest A screenshot
+type SupportScreenshotRequest struct {
+	// Data The picture, base64 encoded (at most 5 MB decoded)
+	Data string `json:"data"`
+}
+
+// SupportSetOpenRequest Close or reopen
+type SupportSetOpenRequest struct {
+	// Open true to reopen, false to close
+	Open bool `json:"open"`
+}
+
+// SupportStatus The registration of this server with the support portal
+type SupportStatus struct {
+	// CanWriteConfig Whether the configuration directory accepts the registration file
+	CanWriteConfig bool `json:"canWriteConfig"`
+
+	// ClientId The Client ID (workspace id)
+	ClientId *string `json:"clientId,omitempty"`
+
+	// FromSettings The registration comes from the settings, not from support.json
+	FromSettings *bool `json:"fromSettings,omitempty"`
+
+	// InstanceId The instance id of this server
+	InstanceId *string `json:"instanceId,omitempty"`
+
+	// KeyHint The last four characters of the key, prefixed by an ellipsis: all that is ever shown
+	KeyHint *string `json:"keyHint,omitempty"`
+
+	// LogTimeZone The time zone the log timestamps are written in: {id, name, offset, note}
+	LogTimeZone *map[string]interface{} `json:"logTimeZone,omitempty"`
+
+	// Plan {entitled, label, units, endsOn} as the portal reports it
+	Plan *map[string]interface{} `json:"plan,omitempty"`
+
+	// PortalError Present when the portal did not answer: {error, message}
+	PortalError *map[string]interface{} `json:"portalError,omitempty"`
+
+	// PortalUrl The portal URL in use
+	PortalUrl string `json:"portalUrl"`
+
+	// Registered Whether a Client ID and key are configured
+	Registered bool `json:"registered"`
+
+	// Sla First-response times {S1, S2, S3, S4, coverage}, or null
+	Sla *map[string]interface{} `json:"sla,omitempty"`
+
+	// WorkspaceName Name of the workspace, from the portal
+	WorkspaceName *string `json:"workspaceName,omitempty"`
+}
+
 // TimeSeriesAggregatedResponse Aggregated samples
 type TimeSeriesAggregatedResponse struct {
 	// Aggregations Aliases of the computed aggregations, in bucket value order
@@ -2499,6 +2739,9 @@ type TimeSeriesQueryRequest struct {
 	Aggregation *struct {
 		// BucketInterval Bucket width in the same unit as the timestamps. Required, and must be a positive WHOLE number: a value of zero or less is refused with 400 rather than read as a single bucket over the whole range, and one with a fractional part is refused rather than truncated, because a bucket width is exactly the sort of value a client computes by division.
 		BucketInterval int `json:"bucketInterval"`
+
+		// BucketOrigin Where the bucket grid starts, in epoch milliseconds. Buckets are multiples of 'bucketInterval' counted from this instant. Optional; the default is the Unix epoch, which was a Thursday at 00:00 UTC, so a one-week bucket starts on a Thursday and a one-day bucket at 00:00 UTC. A Monday origin gives Monday weeks and a local-midnight origin gives local days.
+		BucketOrigin *int `json:"bucketOrigin,omitempty"`
 
 		// Requests Aggregations to compute. Must name at least one; an empty array is refused with 400.
 		Requests []struct {
@@ -2859,6 +3102,13 @@ type ExecuteBatchParams struct {
 
 	// Accept Send 'application/x-ndjson' to receive per-chunk acknowledgements while the request body is still being uploaded, instead of one object after the whole load. Anything else - including an absent header - returns the buffered application/json body unchanged.
 	Accept *ExecuteBatchParamsAccept `json:"Accept,omitempty"`
+
+	// ArcadedbSessionId Session id returned by 'beginTransaction'. It makes the load run under that session's lock and principal and refreshes its idle timer, and it turns a session id this server no longer knows - or one owned by another user - into a 404 rather than a silent load outside the transaction you believe you are in.
+	//
+	// It does NOT put the loaded records in that transaction. The load commits every 'commitEvery' records whatever you have open, so the records are readable by everyone before you commit anything and rolling the transaction back does not remove them; a failed load does not roll it back either. Records the transaction wrote but has not committed are not visible to the load.
+	//
+	// The load holds the session's lock until it ends. Other calls of the same session, including its commit and rollback, wait for it and fail with 503 if it outlasts the session's lock wait, so do not overlap them with a load.
+	ArcadedbSessionId *string `json:"arcadedb-session-id,omitempty"`
 }
 
 // ExecuteBatchParamsIdMapping defines parameters for ExecuteBatch.
@@ -3086,6 +3336,90 @@ type DeleteGroupParams struct {
 
 // CreateOrUpdateGroupParams defines parameters for CreateOrUpdateGroup.
 type CreateOrUpdateGroupParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// GetSupportStatusParams defines parameters for GetSupportStatus.
+type GetSupportStatusParams struct {
+	// Refresh true to ask the portal again instead of using the answer cached for one minute
+	Refresh *string `form:"refresh,omitempty" json:"refresh,omitempty"`
+}
+
+// DownloadSupportBundleParams defines parameters for DownloadSupportBundle.
+type DownloadSupportBundleParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// StartSupportConnectParams defines parameters for StartSupportConnect.
+type StartSupportConnectParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// RegisterSupportInstallationParams defines parameters for RegisterSupportInstallation.
+type RegisterSupportInstallationParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// ListSupportIssuesParams defines parameters for ListSupportIssues.
+type ListSupportIssuesParams struct {
+	// Status open, closed or all (default open)
+	Status *string `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// CreateSupportIssueParams defines parameters for CreateSupportIssue.
+type CreateSupportIssueParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// AttachToSupportIssueParams defines parameters for AttachToSupportIssue.
+type AttachToSupportIssueParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// CommentSupportIssueParams defines parameters for CommentSupportIssue.
+type CommentSupportIssueParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// AnswerSupportRequestParams defines parameters for AnswerSupportRequest.
+type AnswerSupportRequestParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// AnswerSupportRequestsParams defines parameters for AnswerSupportRequests.
+type AnswerSupportRequestsParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// RunSupportPeerQueryParams defines parameters for RunSupportPeerQuery.
+type RunSupportPeerQueryParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// PreviewSupportBundleParams defines parameters for PreviewSupportBundle.
+type PreviewSupportBundleParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// RegisterSupportParams defines parameters for RegisterSupport.
+type RegisterSupportParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// StageSupportScreenshotParams defines parameters for StageSupportScreenshot.
+type StageSupportScreenshotParams struct {
 	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
 	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
 }
@@ -3336,6 +3670,39 @@ type CreateApiTokenJSONRequestBody = CreateApiTokenRequest
 
 // CreateOrUpdateGroupJSONRequestBody defines body for CreateOrUpdateGroup for application/json ContentType.
 type CreateOrUpdateGroupJSONRequestBody = SaveGroupRequest
+
+// DownloadSupportBundleJSONRequestBody defines body for DownloadSupportBundle for application/json ContentType.
+type DownloadSupportBundleJSONRequestBody = SupportBundleRequest
+
+// CreateSupportIssueJSONRequestBody defines body for CreateSupportIssue for application/json ContentType.
+type CreateSupportIssueJSONRequestBody = SupportCreateIssueRequest
+
+// SetSupportIssueOpenJSONRequestBody defines body for SetSupportIssueOpen for application/json ContentType.
+type SetSupportIssueOpenJSONRequestBody = SupportSetOpenRequest
+
+// AttachToSupportIssueJSONRequestBody defines body for AttachToSupportIssue for application/json ContentType.
+type AttachToSupportIssueJSONRequestBody = SupportAttachRequest
+
+// CommentSupportIssueJSONRequestBody defines body for CommentSupportIssue for application/json ContentType.
+type CommentSupportIssueJSONRequestBody = SupportCommentRequest
+
+// AnswerSupportRequestJSONRequestBody defines body for AnswerSupportRequest for application/json ContentType.
+type AnswerSupportRequestJSONRequestBody = SupportAnswerRequest
+
+// AnswerSupportRequestsJSONRequestBody defines body for AnswerSupportRequests for application/json ContentType.
+type AnswerSupportRequestsJSONRequestBody = SupportAnswersRequest
+
+// RunSupportPeerQueryJSONRequestBody defines body for RunSupportPeerQuery for application/json ContentType.
+type RunSupportPeerQueryJSONRequestBody = SupportPeerQueryRequest
+
+// PreviewSupportBundleJSONRequestBody defines body for PreviewSupportBundle for application/json ContentType.
+type PreviewSupportBundleJSONRequestBody = SupportPreviewRequest
+
+// RegisterSupportJSONRequestBody defines body for RegisterSupport for application/json ContentType.
+type RegisterSupportJSONRequestBody = SupportRegisterRequest
+
+// StageSupportScreenshotJSONRequestBody defines body for StageSupportScreenshot for application/json ContentType.
+type StageSupportScreenshotJSONRequestBody = SupportScreenshotRequest
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
@@ -5005,6 +5372,274 @@ type ClientInterface interface {
 	// Corresponds with POST /api/v1/server/groups (the `CreateOrUpdateGroup` operationId).
 	CreateOrUpdateGroup(ctx context.Context, params *CreateOrUpdateGroupParams, body CreateOrUpdateGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetSupportStatus Read the support registration of this server
+	//
+	// Whether the server is registered with the ArcadeData customer portal, and the workspace, plan and first-response times the portal reports. The Client key is never returned, only its last four characters ('keyHint'). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Corresponds with GET /api/v1/server/support (the `GetSupportStatus` operationId).
+	GetSupportStatus(ctx context.Context, params *GetSupportStatusParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DownloadSupportBundleWithBody Download the redacted support bundle
+	//
+	// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+	DownloadSupportBundleWithBody(ctx context.Context, params *DownloadSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DownloadSupportBundle Download the redacted support bundle
+	//
+	// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+	DownloadSupportBundle(ctx context.Context, params *DownloadSupportBundleParams, body DownloadSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CancelSupportConnect Stop waiting for the approval
+	//
+	// Ends the wait. A key that was already received stays registered. Restricted to the root user.
+	//
+	// Corresponds with DELETE /api/v1/server/support/connect (the `CancelSupportConnect` operationId).
+	CancelSupportConnect(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSupportConnect State of the connection to the portal
+	//
+	// {status: none|pending|connected|expired|denied|error|cancelled}; pending carries userCode, verifyUrl and expiresOn; connected carries workspaceName and registration (the outcome of registering the installation); error carries {error, message}. Restricted to the root user.
+	//
+	// Corresponds with GET /api/v1/server/support/connect (the `GetSupportConnect` operationId).
+	GetSupportConnect(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartSupportConnect Start connecting this server to the portal
+	//
+	// Asks the portal for a code ('device authorization'): answers {userCode, verifyUrl, expiresIn}. Studio shows the code and opens verifyUrl in a new tab; once a workspace owner or admin approves it there, the server receives the workspace key (never shown to the browser), stores it as a registration and registers itself as an installation. One connection waits at a time. Restricted to the root user (HTTP Basic). Without Studio, from a shell or the console ('connect portal'): `curl -s -u root:PASSWORD -X POST -H 'Content-Type: application/json' -d '{"label":"prod-1"}' http://localhost:2480/api/v1/server/support/connect` answers {"userCode":"WDJB-MJHT","verifyUrl":"https://portal.arcadedb.com/#/connect?code=WDJB-MJHT","expiresIn":600}; open verifyUrl in any browser, check that the code matches and approve; then `curl -s -u root:PASSWORD http://localhost:2480/api/v1/server/support/connect` until status is no longer 'pending' (every 2 seconds is plenty); `curl -s -u root:PASSWORD -X DELETE http://localhost:2480/api/v1/server/support/connect` stops waiting (204). The optional body field 'label' (up to 60 characters) names the key in the portal. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Corresponds with POST /api/v1/server/support/connect (the `StartSupportConnect` operationId).
+	StartSupportConnect(ctx context.Context, params *StartSupportConnectParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RegisterSupportInstallation Register this server as an installation in the portal
+	//
+	// Sends the redacted diagnostics of this server to the portal, which creates the installation in the workspace of the Client key, or completes the blank fields of the one it already has. Answers {status: created|updated|unchanged, installationId, name, filled, differs}. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Corresponds with POST /api/v1/server/support/installation (the `RegisterSupportInstallation` operationId).
+	RegisterSupportInstallation(ctx context.Context, params *RegisterSupportInstallationParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSupportIssues List the support issues of the workspace
+	//
+	// Proxy of the portal list (only public timeline data). The body is the portal's, unchanged, with the Client key scrubbed. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Corresponds with GET /api/v1/server/support/issues (the `ListSupportIssues` operationId).
+	ListSupportIssues(ctx context.Context, params *ListSupportIssuesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateSupportIssueWithBody Open a support issue
+	//
+	// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+	CreateSupportIssueWithBody(ctx context.Context, params *CreateSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateSupportIssue Open a support issue
+	//
+	// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+	CreateSupportIssue(ctx context.Context, params *CreateSupportIssueParams, body CreateSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSupportIssue Read a support issue
+	//
+	// Proxy of the portal issue with its public timeline. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Corresponds with GET /api/v1/server/support/issues/{number} (the `GetSupportIssue` operationId).
+	GetSupportIssue(ctx context.Context, number string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetSupportIssueOpenWithBody Close or reopen a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+	SetSupportIssueOpenWithBody(ctx context.Context, number string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetSupportIssueOpen Close or reopen a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+	SetSupportIssueOpen(ctx context.Context, number string, body SetSupportIssueOpenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AttachToSupportIssueWithBody Send more files to a support issue
+	//
+	// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+	AttachToSupportIssueWithBody(ctx context.Context, number string, params *AttachToSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AttachToSupportIssue Send more files to a support issue
+	//
+	// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+	AttachToSupportIssue(ctx context.Context, number string, params *AttachToSupportIssueParams, body AttachToSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CommentSupportIssueWithBody Reply on a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+	CommentSupportIssueWithBody(ctx context.Context, number string, params *CommentSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CommentSupportIssue Reply on a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+	CommentSupportIssue(ctx context.Context, number string, params *CommentSupportIssueParams, body CommentSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AnswerSupportRequestWithBody Answer a support request
+	//
+	// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+	AnswerSupportRequestWithBody(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AnswerSupportRequest Answer a support request
+	//
+	// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+	AnswerSupportRequest(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, body AnswerSupportRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AnswerSupportRequestsWithBody Answer several support requests at once
+	//
+	// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+	AnswerSupportRequestsWithBody(ctx context.Context, number string, params *AnswerSupportRequestsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AnswerSupportRequests Answer several support requests at once
+	//
+	// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+	AnswerSupportRequests(ctx context.Context, number string, params *AnswerSupportRequestsParams, body AnswerSupportRequestsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RunSupportPeerQueryWithBody Run a read-only support query on other cluster nodes
+	//
+	// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+	RunSupportPeerQueryWithBody(ctx context.Context, params *RunSupportPeerQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RunSupportPeerQuery Run a read-only support query on other cluster nodes
+	//
+	// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+	RunSupportPeerQuery(ctx context.Context, params *RunSupportPeerQueryParams, body RunSupportPeerQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSupportPeers The other members of the cluster, by name
+	//
+	// {ha: boolean, peers: [name]}: the names Studio offers as targets of a support request. No addresses are returned. Empty and ha=false when this server is not part of a cluster. Restricted to the root user.
+	//
+	// Corresponds with GET /api/v1/server/support/peers (the `GetSupportPeers` operationId).
+	GetSupportPeers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewSupportBundleWithBody Build and preview the redacted support bundle
+	//
+	// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+	PreviewSupportBundleWithBody(ctx context.Context, params *PreviewSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewSupportBundle Build and preview the redacted support bundle
+	//
+	// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+	PreviewSupportBundle(ctx context.Context, params *PreviewSupportBundleParams, body PreviewSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UnregisterSupport Remove the support registration
+	//
+	// Deletes support.json. A registration configured through the settings arcadedb.support.clientId and arcadedb.support.clientKey cannot be removed here. Restricted to the root user.
+	//
+	// Corresponds with DELETE /api/v1/server/support/register (the `UnregisterSupport` operationId).
+	UnregisterSupport(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RegisterSupportWithBody Register this server with the support portal
+	//
+	// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+	RegisterSupportWithBody(ctx context.Context, params *RegisterSupportParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RegisterSupport Register this server with the support portal
+	//
+	// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+	RegisterSupport(ctx context.Context, params *RegisterSupportParams, body RegisterSupportJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StageSupportScreenshotWithBody Hold a screenshot until it is sent
+	//
+	// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+	StageSupportScreenshotWithBody(ctx context.Context, params *StageSupportScreenshotParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StageSupportScreenshot Hold a screenshot until it is sent
+	//
+	// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+	StageSupportScreenshot(ctx context.Context, params *StageSupportScreenshotParams, body StageSupportScreenshotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DiscardSupportScreenshot Remove a held screenshot
+	//
+	// The user removed it before sending. Unknown ids are not an error. Restricted to the root user.
+	//
+	// Corresponds with DELETE /api/v1/server/support/screenshots/{id} (the `DiscardSupportScreenshot` operationId).
+	DiscardSupportScreenshot(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteUser Delete user
 	//
 	// Deletes a server user (root only). On an HA cluster the removal is replicated to every node as a Raft entry.
@@ -6546,6 +7181,594 @@ func (c *Client) CreateOrUpdateGroup(ctx context.Context, params *CreateOrUpdate
 	return c.Client.Do(req)
 }
 
+// GetSupportStatus Read the support registration of this server
+//
+// Whether the server is registered with the ArcadeData customer portal, and the workspace, plan and first-response times the portal reports. The Client key is never returned, only its last four characters ('keyHint'). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Corresponds with GET /api/v1/server/support (the `GetSupportStatus` operationId).
+func (c *Client) GetSupportStatus(ctx context.Context, params *GetSupportStatusParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSupportStatusRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DownloadSupportBundleWithBody Download the redacted support bundle
+//
+// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+func (c *Client) DownloadSupportBundleWithBody(ctx context.Context, params *DownloadSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadSupportBundleRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DownloadSupportBundle Download the redacted support bundle
+//
+// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+func (c *Client) DownloadSupportBundle(ctx context.Context, params *DownloadSupportBundleParams, body DownloadSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadSupportBundleRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CancelSupportConnect Stop waiting for the approval
+//
+// Ends the wait. A key that was already received stays registered. Restricted to the root user.
+//
+// Corresponds with DELETE /api/v1/server/support/connect (the `CancelSupportConnect` operationId).
+func (c *Client) CancelSupportConnect(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCancelSupportConnectRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSupportConnect State of the connection to the portal
+//
+// {status: none|pending|connected|expired|denied|error|cancelled}; pending carries userCode, verifyUrl and expiresOn; connected carries workspaceName and registration (the outcome of registering the installation); error carries {error, message}. Restricted to the root user.
+//
+// Corresponds with GET /api/v1/server/support/connect (the `GetSupportConnect` operationId).
+func (c *Client) GetSupportConnect(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSupportConnectRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartSupportConnect Start connecting this server to the portal
+//
+// Asks the portal for a code ('device authorization'): answers {userCode, verifyUrl, expiresIn}. Studio shows the code and opens verifyUrl in a new tab; once a workspace owner or admin approves it there, the server receives the workspace key (never shown to the browser), stores it as a registration and registers itself as an installation. One connection waits at a time. Restricted to the root user (HTTP Basic). Without Studio, from a shell or the console ('connect portal'): `curl -s -u root:PASSWORD -X POST -H 'Content-Type: application/json' -d '{"label":"prod-1"}' http://localhost:2480/api/v1/server/support/connect` answers {"userCode":"WDJB-MJHT","verifyUrl":"https://portal.arcadedb.com/#/connect?code=WDJB-MJHT","expiresIn":600}; open verifyUrl in any browser, check that the code matches and approve; then `curl -s -u root:PASSWORD http://localhost:2480/api/v1/server/support/connect` until status is no longer 'pending' (every 2 seconds is plenty); `curl -s -u root:PASSWORD -X DELETE http://localhost:2480/api/v1/server/support/connect` stops waiting (204). The optional body field 'label' (up to 60 characters) names the key in the portal. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Corresponds with POST /api/v1/server/support/connect (the `StartSupportConnect` operationId).
+func (c *Client) StartSupportConnect(ctx context.Context, params *StartSupportConnectParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartSupportConnectRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RegisterSupportInstallation Register this server as an installation in the portal
+//
+// Sends the redacted diagnostics of this server to the portal, which creates the installation in the workspace of the Client key, or completes the blank fields of the one it already has. Answers {status: created|updated|unchanged, installationId, name, filled, differs}. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Corresponds with POST /api/v1/server/support/installation (the `RegisterSupportInstallation` operationId).
+func (c *Client) RegisterSupportInstallation(ctx context.Context, params *RegisterSupportInstallationParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRegisterSupportInstallationRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSupportIssues List the support issues of the workspace
+//
+// Proxy of the portal list (only public timeline data). The body is the portal's, unchanged, with the Client key scrubbed. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Corresponds with GET /api/v1/server/support/issues (the `ListSupportIssues` operationId).
+func (c *Client) ListSupportIssues(ctx context.Context, params *ListSupportIssuesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSupportIssuesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateSupportIssueWithBody Open a support issue
+//
+// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+func (c *Client) CreateSupportIssueWithBody(ctx context.Context, params *CreateSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSupportIssueRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateSupportIssue Open a support issue
+//
+// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+func (c *Client) CreateSupportIssue(ctx context.Context, params *CreateSupportIssueParams, body CreateSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateSupportIssueRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSupportIssue Read a support issue
+//
+// Proxy of the portal issue with its public timeline. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Corresponds with GET /api/v1/server/support/issues/{number} (the `GetSupportIssue` operationId).
+func (c *Client) GetSupportIssue(ctx context.Context, number string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSupportIssueRequest(c.Server, number)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetSupportIssueOpenWithBody Close or reopen a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+func (c *Client) SetSupportIssueOpenWithBody(ctx context.Context, number string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetSupportIssueOpenRequestWithBody(c.Server, number, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetSupportIssueOpen Close or reopen a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+func (c *Client) SetSupportIssueOpen(ctx context.Context, number string, body SetSupportIssueOpenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetSupportIssueOpenRequest(c.Server, number, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AttachToSupportIssueWithBody Send more files to a support issue
+//
+// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+func (c *Client) AttachToSupportIssueWithBody(ctx context.Context, number string, params *AttachToSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAttachToSupportIssueRequestWithBody(c.Server, number, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AttachToSupportIssue Send more files to a support issue
+//
+// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+func (c *Client) AttachToSupportIssue(ctx context.Context, number string, params *AttachToSupportIssueParams, body AttachToSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAttachToSupportIssueRequest(c.Server, number, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CommentSupportIssueWithBody Reply on a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+func (c *Client) CommentSupportIssueWithBody(ctx context.Context, number string, params *CommentSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCommentSupportIssueRequestWithBody(c.Server, number, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CommentSupportIssue Reply on a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+func (c *Client) CommentSupportIssue(ctx context.Context, number string, params *CommentSupportIssueParams, body CommentSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCommentSupportIssueRequest(c.Server, number, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AnswerSupportRequestWithBody Answer a support request
+//
+// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+func (c *Client) AnswerSupportRequestWithBody(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerSupportRequestRequestWithBody(c.Server, number, requestId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AnswerSupportRequest Answer a support request
+//
+// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+func (c *Client) AnswerSupportRequest(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, body AnswerSupportRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerSupportRequestRequest(c.Server, number, requestId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AnswerSupportRequestsWithBody Answer several support requests at once
+//
+// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+func (c *Client) AnswerSupportRequestsWithBody(ctx context.Context, number string, params *AnswerSupportRequestsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerSupportRequestsRequestWithBody(c.Server, number, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AnswerSupportRequests Answer several support requests at once
+//
+// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+func (c *Client) AnswerSupportRequests(ctx context.Context, number string, params *AnswerSupportRequestsParams, body AnswerSupportRequestsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAnswerSupportRequestsRequest(c.Server, number, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RunSupportPeerQueryWithBody Run a read-only support query on other cluster nodes
+//
+// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+func (c *Client) RunSupportPeerQueryWithBody(ctx context.Context, params *RunSupportPeerQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRunSupportPeerQueryRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RunSupportPeerQuery Run a read-only support query on other cluster nodes
+//
+// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+func (c *Client) RunSupportPeerQuery(ctx context.Context, params *RunSupportPeerQueryParams, body RunSupportPeerQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRunSupportPeerQueryRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSupportPeers The other members of the cluster, by name
+//
+// {ha: boolean, peers: [name]}: the names Studio offers as targets of a support request. No addresses are returned. Empty and ha=false when this server is not part of a cluster. Restricted to the root user.
+//
+// Corresponds with GET /api/v1/server/support/peers (the `GetSupportPeers` operationId).
+func (c *Client) GetSupportPeers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSupportPeersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewSupportBundleWithBody Build and preview the redacted support bundle
+//
+// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+func (c *Client) PreviewSupportBundleWithBody(ctx context.Context, params *PreviewSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewSupportBundleRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewSupportBundle Build and preview the redacted support bundle
+//
+// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+func (c *Client) PreviewSupportBundle(ctx context.Context, params *PreviewSupportBundleParams, body PreviewSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewSupportBundleRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UnregisterSupport Remove the support registration
+//
+// Deletes support.json. A registration configured through the settings arcadedb.support.clientId and arcadedb.support.clientKey cannot be removed here. Restricted to the root user.
+//
+// Corresponds with DELETE /api/v1/server/support/register (the `UnregisterSupport` operationId).
+func (c *Client) UnregisterSupport(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUnregisterSupportRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RegisterSupportWithBody Register this server with the support portal
+//
+// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+func (c *Client) RegisterSupportWithBody(ctx context.Context, params *RegisterSupportParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRegisterSupportRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RegisterSupport Register this server with the support portal
+//
+// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+func (c *Client) RegisterSupport(ctx context.Context, params *RegisterSupportParams, body RegisterSupportJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRegisterSupportRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StageSupportScreenshotWithBody Hold a screenshot until it is sent
+//
+// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+func (c *Client) StageSupportScreenshotWithBody(ctx context.Context, params *StageSupportScreenshotParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStageSupportScreenshotRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StageSupportScreenshot Hold a screenshot until it is sent
+//
+// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+func (c *Client) StageSupportScreenshot(ctx context.Context, params *StageSupportScreenshotParams, body StageSupportScreenshotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStageSupportScreenshotRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DiscardSupportScreenshot Remove a held screenshot
+//
+// The user removed it before sending. Unknown ids are not an error. Restricted to the root user.
+//
+// Corresponds with DELETE /api/v1/server/support/screenshots/{id} (the `DiscardSupportScreenshot` operationId).
+func (c *Client) DiscardSupportScreenshot(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDiscardSupportScreenshotRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // DeleteUser Delete user
 //
 // Deletes a server user (root only). On an HA cluster the removal is replicated to every node as a Raft entry.
@@ -7770,6 +8993,17 @@ func NewExecuteBatchRequestWithBody(server string, database string, params *Exec
 			}
 
 			req.Header.Set("Accept", headerParam0)
+		}
+
+		if params.ArcadedbSessionId != nil {
+			var headerParam1 string
+
+			headerParam1, err = runtime.StyleParamWithOptions("simple", false, "arcadedb-session-id", *params.ArcadedbSessionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("arcadedb-session-id", headerParam1)
 		}
 
 	}
@@ -9695,6 +10929,1006 @@ func NewCreateOrUpdateGroupRequestWithBody(server string, params *CreateOrUpdate
 			req.Header.Set("X-Request-Id", headerParam0)
 		}
 
+	}
+
+	return req, nil
+}
+
+// NewGetSupportStatusRequest constructs an http.Request for the GetSupportStatus method
+func NewGetSupportStatusRequest(server string, params *GetSupportStatusParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Refresh != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "refresh", *params.Refresh, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDownloadSupportBundleRequest calls the generic DownloadSupportBundle builder with application/json body
+func NewDownloadSupportBundleRequest(server string, params *DownloadSupportBundleParams, body DownloadSupportBundleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDownloadSupportBundleRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewDownloadSupportBundleRequestWithBody constructs an http.Request for the DownloadSupportBundle method, with any body, and a specified content type
+func NewDownloadSupportBundleRequestWithBody(server string, params *DownloadSupportBundleParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/bundle")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewCancelSupportConnectRequest constructs an http.Request for the CancelSupportConnect method
+func NewCancelSupportConnectRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/connect")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSupportConnectRequest constructs an http.Request for the GetSupportConnect method
+func NewGetSupportConnectRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/connect")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStartSupportConnectRequest constructs an http.Request for the StartSupportConnect method
+func NewStartSupportConnectRequest(server string, params *StartSupportConnectParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/connect")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewRegisterSupportInstallationRequest constructs an http.Request for the RegisterSupportInstallation method
+func NewRegisterSupportInstallationRequest(server string, params *RegisterSupportInstallationParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/installation")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewListSupportIssuesRequest constructs an http.Request for the ListSupportIssues method
+func NewListSupportIssuesRequest(server string, params *ListSupportIssuesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateSupportIssueRequest calls the generic CreateSupportIssue builder with application/json body
+func NewCreateSupportIssueRequest(server string, params *CreateSupportIssueParams, body CreateSupportIssueJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateSupportIssueRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewCreateSupportIssueRequestWithBody constructs an http.Request for the CreateSupportIssue method, with any body, and a specified content type
+func NewCreateSupportIssueRequestWithBody(server string, params *CreateSupportIssueParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetSupportIssueRequest constructs an http.Request for the GetSupportIssue method
+func NewGetSupportIssueRequest(server string, number string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "number", number, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetSupportIssueOpenRequest calls the generic SetSupportIssueOpen builder with application/json body
+func NewSetSupportIssueOpenRequest(server string, number string, body SetSupportIssueOpenJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetSupportIssueOpenRequestWithBody(server, number, "application/json", bodyReader)
+}
+
+// NewSetSupportIssueOpenRequestWithBody constructs an http.Request for the SetSupportIssueOpen method, with any body, and a specified content type
+func NewSetSupportIssueOpenRequestWithBody(server string, number string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "number", number, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAttachToSupportIssueRequest calls the generic AttachToSupportIssue builder with application/json body
+func NewAttachToSupportIssueRequest(server string, number string, params *AttachToSupportIssueParams, body AttachToSupportIssueJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAttachToSupportIssueRequestWithBody(server, number, params, "application/json", bodyReader)
+}
+
+// NewAttachToSupportIssueRequestWithBody constructs an http.Request for the AttachToSupportIssue method, with any body, and a specified content type
+func NewAttachToSupportIssueRequestWithBody(server string, number string, params *AttachToSupportIssueParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "number", number, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues/%s/attachments", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewCommentSupportIssueRequest calls the generic CommentSupportIssue builder with application/json body
+func NewCommentSupportIssueRequest(server string, number string, params *CommentSupportIssueParams, body CommentSupportIssueJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCommentSupportIssueRequestWithBody(server, number, params, "application/json", bodyReader)
+}
+
+// NewCommentSupportIssueRequestWithBody constructs an http.Request for the CommentSupportIssue method, with any body, and a specified content type
+func NewCommentSupportIssueRequestWithBody(server string, number string, params *CommentSupportIssueParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "number", number, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues/%s/comments", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewAnswerSupportRequestRequest calls the generic AnswerSupportRequest builder with application/json body
+func NewAnswerSupportRequestRequest(server string, number string, requestId string, params *AnswerSupportRequestParams, body AnswerSupportRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAnswerSupportRequestRequestWithBody(server, number, requestId, params, "application/json", bodyReader)
+}
+
+// NewAnswerSupportRequestRequestWithBody constructs an http.Request for the AnswerSupportRequest method, with any body, and a specified content type
+func NewAnswerSupportRequestRequestWithBody(server string, number string, requestId string, params *AnswerSupportRequestParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "number", number, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "requestId", requestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues/%s/requests/%s/response", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewAnswerSupportRequestsRequest calls the generic AnswerSupportRequests builder with application/json body
+func NewAnswerSupportRequestsRequest(server string, number string, params *AnswerSupportRequestsParams, body AnswerSupportRequestsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAnswerSupportRequestsRequestWithBody(server, number, params, "application/json", bodyReader)
+}
+
+// NewAnswerSupportRequestsRequestWithBody constructs an http.Request for the AnswerSupportRequests method, with any body, and a specified content type
+func NewAnswerSupportRequestsRequestWithBody(server string, number string, params *AnswerSupportRequestsParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "number", number, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/issues/%s/responses", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewRunSupportPeerQueryRequest calls the generic RunSupportPeerQuery builder with application/json body
+func NewRunSupportPeerQueryRequest(server string, params *RunSupportPeerQueryParams, body RunSupportPeerQueryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRunSupportPeerQueryRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewRunSupportPeerQueryRequestWithBody constructs an http.Request for the RunSupportPeerQuery method, with any body, and a specified content type
+func NewRunSupportPeerQueryRequestWithBody(server string, params *RunSupportPeerQueryParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/peer-query")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetSupportPeersRequest constructs an http.Request for the GetSupportPeers method
+func NewGetSupportPeersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/peers")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPreviewSupportBundleRequest calls the generic PreviewSupportBundle builder with application/json body
+func NewPreviewSupportBundleRequest(server string, params *PreviewSupportBundleParams, body PreviewSupportBundleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPreviewSupportBundleRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewPreviewSupportBundleRequestWithBody constructs an http.Request for the PreviewSupportBundle method, with any body, and a specified content type
+func NewPreviewSupportBundleRequestWithBody(server string, params *PreviewSupportBundleParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/preview")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewUnregisterSupportRequest constructs an http.Request for the UnregisterSupport method
+func NewUnregisterSupportRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/register")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRegisterSupportRequest calls the generic RegisterSupport builder with application/json body
+func NewRegisterSupportRequest(server string, params *RegisterSupportParams, body RegisterSupportJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRegisterSupportRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewRegisterSupportRequestWithBody constructs an http.Request for the RegisterSupport method, with any body, and a specified content type
+func NewRegisterSupportRequestWithBody(server string, params *RegisterSupportParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/register")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewStageSupportScreenshotRequest calls the generic StageSupportScreenshot builder with application/json body
+func NewStageSupportScreenshotRequest(server string, params *StageSupportScreenshotParams, body StageSupportScreenshotJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewStageSupportScreenshotRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewStageSupportScreenshotRequestWithBody constructs an http.Request for the StageSupportScreenshot method, with any body, and a specified content type
+func NewStageSupportScreenshotRequestWithBody(server string, params *StageSupportScreenshotParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/screenshots")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewDiscardSupportScreenshotRequest constructs an http.Request for the DiscardSupportScreenshot method
+func NewDiscardSupportScreenshotRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/server/support/screenshots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -11886,6 +14120,294 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/v1/server/groups (the `CreateOrUpdateGroup` operationId).
 	CreateOrUpdateGroupWithResponse(ctx context.Context, params *CreateOrUpdateGroupParams, body CreateOrUpdateGroupJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateOrUpdateGroupResp, error)
 
+	// GetSupportStatusWithResponse Read the support registration of this server
+	//
+	// Whether the server is registered with the ArcadeData customer portal, and the workspace, plan and first-response times the portal reports. The Client key is never returned, only its last four characters ('keyHint'). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/server/support (the `GetSupportStatus` operationId).
+	GetSupportStatusWithResponse(ctx context.Context, params *GetSupportStatusParams, reqEditors ...RequestEditorFn) (*GetSupportStatusResp, error)
+
+	// DownloadSupportBundleWithBodyWithResponse Download the redacted support bundle
+	//
+	// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+	DownloadSupportBundleWithBodyWithResponse(ctx context.Context, params *DownloadSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DownloadSupportBundleResp, error)
+
+	// DownloadSupportBundleWithResponse Download the redacted support bundle
+	//
+	// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+	DownloadSupportBundleWithResponse(ctx context.Context, params *DownloadSupportBundleParams, body DownloadSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*DownloadSupportBundleResp, error)
+
+	// CancelSupportConnectWithResponse Stop waiting for the approval
+	//
+	// Ends the wait. A key that was already received stays registered. Restricted to the root user.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/server/support/connect (the `CancelSupportConnect` operationId).
+	CancelSupportConnectWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*CancelSupportConnectResp, error)
+
+	// GetSupportConnectWithResponse State of the connection to the portal
+	//
+	// {status: none|pending|connected|expired|denied|error|cancelled}; pending carries userCode, verifyUrl and expiresOn; connected carries workspaceName and registration (the outcome of registering the installation); error carries {error, message}. Restricted to the root user.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/server/support/connect (the `GetSupportConnect` operationId).
+	GetSupportConnectWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSupportConnectResp, error)
+
+	// StartSupportConnectWithResponse Start connecting this server to the portal
+	//
+	// Asks the portal for a code ('device authorization'): answers {userCode, verifyUrl, expiresIn}. Studio shows the code and opens verifyUrl in a new tab; once a workspace owner or admin approves it there, the server receives the workspace key (never shown to the browser), stores it as a registration and registers itself as an installation. One connection waits at a time. Restricted to the root user (HTTP Basic). Without Studio, from a shell or the console ('connect portal'): `curl -s -u root:PASSWORD -X POST -H 'Content-Type: application/json' -d '{"label":"prod-1"}' http://localhost:2480/api/v1/server/support/connect` answers {"userCode":"WDJB-MJHT","verifyUrl":"https://portal.arcadedb.com/#/connect?code=WDJB-MJHT","expiresIn":600}; open verifyUrl in any browser, check that the code matches and approve; then `curl -s -u root:PASSWORD http://localhost:2480/api/v1/server/support/connect` until status is no longer 'pending' (every 2 seconds is plenty); `curl -s -u root:PASSWORD -X DELETE http://localhost:2480/api/v1/server/support/connect` stops waiting (204). The optional body field 'label' (up to 60 characters) names the key in the portal. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/connect (the `StartSupportConnect` operationId).
+	StartSupportConnectWithResponse(ctx context.Context, params *StartSupportConnectParams, reqEditors ...RequestEditorFn) (*StartSupportConnectResp, error)
+
+	// RegisterSupportInstallationWithResponse Register this server as an installation in the portal
+	//
+	// Sends the redacted diagnostics of this server to the portal, which creates the installation in the workspace of the Client key, or completes the blank fields of the one it already has. Answers {status: created|updated|unchanged, installationId, name, filled, differs}. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/installation (the `RegisterSupportInstallation` operationId).
+	RegisterSupportInstallationWithResponse(ctx context.Context, params *RegisterSupportInstallationParams, reqEditors ...RequestEditorFn) (*RegisterSupportInstallationResp, error)
+
+	// ListSupportIssuesWithResponse List the support issues of the workspace
+	//
+	// Proxy of the portal list (only public timeline data). The body is the portal's, unchanged, with the Client key scrubbed. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/server/support/issues (the `ListSupportIssues` operationId).
+	ListSupportIssuesWithResponse(ctx context.Context, params *ListSupportIssuesParams, reqEditors ...RequestEditorFn) (*ListSupportIssuesResp, error)
+
+	// CreateSupportIssueWithBodyWithResponse Open a support issue
+	//
+	// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+	CreateSupportIssueWithBodyWithResponse(ctx context.Context, params *CreateSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSupportIssueResp, error)
+
+	// CreateSupportIssueWithResponse Open a support issue
+	//
+	// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+	CreateSupportIssueWithResponse(ctx context.Context, params *CreateSupportIssueParams, body CreateSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSupportIssueResp, error)
+
+	// GetSupportIssueWithResponse Read a support issue
+	//
+	// Proxy of the portal issue with its public timeline. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/server/support/issues/{number} (the `GetSupportIssue` operationId).
+	GetSupportIssueWithResponse(ctx context.Context, number string, reqEditors ...RequestEditorFn) (*GetSupportIssueResp, error)
+
+	// SetSupportIssueOpenWithBodyWithResponse Close or reopen a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+	SetSupportIssueOpenWithBodyWithResponse(ctx context.Context, number string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetSupportIssueOpenResp, error)
+
+	// SetSupportIssueOpenWithResponse Close or reopen a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+	SetSupportIssueOpenWithResponse(ctx context.Context, number string, body SetSupportIssueOpenJSONRequestBody, reqEditors ...RequestEditorFn) (*SetSupportIssueOpenResp, error)
+
+	// AttachToSupportIssueWithBodyWithResponse Send more files to a support issue
+	//
+	// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+	AttachToSupportIssueWithBodyWithResponse(ctx context.Context, number string, params *AttachToSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AttachToSupportIssueResp, error)
+
+	// AttachToSupportIssueWithResponse Send more files to a support issue
+	//
+	// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+	AttachToSupportIssueWithResponse(ctx context.Context, number string, params *AttachToSupportIssueParams, body AttachToSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*AttachToSupportIssueResp, error)
+
+	// CommentSupportIssueWithBodyWithResponse Reply on a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+	CommentSupportIssueWithBodyWithResponse(ctx context.Context, number string, params *CommentSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CommentSupportIssueResp, error)
+
+	// CommentSupportIssueWithResponse Reply on a support issue
+	//
+	// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+	CommentSupportIssueWithResponse(ctx context.Context, number string, params *CommentSupportIssueParams, body CommentSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*CommentSupportIssueResp, error)
+
+	// AnswerSupportRequestWithBodyWithResponse Answer a support request
+	//
+	// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+	AnswerSupportRequestWithBodyWithResponse(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerSupportRequestResp, error)
+
+	// AnswerSupportRequestWithResponse Answer a support request
+	//
+	// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+	AnswerSupportRequestWithResponse(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, body AnswerSupportRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerSupportRequestResp, error)
+
+	// AnswerSupportRequestsWithBodyWithResponse Answer several support requests at once
+	//
+	// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+	AnswerSupportRequestsWithBodyWithResponse(ctx context.Context, number string, params *AnswerSupportRequestsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerSupportRequestsResp, error)
+
+	// AnswerSupportRequestsWithResponse Answer several support requests at once
+	//
+	// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+	AnswerSupportRequestsWithResponse(ctx context.Context, number string, params *AnswerSupportRequestsParams, body AnswerSupportRequestsJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerSupportRequestsResp, error)
+
+	// RunSupportPeerQueryWithBodyWithResponse Run a read-only support query on other cluster nodes
+	//
+	// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+	RunSupportPeerQueryWithBodyWithResponse(ctx context.Context, params *RunSupportPeerQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RunSupportPeerQueryResp, error)
+
+	// RunSupportPeerQueryWithResponse Run a read-only support query on other cluster nodes
+	//
+	// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+	RunSupportPeerQueryWithResponse(ctx context.Context, params *RunSupportPeerQueryParams, body RunSupportPeerQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*RunSupportPeerQueryResp, error)
+
+	// GetSupportPeersWithResponse The other members of the cluster, by name
+	//
+	// {ha: boolean, peers: [name]}: the names Studio offers as targets of a support request. No addresses are returned. Empty and ha=false when this server is not part of a cluster. Restricted to the root user.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/server/support/peers (the `GetSupportPeers` operationId).
+	GetSupportPeersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSupportPeersResp, error)
+
+	// PreviewSupportBundleWithBodyWithResponse Build and preview the redacted support bundle
+	//
+	// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+	PreviewSupportBundleWithBodyWithResponse(ctx context.Context, params *PreviewSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewSupportBundleResp, error)
+
+	// PreviewSupportBundleWithResponse Build and preview the redacted support bundle
+	//
+	// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+	PreviewSupportBundleWithResponse(ctx context.Context, params *PreviewSupportBundleParams, body PreviewSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewSupportBundleResp, error)
+
+	// UnregisterSupportWithResponse Remove the support registration
+	//
+	// Deletes support.json. A registration configured through the settings arcadedb.support.clientId and arcadedb.support.clientKey cannot be removed here. Restricted to the root user.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/server/support/register (the `UnregisterSupport` operationId).
+	UnregisterSupportWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*UnregisterSupportResp, error)
+
+	// RegisterSupportWithBodyWithResponse Register this server with the support portal
+	//
+	// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+	RegisterSupportWithBodyWithResponse(ctx context.Context, params *RegisterSupportParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterSupportResp, error)
+
+	// RegisterSupportWithResponse Register this server with the support portal
+	//
+	// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+	RegisterSupportWithResponse(ctx context.Context, params *RegisterSupportParams, body RegisterSupportJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterSupportResp, error)
+
+	// StageSupportScreenshotWithBodyWithResponse Hold a screenshot until it is sent
+	//
+	// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+	StageSupportScreenshotWithBodyWithResponse(ctx context.Context, params *StageSupportScreenshotParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StageSupportScreenshotResp, error)
+
+	// StageSupportScreenshotWithResponse Hold a screenshot until it is sent
+	//
+	// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+	StageSupportScreenshotWithResponse(ctx context.Context, params *StageSupportScreenshotParams, body StageSupportScreenshotJSONRequestBody, reqEditors ...RequestEditorFn) (*StageSupportScreenshotResp, error)
+
+	// DiscardSupportScreenshotWithResponse Remove a held screenshot
+	//
+	// The user removed it before sending. Unknown ids are not an error. Restricted to the root user.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/server/support/screenshots/{id} (the `DiscardSupportScreenshot` operationId).
+	DiscardSupportScreenshotWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DiscardSupportScreenshotResp, error)
+
 	// DeleteUserWithResponse Delete user
 	//
 	// Deletes a server user (root only). On an HA cluster the removal is replicated to every node as a Raft entry.
@@ -13342,7 +15864,8 @@ func (r GetAiConfigResp) ContentType() string {
 
 // ExecuteBatchResp200Headers the declared response headers of an HTTP 200 response for ExecuteBatch
 type ExecuteBatchResp200Headers struct {
-	XRequestId *string
+	XRequestId        *string
+	ArcadedbSessionId *string
 }
 
 // ExecuteBatchResp400Headers the declared response headers of an HTTP 400 response for ExecuteBatch
@@ -17998,6 +20521,2762 @@ func (r CreateOrUpdateGroupResp) ContentType() string {
 	return ""
 }
 
+// GetSupportStatusResp200Headers the declared response headers of an HTTP 200 response for GetSupportStatus
+type GetSupportStatusResp200Headers struct {
+	XRequestId *string
+}
+
+// GetSupportStatusResp401Headers the declared response headers of an HTTP 401 response for GetSupportStatus
+type GetSupportStatusResp401Headers struct {
+	XRequestId *string
+}
+
+// GetSupportStatusResp403Headers the declared response headers of an HTTP 403 response for GetSupportStatus
+type GetSupportStatusResp403Headers struct {
+	XRequestId *string
+}
+
+// GetSupportStatusResp500Headers the declared response headers of an HTTP 500 response for GetSupportStatus
+type GetSupportStatusResp500Headers struct {
+	XRequestId *string
+}
+
+type GetSupportStatusResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SupportStatus
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSupportStatusResp200Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *GetSupportStatusResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *GetSupportStatusResp403Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *GetSupportStatusResp500Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSupportStatusResp) GetJSON200() *SupportStatus {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSupportStatusResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetSupportStatusResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetSupportStatusResp) GetJSON500() *ErrorResponse {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSupportStatusResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSupportStatusResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSupportStatusResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSupportStatusResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// DownloadSupportBundleResp200Headers the declared response headers of an HTTP 200 response for DownloadSupportBundle
+type DownloadSupportBundleResp200Headers struct {
+	XRequestId *string
+}
+
+// DownloadSupportBundleResp400Headers the declared response headers of an HTTP 400 response for DownloadSupportBundle
+type DownloadSupportBundleResp400Headers struct {
+	XRequestId *string
+}
+
+// DownloadSupportBundleResp401Headers the declared response headers of an HTTP 401 response for DownloadSupportBundle
+type DownloadSupportBundleResp401Headers struct {
+	XRequestId *string
+}
+
+// DownloadSupportBundleResp403Headers the declared response headers of an HTTP 403 response for DownloadSupportBundle
+type DownloadSupportBundleResp403Headers struct {
+	XRequestId *string
+}
+
+// DownloadSupportBundleResp404Headers the declared response headers of an HTTP 404 response for DownloadSupportBundle
+type DownloadSupportBundleResp404Headers struct {
+	XRequestId *string
+}
+
+// DownloadSupportBundleResp409Headers the declared response headers of an HTTP 409 response for DownloadSupportBundle
+type DownloadSupportBundleResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+type DownloadSupportBundleResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *DownloadSupportBundleResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *DownloadSupportBundleResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *DownloadSupportBundleResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *DownloadSupportBundleResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *DownloadSupportBundleResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *DownloadSupportBundleResp409Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DownloadSupportBundleResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DownloadSupportBundleResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DownloadSupportBundleResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DownloadSupportBundleResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r DownloadSupportBundleResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r DownloadSupportBundleResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DownloadSupportBundleResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DownloadSupportBundleResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DownloadSupportBundleResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// CancelSupportConnectResp204Headers the declared response headers of an HTTP 204 response for CancelSupportConnect
+type CancelSupportConnectResp204Headers struct {
+	XRequestId *string
+}
+
+// CancelSupportConnectResp401Headers the declared response headers of an HTTP 401 response for CancelSupportConnect
+type CancelSupportConnectResp401Headers struct {
+	XRequestId *string
+}
+
+// CancelSupportConnectResp403Headers the declared response headers of an HTTP 403 response for CancelSupportConnect
+type CancelSupportConnectResp403Headers struct {
+	XRequestId *string
+}
+
+type CancelSupportConnectResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *CancelSupportConnectResp204Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *CancelSupportConnectResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *CancelSupportConnectResp403Headers
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CancelSupportConnectResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CancelSupportConnectResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r CancelSupportConnectResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CancelSupportConnectResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CancelSupportConnectResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CancelSupportConnectResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSupportConnectResp200Headers the declared response headers of an HTTP 200 response for GetSupportConnect
+type GetSupportConnectResp200Headers struct {
+	XRequestId *string
+}
+
+// GetSupportConnectResp401Headers the declared response headers of an HTTP 401 response for GetSupportConnect
+type GetSupportConnectResp401Headers struct {
+	XRequestId *string
+}
+
+// GetSupportConnectResp403Headers the declared response headers of an HTTP 403 response for GetSupportConnect
+type GetSupportConnectResp403Headers struct {
+	XRequestId *string
+}
+
+type GetSupportConnectResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSupportConnectResp200Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *GetSupportConnectResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *GetSupportConnectResp403Headers
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSupportConnectResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetSupportConnectResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSupportConnectResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSupportConnectResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSupportConnectResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSupportConnectResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// StartSupportConnectResp200Headers the declared response headers of an HTTP 200 response for StartSupportConnect
+type StartSupportConnectResp200Headers struct {
+	XRequestId *string
+}
+
+// StartSupportConnectResp401Headers the declared response headers of an HTTP 401 response for StartSupportConnect
+type StartSupportConnectResp401Headers struct {
+	XRequestId *string
+}
+
+// StartSupportConnectResp403Headers the declared response headers of an HTTP 403 response for StartSupportConnect
+type StartSupportConnectResp403Headers struct {
+	XRequestId *string
+}
+
+// StartSupportConnectResp404Headers the declared response headers of an HTTP 404 response for StartSupportConnect
+type StartSupportConnectResp404Headers struct {
+	XRequestId *string
+}
+
+// StartSupportConnectResp409Headers the declared response headers of an HTTP 409 response for StartSupportConnect
+type StartSupportConnectResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// StartSupportConnectResp429Headers the declared response headers of an HTTP 429 response for StartSupportConnect
+type StartSupportConnectResp429Headers struct {
+	XRequestId *string
+}
+
+// StartSupportConnectResp503Headers the declared response headers of an HTTP 503 response for StartSupportConnect
+type StartSupportConnectResp503Headers struct {
+	XRequestId *string
+}
+
+type StartSupportConnectResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *StartSupportConnectResp200Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *StartSupportConnectResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *StartSupportConnectResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *StartSupportConnectResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *StartSupportConnectResp409Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *StartSupportConnectResp429Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *StartSupportConnectResp503Headers
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r StartSupportConnectResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r StartSupportConnectResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r StartSupportConnectResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r StartSupportConnectResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r StartSupportConnectResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r StartSupportConnectResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r StartSupportConnectResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartSupportConnectResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartSupportConnectResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartSupportConnectResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RegisterSupportInstallationResp200Headers the declared response headers of an HTTP 200 response for RegisterSupportInstallation
+type RegisterSupportInstallationResp200Headers struct {
+	XRequestId *string
+}
+
+// RegisterSupportInstallationResp401Headers the declared response headers of an HTTP 401 response for RegisterSupportInstallation
+type RegisterSupportInstallationResp401Headers struct {
+	XRequestId *string
+}
+
+// RegisterSupportInstallationResp403Headers the declared response headers of an HTTP 403 response for RegisterSupportInstallation
+type RegisterSupportInstallationResp403Headers struct {
+	XRequestId *string
+}
+
+// RegisterSupportInstallationResp409Headers the declared response headers of an HTTP 409 response for RegisterSupportInstallation
+type RegisterSupportInstallationResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// RegisterSupportInstallationResp503Headers the declared response headers of an HTTP 503 response for RegisterSupportInstallation
+type RegisterSupportInstallationResp503Headers struct {
+	XRequestId *string
+}
+
+type RegisterSupportInstallationResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RegisterSupportInstallationResp200Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *RegisterSupportInstallationResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *RegisterSupportInstallationResp403Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *RegisterSupportInstallationResp409Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *RegisterSupportInstallationResp503Headers
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RegisterSupportInstallationResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RegisterSupportInstallationResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RegisterSupportInstallationResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RegisterSupportInstallationResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RegisterSupportInstallationResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RegisterSupportInstallationResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RegisterSupportInstallationResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RegisterSupportInstallationResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListSupportIssuesResp200Headers the declared response headers of an HTTP 200 response for ListSupportIssues
+type ListSupportIssuesResp200Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp400Headers the declared response headers of an HTTP 400 response for ListSupportIssues
+type ListSupportIssuesResp400Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp401Headers the declared response headers of an HTTP 401 response for ListSupportIssues
+type ListSupportIssuesResp401Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp402Headers the declared response headers of an HTTP 402 response for ListSupportIssues
+type ListSupportIssuesResp402Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp403Headers the declared response headers of an HTTP 403 response for ListSupportIssues
+type ListSupportIssuesResp403Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp404Headers the declared response headers of an HTTP 404 response for ListSupportIssues
+type ListSupportIssuesResp404Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp409Headers the declared response headers of an HTTP 409 response for ListSupportIssues
+type ListSupportIssuesResp409Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp413Headers the declared response headers of an HTTP 413 response for ListSupportIssues
+type ListSupportIssuesResp413Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp429Headers the declared response headers of an HTTP 429 response for ListSupportIssues
+type ListSupportIssuesResp429Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp502Headers the declared response headers of an HTTP 502 response for ListSupportIssues
+type ListSupportIssuesResp502Headers struct {
+	XRequestId *string
+}
+
+// ListSupportIssuesResp503Headers the declared response headers of an HTTP 503 response for ListSupportIssues
+type ListSupportIssuesResp503Headers struct {
+	XRequestId *string
+}
+
+type ListSupportIssuesResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSupportIssuesResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *ListSupportIssuesResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *ListSupportIssuesResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *ListSupportIssuesResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *ListSupportIssuesResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *ListSupportIssuesResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *ListSupportIssuesResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *ListSupportIssuesResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListSupportIssuesResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *ListSupportIssuesResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *ListSupportIssuesResp503Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSupportIssuesResp) GetJSON200() *map[string]interface{} {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSupportIssuesResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSupportIssuesResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r ListSupportIssuesResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListSupportIssuesResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSupportIssuesResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ListSupportIssuesResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r ListSupportIssuesResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r ListSupportIssuesResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r ListSupportIssuesResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ListSupportIssuesResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSupportIssuesResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSupportIssuesResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSupportIssuesResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSupportIssuesResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// CreateSupportIssueResp201Headers the declared response headers of an HTTP 201 response for CreateSupportIssue
+type CreateSupportIssueResp201Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp400Headers the declared response headers of an HTTP 400 response for CreateSupportIssue
+type CreateSupportIssueResp400Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp401Headers the declared response headers of an HTTP 401 response for CreateSupportIssue
+type CreateSupportIssueResp401Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp402Headers the declared response headers of an HTTP 402 response for CreateSupportIssue
+type CreateSupportIssueResp402Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp403Headers the declared response headers of an HTTP 403 response for CreateSupportIssue
+type CreateSupportIssueResp403Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp404Headers the declared response headers of an HTTP 404 response for CreateSupportIssue
+type CreateSupportIssueResp404Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp409Headers the declared response headers of an HTTP 409 response for CreateSupportIssue
+type CreateSupportIssueResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// CreateSupportIssueResp413Headers the declared response headers of an HTTP 413 response for CreateSupportIssue
+type CreateSupportIssueResp413Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp429Headers the declared response headers of an HTTP 429 response for CreateSupportIssue
+type CreateSupportIssueResp429Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp502Headers the declared response headers of an HTTP 502 response for CreateSupportIssue
+type CreateSupportIssueResp502Headers struct {
+	XRequestId *string
+}
+
+// CreateSupportIssueResp503Headers the declared response headers of an HTTP 503 response for CreateSupportIssue
+type CreateSupportIssueResp503Headers struct {
+	XRequestId *string
+}
+
+type CreateSupportIssueResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *CreateSupportIssueResp201Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *CreateSupportIssueResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *CreateSupportIssueResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *CreateSupportIssueResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *CreateSupportIssueResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *CreateSupportIssueResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *CreateSupportIssueResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *CreateSupportIssueResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CreateSupportIssueResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *CreateSupportIssueResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *CreateSupportIssueResp503Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateSupportIssueResp) GetJSON201() *map[string]interface{} {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateSupportIssueResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateSupportIssueResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r CreateSupportIssueResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateSupportIssueResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CreateSupportIssueResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateSupportIssueResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r CreateSupportIssueResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r CreateSupportIssueResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r CreateSupportIssueResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateSupportIssueResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateSupportIssueResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateSupportIssueResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateSupportIssueResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateSupportIssueResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSupportIssueResp200Headers the declared response headers of an HTTP 200 response for GetSupportIssue
+type GetSupportIssueResp200Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp400Headers the declared response headers of an HTTP 400 response for GetSupportIssue
+type GetSupportIssueResp400Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp401Headers the declared response headers of an HTTP 401 response for GetSupportIssue
+type GetSupportIssueResp401Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp402Headers the declared response headers of an HTTP 402 response for GetSupportIssue
+type GetSupportIssueResp402Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp403Headers the declared response headers of an HTTP 403 response for GetSupportIssue
+type GetSupportIssueResp403Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp404Headers the declared response headers of an HTTP 404 response for GetSupportIssue
+type GetSupportIssueResp404Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp409Headers the declared response headers of an HTTP 409 response for GetSupportIssue
+type GetSupportIssueResp409Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp413Headers the declared response headers of an HTTP 413 response for GetSupportIssue
+type GetSupportIssueResp413Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp429Headers the declared response headers of an HTTP 429 response for GetSupportIssue
+type GetSupportIssueResp429Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp502Headers the declared response headers of an HTTP 502 response for GetSupportIssue
+type GetSupportIssueResp502Headers struct {
+	XRequestId *string
+}
+
+// GetSupportIssueResp503Headers the declared response headers of an HTTP 503 response for GetSupportIssue
+type GetSupportIssueResp503Headers struct {
+	XRequestId *string
+}
+
+type GetSupportIssueResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSupportIssueResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *GetSupportIssueResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *GetSupportIssueResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *GetSupportIssueResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *GetSupportIssueResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *GetSupportIssueResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *GetSupportIssueResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *GetSupportIssueResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GetSupportIssueResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *GetSupportIssueResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *GetSupportIssueResp503Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSupportIssueResp) GetJSON200() *map[string]interface{} {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetSupportIssueResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSupportIssueResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r GetSupportIssueResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetSupportIssueResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetSupportIssueResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r GetSupportIssueResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r GetSupportIssueResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r GetSupportIssueResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r GetSupportIssueResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetSupportIssueResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSupportIssueResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSupportIssueResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSupportIssueResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSupportIssueResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// SetSupportIssueOpenResp204Headers the declared response headers of an HTTP 204 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp204Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp400Headers the declared response headers of an HTTP 400 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp400Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp401Headers the declared response headers of an HTTP 401 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp401Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp402Headers the declared response headers of an HTTP 402 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp402Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp403Headers the declared response headers of an HTTP 403 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp403Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp404Headers the declared response headers of an HTTP 404 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp404Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp409Headers the declared response headers of an HTTP 409 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp409Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp413Headers the declared response headers of an HTTP 413 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp413Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp429Headers the declared response headers of an HTTP 429 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp429Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp502Headers the declared response headers of an HTTP 502 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp502Headers struct {
+	XRequestId *string
+}
+
+// SetSupportIssueOpenResp503Headers the declared response headers of an HTTP 503 response for SetSupportIssueOpen
+type SetSupportIssueOpenResp503Headers struct {
+	XRequestId *string
+}
+
+type SetSupportIssueOpenResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *SetSupportIssueOpenResp204Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *SetSupportIssueOpenResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *SetSupportIssueOpenResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *SetSupportIssueOpenResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *SetSupportIssueOpenResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *SetSupportIssueOpenResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *SetSupportIssueOpenResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *SetSupportIssueOpenResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *SetSupportIssueOpenResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *SetSupportIssueOpenResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *SetSupportIssueOpenResp503Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r SetSupportIssueOpenResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r SetSupportIssueOpenResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetSupportIssueOpenResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetSupportIssueOpenResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetSupportIssueOpenResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AttachToSupportIssueResp200Headers the declared response headers of an HTTP 200 response for AttachToSupportIssue
+type AttachToSupportIssueResp200Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp400Headers the declared response headers of an HTTP 400 response for AttachToSupportIssue
+type AttachToSupportIssueResp400Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp401Headers the declared response headers of an HTTP 401 response for AttachToSupportIssue
+type AttachToSupportIssueResp401Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp402Headers the declared response headers of an HTTP 402 response for AttachToSupportIssue
+type AttachToSupportIssueResp402Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp403Headers the declared response headers of an HTTP 403 response for AttachToSupportIssue
+type AttachToSupportIssueResp403Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp404Headers the declared response headers of an HTTP 404 response for AttachToSupportIssue
+type AttachToSupportIssueResp404Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp409Headers the declared response headers of an HTTP 409 response for AttachToSupportIssue
+type AttachToSupportIssueResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp413Headers the declared response headers of an HTTP 413 response for AttachToSupportIssue
+type AttachToSupportIssueResp413Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp429Headers the declared response headers of an HTTP 429 response for AttachToSupportIssue
+type AttachToSupportIssueResp429Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp502Headers the declared response headers of an HTTP 502 response for AttachToSupportIssue
+type AttachToSupportIssueResp502Headers struct {
+	XRequestId *string
+}
+
+// AttachToSupportIssueResp503Headers the declared response headers of an HTTP 503 response for AttachToSupportIssue
+type AttachToSupportIssueResp503Headers struct {
+	XRequestId *string
+}
+
+type AttachToSupportIssueResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AttachToSupportIssueResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *AttachToSupportIssueResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *AttachToSupportIssueResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *AttachToSupportIssueResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *AttachToSupportIssueResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *AttachToSupportIssueResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *AttachToSupportIssueResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *AttachToSupportIssueResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *AttachToSupportIssueResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *AttachToSupportIssueResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *AttachToSupportIssueResp503Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON200() *map[string]interface{} {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r AttachToSupportIssueResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r AttachToSupportIssueResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AttachToSupportIssueResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AttachToSupportIssueResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AttachToSupportIssueResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// CommentSupportIssueResp201Headers the declared response headers of an HTTP 201 response for CommentSupportIssue
+type CommentSupportIssueResp201Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp400Headers the declared response headers of an HTTP 400 response for CommentSupportIssue
+type CommentSupportIssueResp400Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp401Headers the declared response headers of an HTTP 401 response for CommentSupportIssue
+type CommentSupportIssueResp401Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp402Headers the declared response headers of an HTTP 402 response for CommentSupportIssue
+type CommentSupportIssueResp402Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp403Headers the declared response headers of an HTTP 403 response for CommentSupportIssue
+type CommentSupportIssueResp403Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp404Headers the declared response headers of an HTTP 404 response for CommentSupportIssue
+type CommentSupportIssueResp404Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp409Headers the declared response headers of an HTTP 409 response for CommentSupportIssue
+type CommentSupportIssueResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// CommentSupportIssueResp413Headers the declared response headers of an HTTP 413 response for CommentSupportIssue
+type CommentSupportIssueResp413Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp429Headers the declared response headers of an HTTP 429 response for CommentSupportIssue
+type CommentSupportIssueResp429Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp502Headers the declared response headers of an HTTP 502 response for CommentSupportIssue
+type CommentSupportIssueResp502Headers struct {
+	XRequestId *string
+}
+
+// CommentSupportIssueResp503Headers the declared response headers of an HTTP 503 response for CommentSupportIssue
+type CommentSupportIssueResp503Headers struct {
+	XRequestId *string
+}
+
+type CommentSupportIssueResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *CommentSupportIssueResp201Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *CommentSupportIssueResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *CommentSupportIssueResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *CommentSupportIssueResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *CommentSupportIssueResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *CommentSupportIssueResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *CommentSupportIssueResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *CommentSupportIssueResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CommentSupportIssueResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *CommentSupportIssueResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *CommentSupportIssueResp503Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CommentSupportIssueResp) GetJSON201() *map[string]interface{} {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CommentSupportIssueResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CommentSupportIssueResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r CommentSupportIssueResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CommentSupportIssueResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CommentSupportIssueResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CommentSupportIssueResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r CommentSupportIssueResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r CommentSupportIssueResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r CommentSupportIssueResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CommentSupportIssueResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r CommentSupportIssueResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CommentSupportIssueResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CommentSupportIssueResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CommentSupportIssueResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AnswerSupportRequestResp201Headers the declared response headers of an HTTP 201 response for AnswerSupportRequest
+type AnswerSupportRequestResp201Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp400Headers the declared response headers of an HTTP 400 response for AnswerSupportRequest
+type AnswerSupportRequestResp400Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp401Headers the declared response headers of an HTTP 401 response for AnswerSupportRequest
+type AnswerSupportRequestResp401Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp402Headers the declared response headers of an HTTP 402 response for AnswerSupportRequest
+type AnswerSupportRequestResp402Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp403Headers the declared response headers of an HTTP 403 response for AnswerSupportRequest
+type AnswerSupportRequestResp403Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp404Headers the declared response headers of an HTTP 404 response for AnswerSupportRequest
+type AnswerSupportRequestResp404Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp409Headers the declared response headers of an HTTP 409 response for AnswerSupportRequest
+type AnswerSupportRequestResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp413Headers the declared response headers of an HTTP 413 response for AnswerSupportRequest
+type AnswerSupportRequestResp413Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp429Headers the declared response headers of an HTTP 429 response for AnswerSupportRequest
+type AnswerSupportRequestResp429Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp502Headers the declared response headers of an HTTP 502 response for AnswerSupportRequest
+type AnswerSupportRequestResp502Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestResp503Headers the declared response headers of an HTTP 503 response for AnswerSupportRequest
+type AnswerSupportRequestResp503Headers struct {
+	XRequestId *string
+}
+
+type AnswerSupportRequestResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *AnswerSupportRequestResp201Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *AnswerSupportRequestResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *AnswerSupportRequestResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *AnswerSupportRequestResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *AnswerSupportRequestResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *AnswerSupportRequestResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *AnswerSupportRequestResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *AnswerSupportRequestResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *AnswerSupportRequestResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *AnswerSupportRequestResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *AnswerSupportRequestResp503Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON201() *map[string]interface{} {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r AnswerSupportRequestResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r AnswerSupportRequestResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AnswerSupportRequestResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AnswerSupportRequestResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AnswerSupportRequestResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AnswerSupportRequestsResp201Headers the declared response headers of an HTTP 201 response for AnswerSupportRequests
+type AnswerSupportRequestsResp201Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp400Headers the declared response headers of an HTTP 400 response for AnswerSupportRequests
+type AnswerSupportRequestsResp400Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp401Headers the declared response headers of an HTTP 401 response for AnswerSupportRequests
+type AnswerSupportRequestsResp401Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp402Headers the declared response headers of an HTTP 402 response for AnswerSupportRequests
+type AnswerSupportRequestsResp402Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp403Headers the declared response headers of an HTTP 403 response for AnswerSupportRequests
+type AnswerSupportRequestsResp403Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp404Headers the declared response headers of an HTTP 404 response for AnswerSupportRequests
+type AnswerSupportRequestsResp404Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp409Headers the declared response headers of an HTTP 409 response for AnswerSupportRequests
+type AnswerSupportRequestsResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp413Headers the declared response headers of an HTTP 413 response for AnswerSupportRequests
+type AnswerSupportRequestsResp413Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp429Headers the declared response headers of an HTTP 429 response for AnswerSupportRequests
+type AnswerSupportRequestsResp429Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp502Headers the declared response headers of an HTTP 502 response for AnswerSupportRequests
+type AnswerSupportRequestsResp502Headers struct {
+	XRequestId *string
+}
+
+// AnswerSupportRequestsResp503Headers the declared response headers of an HTTP 503 response for AnswerSupportRequests
+type AnswerSupportRequestsResp503Headers struct {
+	XRequestId *string
+}
+
+type AnswerSupportRequestsResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON402 the response for an HTTP 402 `application/json` response
+	JSON402 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ErrorResponse
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *AnswerSupportRequestsResp201Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *AnswerSupportRequestsResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *AnswerSupportRequestsResp401Headers
+	// Headers402 the parsed response headers for an HTTP 402 response
+	Headers402 *AnswerSupportRequestsResp402Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *AnswerSupportRequestsResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *AnswerSupportRequestsResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *AnswerSupportRequestsResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *AnswerSupportRequestsResp413Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *AnswerSupportRequestsResp429Headers
+	// Headers502 the parsed response headers for an HTTP 502 response
+	Headers502 *AnswerSupportRequestsResp502Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *AnswerSupportRequestsResp503Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON201() *map[string]interface{} {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON402 returns the response for an HTTP 402 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON402() *ErrorResponse {
+	return r.JSON402
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON429() *ErrorResponse {
+	return r.JSON429
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON502() *ErrorResponse {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r AnswerSupportRequestsResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r AnswerSupportRequestsResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AnswerSupportRequestsResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AnswerSupportRequestsResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AnswerSupportRequestsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RunSupportPeerQueryResp200Headers the declared response headers of an HTTP 200 response for RunSupportPeerQuery
+type RunSupportPeerQueryResp200Headers struct {
+	XRequestId *string
+}
+
+// RunSupportPeerQueryResp400Headers the declared response headers of an HTTP 400 response for RunSupportPeerQuery
+type RunSupportPeerQueryResp400Headers struct {
+	XRequestId *string
+}
+
+// RunSupportPeerQueryResp401Headers the declared response headers of an HTTP 401 response for RunSupportPeerQuery
+type RunSupportPeerQueryResp401Headers struct {
+	XRequestId *string
+}
+
+// RunSupportPeerQueryResp403Headers the declared response headers of an HTTP 403 response for RunSupportPeerQuery
+type RunSupportPeerQueryResp403Headers struct {
+	XRequestId *string
+}
+
+// RunSupportPeerQueryResp409Headers the declared response headers of an HTTP 409 response for RunSupportPeerQuery
+type RunSupportPeerQueryResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+type RunSupportPeerQueryResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RunSupportPeerQueryResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *RunSupportPeerQueryResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *RunSupportPeerQueryResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *RunSupportPeerQueryResp403Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *RunSupportPeerQueryResp409Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RunSupportPeerQueryResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RunSupportPeerQueryResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RunSupportPeerQueryResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RunSupportPeerQueryResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r RunSupportPeerQueryResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RunSupportPeerQueryResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RunSupportPeerQueryResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RunSupportPeerQueryResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSupportPeersResp200Headers the declared response headers of an HTTP 200 response for GetSupportPeers
+type GetSupportPeersResp200Headers struct {
+	XRequestId *string
+}
+
+// GetSupportPeersResp401Headers the declared response headers of an HTTP 401 response for GetSupportPeers
+type GetSupportPeersResp401Headers struct {
+	XRequestId *string
+}
+
+// GetSupportPeersResp403Headers the declared response headers of an HTTP 403 response for GetSupportPeers
+type GetSupportPeersResp403Headers struct {
+	XRequestId *string
+}
+
+type GetSupportPeersResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSupportPeersResp200Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *GetSupportPeersResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *GetSupportPeersResp403Headers
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSupportPeersResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetSupportPeersResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSupportPeersResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSupportPeersResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSupportPeersResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSupportPeersResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// PreviewSupportBundleResp200Headers the declared response headers of an HTTP 200 response for PreviewSupportBundle
+type PreviewSupportBundleResp200Headers struct {
+	XRequestId *string
+}
+
+// PreviewSupportBundleResp400Headers the declared response headers of an HTTP 400 response for PreviewSupportBundle
+type PreviewSupportBundleResp400Headers struct {
+	XRequestId *string
+}
+
+// PreviewSupportBundleResp401Headers the declared response headers of an HTTP 401 response for PreviewSupportBundle
+type PreviewSupportBundleResp401Headers struct {
+	XRequestId *string
+}
+
+// PreviewSupportBundleResp403Headers the declared response headers of an HTTP 403 response for PreviewSupportBundle
+type PreviewSupportBundleResp403Headers struct {
+	XRequestId *string
+}
+
+// PreviewSupportBundleResp409Headers the declared response headers of an HTTP 409 response for PreviewSupportBundle
+type PreviewSupportBundleResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// PreviewSupportBundleResp413Headers the declared response headers of an HTTP 413 response for PreviewSupportBundle
+type PreviewSupportBundleResp413Headers struct {
+	XRequestId *string
+}
+
+// PreviewSupportBundleResp500Headers the declared response headers of an HTTP 500 response for PreviewSupportBundle
+type PreviewSupportBundleResp500Headers struct {
+	XRequestId *string
+}
+
+type PreviewSupportBundleResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SupportPreview
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *PreviewSupportBundleResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *PreviewSupportBundleResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *PreviewSupportBundleResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *PreviewSupportBundleResp403Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *PreviewSupportBundleResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *PreviewSupportBundleResp413Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *PreviewSupportBundleResp500Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PreviewSupportBundleResp) GetJSON200() *SupportPreview {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r PreviewSupportBundleResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PreviewSupportBundleResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r PreviewSupportBundleResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r PreviewSupportBundleResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r PreviewSupportBundleResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r PreviewSupportBundleResp) GetJSON500() *ErrorResponse {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r PreviewSupportBundleResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PreviewSupportBundleResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PreviewSupportBundleResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PreviewSupportBundleResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// UnregisterSupportResp204Headers the declared response headers of an HTTP 204 response for UnregisterSupport
+type UnregisterSupportResp204Headers struct {
+	XRequestId *string
+}
+
+// UnregisterSupportResp401Headers the declared response headers of an HTTP 401 response for UnregisterSupport
+type UnregisterSupportResp401Headers struct {
+	XRequestId *string
+}
+
+// UnregisterSupportResp403Headers the declared response headers of an HTTP 403 response for UnregisterSupport
+type UnregisterSupportResp403Headers struct {
+	XRequestId *string
+}
+
+// UnregisterSupportResp409Headers the declared response headers of an HTTP 409 response for UnregisterSupport
+type UnregisterSupportResp409Headers struct {
+	XRequestId *string
+}
+
+type UnregisterSupportResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *UnregisterSupportResp204Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *UnregisterSupportResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *UnregisterSupportResp403Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *UnregisterSupportResp409Headers
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UnregisterSupportResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UnregisterSupportResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UnregisterSupportResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r UnregisterSupportResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UnregisterSupportResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UnregisterSupportResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UnregisterSupportResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RegisterSupportResp200Headers the declared response headers of an HTTP 200 response for RegisterSupport
+type RegisterSupportResp200Headers struct {
+	XRequestId *string
+}
+
+// RegisterSupportResp400Headers the declared response headers of an HTTP 400 response for RegisterSupport
+type RegisterSupportResp400Headers struct {
+	XRequestId *string
+}
+
+// RegisterSupportResp401Headers the declared response headers of an HTTP 401 response for RegisterSupport
+type RegisterSupportResp401Headers struct {
+	XRequestId *string
+}
+
+// RegisterSupportResp403Headers the declared response headers of an HTTP 403 response for RegisterSupport
+type RegisterSupportResp403Headers struct {
+	XRequestId *string
+}
+
+// RegisterSupportResp409Headers the declared response headers of an HTTP 409 response for RegisterSupport
+type RegisterSupportResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// RegisterSupportResp503Headers the declared response headers of an HTTP 503 response for RegisterSupport
+type RegisterSupportResp503Headers struct {
+	XRequestId *string
+}
+
+type RegisterSupportResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SupportStatus
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RegisterSupportResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *RegisterSupportResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *RegisterSupportResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *RegisterSupportResp403Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *RegisterSupportResp409Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *RegisterSupportResp503Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RegisterSupportResp) GetJSON200() *SupportStatus {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RegisterSupportResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RegisterSupportResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RegisterSupportResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RegisterSupportResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RegisterSupportResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RegisterSupportResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RegisterSupportResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RegisterSupportResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RegisterSupportResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// StageSupportScreenshotResp201Headers the declared response headers of an HTTP 201 response for StageSupportScreenshot
+type StageSupportScreenshotResp201Headers struct {
+	XRequestId *string
+}
+
+// StageSupportScreenshotResp400Headers the declared response headers of an HTTP 400 response for StageSupportScreenshot
+type StageSupportScreenshotResp400Headers struct {
+	XRequestId *string
+}
+
+// StageSupportScreenshotResp401Headers the declared response headers of an HTTP 401 response for StageSupportScreenshot
+type StageSupportScreenshotResp401Headers struct {
+	XRequestId *string
+}
+
+// StageSupportScreenshotResp403Headers the declared response headers of an HTTP 403 response for StageSupportScreenshot
+type StageSupportScreenshotResp403Headers struct {
+	XRequestId *string
+}
+
+// StageSupportScreenshotResp409Headers the declared response headers of an HTTP 409 response for StageSupportScreenshot
+type StageSupportScreenshotResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// StageSupportScreenshotResp413Headers the declared response headers of an HTTP 413 response for StageSupportScreenshot
+type StageSupportScreenshotResp413Headers struct {
+	XRequestId *string
+}
+
+type StageSupportScreenshotResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *map[string]interface{}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *ErrorResponse
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *StageSupportScreenshotResp201Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *StageSupportScreenshotResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *StageSupportScreenshotResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *StageSupportScreenshotResp403Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *StageSupportScreenshotResp409Headers
+	// Headers413 the parsed response headers for an HTTP 413 response
+	Headers413 *StageSupportScreenshotResp413Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r StageSupportScreenshotResp) GetJSON201() *map[string]interface{} {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r StageSupportScreenshotResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r StageSupportScreenshotResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r StageSupportScreenshotResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r StageSupportScreenshotResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r StageSupportScreenshotResp) GetJSON413() *ErrorResponse {
+	return r.JSON413
+}
+
+// GetBody returns the raw response body bytes
+func (r StageSupportScreenshotResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StageSupportScreenshotResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StageSupportScreenshotResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StageSupportScreenshotResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// DiscardSupportScreenshotResp204Headers the declared response headers of an HTTP 204 response for DiscardSupportScreenshot
+type DiscardSupportScreenshotResp204Headers struct {
+	XRequestId *string
+}
+
+// DiscardSupportScreenshotResp401Headers the declared response headers of an HTTP 401 response for DiscardSupportScreenshot
+type DiscardSupportScreenshotResp401Headers struct {
+	XRequestId *string
+}
+
+// DiscardSupportScreenshotResp403Headers the declared response headers of an HTTP 403 response for DiscardSupportScreenshot
+type DiscardSupportScreenshotResp403Headers struct {
+	XRequestId *string
+}
+
+type DiscardSupportScreenshotResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *DiscardSupportScreenshotResp204Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *DiscardSupportScreenshotResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *DiscardSupportScreenshotResp403Headers
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DiscardSupportScreenshotResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DiscardSupportScreenshotResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r DiscardSupportScreenshotResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DiscardSupportScreenshotResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DiscardSupportScreenshotResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DiscardSupportScreenshotResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // DeleteUserResp200Headers the declared response headers of an HTTP 200 response for DeleteUser
 type DeleteUserResp200Headers struct {
 	XRequestId *string
@@ -21787,6 +27066,486 @@ func (c *ClientWithResponses) CreateOrUpdateGroupWithResponse(ctx context.Contex
 	return ParseCreateOrUpdateGroupResp(rsp)
 }
 
+// GetSupportStatusWithResponse Read the support registration of this server
+//
+// Whether the server is registered with the ArcadeData customer portal, and the workspace, plan and first-response times the portal reports. The Client key is never returned, only its last four characters ('keyHint'). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/server/support (the `GetSupportStatus` operationId).
+func (c *ClientWithResponses) GetSupportStatusWithResponse(ctx context.Context, params *GetSupportStatusParams, reqEditors ...RequestEditorFn) (*GetSupportStatusResp, error) {
+	rsp, err := c.GetSupportStatus(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSupportStatusResp(rsp)
+}
+
+// DownloadSupportBundleWithBodyWithResponse Download the redacted support bundle
+//
+// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+func (c *ClientWithResponses) DownloadSupportBundleWithBodyWithResponse(ctx context.Context, params *DownloadSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DownloadSupportBundleResp, error) {
+	rsp, err := c.DownloadSupportBundleWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDownloadSupportBundleResp(rsp)
+}
+
+// DownloadSupportBundleWithResponse Download the redacted support bundle
+//
+// Streams the files of a preview as one zip (logs under logs/, diagnostics.json, summary.json, threads.txt): for the public GitHub path and offline sharing. Nothing is uploaded anywhere. Restricted to the root user.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/bundle (the `DownloadSupportBundle` operationId).
+func (c *ClientWithResponses) DownloadSupportBundleWithResponse(ctx context.Context, params *DownloadSupportBundleParams, body DownloadSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*DownloadSupportBundleResp, error) {
+	rsp, err := c.DownloadSupportBundle(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDownloadSupportBundleResp(rsp)
+}
+
+// CancelSupportConnectWithResponse Stop waiting for the approval
+//
+// Ends the wait. A key that was already received stays registered. Restricted to the root user.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/server/support/connect (the `CancelSupportConnect` operationId).
+func (c *ClientWithResponses) CancelSupportConnectWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*CancelSupportConnectResp, error) {
+	rsp, err := c.CancelSupportConnect(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCancelSupportConnectResp(rsp)
+}
+
+// GetSupportConnectWithResponse State of the connection to the portal
+//
+// {status: none|pending|connected|expired|denied|error|cancelled}; pending carries userCode, verifyUrl and expiresOn; connected carries workspaceName and registration (the outcome of registering the installation); error carries {error, message}. Restricted to the root user.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/server/support/connect (the `GetSupportConnect` operationId).
+func (c *ClientWithResponses) GetSupportConnectWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSupportConnectResp, error) {
+	rsp, err := c.GetSupportConnect(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSupportConnectResp(rsp)
+}
+
+// StartSupportConnectWithResponse Start connecting this server to the portal
+//
+// Asks the portal for a code ('device authorization'): answers {userCode, verifyUrl, expiresIn}. Studio shows the code and opens verifyUrl in a new tab; once a workspace owner or admin approves it there, the server receives the workspace key (never shown to the browser), stores it as a registration and registers itself as an installation. One connection waits at a time. Restricted to the root user (HTTP Basic). Without Studio, from a shell or the console ('connect portal'): `curl -s -u root:PASSWORD -X POST -H 'Content-Type: application/json' -d '{"label":"prod-1"}' http://localhost:2480/api/v1/server/support/connect` answers {"userCode":"WDJB-MJHT","verifyUrl":"https://portal.arcadedb.com/#/connect?code=WDJB-MJHT","expiresIn":600}; open verifyUrl in any browser, check that the code matches and approve; then `curl -s -u root:PASSWORD http://localhost:2480/api/v1/server/support/connect` until status is no longer 'pending' (every 2 seconds is plenty); `curl -s -u root:PASSWORD -X DELETE http://localhost:2480/api/v1/server/support/connect` stops waiting (204). The optional body field 'label' (up to 60 characters) names the key in the portal. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/connect (the `StartSupportConnect` operationId).
+func (c *ClientWithResponses) StartSupportConnectWithResponse(ctx context.Context, params *StartSupportConnectParams, reqEditors ...RequestEditorFn) (*StartSupportConnectResp, error) {
+	rsp, err := c.StartSupportConnect(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartSupportConnectResp(rsp)
+}
+
+// RegisterSupportInstallationWithResponse Register this server as an installation in the portal
+//
+// Sends the redacted diagnostics of this server to the portal, which creates the installation in the workspace of the Client key, or completes the blank fields of the one it already has. Answers {status: created|updated|unchanged, installationId, name, filled, differs}. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/installation (the `RegisterSupportInstallation` operationId).
+func (c *ClientWithResponses) RegisterSupportInstallationWithResponse(ctx context.Context, params *RegisterSupportInstallationParams, reqEditors ...RequestEditorFn) (*RegisterSupportInstallationResp, error) {
+	rsp, err := c.RegisterSupportInstallation(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRegisterSupportInstallationResp(rsp)
+}
+
+// ListSupportIssuesWithResponse List the support issues of the workspace
+//
+// Proxy of the portal list (only public timeline data). The body is the portal's, unchanged, with the Client key scrubbed. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/server/support/issues (the `ListSupportIssues` operationId).
+func (c *ClientWithResponses) ListSupportIssuesWithResponse(ctx context.Context, params *ListSupportIssuesParams, reqEditors ...RequestEditorFn) (*ListSupportIssuesResp, error) {
+	rsp, err := c.ListSupportIssues(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSupportIssuesResp(rsp)
+}
+
+// CreateSupportIssueWithBodyWithResponse Open a support issue
+//
+// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+func (c *ClientWithResponses) CreateSupportIssueWithBodyWithResponse(ctx context.Context, params *CreateSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateSupportIssueResp, error) {
+	rsp, err := c.CreateSupportIssueWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSupportIssueResp(rsp)
+}
+
+// CreateSupportIssueWithResponse Open a support issue
+//
+// Opens an issue in the portal, attaching the files of the preview 'previewId' (when given) exactly as previewed. Needs a registration whose plan is active (402 support_not_active otherwise). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues (the `CreateSupportIssue` operationId).
+func (c *ClientWithResponses) CreateSupportIssueWithResponse(ctx context.Context, params *CreateSupportIssueParams, body CreateSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateSupportIssueResp, error) {
+	rsp, err := c.CreateSupportIssue(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateSupportIssueResp(rsp)
+}
+
+// GetSupportIssueWithResponse Read a support issue
+//
+// Proxy of the portal issue with its public timeline. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/server/support/issues/{number} (the `GetSupportIssue` operationId).
+func (c *ClientWithResponses) GetSupportIssueWithResponse(ctx context.Context, number string, reqEditors ...RequestEditorFn) (*GetSupportIssueResp, error) {
+	rsp, err := c.GetSupportIssue(ctx, number, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSupportIssueResp(rsp)
+}
+
+// SetSupportIssueOpenWithBodyWithResponse Close or reopen a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+func (c *ClientWithResponses) SetSupportIssueOpenWithBodyWithResponse(ctx context.Context, number string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetSupportIssueOpenResp, error) {
+	rsp, err := c.SetSupportIssueOpenWithBody(ctx, number, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetSupportIssueOpenResp(rsp)
+}
+
+// SetSupportIssueOpenWithResponse Close or reopen a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/server/support/issues/{number} (the `SetSupportIssueOpen` operationId).
+func (c *ClientWithResponses) SetSupportIssueOpenWithResponse(ctx context.Context, number string, body SetSupportIssueOpenJSONRequestBody, reqEditors ...RequestEditorFn) (*SetSupportIssueOpenResp, error) {
+	rsp, err := c.SetSupportIssueOpen(ctx, number, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetSupportIssueOpenResp(rsp)
+}
+
+// AttachToSupportIssueWithBodyWithResponse Send more files to a support issue
+//
+// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+func (c *ClientWithResponses) AttachToSupportIssueWithBodyWithResponse(ctx context.Context, number string, params *AttachToSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AttachToSupportIssueResp, error) {
+	rsp, err := c.AttachToSupportIssueWithBody(ctx, number, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAttachToSupportIssueResp(rsp)
+}
+
+// AttachToSupportIssueWithResponse Send more files to a support issue
+//
+// Sends the files of a preview to an existing issue. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/attachments (the `AttachToSupportIssue` operationId).
+func (c *ClientWithResponses) AttachToSupportIssueWithResponse(ctx context.Context, number string, params *AttachToSupportIssueParams, body AttachToSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*AttachToSupportIssueResp, error) {
+	rsp, err := c.AttachToSupportIssue(ctx, number, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAttachToSupportIssueResp(rsp)
+}
+
+// CommentSupportIssueWithBodyWithResponse Reply on a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+func (c *ClientWithResponses) CommentSupportIssueWithBodyWithResponse(ctx context.Context, number string, params *CommentSupportIssueParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CommentSupportIssueResp, error) {
+	rsp, err := c.CommentSupportIssueWithBody(ctx, number, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCommentSupportIssueResp(rsp)
+}
+
+// CommentSupportIssueWithResponse Reply on a support issue
+//
+// Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/comments (the `CommentSupportIssue` operationId).
+func (c *ClientWithResponses) CommentSupportIssueWithResponse(ctx context.Context, number string, params *CommentSupportIssueParams, body CommentSupportIssueJSONRequestBody, reqEditors ...RequestEditorFn) (*CommentSupportIssueResp, error) {
+	rsp, err := c.CommentSupportIssue(ctx, number, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCommentSupportIssueResp(rsp)
+}
+
+// AnswerSupportRequestWithBodyWithResponse Answer a support request
+//
+// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+func (c *ClientWithResponses) AnswerSupportRequestWithBodyWithResponse(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerSupportRequestResp, error) {
+	rsp, err := c.AnswerSupportRequestWithBody(ctx, number, requestId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerSupportRequestResp(rsp)
+}
+
+// AnswerSupportRequestWithResponse Answer a support request
+//
+// Staff can ask for the result of a read-only query. The browser runs it through the ordinary query endpoint, then sends the result (or a decline, or the failure) here and the server forwards it to the portal, which turns it into a client comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/requests/{requestId}/response (the `AnswerSupportRequest` operationId).
+func (c *ClientWithResponses) AnswerSupportRequestWithResponse(ctx context.Context, number string, requestId string, params *AnswerSupportRequestParams, body AnswerSupportRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerSupportRequestResp, error) {
+	rsp, err := c.AnswerSupportRequest(ctx, number, requestId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerSupportRequestResp(rsp)
+}
+
+// AnswerSupportRequestsWithBodyWithResponse Answer several support requests at once
+//
+// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+func (c *ClientWithResponses) AnswerSupportRequestsWithBodyWithResponse(ctx context.Context, number string, params *AnswerSupportRequestsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AnswerSupportRequestsResp, error) {
+	rsp, err := c.AnswerSupportRequestsWithBody(ctx, number, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerSupportRequestsResp(rsp)
+}
+
+// AnswerSupportRequestsWithResponse Answer several support requests at once
+//
+// As answering one, for "Run all": the portal writes ONE comment. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/issues/{number}/responses (the `AnswerSupportRequests` operationId).
+func (c *ClientWithResponses) AnswerSupportRequestsWithResponse(ctx context.Context, number string, params *AnswerSupportRequestsParams, body AnswerSupportRequestsJSONRequestBody, reqEditors ...RequestEditorFn) (*AnswerSupportRequestsResp, error) {
+	rsp, err := c.AnswerSupportRequests(ctx, number, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAnswerSupportRequestsResp(rsp)
+}
+
+// RunSupportPeerQueryWithBodyWithResponse Run a read-only support query on other cluster nodes
+//
+// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+func (c *ClientWithResponses) RunSupportPeerQueryWithBodyWithResponse(ctx context.Context, params *RunSupportPeerQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RunSupportPeerQueryResp, error) {
+	rsp, err := c.RunSupportPeerQueryWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunSupportPeerQueryResp(rsp)
+}
+
+// RunSupportPeerQueryWithResponse Run a read-only support query on other cluster nodes
+//
+// Runs the statement of a support request on the OTHER members of the cluster ('all' or one named node) and answers {ha, nodes: [{node, status: ok, records, truncated} | {node, status: failed, error}]}: a peer that cannot be reached, times out or refuses is its own row and never fails the request. The node that receives this call does not run the query on itself: Studio does that through the ordinary query endpoint. Each peer runs the statement through its ordinary idempotent query endpoint, so the engine of EACH peer refuses anything that is not read-only; peers are chosen from the cluster configuration by name, never by address, and the query runs on the peer with the permissions of the calling user. At most 16 peers, 8 at a time, 35 seconds and 4 MB each; SQL and OpenCypher only. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/peer-query (the `RunSupportPeerQuery` operationId).
+func (c *ClientWithResponses) RunSupportPeerQueryWithResponse(ctx context.Context, params *RunSupportPeerQueryParams, body RunSupportPeerQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*RunSupportPeerQueryResp, error) {
+	rsp, err := c.RunSupportPeerQuery(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunSupportPeerQueryResp(rsp)
+}
+
+// GetSupportPeersWithResponse The other members of the cluster, by name
+//
+// {ha: boolean, peers: [name]}: the names Studio offers as targets of a support request. No addresses are returned. Empty and ha=false when this server is not part of a cluster. Restricted to the root user.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/server/support/peers (the `GetSupportPeers` operationId).
+func (c *ClientWithResponses) GetSupportPeersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetSupportPeersResp, error) {
+	rsp, err := c.GetSupportPeers(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSupportPeersResp(rsp)
+}
+
+// PreviewSupportBundleWithBodyWithResponse Build and preview the redacted support bundle
+//
+// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+func (c *ClientWithResponses) PreviewSupportBundleWithBodyWithResponse(ctx context.Context, params *PreviewSupportBundleParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewSupportBundleResp, error) {
+	rsp, err := c.PreviewSupportBundleWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewSupportBundleResp(rsp)
+}
+
+// PreviewSupportBundleWithResponse Build and preview the redacted support bundle
+//
+// Collects the logs of a time window, the diagnostics snapshot and optionally a thread dump into a temporary directory, with secrets redacted BEFORE anything is written, and describes them: files, sizes, line counts and redaction counts per file, warnings. The preview lives 15 minutes; POST /server/support/issues sends exactly these files and POST /server/support/bundle downloads them. Log lines carry no time zone: they are written in the time zone of the server JVM, reported in 'logTimeZone', and the window is converted to it. An empty window is reported in 'warnings', not as an error; a window over 100 MB zipped is refused with 413 bundle_too_large. Works without registration. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/preview (the `PreviewSupportBundle` operationId).
+func (c *ClientWithResponses) PreviewSupportBundleWithResponse(ctx context.Context, params *PreviewSupportBundleParams, body PreviewSupportBundleJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewSupportBundleResp, error) {
+	rsp, err := c.PreviewSupportBundle(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewSupportBundleResp(rsp)
+}
+
+// UnregisterSupportWithResponse Remove the support registration
+//
+// Deletes support.json. A registration configured through the settings arcadedb.support.clientId and arcadedb.support.clientKey cannot be removed here. Restricted to the root user.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/server/support/register (the `UnregisterSupport` operationId).
+func (c *ClientWithResponses) UnregisterSupportWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*UnregisterSupportResp, error) {
+	rsp, err := c.UnregisterSupport(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUnregisterSupportResp(rsp)
+}
+
+// RegisterSupportWithBodyWithResponse Register this server with the support portal
+//
+// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+func (c *ClientWithResponses) RegisterSupportWithBodyWithResponse(ctx context.Context, params *RegisterSupportParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RegisterSupportResp, error) {
+	rsp, err := c.RegisterSupportWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRegisterSupportResp(rsp)
+}
+
+// RegisterSupportWithResponse Register this server with the support portal
+//
+// Verifies the Client ID and key with the portal ('whoami') and stores them in support.json of the server configuration directory (owner-only permissions). Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/register (the `RegisterSupport` operationId).
+func (c *ClientWithResponses) RegisterSupportWithResponse(ctx context.Context, params *RegisterSupportParams, body RegisterSupportJSONRequestBody, reqEditors ...RequestEditorFn) (*RegisterSupportResp, error) {
+	rsp, err := c.RegisterSupport(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRegisterSupportResp(rsp)
+}
+
+// StageSupportScreenshotWithBodyWithResponse Hold a screenshot until it is sent
+//
+// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+func (c *ClientWithResponses) StageSupportScreenshotWithBodyWithResponse(ctx context.Context, params *StageSupportScreenshotParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StageSupportScreenshotResp, error) {
+	rsp, err := c.StageSupportScreenshotWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStageSupportScreenshotResp(rsp)
+}
+
+// StageSupportScreenshotWithResponse Hold a screenshot until it is sent
+//
+// A user pastes, drops or picks a picture of what they see (a query result, an error). It is held in memory for 15 minutes, checked by its first bytes (PNG, JPEG, GIF or WebP; never SVG), at most 5 MB, and answered by id so the issue, the reply or the files can refer to it in `screenshots`. Nothing is sent to ArcadeData until then. Restricted to the root user. Errors carry a code in 'error' (invalid_key, client_mismatch, scope_denied, support_not_active, not_found, too_large, rate_limited, bad_request, portal_unreachable, portal_error, not_registered, preview_not_found, bundle_too_large, preview_busy, support_stopped) and a clear message in 'message'.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/server/support/screenshots (the `StageSupportScreenshot` operationId).
+func (c *ClientWithResponses) StageSupportScreenshotWithResponse(ctx context.Context, params *StageSupportScreenshotParams, body StageSupportScreenshotJSONRequestBody, reqEditors ...RequestEditorFn) (*StageSupportScreenshotResp, error) {
+	rsp, err := c.StageSupportScreenshot(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStageSupportScreenshotResp(rsp)
+}
+
+// DiscardSupportScreenshotWithResponse Remove a held screenshot
+//
+// The user removed it before sending. Unknown ids are not an error. Restricted to the root user.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/server/support/screenshots/{id} (the `DiscardSupportScreenshot` operationId).
+func (c *ClientWithResponses) DiscardSupportScreenshotWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*DiscardSupportScreenshotResp, error) {
+	rsp, err := c.DiscardSupportScreenshot(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDiscardSupportScreenshotResp(rsp)
+}
+
 // DeleteUserWithResponse Delete user
 //
 // Deletes a server user (root only). On an HA cluster the removal is replicated to every node as a Raft entry.
@@ -23617,6 +29376,13 @@ func ParseExecuteBatchResp(rsp *http.Response) (*ExecuteBatchResp, error) {
 				return nil, err
 			}
 			headers.XRequestId = &value
+		}
+		if values := rsp.Header.Values("arcadedb-session-id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "arcadedb-session-id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ArcadedbSessionId = &value
 		}
 		response.Headers200 = &headers
 	case rsp.StatusCode == 400:
@@ -28715,6 +34481,3059 @@ func ParseCreateOrUpdateGroupResp(rsp *http.Response) (*CreateOrUpdateGroupResp,
 			headers.XRequestId = &value
 		}
 		response.Headers504 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSupportStatusResp parses an HTTP response from a GetSupportStatusWithResponse call
+func ParseGetSupportStatusResp(rsp *http.Response) (*GetSupportStatusResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSupportStatusResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SupportStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSupportStatusResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 401:
+		var headers GetSupportStatusResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers GetSupportStatusResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 500:
+		var headers GetSupportStatusResp500Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers500 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseDownloadSupportBundleResp parses an HTTP response from a DownloadSupportBundleWithResponse call
+func ParseDownloadSupportBundleResp(rsp *http.Response) (*DownloadSupportBundleResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DownloadSupportBundleResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers DownloadSupportBundleResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers DownloadSupportBundleResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers DownloadSupportBundleResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers DownloadSupportBundleResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers DownloadSupportBundleResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers DownloadSupportBundleResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseCancelSupportConnectResp parses an HTTP response from a CancelSupportConnectWithResponse call
+func ParseCancelSupportConnectResp(rsp *http.Response) (*CancelSupportConnectResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CancelSupportConnectResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		var headers CancelSupportConnectResp204Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers204 = &headers
+	case rsp.StatusCode == 401:
+		var headers CancelSupportConnectResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers CancelSupportConnectResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSupportConnectResp parses an HTTP response from a GetSupportConnectWithResponse call
+func ParseGetSupportConnectResp(rsp *http.Response) (*GetSupportConnectResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSupportConnectResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSupportConnectResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 401:
+		var headers GetSupportConnectResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers GetSupportConnectResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseStartSupportConnectResp parses an HTTP response from a StartSupportConnectWithResponse call
+func ParseStartSupportConnectResp(rsp *http.Response) (*StartSupportConnectResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartSupportConnectResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers StartSupportConnectResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 401:
+		var headers StartSupportConnectResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers StartSupportConnectResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers StartSupportConnectResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers StartSupportConnectResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 429:
+		var headers StartSupportConnectResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 503:
+		var headers StartSupportConnectResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRegisterSupportInstallationResp parses an HTTP response from a RegisterSupportInstallationWithResponse call
+func ParseRegisterSupportInstallationResp(rsp *http.Response) (*RegisterSupportInstallationResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RegisterSupportInstallationResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RegisterSupportInstallationResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 401:
+		var headers RegisterSupportInstallationResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers RegisterSupportInstallationResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 409:
+		var headers RegisterSupportInstallationResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 503:
+		var headers RegisterSupportInstallationResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSupportIssuesResp parses an HTTP response from a ListSupportIssuesWithResponse call
+func ParseListSupportIssuesResp(rsp *http.Response) (*ListSupportIssuesResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSupportIssuesResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSupportIssuesResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers ListSupportIssuesResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers ListSupportIssuesResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers ListSupportIssuesResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers ListSupportIssuesResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers ListSupportIssuesResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers ListSupportIssuesResp409Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers ListSupportIssuesResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers ListSupportIssuesResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers ListSupportIssuesResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers ListSupportIssuesResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseCreateSupportIssueResp parses an HTTP response from a CreateSupportIssueWithResponse call
+func ParseCreateSupportIssueResp(rsp *http.Response) (*CreateSupportIssueResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateSupportIssueResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers CreateSupportIssueResp201Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 400:
+		var headers CreateSupportIssueResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers CreateSupportIssueResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers CreateSupportIssueResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers CreateSupportIssueResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers CreateSupportIssueResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers CreateSupportIssueResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers CreateSupportIssueResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers CreateSupportIssueResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers CreateSupportIssueResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers CreateSupportIssueResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSupportIssueResp parses an HTTP response from a GetSupportIssueWithResponse call
+func ParseGetSupportIssueResp(rsp *http.Response) (*GetSupportIssueResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSupportIssueResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSupportIssueResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers GetSupportIssueResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers GetSupportIssueResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers GetSupportIssueResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers GetSupportIssueResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers GetSupportIssueResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers GetSupportIssueResp409Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers GetSupportIssueResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers GetSupportIssueResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers GetSupportIssueResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers GetSupportIssueResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseSetSupportIssueOpenResp parses an HTTP response from a SetSupportIssueOpenWithResponse call
+func ParseSetSupportIssueOpenResp(rsp *http.Response) (*SetSupportIssueOpenResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetSupportIssueOpenResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		var headers SetSupportIssueOpenResp204Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers204 = &headers
+	case rsp.StatusCode == 400:
+		var headers SetSupportIssueOpenResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers SetSupportIssueOpenResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers SetSupportIssueOpenResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers SetSupportIssueOpenResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers SetSupportIssueOpenResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers SetSupportIssueOpenResp409Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers SetSupportIssueOpenResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers SetSupportIssueOpenResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers SetSupportIssueOpenResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers SetSupportIssueOpenResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAttachToSupportIssueResp parses an HTTP response from a AttachToSupportIssueWithResponse call
+func ParseAttachToSupportIssueResp(rsp *http.Response) (*AttachToSupportIssueResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AttachToSupportIssueResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AttachToSupportIssueResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers AttachToSupportIssueResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers AttachToSupportIssueResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers AttachToSupportIssueResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers AttachToSupportIssueResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers AttachToSupportIssueResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers AttachToSupportIssueResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers AttachToSupportIssueResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers AttachToSupportIssueResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers AttachToSupportIssueResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers AttachToSupportIssueResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseCommentSupportIssueResp parses an HTTP response from a CommentSupportIssueWithResponse call
+func ParseCommentSupportIssueResp(rsp *http.Response) (*CommentSupportIssueResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CommentSupportIssueResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers CommentSupportIssueResp201Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 400:
+		var headers CommentSupportIssueResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers CommentSupportIssueResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers CommentSupportIssueResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers CommentSupportIssueResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers CommentSupportIssueResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers CommentSupportIssueResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers CommentSupportIssueResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers CommentSupportIssueResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers CommentSupportIssueResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers CommentSupportIssueResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAnswerSupportRequestResp parses an HTTP response from a AnswerSupportRequestWithResponse call
+func ParseAnswerSupportRequestResp(rsp *http.Response) (*AnswerSupportRequestResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AnswerSupportRequestResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers AnswerSupportRequestResp201Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 400:
+		var headers AnswerSupportRequestResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers AnswerSupportRequestResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers AnswerSupportRequestResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers AnswerSupportRequestResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers AnswerSupportRequestResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers AnswerSupportRequestResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers AnswerSupportRequestResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers AnswerSupportRequestResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers AnswerSupportRequestResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers AnswerSupportRequestResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAnswerSupportRequestsResp parses an HTTP response from a AnswerSupportRequestsWithResponse call
+func ParseAnswerSupportRequestsResp(rsp *http.Response) (*AnswerSupportRequestsResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AnswerSupportRequestsResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 402:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON402 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers AnswerSupportRequestsResp201Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 400:
+		var headers AnswerSupportRequestsResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers AnswerSupportRequestsResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 402:
+		var headers AnswerSupportRequestsResp402Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers402 = &headers
+	case rsp.StatusCode == 403:
+		var headers AnswerSupportRequestsResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers AnswerSupportRequestsResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers AnswerSupportRequestsResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers AnswerSupportRequestsResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 429:
+		var headers AnswerSupportRequestsResp429Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers429 = &headers
+	case rsp.StatusCode == 502:
+		var headers AnswerSupportRequestsResp502Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers502 = &headers
+	case rsp.StatusCode == 503:
+		var headers AnswerSupportRequestsResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRunSupportPeerQueryResp parses an HTTP response from a RunSupportPeerQueryWithResponse call
+func ParseRunSupportPeerQueryResp(rsp *http.Response) (*RunSupportPeerQueryResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RunSupportPeerQueryResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RunSupportPeerQueryResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers RunSupportPeerQueryResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers RunSupportPeerQueryResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers RunSupportPeerQueryResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 409:
+		var headers RunSupportPeerQueryResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSupportPeersResp parses an HTTP response from a GetSupportPeersWithResponse call
+func ParseGetSupportPeersResp(rsp *http.Response) (*GetSupportPeersResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSupportPeersResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSupportPeersResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 401:
+		var headers GetSupportPeersResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers GetSupportPeersResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	}
+
+	return response, nil
+}
+
+// ParsePreviewSupportBundleResp parses an HTTP response from a PreviewSupportBundleWithResponse call
+func ParsePreviewSupportBundleResp(rsp *http.Response) (*PreviewSupportBundleResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PreviewSupportBundleResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SupportPreview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers PreviewSupportBundleResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers PreviewSupportBundleResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers PreviewSupportBundleResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers PreviewSupportBundleResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 409:
+		var headers PreviewSupportBundleResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers PreviewSupportBundleResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	case rsp.StatusCode == 500:
+		var headers PreviewSupportBundleResp500Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers500 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseUnregisterSupportResp parses an HTTP response from a UnregisterSupportWithResponse call
+func ParseUnregisterSupportResp(rsp *http.Response) (*UnregisterSupportResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UnregisterSupportResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		var headers UnregisterSupportResp204Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers204 = &headers
+	case rsp.StatusCode == 401:
+		var headers UnregisterSupportResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers UnregisterSupportResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 409:
+		var headers UnregisterSupportResp409Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRegisterSupportResp parses an HTTP response from a RegisterSupportWithResponse call
+func ParseRegisterSupportResp(rsp *http.Response) (*RegisterSupportResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RegisterSupportResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SupportStatus
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RegisterSupportResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers RegisterSupportResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers RegisterSupportResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers RegisterSupportResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 409:
+		var headers RegisterSupportResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 503:
+		var headers RegisterSupportResp503Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseStageSupportScreenshotResp parses an HTTP response from a StageSupportScreenshotWithResponse call
+func ParseStageSupportScreenshotResp(rsp *http.Response) (*StageSupportScreenshotResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StageSupportScreenshotResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers StageSupportScreenshotResp201Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 400:
+		var headers StageSupportScreenshotResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers StageSupportScreenshotResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers StageSupportScreenshotResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 409:
+		var headers StageSupportScreenshotResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 413:
+		var headers StageSupportScreenshotResp413Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers413 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseDiscardSupportScreenshotResp parses an HTTP response from a DiscardSupportScreenshotWithResponse call
+func ParseDiscardSupportScreenshotResp(rsp *http.Response) (*DiscardSupportScreenshotResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DiscardSupportScreenshotResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		var headers DiscardSupportScreenshotResp204Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers204 = &headers
+	case rsp.StatusCode == 401:
+		var headers DiscardSupportScreenshotResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers DiscardSupportScreenshotResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
 	}
 
 	return response, nil

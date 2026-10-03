@@ -24,19 +24,25 @@ class AiChatStreamEvent:
 
         Attributes:
             type_ (AiChatStreamEventType): Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran
-                locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never
-                appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the
-                gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
+                locally, and 'done' terminates a complete stream. 'error' terminates a stream cut short after it started - the
+                gateway's connection dropped or fell silent - and says why; no 'done' follows it. The gateway's own 'session'
+                and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any
+                OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise
+                rather than failing on it.
             args (AiChatStreamEventArgs | Unset): Arguments the assistant passed to the tool, echoed identically on
                 'tool_start' and 'tool_end'. An open map: the keys are the tool's own parameters.
             chat_id (str | Unset): Chat this exchange belongs to, on 'done'. Added by this server, not by the gateway, and
                 the chat is persisted before this event is written - so a client that has seen it can read the chat back
                 immediately.
+            code (str | Unset): Machine-readable reason, on 'error' only: 'gateway_interrupted' when the gateway's
+                connection dropped, 'gateway_timeout' when it stopped sending, 'internal_error' otherwise. The same vocabulary
+                as the 'code' member of the error bodies the chat operations answer before a stream starts. The interrupted
+                exchange was not persisted.
             commands (list[AiCommand] | Unset): SQL commands the assistant proposes, on 'done'. Absent or empty when it
                 proposes none
-            error (str | Unset): Why the tool failed, on 'tool_end' only, and only when it did. Its absence is what says the
-                run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the
-                caller.
+            error (str | Unset): Why the tool failed, on 'tool_end', and only when it did. Its absence is what says the run
+                succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the
+                caller. On an 'error' event, a message fit to show the user saying why the stream ended early.
             response (str | Unset): The assistant's reply, on 'done'. The same value POST /api/v1/ai/chat returns under this
                 name
             tool (str | Unset): Name of the tool being run, on 'tool_start' and 'tool_end'. The same name appears on both,
@@ -46,6 +52,7 @@ class AiChatStreamEvent:
     type_: AiChatStreamEventType
     args: AiChatStreamEventArgs | Unset = UNSET
     chat_id: str | Unset = UNSET
+    code: str | Unset = UNSET
     commands: list[AiCommand] | Unset = UNSET
     error: str | Unset = UNSET
     response: str | Unset = UNSET
@@ -60,6 +67,8 @@ class AiChatStreamEvent:
             args = self.args.to_dict()
 
         chat_id = self.chat_id
+
+        code = self.code
 
         commands: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.commands, Unset):
@@ -85,6 +94,8 @@ class AiChatStreamEvent:
             field_dict["args"] = args
         if chat_id is not UNSET:
             field_dict["chatId"] = chat_id
+        if code is not UNSET:
+            field_dict["code"] = code
         if commands is not UNSET:
             field_dict["commands"] = commands
         if error is not UNSET:
@@ -113,6 +124,8 @@ class AiChatStreamEvent:
 
         chat_id = d.pop("chatId", UNSET)
 
+        code = d.pop("code", UNSET)
+
         _commands = d.pop("commands", UNSET)
         commands: list[AiCommand] | Unset = UNSET
         if _commands is not UNSET:
@@ -132,6 +145,7 @@ class AiChatStreamEvent:
             type_=type_,
             args=args,
             chat_id=chat_id,
+            code=code,
             commands=commands,
             error=error,
             response=response,

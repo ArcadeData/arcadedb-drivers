@@ -5613,9 +5613,13 @@ type TimeSeriesAggregation struct {
 	BucketIntervalMs int64 `protobuf:"varint,1,opt,name=bucket_interval_ms,json=bucketIntervalMs,proto3" json:"bucket_interval_ms,omitempty"`
 	// At least one aggregation to compute. An empty list is refused with INVALID_ARGUMENT, on this RPC and on
 	// both HTTP endpoints (issue #7675).
-	Requests      []*TimeSeriesAggregationRequest `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Requests []*TimeSeriesAggregationRequest `protobuf:"bytes,2,rep,name=requests,proto3" json:"requests,omitempty"`
+	// Where the bucket grid starts, in epoch milliseconds: buckets are multiples of the interval counted from here. Zero
+	// (the default) is the Unix epoch, a Thursday, so a one-week bucket starts on a Thursday; a Monday origin gives
+	// Monday weeks and a local-midnight origin gives local days (issue #8798).
+	BucketOriginMs int64 `protobuf:"varint,3,opt,name=bucket_origin_ms,json=bucketOriginMs,proto3" json:"bucket_origin_ms,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TimeSeriesAggregation) Reset() {
@@ -5660,6 +5664,13 @@ func (x *TimeSeriesAggregation) GetRequests() []*TimeSeriesAggregationRequest {
 		return x.Requests
 	}
 	return nil
+}
+
+func (x *TimeSeriesAggregation) GetBucketOriginMs() int64 {
+	if x != nil {
+		return x.BucketOriginMs
+	}
+	return 0
 }
 
 type TimeSeriesQueryRequest struct {
@@ -8366,7 +8377,10 @@ type ApiTokenInfo struct {
 	// SHA-256 of the token. This is the handle DeleteApiToken takes.
 	TokenHash string `protobuf:"bytes,6,opt,name=token_hash,json=tokenHash,proto3" json:"token_hash,omitempty"`
 	// The token's last four characters, so an operator can tell two tokens apart in a list.
-	TokenSuffix   string `protobuf:"bytes,7,opt,name=token_suffix,json=tokenSuffix,proto3" json:"token_suffix,omitempty"`
+	TokenSuffix string `protobuf:"bytes,7,opt,name=token_suffix,json=tokenSuffix,proto3" json:"token_suffix,omitempty"`
+	// Whether the token's expiry has passed, derived by the server at listing time (issue #7601) so the caller does not
+	// compare expires_at against its own clock. Set by the listing only; a freshly minted token reports false.
+	Expired       bool `protobuf:"varint,8,opt,name=expired,proto3" json:"expired,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8448,6 +8462,13 @@ func (x *ApiTokenInfo) GetTokenSuffix() string {
 		return x.TokenSuffix
 	}
 	return ""
+}
+
+func (x *ApiTokenInfo) GetExpired() bool {
+	if x != nil {
+		return x.Expired
+	}
+	return false
 }
 
 type ListApiTokensRequest struct {
@@ -11724,10 +11745,11 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x1cTimeSeriesAggregationRequest\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12@\n" +
 	"\x04type\x18\x02 \x01(\x0e2,.com.arcadedb.grpc.TimeSeriesAggregationTypeR\x04type\x12\x14\n" +
-	"\x05alias\x18\x03 \x01(\tR\x05alias\"\x92\x01\n" +
+	"\x05alias\x18\x03 \x01(\tR\x05alias\"\xbc\x01\n" +
 	"\x15TimeSeriesAggregation\x12,\n" +
 	"\x12bucket_interval_ms\x18\x01 \x01(\x03R\x10bucketIntervalMs\x12K\n" +
-	"\brequests\x18\x02 \x03(\v2/.com.arcadedb.grpc.TimeSeriesAggregationRequestR\brequests\"\xa8\x04\n" +
+	"\brequests\x18\x02 \x03(\v2/.com.arcadedb.grpc.TimeSeriesAggregationRequestR\brequests\x12(\n" +
+	"\x10bucket_origin_ms\x18\x03 \x01(\x03R\x0ebucketOriginMs\"\xa8\x04\n" +
 	"\x16TimeSeriesQueryRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12H\n" +
 	"\vcredentials\x18\x02 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\x12\x12\n" +
@@ -11919,7 +11941,7 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x04name\x18\x03 \x01(\tR\x04name\"I\n" +
 	"\x13DeleteGroupResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xe9\x01\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x83\x02\n" +
 	"\fApiTokenInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1d\n" +
@@ -11930,7 +11952,8 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x10permissions_json\x18\x05 \x01(\tR\x0fpermissionsJson\x12\x1d\n" +
 	"\n" +
 	"token_hash\x18\x06 \x01(\tR\ttokenHash\x12!\n" +
-	"\ftoken_suffix\x18\a \x01(\tR\vtokenSuffix\"`\n" +
+	"\ftoken_suffix\x18\a \x01(\tR\vtokenSuffix\x12\x18\n" +
+	"\aexpired\x18\b \x01(\bR\aexpired\"`\n" +
 	"\x14ListApiTokensRequest\x12H\n" +
 	"\vcredentials\x18\x01 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\"P\n" +
 	"\x15ListApiTokensResponse\x127\n" +

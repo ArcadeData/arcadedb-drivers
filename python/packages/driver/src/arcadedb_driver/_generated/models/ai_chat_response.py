@@ -9,6 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.ai_chat_response_charts_item import AiChatResponseChartsItem
     from ..models.ai_command import AiCommand
     from ..models.ai_tool_call import AiToolCall
 
@@ -23,12 +24,15 @@ class AiChatResponse:
     Attributes:
         chat_id (str): Chat this exchange belongs to, for continuing the conversation
         response (str): Assistant message
+        charts (list[AiChatResponseChartsItem] | Unset): Charts the assistant asks Studio to draw (at most 3, validated
+            by this server). Absent when it asks for none.
         commands (list[AiCommand] | Unset): SQL commands the assistant proposes. Absent when it proposes none.
         tool_calls (list[AiToolCall] | Unset): Tools the assistant invoked while answering. Absent when it invoked none.
     """
 
     chat_id: str
     response: str
+    charts: list[AiChatResponseChartsItem] | Unset = UNSET
     commands: list[AiCommand] | Unset = UNSET
     tool_calls: list[AiToolCall] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -37,6 +41,13 @@ class AiChatResponse:
         chat_id = self.chat_id
 
         response = self.response
+
+        charts: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.charts, Unset):
+            charts = []
+            for charts_item_data in self.charts:
+                charts_item = charts_item_data.to_dict()
+                charts.append(charts_item)
 
         commands: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.commands, Unset):
@@ -60,6 +71,8 @@ class AiChatResponse:
                 "response": response,
             }
         )
+        if charts is not UNSET:
+            field_dict["charts"] = charts
         if commands is not UNSET:
             field_dict["commands"] = commands
         if tool_calls is not UNSET:
@@ -69,6 +82,7 @@ class AiChatResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.ai_chat_response_charts_item import AiChatResponseChartsItem
         from ..models.ai_command import AiCommand
         from ..models.ai_tool_call import AiToolCall
 
@@ -76,6 +90,15 @@ class AiChatResponse:
         chat_id = d.pop("chatId")
 
         response = d.pop("response")
+
+        _charts = d.pop("charts", UNSET)
+        charts: list[AiChatResponseChartsItem] | Unset = UNSET
+        if _charts is not UNSET:
+            charts = []
+            for charts_item_data in _charts:
+                charts_item = AiChatResponseChartsItem.from_dict(charts_item_data)
+
+                charts.append(charts_item)
 
         _commands = d.pop("commands", UNSET)
         commands: list[AiCommand] | Unset = UNSET
@@ -98,6 +121,7 @@ class AiChatResponse:
         ai_chat_response = cls(
             chat_id=chat_id,
             response=response,
+            charts=charts,
             commands=commands,
             tool_calls=tool_calls,
         )

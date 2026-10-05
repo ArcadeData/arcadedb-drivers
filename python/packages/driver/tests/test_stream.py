@@ -154,7 +154,9 @@ def test_query_stream_yields_nothing_and_does_not_raise_for_an_empty_stream() ->
 @respx.mock
 def test_query_stream_raises_arcadedb_error_on_an_in_band_error_event_after_delivering_prior_events() -> None:
     respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(
-        return_value=httpx.Response(200, content=_lines({"record": {"a": 1}}, {"error": {"message": "boom"}}))
+        return_value=httpx.Response(
+            200, content=_lines({"record": {"a": 1}}, {"error": {"message": "boom", "status": 500}})
+        )
     )
     seen: list[NdJsonQueryEvent] = []
     with server() as srv, pytest.raises(ArcadeDBError) as caught:
@@ -283,7 +285,9 @@ async def test_async_query_stream_keeps_a_record_containing_u2028_intact() -> No
 @pytest.mark.asyncio
 async def test_async_query_stream_raises_arcadedb_error_on_an_in_band_error_event() -> None:
     respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(
-        return_value=httpx.Response(200, content=_lines({"record": {"a": 1}}, {"error": {"message": "boom"}}))
+        return_value=httpx.Response(
+            200, content=_lines({"record": {"a": 1}}, {"error": {"message": "boom", "status": 500}})
+        )
     )
     seen: list[NdJsonQueryEvent] = []
     async with async_server() as srv:

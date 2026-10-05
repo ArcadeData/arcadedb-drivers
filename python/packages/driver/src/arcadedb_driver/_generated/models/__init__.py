@@ -10,20 +10,28 @@ from .ai_chat import AiChat
 from .ai_chat_deleted import AiChatDeleted
 from .ai_chat_list import AiChatList
 from .ai_chat_messages_item import AiChatMessagesItem
+from .ai_chat_messages_item_charts_item import AiChatMessagesItemChartsItem
 from .ai_chat_messages_item_role import AiChatMessagesItemRole
 from .ai_chat_request import AiChatRequest
 from .ai_chat_response import AiChatResponse
+from .ai_chat_response_charts_item import AiChatResponseChartsItem
 from .ai_chat_stream_event import AiChatStreamEvent
 from .ai_chat_stream_event_args import AiChatStreamEventArgs
+from .ai_chat_stream_event_charts_item import AiChatStreamEventChartsItem
 from .ai_chat_stream_event_type import AiChatStreamEventType
+from .ai_chat_stream_event_usage import AiChatStreamEventUsage
 from .ai_command import AiCommand
 from .ai_config import AiConfig
+from .ai_config_portal import AiConfigPortal
 from .ai_protocol_error import AiProtocolError
 from .ai_tool_call import AiToolCall
 from .ai_tool_call_args import AiToolCallArgs
+from .answer_support_request_response_201 import AnswerSupportRequestResponse201
+from .answer_support_requests_response_201 import AnswerSupportRequestsResponse201
 from .api_token_list import ApiTokenList
 from .api_token_list_result_item import ApiTokenListResultItem
 from .api_token_list_result_item_permissions import ApiTokenListResultItemPermissions
+from .attach_to_support_issue_response_200 import AttachToSupportIssueResponse200
 from .batch_edge_line import BatchEdgeLine
 from .batch_edge_line_type import BatchEdgeLineType
 from .batch_error import BatchError
@@ -41,6 +49,7 @@ from .cluster_status import ClusterStatus
 from .cluster_status_alerts_item import ClusterStatusAlertsItem
 from .cluster_status_alerts_item_details import ClusterStatusAlertsItemDetails
 from .cluster_status_alerts_item_severity import ClusterStatusAlertsItemSeverity
+from .cluster_status_bootstrap_deciding import ClusterStatusBootstrapDeciding
 from .cluster_status_bootstrap_installs import ClusterStatusBootstrapInstalls
 from .cluster_status_critical_halt_type_0 import ClusterStatusCriticalHaltType0
 from .cluster_status_database_presence import ClusterStatusDatabasePresence
@@ -52,14 +61,18 @@ from .cluster_status_local_resync_divergence_causes_additional_property import (
     ClusterStatusLocalResyncDivergenceCausesAdditionalProperty,
 )
 from .cluster_status_peers_item import ClusterStatusPeersItem
+from .cluster_status_peers_item_capabilities_unknown_kind import ClusterStatusPeersItemCapabilitiesUnknownKind
 from .cluster_status_raft_log_failure_type_0 import ClusterStatusRaftLogFailureType0
+from .cluster_status_security_convergence import ClusterStatusSecurityConvergence
 from .command_request import CommandRequest
 from .command_request_params import CommandRequestParams
+from .comment_support_issue_response_201 import CommentSupportIssueResponse201
 from .create_api_token_request import CreateApiTokenRequest
 from .create_api_token_request_permissions import CreateApiTokenRequestPermissions
 from .create_api_token_response import CreateApiTokenResponse
 from .create_api_token_response_result import CreateApiTokenResponseResult
 from .create_api_token_response_result_permissions import CreateApiTokenResponseResultPermissions
+from .create_support_issue_response_201 import CreateSupportIssueResponse201
 from .create_user_request import CreateUserRequest
 from .create_user_request_databases import CreateUserRequestDatabases
 from .database_exists import DatabaseExists
@@ -79,6 +92,7 @@ from .full_text_search_response_results_item_properties import FullTextSearchRes
 from .full_text_search_response_similarity import FullTextSearchResponseSimilarity
 from .get_database_snapshot_checksums_response_200 import GetDatabaseSnapshotChecksumsResponse200
 from .get_server_info_mode import GetServerInfoMode
+from .get_support_issue_response_200 import GetSupportIssueResponse200
 from .grafana_health import GrafanaHealth
 from .grafana_metadata import GrafanaMetadata
 from .grafana_metadata_types_item import GrafanaMetadataTypesItem
@@ -136,6 +150,7 @@ from .json_rpc_message_type_0_error import JsonRpcMessageType0Error
 from .json_rpc_message_type_0_jsonrpc import JsonRpcMessageType0Jsonrpc
 from .json_rpc_message_type_1_item_error import JsonRpcMessageType1ItemError
 from .json_rpc_message_type_1_item_jsonrpc import JsonRpcMessageType1ItemJsonrpc
+from .list_support_issues_response_200 import ListSupportIssuesResponse200
 from .login_response import LoginResponse
 from .mcp_config import McpConfig
 from .mcp_config_databases import McpConfigDatabases
@@ -193,9 +208,35 @@ from .security_seed_response import SecuritySeedResponse
 from .server_info import ServerInfo
 from .server_info_ha import ServerInfoHa
 from .server_info_metrics import ServerInfoMetrics
+from .server_info_ports import ServerInfoPorts
 from .server_info_settings_item import ServerInfoSettingsItem
 from .session_list import SessionList
 from .session_list_result_item import SessionListResultItem
+from .stage_support_screenshot_response_201 import StageSupportScreenshotResponse201
+from .support_answer_request import SupportAnswerRequest
+from .support_answer_request_result import SupportAnswerRequestResult
+from .support_answers_request import SupportAnswersRequest
+from .support_answers_request_responses import SupportAnswersRequestResponses
+from .support_attach_request import SupportAttachRequest
+from .support_bundle_request import SupportBundleRequest
+from .support_comment_request import SupportCommentRequest
+from .support_comment_request_screenshots import SupportCommentRequestScreenshots
+from .support_create_issue_request import SupportCreateIssueRequest
+from .support_peer_query_request import SupportPeerQueryRequest
+from .support_preview import SupportPreview
+from .support_preview_files_item import SupportPreviewFilesItem
+from .support_preview_log_time_zone import SupportPreviewLogTimeZone
+from .support_preview_request import SupportPreviewRequest
+from .support_preview_request_window import SupportPreviewRequestWindow
+from .support_preview_window import SupportPreviewWindow
+from .support_register_request import SupportRegisterRequest
+from .support_screenshot_request import SupportScreenshotRequest
+from .support_set_open_request import SupportSetOpenRequest
+from .support_status import SupportStatus
+from .support_status_log_time_zone import SupportStatusLogTimeZone
+from .support_status_plan import SupportStatusPlan
+from .support_status_portal_error import SupportStatusPortalError
+from .support_status_sla import SupportStatusSla
 from .time_series_aggregated_response import TimeSeriesAggregatedResponse
 from .time_series_aggregated_response_buckets_item import TimeSeriesAggregatedResponseBucketsItem
 from .time_series_latest_response import TimeSeriesLatestResponse
@@ -240,20 +281,28 @@ __all__ = (
     "AiChatDeleted",
     "AiChatList",
     "AiChatMessagesItem",
+    "AiChatMessagesItemChartsItem",
     "AiChatMessagesItemRole",
     "AiChatRequest",
     "AiChatResponse",
+    "AiChatResponseChartsItem",
     "AiChatStreamEvent",
     "AiChatStreamEventArgs",
+    "AiChatStreamEventChartsItem",
     "AiChatStreamEventType",
+    "AiChatStreamEventUsage",
     "AiCommand",
     "AiConfig",
+    "AiConfigPortal",
     "AiProtocolError",
     "AiToolCall",
     "AiToolCallArgs",
+    "AnswerSupportRequestResponse201",
+    "AnswerSupportRequestsResponse201",
     "ApiTokenList",
     "ApiTokenListResultItem",
     "ApiTokenListResultItemPermissions",
+    "AttachToSupportIssueResponse200",
     "BatchEdgeLine",
     "BatchEdgeLineType",
     "BatchError",
@@ -271,6 +320,7 @@ __all__ = (
     "ClusterStatusAlertsItem",
     "ClusterStatusAlertsItemDetails",
     "ClusterStatusAlertsItemSeverity",
+    "ClusterStatusBootstrapDeciding",
     "ClusterStatusBootstrapInstalls",
     "ClusterStatusCriticalHaltType0",
     "ClusterStatusDatabasePresence",
@@ -280,14 +330,18 @@ __all__ = (
     "ClusterStatusLocalResyncDivergenceCauses",
     "ClusterStatusLocalResyncDivergenceCausesAdditionalProperty",
     "ClusterStatusPeersItem",
+    "ClusterStatusPeersItemCapabilitiesUnknownKind",
     "ClusterStatusRaftLogFailureType0",
+    "ClusterStatusSecurityConvergence",
     "CommandRequest",
     "CommandRequestParams",
+    "CommentSupportIssueResponse201",
     "CreateApiTokenRequest",
     "CreateApiTokenRequestPermissions",
     "CreateApiTokenResponse",
     "CreateApiTokenResponseResult",
     "CreateApiTokenResponseResultPermissions",
+    "CreateSupportIssueResponse201",
     "CreateUserRequest",
     "CreateUserRequestDatabases",
     "DatabaseExists",
@@ -307,6 +361,7 @@ __all__ = (
     "FullTextSearchResponseSimilarity",
     "GetDatabaseSnapshotChecksumsResponse200",
     "GetServerInfoMode",
+    "GetSupportIssueResponse200",
     "GrafanaHealth",
     "GrafanaMetadata",
     "GrafanaMetadataTypesItem",
@@ -352,6 +407,7 @@ __all__ = (
     "JsonRpcMessageType0Jsonrpc",
     "JsonRpcMessageType1ItemError",
     "JsonRpcMessageType1ItemJsonrpc",
+    "ListSupportIssuesResponse200",
     "LoginResponse",
     "McpConfig",
     "McpConfigDatabases",
@@ -409,9 +465,35 @@ __all__ = (
     "ServerInfo",
     "ServerInfoHa",
     "ServerInfoMetrics",
+    "ServerInfoPorts",
     "ServerInfoSettingsItem",
     "SessionList",
     "SessionListResultItem",
+    "StageSupportScreenshotResponse201",
+    "SupportAnswerRequest",
+    "SupportAnswerRequestResult",
+    "SupportAnswersRequest",
+    "SupportAnswersRequestResponses",
+    "SupportAttachRequest",
+    "SupportBundleRequest",
+    "SupportCommentRequest",
+    "SupportCommentRequestScreenshots",
+    "SupportCreateIssueRequest",
+    "SupportPeerQueryRequest",
+    "SupportPreview",
+    "SupportPreviewFilesItem",
+    "SupportPreviewLogTimeZone",
+    "SupportPreviewRequest",
+    "SupportPreviewRequestWindow",
+    "SupportPreviewWindow",
+    "SupportRegisterRequest",
+    "SupportScreenshotRequest",
+    "SupportSetOpenRequest",
+    "SupportStatus",
+    "SupportStatusLogTimeZone",
+    "SupportStatusPlan",
+    "SupportStatusPortalError",
+    "SupportStatusSla",
     "TimeSeriesAggregatedResponse",
     "TimeSeriesAggregatedResponseBucketsItem",
     "TimeSeriesLatestResponse",

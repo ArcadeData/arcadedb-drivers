@@ -11,6 +11,8 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.ai_chat_stream_event_args import AiChatStreamEventArgs
+    from ..models.ai_chat_stream_event_charts_item import AiChatStreamEventChartsItem
+    from ..models.ai_chat_stream_event_usage import AiChatStreamEventUsage
     from ..models.ai_command import AiCommand
 
 
@@ -24,32 +26,51 @@ class AiChatStreamEvent:
 
         Attributes:
             type_ (AiChatStreamEventType): Which event this is. 'tool_start' and 'tool_end' bracket one tool the server ran
-                locally, and 'done' terminates a complete stream. The gateway's own 'session' and 'tool_call' events never
-                appear: the server consumes both and synthesizes the pair above in their place. Any OTHER value is an event the
-                gateway added and this server relays unchanged - ignore what you do not recognise rather than failing on it.
+                locally, and 'done' terminates a complete stream. 'error' terminates a stream cut short after it started - the
+                gateway's connection dropped or fell silent - and says why; no 'done' follows it. The gateway's own 'session'
+                and 'tool_call' events never appear: the server consumes both and synthesizes the pair above in their place. Any
+                OTHER value is an event the gateway added and this server relays unchanged - ignore what you do not recognise
+                rather than failing on it.
             args (AiChatStreamEventArgs | Unset): Arguments the assistant passed to the tool, echoed identically on
                 'tool_start' and 'tool_end'. An open map: the keys are the tool's own parameters.
+            charts (list[AiChatStreamEventChartsItem] | Unset): Charts the assistant asks Studio to draw, on 'done' (at most
+                3). Absent when it asks for none
             chat_id (str | Unset): Chat this exchange belongs to, on 'done'. Added by this server, not by the gateway, and
                 the chat is persisted before this event is written - so a client that has seen it can read the chat back
                 immediately.
+            code (str | Unset): Machine-readable reason, on 'error' only: 'gateway_interrupted' when the gateway's
+                connection dropped, 'gateway_timeout' when it stopped sending, 'internal_error' otherwise. The same vocabulary
+                as the 'code' member of the error bodies the chat operations answer before a stream starts. The interrupted
+                exchange was not persisted.
             commands (list[AiCommand] | Unset): SQL commands the assistant proposes, on 'done'. Absent or empty when it
                 proposes none
-            error (str | Unset): Why the tool failed, on 'tool_end' only, and only when it did. Its absence is what says the
-                run succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the
-                caller.
+            error (str | Unset): Why the tool failed, on 'tool_end', and only when it did. Its absence is what says the run
+                succeeded - the stream does not carry the tool's result, which goes back to the gateway rather than to the
+                caller. On an 'error' event, a message fit to show the user saying why the stream ended early.
             response (str | Unset): The assistant's reply, on 'done'. The same value POST /api/v1/ai/chat returns under this
                 name
+            text (str | Unset): A piece of the reply, on 'delta', when the answer comes through the customer portal. Append
+                the pieces in order; 'reset' voids what was appended
             tool (str | Unset): Name of the tool being run, on 'tool_start' and 'tool_end'. The same name appears on both,
                 which is how a consumer pairs them
+            upgrade (bool | Unset): On 'error' about the plan ('ai.not_entitled', 'ai.allowance_exhausted'): true when
+                upgrading the plan in the customer portal fixes it
+            usage (AiChatStreamEventUsage | Unset): On 'done', when the answer comes through the customer portal: {spent,
+                budget, percent, turns} of this month's allowance (spent and budget in billed dollars)
     """
 
     type_: AiChatStreamEventType
     args: AiChatStreamEventArgs | Unset = UNSET
+    charts: list[AiChatStreamEventChartsItem] | Unset = UNSET
     chat_id: str | Unset = UNSET
+    code: str | Unset = UNSET
     commands: list[AiCommand] | Unset = UNSET
     error: str | Unset = UNSET
     response: str | Unset = UNSET
+    text: str | Unset = UNSET
     tool: str | Unset = UNSET
+    upgrade: bool | Unset = UNSET
+    usage: AiChatStreamEventUsage | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -59,7 +80,16 @@ class AiChatStreamEvent:
         if not isinstance(self.args, Unset):
             args = self.args.to_dict()
 
+        charts: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.charts, Unset):
+            charts = []
+            for charts_item_data in self.charts:
+                charts_item = charts_item_data.to_dict()
+                charts.append(charts_item)
+
         chat_id = self.chat_id
+
+        code = self.code
 
         commands: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.commands, Unset):
@@ -72,7 +102,15 @@ class AiChatStreamEvent:
 
         response = self.response
 
+        text = self.text
+
         tool = self.tool
+
+        upgrade = self.upgrade
+
+        usage: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.usage, Unset):
+            usage = self.usage.to_dict()
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -83,22 +121,34 @@ class AiChatStreamEvent:
         )
         if args is not UNSET:
             field_dict["args"] = args
+        if charts is not UNSET:
+            field_dict["charts"] = charts
         if chat_id is not UNSET:
             field_dict["chatId"] = chat_id
+        if code is not UNSET:
+            field_dict["code"] = code
         if commands is not UNSET:
             field_dict["commands"] = commands
         if error is not UNSET:
             field_dict["error"] = error
         if response is not UNSET:
             field_dict["response"] = response
+        if text is not UNSET:
+            field_dict["text"] = text
         if tool is not UNSET:
             field_dict["tool"] = tool
+        if upgrade is not UNSET:
+            field_dict["upgrade"] = upgrade
+        if usage is not UNSET:
+            field_dict["usage"] = usage
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.ai_chat_stream_event_args import AiChatStreamEventArgs
+        from ..models.ai_chat_stream_event_charts_item import AiChatStreamEventChartsItem
+        from ..models.ai_chat_stream_event_usage import AiChatStreamEventUsage
         from ..models.ai_command import AiCommand
 
         d = dict(src_dict)
@@ -111,7 +161,18 @@ class AiChatStreamEvent:
         else:
             args = AiChatStreamEventArgs.from_dict(_args)
 
+        _charts = d.pop("charts", UNSET)
+        charts: list[AiChatStreamEventChartsItem] | Unset = UNSET
+        if _charts is not UNSET:
+            charts = []
+            for charts_item_data in _charts:
+                charts_item = AiChatStreamEventChartsItem.from_dict(charts_item_data)
+
+                charts.append(charts_item)
+
         chat_id = d.pop("chatId", UNSET)
+
+        code = d.pop("code", UNSET)
 
         _commands = d.pop("commands", UNSET)
         commands: list[AiCommand] | Unset = UNSET
@@ -126,16 +187,32 @@ class AiChatStreamEvent:
 
         response = d.pop("response", UNSET)
 
+        text = d.pop("text", UNSET)
+
         tool = d.pop("tool", UNSET)
+
+        upgrade = d.pop("upgrade", UNSET)
+
+        _usage = d.pop("usage", UNSET)
+        usage: AiChatStreamEventUsage | Unset
+        if isinstance(_usage, Unset):
+            usage = UNSET
+        else:
+            usage = AiChatStreamEventUsage.from_dict(_usage)
 
         ai_chat_stream_event = cls(
             type_=type_,
             args=args,
+            charts=charts,
             chat_id=chat_id,
+            code=code,
             commands=commands,
             error=error,
             response=response,
+            text=text,
             tool=tool,
+            upgrade=upgrade,
+            usage=usage,
         )
 
         ai_chat_stream_event.additional_properties = d

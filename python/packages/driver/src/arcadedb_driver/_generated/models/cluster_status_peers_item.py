@@ -6,6 +6,7 @@ from typing import Any, TypeVar, cast
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..models.cluster_status_peers_item_capabilities_unknown_kind import ClusterStatusPeersItemCapabilitiesUnknownKind
 from ..types import UNSET, Unset
 
 T = TypeVar("T", bound="ClusterStatusPeersItem")
@@ -23,6 +24,14 @@ class ClusterStatusPeersItem:
             answering node (issue #7219). Every node polls its peers since issue #7549, so a follower answers for every peer
             too. Absent for a peer the answering node has no fresh answer from: an absent array means 'not known', which the
             leader treats exactly like 'cannot decode'.
+        capabilities_unknown_kind (ClusterStatusPeersItemCapabilitiesUnknownKind | Unset): What kind of unknown
+            'capabilitiesUnknownReason' describes, present exactly when it is (issue #8655): ROUTE_MISSING (the peer
+            answered HTTP 404 on the capability route, so its build predates it - every node's probe gets that answer, the
+            leader's included), UNREACHABLE (the answering node got no usable answer - a transport failure, a timeout,
+            another status, or an answer naming another peer - which says nothing about what another node's probe gets),
+            ADDRESS_REFUSED (the answering node has no address it may dial for this peer) or STALE (the last answer aged out
+            with no failed probe behind it). Lets a client on a follower gate on ROUTE_MISSING without matching the reason's
+            text.
         capabilities_unknown_reason (str | Unset): Why 'capabilities' is absent for this peer, when the answering node
             knows why. An absent capabilities array otherwise reads the same whether the peer runs a build that predates the
             capability route or was never asked because its address identifies no single peer, and the two have nothing
@@ -57,6 +66,7 @@ class ClusterStatusPeersItem:
     id: str
     role: str
     capabilities: list[str] | Unset = UNSET
+    capabilities_unknown_kind: ClusterStatusPeersItemCapabilitiesUnknownKind | Unset = UNSET
     capabilities_unknown_reason: str | Unset = UNSET
     http_address: str | Unset = UNSET
     http_address_ambiguous: bool | Unset = UNSET
@@ -82,6 +92,10 @@ class ClusterStatusPeersItem:
         capabilities: list[str] | Unset = UNSET
         if not isinstance(self.capabilities, Unset):
             capabilities = self.capabilities
+
+        capabilities_unknown_kind: str | Unset = UNSET
+        if not isinstance(self.capabilities_unknown_kind, Unset):
+            capabilities_unknown_kind = self.capabilities_unknown_kind.value
 
         capabilities_unknown_reason = self.capabilities_unknown_reason
 
@@ -120,6 +134,8 @@ class ClusterStatusPeersItem:
         )
         if capabilities is not UNSET:
             field_dict["capabilities"] = capabilities
+        if capabilities_unknown_kind is not UNSET:
+            field_dict["capabilitiesUnknownKind"] = capabilities_unknown_kind
         if capabilities_unknown_reason is not UNSET:
             field_dict["capabilitiesUnknownReason"] = capabilities_unknown_reason
         if http_address is not UNSET:
@@ -160,6 +176,13 @@ class ClusterStatusPeersItem:
 
         capabilities = cast(list[str], d.pop("capabilities", UNSET))
 
+        _capabilities_unknown_kind = d.pop("capabilitiesUnknownKind", UNSET)
+        capabilities_unknown_kind: ClusterStatusPeersItemCapabilitiesUnknownKind | Unset
+        if isinstance(_capabilities_unknown_kind, Unset):
+            capabilities_unknown_kind = UNSET
+        else:
+            capabilities_unknown_kind = ClusterStatusPeersItemCapabilitiesUnknownKind(_capabilities_unknown_kind)
+
         capabilities_unknown_reason = d.pop("capabilitiesUnknownReason", UNSET)
 
         http_address = d.pop("httpAddress", UNSET)
@@ -191,6 +214,7 @@ class ClusterStatusPeersItem:
             id=id,
             role=role,
             capabilities=capabilities,
+            capabilities_unknown_kind=capabilities_unknown_kind,
             capabilities_unknown_reason=capabilities_unknown_reason,
             http_address=http_address,
             http_address_ambiguous=http_address_ambiguous,

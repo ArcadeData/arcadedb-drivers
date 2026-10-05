@@ -17,30 +17,63 @@ class NdJsonQueryEventError:
     failure is reported in band and no 'stats' line follows.
 
         Attributes:
-            message (str | Unset): Why the stream failed
+            message (str): Why the stream failed
+            status (int): HTTP status the buffered encoding would have answered the same failure with, decided by the same
+                error mapping: 503 for a retryable conflict, 409 for a duplicated key, 403 for a security refusal, 413 when
+                arcadedb.server.httpQueryMaxResultRows cut the result short, 500 for an unexpected failure (issue #8235). Key on
+                this rather than on 'message' to decide whether to retry.
+            exception (str | Unset): Class name of the reported exception, the value the buffered error body carries in its
+                'exception' member.
+            exception_args (str | Unset): Structured arguments of the failure, as the buffered error body carries them:
+                present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.
     """
 
-    message: str | Unset = UNSET
+    message: str
+    status: int
+    exception: str | Unset = UNSET
+    exception_args: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         message = self.message
 
+        status = self.status
+
+        exception = self.exception
+
+        exception_args = self.exception_args
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
-        field_dict.update({})
-        if message is not UNSET:
-            field_dict["message"] = message
+        field_dict.update(
+            {
+                "message": message,
+                "status": status,
+            }
+        )
+        if exception is not UNSET:
+            field_dict["exception"] = exception
+        if exception_args is not UNSET:
+            field_dict["exceptionArgs"] = exception_args
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        message = d.pop("message", UNSET)
+        message = d.pop("message")
+
+        status = d.pop("status")
+
+        exception = d.pop("exception", UNSET)
+
+        exception_args = d.pop("exceptionArgs", UNSET)
 
         nd_json_query_event_error = cls(
             message=message,
+            status=status,
+            exception=exception,
+            exception_args=exception_args,
         )
 
         nd_json_query_event_error.additional_properties = d

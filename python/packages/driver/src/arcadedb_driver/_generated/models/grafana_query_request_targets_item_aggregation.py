@@ -27,10 +27,15 @@ class GrafanaQueryRequestTargetsItemAggregation:
         bucket_interval (int | Unset): Bucket width in the same unit as the timestamps. Derived from 'maxDataPoints' and
             the time range when omitted. When stated it must be positive: a value of zero or less is refused with an error
             frame for this target rather than replaced by a derived interval.
+        bucket_origin (int | Unset): Where the bucket grid starts, in epoch milliseconds. Buckets are multiples of
+            'bucketInterval' counted from this instant. Optional; the default is the Unix epoch, which was a Thursday at
+            00:00 UTC, so a one-week bucket starts on a Thursday and a one-day bucket at 00:00 UTC. A Monday origin gives
+            Monday weeks and a local-midnight origin gives local days.
     """
 
     requests: list[GrafanaQueryRequestTargetsItemAggregationRequestsItem]
     bucket_interval: int | Unset = UNSET
+    bucket_origin: int | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -41,6 +46,8 @@ class GrafanaQueryRequestTargetsItemAggregation:
 
         bucket_interval = self.bucket_interval
 
+        bucket_origin = self.bucket_origin
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -50,6 +57,8 @@ class GrafanaQueryRequestTargetsItemAggregation:
         )
         if bucket_interval is not UNSET:
             field_dict["bucketInterval"] = bucket_interval
+        if bucket_origin is not UNSET:
+            field_dict["bucketOrigin"] = bucket_origin
 
         return field_dict
 
@@ -69,9 +78,12 @@ class GrafanaQueryRequestTargetsItemAggregation:
 
         bucket_interval = d.pop("bucketInterval", UNSET)
 
+        bucket_origin = d.pop("bucketOrigin", UNSET)
+
         grafana_query_request_targets_item_aggregation = cls(
             requests=requests,
             bucket_interval=bucket_interval,
+            bucket_origin=bucket_origin,
         )
 
         grafana_query_request_targets_item_aggregation.additional_properties = d

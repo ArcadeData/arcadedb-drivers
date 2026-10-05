@@ -10,6 +10,7 @@ from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
     from ..models.cluster_status_alerts_item import ClusterStatusAlertsItem
+    from ..models.cluster_status_bootstrap_deciding import ClusterStatusBootstrapDeciding
     from ..models.cluster_status_bootstrap_installs import ClusterStatusBootstrapInstalls
     from ..models.cluster_status_critical_halt_type_0 import ClusterStatusCriticalHaltType0
     from ..models.cluster_status_database_presence import ClusterStatusDatabasePresence
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from ..models.cluster_status_local_resync import ClusterStatusLocalResync
     from ..models.cluster_status_peers_item import ClusterStatusPeersItem
     from ..models.cluster_status_raft_log_failure_type_0 import ClusterStatusRaftLogFailureType0
+    from ..models.cluster_status_security_convergence import ClusterStatusSecurityConvergence
 
 
 T = TypeVar("T", bound="ClusterStatus")
@@ -29,6 +31,11 @@ class ClusterStatus:
     Attributes:
         alerts (list[ClusterStatusAlertsItem]): Conditions worth an operator's attention. Empty when the cluster is
             healthy: an absent array is not a state this endpoint produces
+        bootstrap_deciding (ClusterStatusBootstrapDeciding): The databases a first-formation bootstrap pass is still
+            deciding on for this node. Present on every answer. The pass reaches a node with its probe long before the
+            committed baseline reaches it, and until then the copy on disk may be the one the pass decides against, so
+            '/api/v1/ready' answers 503. Normally well under a second. Not a resync, so 'localResync' does not reflect it;
+            the 'bootstrap-deciding-databases' alert does.
         bootstrap_installs (ClusterStatusBootstrapInstalls): The databases this node is installing from the leader's
             first-formation bootstrap snapshot. Present on every answer. While an install replaces a copy this node already
             holds, '/api/v1/ready' answers 503: that copy is the one the cluster's committed baseline decided against. Not a
@@ -50,6 +57,9 @@ class ClusterStatus:
         leader_commit_index (int): The commit index this follower's leader last reported, learned by the health monitor
             over a follower-to-leader call every arcadedb.ha.healthCheckInterval. -1 on the leader and on a follower that
             has not learned one yet
+        leader_contact_elapsed_ms (int): Milliseconds since this follower's Raft division last heard from its leader (an
+            append or a heartbeat). 'raftState' can read RUNNING while the leader's appends never reach this division; this
+            figure then keeps growing. -1 on the leader, with no leader known, or when the division cannot be read
         leader_http_address (None | str): Leader HTTP address, null when unknown
         leader_id (None | str): Current leader, null when unknown
         leader_ready (bool): True when the leader has finished the work that makes it safe to serve writes
@@ -78,12 +88,22 @@ class ClusterStatus:
             rejecting every append, so the node can neither catch up nor become caught up; the usual cause is a full Raft
             storage volume, and it clears by itself once the health monitor restarts the writer in place.
         raft_state (str): Raft lifecycle state
+        security_convergence (ClusterStatusSecurityConvergence): What the security-convergence readiness gate sees on
+            this node. Present on every answer. The three security documents (users, groups, API tokens) do not travel in
+            the Raft snapshot and reach a new peer only through the admission seed, so a member that is caught up can still
+            hold none of the cluster's copies. While 'held', '/api/v1/ready' answers 503 until the leader confirms them. The
+            wait is bounded by arcadedb.ha.securityConvergenceReadinessTimeout: past it the node reports READY while
+            enforcing its own copies ('gaveUp'). Not a resync, so 'localResync' does not reflect it; the 'security-
+            documents-unconverged' alert does. Reading this document counts as observing the node: it evaluates the same
+            shared window as the readiness probe, so the first read that finds the node otherwise ready opens the window,
+            exactly as a probe would.
         uptime (int): Milliseconds since the Raft server started
         database_presence (ClusterStatusDatabasePresence | Unset): Which peer holds which database, keyed by database
             name. Present only when this server is the leader and the request set '?presence=true'.
     """
 
     alerts: list[ClusterStatusAlertsItem]
+    bootstrap_deciding: ClusterStatusBootstrapDeciding
     bootstrap_installs: ClusterStatusBootstrapInstalls
     capabilities: list[str]
     cluster_name: str
@@ -95,6 +115,7 @@ class ClusterStatus:
     is_leader: bool
     last_election_time: int
     leader_commit_index: int
+    leader_contact_elapsed_ms: int
     leader_http_address: str | None
     leader_id: str | None
     leader_ready: bool
@@ -108,6 +129,7 @@ class ClusterStatus:
     peers: list[ClusterStatusPeersItem]
     raft_log_failure: ClusterStatusRaftLogFailureType0 | None
     raft_state: str
+    security_convergence: ClusterStatusSecurityConvergence
     uptime: int
     database_presence: ClusterStatusDatabasePresence | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -120,6 +142,8 @@ class ClusterStatus:
         for alerts_item_data in self.alerts:
             alerts_item = alerts_item_data.to_dict()
             alerts.append(alerts_item)
+
+        bootstrap_deciding = self.bootstrap_deciding.to_dict()
 
         bootstrap_installs = self.bootstrap_installs.to_dict()
 
@@ -149,6 +173,8 @@ class ClusterStatus:
         last_election_time = self.last_election_time
 
         leader_commit_index = self.leader_commit_index
+
+        leader_contact_elapsed_ms = self.leader_contact_elapsed_ms
 
         leader_http_address: str | None
         leader_http_address = self.leader_http_address
@@ -185,6 +211,8 @@ class ClusterStatus:
 
         raft_state = self.raft_state
 
+        security_convergence = self.security_convergence.to_dict()
+
         uptime = self.uptime
 
         database_presence: dict[str, Any] | Unset = UNSET
@@ -196,6 +224,7 @@ class ClusterStatus:
         field_dict.update(
             {
                 "alerts": alerts,
+                "bootstrapDeciding": bootstrap_deciding,
                 "bootstrapInstalls": bootstrap_installs,
                 "capabilities": capabilities,
                 "clusterName": cluster_name,
@@ -207,6 +236,7 @@ class ClusterStatus:
                 "isLeader": is_leader,
                 "lastElectionTime": last_election_time,
                 "leaderCommitIndex": leader_commit_index,
+                "leaderContactElapsedMs": leader_contact_elapsed_ms,
                 "leaderHttpAddress": leader_http_address,
                 "leaderId": leader_id,
                 "leaderReady": leader_ready,
@@ -220,6 +250,7 @@ class ClusterStatus:
                 "peers": peers,
                 "raftLogFailure": raft_log_failure,
                 "raftState": raft_state,
+                "securityConvergence": security_convergence,
                 "uptime": uptime,
             }
         )
@@ -231,6 +262,7 @@ class ClusterStatus:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.cluster_status_alerts_item import ClusterStatusAlertsItem
+        from ..models.cluster_status_bootstrap_deciding import ClusterStatusBootstrapDeciding
         from ..models.cluster_status_bootstrap_installs import ClusterStatusBootstrapInstalls
         from ..models.cluster_status_critical_halt_type_0 import ClusterStatusCriticalHaltType0
         from ..models.cluster_status_database_presence import ClusterStatusDatabasePresence
@@ -238,6 +270,7 @@ class ClusterStatus:
         from ..models.cluster_status_local_resync import ClusterStatusLocalResync
         from ..models.cluster_status_peers_item import ClusterStatusPeersItem
         from ..models.cluster_status_raft_log_failure_type_0 import ClusterStatusRaftLogFailureType0
+        from ..models.cluster_status_security_convergence import ClusterStatusSecurityConvergence
 
         d = dict(src_dict)
         alerts = []
@@ -246,6 +279,8 @@ class ClusterStatus:
             alerts_item = ClusterStatusAlertsItem.from_dict(alerts_item_data)
 
             alerts.append(alerts_item)
+
+        bootstrap_deciding = ClusterStatusBootstrapDeciding.from_dict(d.pop("bootstrapDeciding"))
 
         bootstrap_installs = ClusterStatusBootstrapInstalls.from_dict(d.pop("bootstrapInstalls"))
 
@@ -286,6 +321,8 @@ class ClusterStatus:
         last_election_time = d.pop("lastElectionTime")
 
         leader_commit_index = d.pop("leaderCommitIndex")
+
+        leader_contact_elapsed_ms = d.pop("leaderContactElapsedMs")
 
         def _parse_leader_http_address(data: object) -> str | None:
             if data is None:
@@ -341,6 +378,8 @@ class ClusterStatus:
 
         raft_state = d.pop("raftState")
 
+        security_convergence = ClusterStatusSecurityConvergence.from_dict(d.pop("securityConvergence"))
+
         uptime = d.pop("uptime")
 
         _database_presence = d.pop("databasePresence", UNSET)
@@ -352,6 +391,7 @@ class ClusterStatus:
 
         cluster_status = cls(
             alerts=alerts,
+            bootstrap_deciding=bootstrap_deciding,
             bootstrap_installs=bootstrap_installs,
             capabilities=capabilities,
             cluster_name=cluster_name,
@@ -363,6 +403,7 @@ class ClusterStatus:
             is_leader=is_leader,
             last_election_time=last_election_time,
             leader_commit_index=leader_commit_index,
+            leader_contact_elapsed_ms=leader_contact_elapsed_ms,
             leader_http_address=leader_http_address,
             leader_id=leader_id,
             leader_ready=leader_ready,
@@ -376,6 +417,7 @@ class ClusterStatus:
             peers=peers,
             raft_log_failure=raft_log_failure,
             raft_state=raft_state,
+            security_convergence=security_convergence,
             uptime=uptime,
             database_presence=database_presence,
         )

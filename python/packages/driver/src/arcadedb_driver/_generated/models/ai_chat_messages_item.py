@@ -10,6 +10,7 @@ from ..models.ai_chat_messages_item_role import AiChatMessagesItemRole
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.ai_chat_messages_item_charts_item import AiChatMessagesItemChartsItem
     from ..models.ai_command import AiCommand
 
 
@@ -24,6 +25,8 @@ class AiChatMessagesItem:
         content (str): Message text
         role (AiChatMessagesItemRole): Who wrote the message
         timestamp (str): ISO-8601 instant
+        charts (list[AiChatMessagesItemChartsItem] | Unset): Charts the assistant asked Studio to draw with this reply
+            (at most 3, validated by this server). Present only on an assistant message that asked for at least one.
         commands (list[AiCommand] | Unset): SQL commands the assistant proposed with this reply. Present only on an
             assistant message that proposed at least one.
     """
@@ -31,6 +34,7 @@ class AiChatMessagesItem:
     content: str
     role: AiChatMessagesItemRole
     timestamp: str
+    charts: list[AiChatMessagesItemChartsItem] | Unset = UNSET
     commands: list[AiCommand] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -40,6 +44,13 @@ class AiChatMessagesItem:
         role = self.role.value
 
         timestamp = self.timestamp
+
+        charts: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.charts, Unset):
+            charts = []
+            for charts_item_data in self.charts:
+                charts_item = charts_item_data.to_dict()
+                charts.append(charts_item)
 
         commands: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.commands, Unset):
@@ -57,6 +68,8 @@ class AiChatMessagesItem:
                 "timestamp": timestamp,
             }
         )
+        if charts is not UNSET:
+            field_dict["charts"] = charts
         if commands is not UNSET:
             field_dict["commands"] = commands
 
@@ -64,6 +77,7 @@ class AiChatMessagesItem:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.ai_chat_messages_item_charts_item import AiChatMessagesItemChartsItem
         from ..models.ai_command import AiCommand
 
         d = dict(src_dict)
@@ -72,6 +86,15 @@ class AiChatMessagesItem:
         role = AiChatMessagesItemRole(d.pop("role"))
 
         timestamp = d.pop("timestamp")
+
+        _charts = d.pop("charts", UNSET)
+        charts: list[AiChatMessagesItemChartsItem] | Unset = UNSET
+        if _charts is not UNSET:
+            charts = []
+            for charts_item_data in _charts:
+                charts_item = AiChatMessagesItemChartsItem.from_dict(charts_item_data)
+
+                charts.append(charts_item)
 
         _commands = d.pop("commands", UNSET)
         commands: list[AiCommand] | Unset = UNSET
@@ -86,6 +109,7 @@ class AiChatMessagesItem:
             content=content,
             role=role,
             timestamp=timestamp,
+            charts=charts,
             commands=commands,
         )
 

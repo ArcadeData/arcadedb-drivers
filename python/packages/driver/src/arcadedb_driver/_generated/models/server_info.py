@@ -11,6 +11,7 @@ from ..types import UNSET, Unset
 if TYPE_CHECKING:
     from ..models.server_info_ha import ServerInfoHa
     from ..models.server_info_metrics import ServerInfoMetrics
+    from ..models.server_info_ports import ServerInfoPorts
     from ..models.server_info_settings_item import ServerInfoSettingsItem
 
 
@@ -36,9 +37,16 @@ class ServerInfo:
                 sweepsFailed, databasesRefreshed, databaseRefreshFailures, and the epoch-millisecond lastEntryAppliedAt /
                 lastSweepAt. entriesApplied rising while sweepsCompleted does not is a node enforcing permissions it has already
                 been told to replace; the same numbers are scrapable as the arcadedb.ha.security.* meters.
+            instance_id (str | Unset): Instance id ('adb-' followed by a UUID) of this server, to copy into the ArcadeData
+                support portal. Never a credential
             metrics (ServerInfoMetrics | Unset): Profiler counters, request meters, executor pools and sparse-vector index
                 statistics. Present with mode=default only. An open map: the counter set follows the build and the plugins
                 loaded.
+            ports (ServerInfoPorts | Unset): The client-facing listeners of the active plugins other than HTTP, by service
+                name (for example 'gremlin'), with the port each one is bound to. Present with mode=cluster only, empty when no
+                plugin listens. A remote client that must reach such a listener reads it here instead of assuming the protocol's
+                default port (issue #8578). Service names are unique: a second plugin advertising a name already taken is
+                ignored.
             settings (list[ServerInfoSettingsItem] | Unset): Every server setting with its current and default value.
                 Present with mode=default only. A setting marked hidden reports '*****' for both, and so does any setting whose
                 key contains 'password'.
@@ -49,7 +57,9 @@ class ServerInfo:
     user: str | None
     version: str
     ha: ServerInfoHa | Unset = UNSET
+    instance_id: str | Unset = UNSET
     metrics: ServerInfoMetrics | Unset = UNSET
+    ports: ServerInfoPorts | Unset = UNSET
     settings: list[ServerInfoSettingsItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -67,9 +77,15 @@ class ServerInfo:
         if not isinstance(self.ha, Unset):
             ha = self.ha.to_dict()
 
+        instance_id = self.instance_id
+
         metrics: dict[str, Any] | Unset = UNSET
         if not isinstance(self.metrics, Unset):
             metrics = self.metrics.to_dict()
+
+        ports: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.ports, Unset):
+            ports = self.ports.to_dict()
 
         settings: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.settings, Unset):
@@ -90,8 +106,12 @@ class ServerInfo:
         )
         if ha is not UNSET:
             field_dict["ha"] = ha
+        if instance_id is not UNSET:
+            field_dict["instanceId"] = instance_id
         if metrics is not UNSET:
             field_dict["metrics"] = metrics
+        if ports is not UNSET:
+            field_dict["ports"] = ports
         if settings is not UNSET:
             field_dict["settings"] = settings
 
@@ -101,6 +121,7 @@ class ServerInfo:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.server_info_ha import ServerInfoHa
         from ..models.server_info_metrics import ServerInfoMetrics
+        from ..models.server_info_ports import ServerInfoPorts
         from ..models.server_info_settings_item import ServerInfoSettingsItem
 
         d = dict(src_dict)
@@ -124,12 +145,21 @@ class ServerInfo:
         else:
             ha = ServerInfoHa.from_dict(_ha)
 
+        instance_id = d.pop("instanceId", UNSET)
+
         _metrics = d.pop("metrics", UNSET)
         metrics: ServerInfoMetrics | Unset
         if isinstance(_metrics, Unset):
             metrics = UNSET
         else:
             metrics = ServerInfoMetrics.from_dict(_metrics)
+
+        _ports = d.pop("ports", UNSET)
+        ports: ServerInfoPorts | Unset
+        if isinstance(_ports, Unset):
+            ports = UNSET
+        else:
+            ports = ServerInfoPorts.from_dict(_ports)
 
         _settings = d.pop("settings", UNSET)
         settings: list[ServerInfoSettingsItem] | Unset = UNSET
@@ -146,7 +176,9 @@ class ServerInfo:
             user=user,
             version=version,
             ha=ha,
+            instance_id=instance_id,
             metrics=metrics,
+            ports=ports,
             settings=settings,
         )
 

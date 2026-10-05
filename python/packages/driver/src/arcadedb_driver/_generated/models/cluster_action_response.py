@@ -17,25 +17,35 @@ class ClusterActionResponse:
 
     Attributes:
         result (str): Human-readable outcome
-        database (str | Unset): Database the action applied to. Present on resync.
+        applied_index (int | Unset): Last Raft index applied to the accepted copy, or -1 when none is recorded. Present
+            on accept-copy.
+        database (str | Unset): Database the action applied to. Present on resync and accept-copy.
         leader_id (str | Unset): Leader after the action. Present on leadership transfer.
-        local_server (str | Unset): Server that performed the action. Present on resync.
+        local_server (str | Unset): Server that performed the action. Present on resync and accept-copy.
+        overridden_refusal (str | Unset): Why the leader had refused to reopen the copy, when a refusal was standing.
+            Present on accept-copy.
     """
 
     result: str
+    applied_index: int | Unset = UNSET
     database: str | Unset = UNSET
     leader_id: str | Unset = UNSET
     local_server: str | Unset = UNSET
+    overridden_refusal: str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         result = self.result
+
+        applied_index = self.applied_index
 
         database = self.database
 
         leader_id = self.leader_id
 
         local_server = self.local_server
+
+        overridden_refusal = self.overridden_refusal
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -44,12 +54,16 @@ class ClusterActionResponse:
                 "result": result,
             }
         )
+        if applied_index is not UNSET:
+            field_dict["appliedIndex"] = applied_index
         if database is not UNSET:
             field_dict["database"] = database
         if leader_id is not UNSET:
             field_dict["leaderId"] = leader_id
         if local_server is not UNSET:
             field_dict["localServer"] = local_server
+        if overridden_refusal is not UNSET:
+            field_dict["overriddenRefusal"] = overridden_refusal
 
         return field_dict
 
@@ -58,17 +72,23 @@ class ClusterActionResponse:
         d = dict(src_dict)
         result = d.pop("result")
 
+        applied_index = d.pop("appliedIndex", UNSET)
+
         database = d.pop("database", UNSET)
 
         leader_id = d.pop("leaderId", UNSET)
 
         local_server = d.pop("localServer", UNSET)
 
+        overridden_refusal = d.pop("overriddenRefusal", UNSET)
+
         cluster_action_response = cls(
             result=result,
+            applied_index=applied_index,
             database=database,
             leader_id=leader_id,
             local_server=local_server,
+            overridden_refusal=overridden_refusal,
         )
 
         cluster_action_response.additional_properties = d

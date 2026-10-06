@@ -38,7 +38,7 @@ from arcadedb_driver import ArcadeDBServer, basic_auth
 
 with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")) as srv:
     db = srv.db("mydb")
-    envelope = db.query(language="sql", command="SELECT FROM Person WHERE age > ?", params={"1": 21})
+    envelope = db.query(language="sql", command="SELECT FROM Person WHERE age > ?", params={"0": 21})
     print(envelope.result)
 ```
 
@@ -62,7 +62,7 @@ from arcadedb_driver import AsyncArcadeDBServer, basic_auth
 async def main() -> None:
     async with AsyncArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")) as srv:
         db = srv.db("mydb")
-        envelope = await db.query(language="sql", command="SELECT FROM Person WHERE age > ?", params={"1": 21})
+        envelope = await db.query(language="sql", command="SELECT FROM Person WHERE age > ?", params={"0": 21})
         print(envelope.result)
 
 
@@ -349,8 +349,8 @@ The commit/rollback contract has three clauses:
   exception rather than replacing it - the block's own error is what the caller asked about - and
   the attach is silently skipped if `__cause__` is already set or if attaching it fails outright.
 - The commit itself fails: a best-effort rollback is issued first (its own failure discarded) so
-  the server-side session is not left open until `arcadedb.server.httpTxExpireTimeout` reaps it,
-  and then the commit's error is re-raised.
+  the server-side session is not left open until `arcadedb.server.httpSessionExpireTimeout` reaps
+  it, and then the commit's error is re-raised.
 
 ## Vector, hybrid and full-text search: `db.vector`
 

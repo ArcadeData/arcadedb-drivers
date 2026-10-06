@@ -68,7 +68,7 @@ class Transaction:
     - If the commit itself fails, a best-effort rollback is issued to release the
       session (its own failure discarded - the commit error is what the caller needs
       to see) before the commit error is re-raised. Without this a failed commit
-      leaves the session open server-side until `arcadedb.server.httpTxExpireTimeout`
+      leaves the session open server-side until `arcadedb.server.httpSessionExpireTimeout`
       reaps it.
     """
 

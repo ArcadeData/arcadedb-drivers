@@ -59,7 +59,7 @@ func (e *TxError) Unwrap() error { return e.Err }
 //     original panic value wins. The re-panic happens in a deferred function, so the
 //     re-raised panic's stack trace starts there rather than at the original panic site.
 //  3. The commit fails: a best-effort rollback is issued (its own error discarded) so the
-//     session is not left for arcadedb.server.httpTxExpireTimeout to reap, then the
+//     session is not left for arcadedb.server.httpSessionExpireTimeout to reap, then the
 //     commit's error is returned.
 //
 // Both rollbacks run under context.WithoutCancel(ctx): the commonest reason fn fails is

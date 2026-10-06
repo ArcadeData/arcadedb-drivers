@@ -156,11 +156,13 @@ func (c *Client) Transaction(ctx context.Context, database string, fn func(tx *T
 // A request's own Credentials field, where it has one, is passed through as given, never
 // bound: which principal may act inside the transaction is the server's to decide.
 //
-// InsertStream and TimeSeriesWriteStream are deliberately absent, as in the Python client.
-// InsertStream on the handle is pending ArcadeData/arcadedb-drivers#46 (the server fix,
-// ArcadeData/arcadedb#6607, shipped in 26.9.1); TimeSeriesWriteChunk has no transaction
-// field, so a write stream cannot join a transaction at all. Reach either through the
-// Client, outside any transaction.
+// InsertStream joins the transaction through the same replace: every chunk carries the
+// handle's TransactionContext. Servers before 26.9.1, outside the compatibility table,
+// ignored the transaction on InsertStream (ArcadeData/arcadedb#6607), so rows inserted
+// against them would survive a rollback. TimeSeriesWriteStream is deliberately absent:
+// TimeSeriesWriteChunk has no transaction field, so a write stream cannot join a
+// transaction at all; reach it through the Client, outside any transaction. BulkInsert and
+// GraphBatchLoad are reachable only through Client.Raw().
 //
 // A handle outlives nothing useful: once Transaction returns, its calls carry an id the
 // server has committed or rolled back, and the server refuses them. Do not retain it.
@@ -290,4 +292,18 @@ func (h *TxHandle) TimeSeriesQuery(ctx context.Context, req *generated.TimeSerie
 	r := clone(req)
 	r.Database, r.Transaction = h.binding()
 	return timeSeriesQuery(ctx, h.raw, r, opts)
+}
+
+// InsertStream is Client.InsertStream bound to the transaction, with the same envelope:
+// Database (first chunk only) is forced to the transaction's database and Transaction (every
+// chunk) is replaced by the handle's TransactionContext, whatever req carried. req is taken
+// by value, so the caller's struct is never modified; Options and Credentials are sent as
+// given and not modified either.
+//
+// Rows sent here are committed or rolled back with the transaction on servers from 26.9.1
+// on (ArcadeData/arcadedb#6607); earlier servers, outside the compatibility table, ignored
+// the transaction and kept them.
+func (h *TxHandle) InsertStream(ctx context.Context, req InsertStreamRequest, opts ...grpc.CallOption) (*generated.InsertSummary, error) {
+	req.Database, req.Transaction = h.binding()
+	return insertStream(ctx, h.raw, req, opts)
 }

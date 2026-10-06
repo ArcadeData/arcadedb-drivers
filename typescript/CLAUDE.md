@@ -115,10 +115,11 @@ Points to preserve when editing:
   iterable is valid, not an error.
 - `streamQuery` flattens batches into rows and nothing else; `retrievalMode` and `batchSize` stay
   the caller's choice.
-- `TransactionHandle` excludes `bulkInsert` and `insertStream` because the server committed those
-  independently of the transaction (`ArcadeData/arcadedb#6607`) on 26.8.1 and earlier. That fix
-  also shipped in 26.9.1, verified against a real server, so the exclusion is now removable — but
-  lifting it adds public surface, so it is a follow-up rather than part of a contract adoption.
+- `TransactionHandle.insertStream` is the client's own `insertStream` wrapped in the handle's
+  `bound` override, so it replaces `database` and `transaction` like every other handle method and
+  reuses the envelope logic rather than duplicating it. It joins the transaction only on 26.9.1 and
+  later: earlier servers ignored `InsertChunk.transaction` and committed the rows on their own
+  (`ArcadeData/arcadedb#6607`). `bulkInsert` and `graphBatchLoad` stay `raw`-only, deliberately.
 
 ## Lint configuration
 

@@ -209,6 +209,47 @@ def test_transaction_rolls_back(grpc_server: tuple[str, str], grpc_database: str
     assert _names(client, grpc_database, marker) == []
 
 
+def test_insert_stream_through_the_handle_commits_with_the_transaction(
+    client: ArcadeDBGrpcClient, grpc_database: str
+) -> None:
+    # Read back through the OUTER client, i.e. outside the transaction: the rows are only
+    # visible there because the commit made them durable.
+    marker = f"itc{uuid.uuid4().hex[:8]}"
+    with client.transaction(grpc_database) as tx:
+        summary = tx.insert_stream(
+            InsertStreamRequest(
+                database=grpc_database,
+                options=messages.InsertOptions(target_class="Person"),
+                chunks=[[_person(f"{marker}-a")], [_person(f"{marker}-b")]],
+            )
+        )
+        assert summary.inserted == 2
+    assert _names(client, grpc_database, marker) == [f"{marker}-a", f"{marker}-b"]
+
+
+def test_insert_stream_through_the_handle_is_discarded_on_rollback(
+    client: ArcadeDBGrpcClient, grpc_database: str
+) -> None:
+    # The guarantee #46 adds, and the one ArcadeData/arcadedb#6607 broke: on 26.8.1 the
+    # server ignored TransactionContext on InsertStream and these rows SURVIVED the
+    # rollback. `summary.inserted == 2` inside the block rules out the vacuous pass (an
+    # insert that never happened would also leave no rows).
+    marker = f"itr{uuid.uuid4().hex[:8]}"
+    sentinel = RuntimeError("boom")
+    with pytest.raises(RuntimeError) as caught, client.transaction(grpc_database) as tx:
+        summary = tx.insert_stream(
+            InsertStreamRequest(
+                database=grpc_database,
+                options=messages.InsertOptions(target_class="Person"),
+                chunks=[[_person(f"{marker}-a")], [_person(f"{marker}-b")]],
+            )
+        )
+        assert summary.inserted == 2
+        raise sentinel
+    assert caught.value is sentinel
+    assert _names(client, grpc_database, marker) == []
+
+
 def test_vector_search_through_raw_outside_a_transaction_returns_a_non_empty_nearest_first_result(
     client: ArcadeDBGrpcClient, grpc_database: str, grpc_vector_index: tuple[str, str]
 ) -> None:

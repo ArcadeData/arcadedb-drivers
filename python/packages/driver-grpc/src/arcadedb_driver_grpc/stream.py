@@ -112,20 +112,19 @@ class InsertStreamRequest:
     not decide how rows are batched, which is the caller's call.
 
     `transaction` IS FORWARDED. It is set on every chunk, exactly as the caller gave it,
-    because the `.proto` declares the field. On 26.8.1 and earlier the server ignored
-    `TransactionContext` for `InsertStream` entirely (ArcadeData/arcadedb#6607), so setting
-    it bought no transactional guarantee; that is why `insert_stream` is not offered on
-    `TransactionHandle` at all - there the omission makes the gap visible, whereas here the
-    field is part of the wire message and cannot be hidden.
+    because the `.proto` declares the field - including any inline `begin`/`commit`/
+    `rollback` flags, which this wrapper does not police. `TransactionHandle.insert_stream`
+    is the safe spelling: its `_bind` replaces `database` and `transaction` with the
+    handle's own (id and database only, no flags) before this envelope ever sees the
+    request.
 
-    #6607 HAS since landed (`79d931070b`, released in 26.9.1). Measured against real
-    26.8.1, 26.9.1 and 26.10.1 servers - begin over `BeginTransaction`, insert
-    with that server-issued `transaction_id`, then roll back - the rows survive the
-    rollback on 26.8.1 and are correctly discarded on both later versions, with a commit
-    persisting them on all three. So the guarantee IS honoured on every server version this
-    package supports, and the `TransactionHandle` omission is now removable. Lifting it adds
-    public surface, so it is tracked as a follow-up rather than done during a contract
-    adoption.
+    On 26.8.1 and earlier the server ignored `TransactionContext` for `InsertStream`
+    entirely (ArcadeData/arcadedb#6607). The fix (`79d931070b`) shipped in 26.9.1; measured
+    against real 26.8.1, 26.9.1 and 26.10.1 servers - begin over `BeginTransaction`, insert
+    with that server-issued `transaction_id`, then roll back - the rows survive the rollback
+    on 26.8.1 and are discarded on both later versions, with a commit persisting them on all
+    three. Every server in the compatibility table is 26.9.1 or later; against an older one
+    the rows of a rolled-back transaction would survive.
     """
 
     database: str
@@ -267,11 +266,11 @@ def insert_stream(
     An empty `request.chunks` sends a single chunk with zero rows and `last=True` rather
     than raising.
 
-    NOT available on a `TransactionHandle`: on 26.8.1 and earlier, ArcadeData/arcadedb#6607
-    had the server ignoring `TransactionContext` here, so offering it there would have
-    implied a transactional guarantee the server did not honour. That fix shipped in 26.9.1
-    and the omission is now removable - see `InsertStreamRequest` for the measurement and
-    why lifting it is a follow-up rather than part of a contract adoption.
+    Also reachable, bound to an open transaction, as `TransactionHandle.insert_stream`
+    (see `transaction.py`), which replaces `database` and `transaction` with the handle's
+    own so the rows commit or roll back with it. Servers before 26.9.1, outside the
+    compatibility table, ignored `TransactionContext` here (ArcadeData/arcadedb#6607) - see
+    `InsertStreamRequest`.
 
     `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
     per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds

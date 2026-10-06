@@ -62,8 +62,9 @@ plane), is a separate handle, `raw_admin` - see "The control plane: `raw_admin`"
 `VectorSearch`/`HybridSearch`/`FullTextSearch`, `BulkInsert`, `InsertBidirectional`,
 `GraphBatchLoad`, `TimeSeriesWrite`, `TimeSeriesLatest` - is used directly through `raw` at the top
 level, exactly as in the example above; the CRUD calls, the three search RPCs, and
-`TimeSeriesLatest` also get a `TransactionHandle` wrapper once a transaction is open (see
-"Transactions", "Vector, hybrid and full-text search", and "Time series" below) - `BulkInsert`,
+`TimeSeriesLatest` also get a `TransactionHandle` wrapper once a transaction is open, as do the
+`stream_query`, `insert_stream` and `time_series_query` wrappers (see "Transactions", "Vector,
+hybrid and full-text search", and "Time series" below) - `BulkInsert`,
 `InsertBidirectional`, `GraphBatchLoad`, and `TimeSeriesWrite` never do, at any level.
 
 The async facade mirrors the sync one method-for-method:
@@ -254,7 +255,8 @@ matched nothing, say) gets a single wire chunk with zero rows and `last=True`, a
 matching nothing is a legitimate outcome, and turning it into an error would be the wrong failure
 mode for the common case of "there was nothing to insert this time."
 
-`insert_stream` is **not** available on a `TransactionHandle` - see below.
+`insert_stream` is also available on a `TransactionHandle`, where the rows commit or roll back
+with the transaction - see "`insert_stream` inside a `transaction()`" below.
 
 ## Transactions: `transaction`
 
@@ -280,8 +282,8 @@ async with client.transaction("mydb") as tx:
 server-side transaction (`BeginTransaction`) and hands back a `TransactionHandle` /
 `AsyncTransactionHandle` - a second object, distinct from the client itself. Every call made
 through that handle (`execute_query`, `execute_command`, `create_record`, `update_record`,
-`delete_record`, `lookup_by_rid`, `stream_query`, `vector_search`, `hybrid_search`,
-`full_text_search`) carries the transaction's id; a call made
+`delete_record`, `lookup_by_rid`, `stream_query`, `insert_stream`, `vector_search`,
+`hybrid_search`, `full_text_search`) carries the transaction's id; a call made
 through the outer `client` while the transaction is open does **not** take part in it, the same
 distinction `arcadedb-driver`'s `Transaction` documents for its second database handle.
 
@@ -326,25 +328,39 @@ call itself raises, a best-effort rollback is attempted first (its own failure d
 server-side transaction is not left open until it is reaped, and then the commit's error
 propagates.
 
-### `insert_stream` and `bulk_insert` cannot join a `transaction()` on this server
+### `insert_stream` inside a `transaction()`
 
-On **26.8.1 and every earlier server**, `ArcadeDbGrpcService#insertStream` and `#bulkInsert`
-never read a request's `TransactionContext` - each builds its own `InsertContext`, resolves its own
-database, and commits independently, regardless of any
-`BeginTransaction`/`CommitTransaction`/`RollbackTransaction` issued around it. Adding them to
-`TransactionHandle` would silently misrepresent this: their writes would not actually be part of
-the transaction, would commit even if the transaction's body raised, and would survive a rollback.
-Both remain reachable outside a transaction - `client.insert_stream(...)` and
-`client.raw.BulkInsert(...)` - but never through `tx`.
+```python
+with client.transaction("mydb") as tx:
+    summary = tx.insert_stream(
+        InsertStreamRequest(
+            database="mydb",
+            options=messages.InsertOptions(target_class="Person"),
+            chunks=batches(),
+        )
+    )
+```
 
-[ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607) was filed against
-this gap and **has since landed**: its fix (`79d931070b`) is an ancestor of the `26.9.1` tag and
-not of `26.8.1`. Measured against real servers - begin over `BeginTransaction`, run an
-`InsertStream` carrying that server-issued `transaction_id`, then roll back - the rows survive the
-rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10.1`, with a
-commit persisting them on all three. So the restriction is now **removable** for every server
-version this package supports. It is kept for now because lifting it adds public surface, a
-deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
+`tx.insert_stream` takes the same `InsertStreamRequest` as `client.insert_stream`, returns the same
+`InsertSummary`, and sends the same envelope - it is the client's own implementation, called with a
+bound request. The binding is the override above: `database` and `transaction` are **replaced**
+with the handle's, and every chunk carries the handle's `TransactionContext` (transaction id and
+database only, no `begin`/`commit`/`rollback` flags). A `transaction` the caller set on the request,
+flags and all, does not reach the wire, and the caller's request object is not modified. The rows
+are part of the transaction: they commit with it, and they are discarded if the block raises.
+
+That holds on **26.9.1 and later**, which is where the compatibility table starts. Servers before
+26.9.1 ignored `TransactionContext` on `InsertStream`
+([ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607), fixed by
+`79d931070b`): each stream built its own `InsertContext` and committed independently, so against
+one of those servers rows sent through `tx.insert_stream` **survive a rollback**. Measured against
+real servers - begin over `BeginTransaction`, run an `InsertStream` carrying that server-issued
+`transaction_id`, then roll back - the rows survive on `26.8.1` and are discarded on `26.9.1` and
+`26.10.1`, with a commit persisting them on all three.
+
+`BulkInsert` and `GraphBatchLoad` are **not** on the handle. Both stay reachable through
+`client.raw` only, outside any wrapper, keeping this package level with its TypeScript and Go
+siblings.
 
 ## Time series: `time_series_write_stream`, `time_series_query`, `time_series_latest`, `TimeSeriesWrite`
 
@@ -456,30 +472,22 @@ reasons a point can be dropped:
 **Checking only that the call returned without raising is not checking that the data landed** - a
 call can succeed and still report `dropped > 0`. Always read the summary.
 
-### Two RPCs with no wrapper or binding - for two different reasons, with two different futures
+### `TimeSeriesWrite` has no binding because the contract gives it none
 
-`TimeSeriesWrite` has no wrapper at any level, and `TimeSeriesLatest` has no top-level alias. Both
-look like the same shape of gap from the outside, but they are not the same kind of gap, and
-should not be described the same way:
+`TimeSeriesWrite` has no wrapper at any level, and `TimeSeriesLatest` has no top-level alias.
 
 - **`TimeSeriesWrite` is `raw`-only because its message carries no `transaction` field at all** -
   a **contract** limit. `TimeSeriesWriteRequest` simply never declares a field to bind, the same
   way `TimeSeriesWriteChunk` (the streaming version) never does. No server release, however
   capable, can make `client.raw.TimeSeriesWrite` transaction-aware without the `.proto` itself
   growing a `transaction` field first - there is nothing this package could do differently today.
-- **`insert_stream`'s absence from `TransactionHandle` is a server bug, already fixed, not a
-  contract limit.** `InsertStreamRequest`/`InsertChunk` DO carry a `transaction` field on the
-  wire, and it is forwarded on every chunk (see "Streaming inserts" above). The exclusion exists
-  because, on 26.8.1 and earlier, the server's `InsertContext` construction ignored that field
-  entirely ([ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607)). That
-  bug is fixed as of 26.9.1, measured against a real server (see "`insert_stream` and
-  `bulk_insert` cannot join a `transaction()`" above) - the exclusion is now **removable with no
-  contract change**, and is kept only because lifting it adds public surface, a deliberate release
-  decision rather than a documentation fix.
-
-So `TimeSeriesWrite`'s status is not on the same follow-up list as `insert_stream`'s: one needs the
-`.proto` contract to change upstream before this package could do anything about it; the other
-needs only this package to decide to expose what the server can already do.
+  The same is why `time_series_write_stream` is not on the handle.
+- **`insert_stream`, by contrast, IS on `TransactionHandle`, because its messages do carry a
+  `transaction` field.** `InsertStreamRequest`/`InsertChunk` declare one, the handle binds it on
+  every chunk, and every server in the compatibility table honours it (see "`insert_stream` inside
+  a `transaction()`" above). Its absence from the handle in earlier releases was a server bug
+  (ArcadeData/arcadedb#6607), not a contract limit, which is why it could be lifted here without
+  the `.proto` changing.
 
 ### `tags` and `limit` on `TimeSeriesQueryRequest` are enforced server-side
 

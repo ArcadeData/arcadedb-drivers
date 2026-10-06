@@ -20,13 +20,15 @@ one is the one that needs the safety.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 from collections.abc import Iterator, Sequence
 from types import TracebackType
 from typing import TypeVar
 
 from ._generated import arcadedb_server_pb2 as messages
 from ._generated.arcadedb_server_pb2_grpc import ArcadeDbServiceStub
-from .stream import _as_metadata
+from .stream import InsertStreamRequest, _as_metadata
+from .stream import insert_stream as _insert_stream
 from .stream import stream_query as _stream_query
 from .stream import time_series_query as _time_series_query
 
@@ -46,6 +48,7 @@ _Request = TypeVar(
     messages.FullTextSearchRequest,
     messages.TimeSeriesQueryRequest,
     messages.TimeSeriesLatestRequest,
+    InsertStreamRequest,
 )
 
 
@@ -80,13 +83,25 @@ class TransactionHandle:
         carries inline `begin`/`commit`/`rollback`/`read_only` flags, and a merge would
         correct the id while letting a caller-supplied `rollback=True` ride through into a
         call this handle is meant to have full control over.
+
+        `InsertStreamRequest` is the one non-protobuf request bound here - it is this
+        package's own dataclass, whose `chunks` cannot live in a message - so it is bound by
+        `dataclasses.replace` instead: a new object with `database` replaced and
+        `transaction` replaced by a FRESH `TransactionContext`, never merged into the
+        caller's. `insert_stream`'s `_build_chunk` then `CopyFrom`s that context onto every
+        chunk, so the same rule holds on the wire: the caller's flags and id do not survive.
+        The copy is shallow; `chunks`, `options` and `credentials` are shared with the
+        caller's object, which is safe because the envelope only reads them (`CopyFrom` into
+        each chunk's own message) and the caller's iterable is consumed exactly as
+        `client.insert_stream` would consume it.
         """
+        context = messages.TransactionContext(transaction_id=self._transaction_id, database=self._database)
+        if isinstance(request, InsertStreamRequest):
+            return dataclasses.replace(request, database=self._database, transaction=context)
         bound = type(request)()
         bound.CopyFrom(request)
         bound.database = self._database
-        bound.transaction.CopyFrom(
-            messages.TransactionContext(transaction_id=self._transaction_id, database=self._database)
-        )
+        bound.transaction.CopyFrom(context)
         return bound
 
     def execute_query(
@@ -219,6 +234,32 @@ class TransactionHandle:
         `self._raw.TimeSeriesLatest` rather than through a stream-shaped helper.
         """
         return self._raw.TimeSeriesLatest(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
+
+    def insert_stream(
+        self,
+        request: InsertStreamRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.InsertSummary:
+        """Streams rows into this transaction in chunks; see `stream.insert_stream`.
+
+        The request is bound by `_bind` like every other call here: `database` and
+        `transaction` are REPLACED with this handle's, whatever the caller set, and the
+        handle's `TransactionContext` (id and database only - no `begin`/`commit`/`rollback`
+        flags) rides on every chunk. The envelope itself - `session_id`, `chunk_seq`,
+        first-chunk-only `database`, final-chunk `last`, `options` and `credentials` on every
+        chunk - is `stream.insert_stream`'s, reused rather than repeated.
+
+        The rows commit or roll back with the transaction on 26.9.1 and later. Servers
+        before 26.9.1, which are outside the compatibility table, ignored `TransactionContext`
+        on `InsertStream` (ArcadeData/arcadedb#6607), so there the rows would survive a
+        rollback.
+
+        `BulkInsert` and `GraphBatchLoad` are not offered here; they stay reachable through
+        `client.raw` only.
+        """
+        return _insert_stream(self._raw, self._bind(request), timeout=timeout, metadata=metadata)
 
 
 class Transaction:

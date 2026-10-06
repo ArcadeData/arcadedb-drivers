@@ -825,6 +825,13 @@ proto retyped.proto '  string name = 1;
 "$COMPAT" "$PDIR/base.proto" "$PDIR/retyped.proto" >/dev/null 2>&1; rc=$?
 check "$rc" "1" "fails a field whose type changed"
 
+# A rename keeps the wire format (same number, same type) but changes every generated client's
+# field name, so only the FILE rules catch it - WIRE would let it through.
+proto renamed.proto '  string label = 1;
+  int64 count = 2;'
+"$COMPAT" "$PDIR/base.proto" "$PDIR/renamed.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "1" "fails a renamed field (a source break the FILE rules catch)"
+
 # The reason the files are staged under one fixed name: compared under their own names, two
 # identical contracts with different version stamps read as one file deleted and one added.
 cp "$PDIR/base.proto" "$PDIR/arcadedb-server-1.0.0.proto"
@@ -840,8 +847,25 @@ check "$rc" "0" "does not fail on a new lint finding"
 case "$out" in *"new: ENUM_"*) ok "but reports it" ;; *) bad "but reports it (got: $out)" ;; esac
 
 printf 'syntax = "proto3";\nmessage {\n' > "$PDIR/broken.proto"
-"$COMPAT" "$PDIR/base.proto" "$PDIR/broken.proto" >/dev/null 2>&1; rc=$?
-if [[ "$rc" -ne 0 ]]; then ok "fails a contract that does not compile"; else bad "fails a contract that does not compile"; fi
+out="$("$COMPAT" "$PDIR/base.proto" "$PDIR/broken.proto" 2>&1)"; rc=$?
+check "$rc" "1" "fails a contract that does not compile"
+# ...and still finishes its report rather than stopping mid-run under set -e.
+case "$out" in *"buf lint (report only): could not run"*) ok "and still reports the lint section" ;; *) bad "and still reports the lint section (got: $out)" ;; esac
+
+# Only the root buf.yaml's lint: and breaking: blocks are staged. Anything after them - here a
+# deps: key naming a module that does not exist - must not be swept into the staged config,
+# where buf would try (and fail) to resolve it. Run from a copy of the script beside a fixture
+# buf.yaml, with BUF pointing at the real binary.
+BFIX="$(mktemp -d)"
+mkdir -p "$BFIX/scripts"
+cp "$COMPAT" "$BFIX/scripts/"
+printf 'version: v2\nmodules:\n  - path: contracts\nlint:\n  use:\n    - STANDARD\nbreaking:\n  use:\n    - FILE\ndeps:\n  - buf.build/does-not/exist\n' > "$BFIX/buf.yaml"
+for cand in "${BUF:-}" "$REPO_ROOT/typescript/node_modules/.bin/buf"; do [[ -n "$cand" && -x "$cand" ]] && { FIXBUF="$cand"; break; }; done
+BUF="${FIXBUF:-}" "$BFIX/scripts/check-proto-compat.sh" "$PDIR/base.proto" "$PDIR/additive.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "0" "stages only the lint and breaking blocks of buf.yaml, not keys after them"
+BUF="${FIXBUF:-}" "$BFIX/scripts/check-proto-compat.sh" "$PDIR/base.proto" "$PDIR/removed.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "1" "and still applies those blocks' rules"
+rm -rf "$BFIX"
 
 "$COMPAT" "$PDIR/base.proto" "$PDIR/missing.proto" >/dev/null 2>&1; rc=$?
 check "$rc" "2" "refuses a missing file"

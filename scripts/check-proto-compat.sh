@@ -70,12 +70,20 @@ buf() {
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# The rules come from the root buf.yaml, so there is one place that says what is checked.
+# The rules come from the root buf.yaml, so there is one place that says what is checked. Only
+# its top-level `lint:` and `breaking:` blocks are copied, each up to the next top-level key:
+# anything else there (`modules: - path: contracts`, a future `deps:`) describes the repository
+# layout and would not resolve against this flat staging directory. The staged module is the
+# directory itself, stated explicitly as go/scripts/generate-grpc.sh does (buf v2 also defaults
+# to it; verified: a FILE-only break is caught under FILE and passes under WIRE either way).
 stage() {
   local dir="$WORK/$1" src="$2"
   mkdir -p "$dir"
   cp "$src" "$dir/arcadedb_server.proto"
-  awk '/^(lint|breaking):/,0' "$REPO_ROOT/buf.yaml" | { printf 'version: v2\n'; cat; } > "$dir/buf.yaml"
+  {
+    printf 'version: v2\nmodules:\n  - path: .\n'
+    awk '/^[^[:space:]#]/ { keep = ($0 ~ /^(lint|breaking):/) } keep' "$REPO_ROOT/buf.yaml"
+  } > "$dir/buf.yaml"
 }
 stage previous "$PREVIOUS"
 stage new "$NEW"
@@ -104,14 +112,30 @@ findings() {
     return 1
   fi
   [[ -z "$out" ]] && return 0
+  # A contract that does not compile also exits 100, its parse errors reported as findings of
+  # type COMPILE. Those are not upstream style to tolerate; they mean lint could not run at all.
+  if jq -e -s 'any(.[]; .type == "COMPILE")' <<<"$out" >/dev/null; then
+    echo "ERROR: the $1 contract does not compile:" >&2
+    jq -r 'select(.type == "COMPILE") | "  \(.message)"' <<<"$out" >&2
+    return 1
+  fi
   jq -r '"\(.type): \(.message)"' <<<"$out" | sort -u
 }
 
-previous_findings="$(findings previous)"
-new_findings="$(findings new)"
+# Captured with `||` rather than left to `set -e`: a contract that does not compile has already
+# failed `buf breaking` above, and the run should still end with this section's summary and
+# `exit "$failed"` rather than stop mid-report.
+lint_ok=1
+previous_findings="$(findings previous)" || lint_ok=0
+new_findings="$(findings new)" || lint_ok=0
 introduced="$(comm -13 <(printf '%s\n' "$previous_findings") <(printf '%s\n' "$new_findings") | sed '/^$/d')"
 count() { if [[ -z "$1" ]]; then echo 0; else wc -l <<<"$1" | tr -d '[:space:]'; fi; }
 
+if [[ "$lint_ok" -eq 0 ]]; then
+  echo "buf lint (report only): could not run on both contracts (see the error above)"
+  failed=1
+  exit "$failed"
+fi
 echo "buf lint (report only): $(count "$previous_findings") finding(s) before, $(count "$new_findings") after"
 if [[ -z "$introduced" ]]; then
   echo "  no new finding"

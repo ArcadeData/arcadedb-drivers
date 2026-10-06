@@ -474,7 +474,11 @@ def is_published(
     it after the tag appears: in the 0.2.0 release, release.yml asked here three minutes before
     publish-go.yml pushed the tag, and both module fetches then failed for ~25 minutes. A version
     with no tag cannot be on the proxy, so "no tag" answers False without asking it.
+
+    The version is validated first: a malformed one (say "v0.2.0") would otherwise build a tag or
+    URL that cannot exist and read as a confident "not published" rather than as an error.
     """
+    validate_version(version)
     if row["registry"] == "goproxy":
         tag = go_module_tag(row, version)
         try:

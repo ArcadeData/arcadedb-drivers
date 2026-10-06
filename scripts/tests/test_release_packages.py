@@ -420,6 +420,25 @@ def test_is_published_fails_closed_when_the_tag_lookup_fails() -> None:
         rp.is_published(_row("go-arcadedb"), "0.2.0", fetch=lambda url: 200, tag_exists=broken)
 
 
+@pytest.mark.parametrize("row_id", ["go-arcadedb", "npm-driver"])
+@pytest.mark.parametrize("bad", ["v0.2.0", "0.2", "0.2.0-rc1", ""])
+def test_is_published_rejects_a_malformed_version_before_asking_anything(row_id: str, bad: str) -> None:
+    # A malformed version must be an error, never a confident "not published" built from a tag or
+    # URL that cannot exist (go/arcadedb/vv0.2.0).
+    def must_not_be_called(_: str) -> object:
+        raise AssertionError("contacted a registry or the repo with a malformed version")
+
+    with pytest.raises(rp.ReleaseError, match="not a release version"):
+        rp.is_published(_row(row_id), bad, fetch=must_not_be_called, tag_exists=must_not_be_called)
+
+
+def test_cli_is_published_rejects_a_malformed_version() -> None:
+    res = subprocess.run(
+        [sys.executable, str(_SCRIPT), "is-published", "go-arcadedb", "v0.2.0"], capture_output=True, text=True
+    )
+    assert res.returncode == 1 and "not a release version" in res.stderr and res.stdout == ""
+
+
 def test_is_published_does_not_check_tags_outside_go() -> None:
     def must_not_be_called(tag: str) -> bool:
         raise AssertionError("tag lookup for a non-Go row")

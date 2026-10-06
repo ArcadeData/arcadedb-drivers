@@ -312,8 +312,8 @@ dead id to the server.
 
 On a clean exit, `transaction` calls `CommitTransaction` and checks the response's `committed`
 field - not `success`. A transaction id the server no longer recognises (for example, one already
-reaped past `arcadedb.server.httpTxExpireTimeout`) answers `success=true, committed=false`, with no
-error status at all. Trusting `success` alone would report the commit as having gone through while
+reclaimed by the server's idle reaper, after 5 minutes idle by default) answers
+`success=true, committed=false`, with no error status at all. Trusting `success` alone would report the commit as having gone through while
 silently losing every write the transaction made; checking `committed` instead raises
 `RuntimeError` (including the server's own message) so that failure cannot pass unnoticed. The same
 check exists on both facades. `BeginTransaction`'s response is checked the same way: a missing or
@@ -756,7 +756,7 @@ the `CancelledError` has already been delivered and the task's `_must_cancel` fl
 The real limitation is narrower. A **second** cancellation, landing while that rollback is still in
 flight, is raised at the `await` and escapes `__aexit__` uncaught - replacing whatever the body
 raised, and leaving the transaction open on the server until
-`arcadedb.server.httpTxExpireTimeout` reaps it, the leaked-transaction shape
+the server's idle reaper reclaims it (5 minutes idle by default), the leaked-transaction shape
 (ArcadeData/arcadedb#5042) this package otherwise exists to prevent. `_safe_rollback`, on the
 commit-failure path, has the same gap in a smaller form: its `contextlib.suppress(Exception)`
 genuinely does not cover `CancelledError`, so a cancellation there replaces the commit error the

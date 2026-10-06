@@ -517,7 +517,7 @@ class AsyncTransaction:
         flight, is not survived. That `CancelledError` is raised at the `await` and escapes
         `__aexit__` uncaught, replacing whatever the body raised; the rollback never
         reaches the server and the transaction is left open until
-        `arcadedb.server.httpTxExpireTimeout` reaps it - the ArcadeData/arcadedb#5042
+        the server's idle reaper reclaims it (5 minutes idle by default) - the ArcadeData/arcadedb#5042
         shape this module otherwise exists to prevent. `_safe_rollback`, on the
         commit-failure path, has the narrower version of the same gap: its
         `contextlib.suppress(Exception)` does not cover `CancelledError`, so a cancellation

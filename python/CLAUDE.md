@@ -205,7 +205,7 @@ clauses, each with its own test in `tests/test_transaction.py`:
    errors that cannot take a new attribute).
 3. **Commit itself fails.** A best-effort rollback is issued first (its own failure discarded -
    the commit error is what the caller needs to see) so the server-side session is not left open
-   until `arcadedb.server.httpTxExpireTimeout` reaps it, then the commit's error is re-raised.
+   until `arcadedb.server.httpSessionExpireTimeout` reaps it, then the commit's error is re-raised.
 
 Preserve this contract exactly when touching `transaction.py` or `aio.py` - it is spelled out in
 the doc comment on `Transaction`/`AsyncTransaction` for the same reason.

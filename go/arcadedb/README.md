@@ -258,8 +258,8 @@ callback cannot leak a session. The contract has three clauses:
   the struct. (`errors.Join` is deliberately not used: it unwraps to both, and `errors.As` could
   then match the rollback's `*ArcadeDBError`.) After a panic, a failed rollback is discarded.
 - The commit itself fails: a best-effort rollback is issued (its own error discarded) so the
-  session is not left for `arcadedb.server.httpTxExpireTimeout` to reap, and the commit's error is
-  returned.
+  session is not left for `arcadedb.server.httpSessionExpireTimeout` to reap, and the commit's
+  error is returned.
 
 Rollbacks run on `context.WithoutCancel(ctx)`, so a callback that failed because `ctx` was
 cancelled still gets its transaction rolled back. `panic(nil)` is re-raised as the

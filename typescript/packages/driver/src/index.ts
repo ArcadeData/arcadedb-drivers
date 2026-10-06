@@ -314,7 +314,7 @@ export class ArcadeDBDatabase {
    *    release the session (its own failure is swallowed - the commit
    *    error is what the caller needs to see) before the commit error is
    *    re-thrown. Without this, a failed commit leaves the session open
-   *    server-side until `arcadedb.server.httpTxExpireTimeout` reaps it.
+   *    server-side until `arcadedb.server.httpSessionExpireTimeout` reaps it.
    */
   async transaction<T>(fn: (tx: ArcadeDBDatabase) => Promise<T>): Promise<T> {
     const sessionId = await beginTransaction(this.client, this.name);

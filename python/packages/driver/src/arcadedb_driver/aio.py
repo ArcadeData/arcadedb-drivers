@@ -83,7 +83,7 @@ class AsyncTransaction:
       when `__cause__` is unset, and the attach is swallowed if it fails.
     - A commit that fails still issues a best-effort rollback (its own failure
       discarded) before the commit error is re-raised, so the session is not left
-      open until `arcadedb.server.httpTxExpireTimeout` reaps it.
+      open until `arcadedb.server.httpSessionExpireTimeout` reaps it.
     """
 
     def __init__(self, client: Client, database: str) -> None:

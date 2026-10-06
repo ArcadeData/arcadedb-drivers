@@ -118,7 +118,7 @@ def test_a_failed_commit_still_issues_a_rollback_and_raises_the_commit_error() -
         pass
 
     # Without the best-effort rollback the session leaks server-side until
-    # arcadedb.server.httpTxExpireTimeout reaps it.
+    # arcadedb.server.httpSessionExpireTimeout reaps it.
     assert caught.value.error == "commit failed"
     assert rollback.called
 

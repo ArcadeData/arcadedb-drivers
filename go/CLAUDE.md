@@ -268,7 +268,7 @@ are under "The gRPC module" below.
    `nil`, indistinguishable from `Goexit`, so that branch sets the named result to a non-nil error
    - a nil return there would read as committed.
 3. **The commit fails → best-effort rollback** (its own error discarded) so the session is not left
-   for `arcadedb.server.httpTxExpireTimeout` to reap, then the commit's error is returned.
+   for `arcadedb.server.httpSessionExpireTimeout` to reap, then the commit's error is returned.
 
 Both rollbacks run under `context.WithoutCancel(ctx)`: the commonest reason `fn` fails is that
 `ctx` was cancelled or timed out, and a rollback bound to that `ctx` would never reach the server.

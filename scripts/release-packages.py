@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import tomllib
 import urllib.error
@@ -433,12 +434,61 @@ def _http_status(url: str) -> int:
         return exc.code
 
 
-def is_published(row: Row, version: str, fetch: Callable[[str], int] = _http_status) -> bool:
+_GO_REPO = "github.com/ArcadeData/arcadedb-drivers"
+
+
+def go_module_tag(row: Row, version: str) -> str:
+    """The git tag that IS a Go module version: the module's directory in the repo, then v<version>."""
+    prefix = _GO_REPO + "/"
+    if not row["name"].startswith(prefix):
+        raise ReleaseError(f"{row['name']} is not a module in {_GO_REPO}")
+    return f"{row['name'][len(prefix):]}/v{version}"
+
+
+def _remote_tag_exists(tag: str) -> bool:
+    """Ask the PUBLIC repository, unauthenticated, as proxy.golang.org will: does `tag` exist?"""
+    res = subprocess.run(
+        ["git", "ls-remote", "--tags", f"https://{_GO_REPO}", f"refs/tags/{tag}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if res.returncode != 0:
+        raise ReleaseError(f"git ls-remote for {tag} failed: {res.stderr.strip()}")
+    return bool(res.stdout.strip())
+
+
+def is_published(
+    row: Row,
+    version: str,
+    fetch: Callable[[str], int] = _http_status,
+    tag_exists: Callable[[str], bool] = _remote_tag_exists,
+) -> bool:
     """Fail closed: only 200 means published and only 404 (410 on the Go proxy) means not; else an error.
 
     Guessing "not published" on a 5xx or a network failure would let a retry re-publish a
     version that already exists, so the caller is told it does not know.
+
+    A Go module is never looked up on the proxy before its tag exists. proxy.golang.org caches a
+    "not found" for a version it could not resolve, for up to about half an hour, and keeps serving
+    it after the tag appears: in the 0.2.0 release, release.yml asked here three minutes before
+    publish-go.yml pushed the tag, and both module fetches then failed for ~25 minutes. A version
+    with no tag cannot be on the proxy, so "no tag" answers False without asking it.
+
+    The version is validated first: a malformed one (say "v0.2.0") would otherwise build a tag or
+    URL that cannot exist and read as a confident "not published" rather than as an error.
     """
+    validate_version(version)
+    if row["registry"] == "goproxy":
+        tag = go_module_tag(row, version)
+        try:
+            has_tag = tag_exists(tag)
+        except ReleaseError:
+            raise
+        except Exception as exc:
+            raise ReleaseError(f"could not check whether tag {tag} exists: {exc}") from exc
+        if not has_tag:
+            return False
     url = published_url(row, version)
     try:
         status = fetch(url)

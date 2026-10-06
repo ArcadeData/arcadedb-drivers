@@ -377,11 +377,73 @@ def test_published_url_goproxy_grpc() -> None:
     )
 
 
+def _tagged(tag: str) -> bool:
+    return True
+
+
 def test_is_published_maps_410_to_false() -> None:
     row = _row("go-arcadedb")
-    assert rp.is_published(row, "0.2.0", fetch=lambda url: 200) is True
-    assert rp.is_published(row, "0.2.0", fetch=lambda url: 404) is False
-    assert rp.is_published(row, "0.2.0", fetch=lambda url: 410) is False
+    assert rp.is_published(row, "0.2.0", fetch=lambda url: 200, tag_exists=_tagged) is True
+    assert rp.is_published(row, "0.2.0", fetch=lambda url: 404, tag_exists=_tagged) is False
+    assert rp.is_published(row, "0.2.0", fetch=lambda url: 410, tag_exists=_tagged) is False
+
+
+def test_go_module_tag() -> None:
+    assert rp.go_module_tag(_row("go-arcadedb"), "0.2.0") == "go/arcadedb/v0.2.0"
+    assert rp.go_module_tag(_row("go-arcadedbgrpc"), "1.0.0") == "go/arcadedbgrpc/v1.0.0"
+
+
+def test_is_published_never_asks_the_go_proxy_before_the_tag_exists() -> None:
+    # The 0.2.0 incident: a proxy lookup before the tag existed was cached as "not found" for
+    # ~25 minutes. With no tag the answer is False, and the proxy is never contacted.
+    asked: list[str] = []
+    seen: list[str] = []
+
+    def fetch(url: str) -> int:
+        asked.append(url)
+        return 404
+
+    def no_tag(tag: str) -> bool:
+        seen.append(tag)
+        return False
+
+    assert rp.is_published(_row("go-arcadedbgrpc"), "0.3.0", fetch=fetch, tag_exists=no_tag) is False
+    assert asked == []
+    assert seen == ["go/arcadedbgrpc/v0.3.0"]
+
+
+def test_is_published_fails_closed_when_the_tag_lookup_fails() -> None:
+    def broken(tag: str) -> bool:
+        raise OSError("network down")
+
+    with pytest.raises(rp.ReleaseError, match="go/arcadedb/v0.2.0"):
+        rp.is_published(_row("go-arcadedb"), "0.2.0", fetch=lambda url: 200, tag_exists=broken)
+
+
+@pytest.mark.parametrize("row_id", ["go-arcadedb", "npm-driver"])
+@pytest.mark.parametrize("bad", ["v0.2.0", "0.2", "0.2.0-rc1", ""])
+def test_is_published_rejects_a_malformed_version_before_asking_anything(row_id: str, bad: str) -> None:
+    # A malformed version must be an error, never a confident "not published" built from a tag or
+    # URL that cannot exist (go/arcadedb/vv0.2.0).
+    def must_not_be_called(_: str) -> object:
+        raise AssertionError("contacted a registry or the repo with a malformed version")
+
+    with pytest.raises(rp.ReleaseError, match="not a release version"):
+        rp.is_published(_row(row_id), bad, fetch=must_not_be_called, tag_exists=must_not_be_called)
+
+
+def test_cli_is_published_rejects_a_malformed_version() -> None:
+    res = subprocess.run(
+        [sys.executable, str(_SCRIPT), "is-published", "go-arcadedb", "v0.2.0"], capture_output=True, text=True
+    )
+    assert res.returncode == 1 and "not a release version" in res.stderr and res.stdout == ""
+
+
+def test_is_published_does_not_check_tags_outside_go() -> None:
+    def must_not_be_called(tag: str) -> bool:
+        raise AssertionError("tag lookup for a non-Go row")
+
+    assert rp.is_published(_row("npm-driver"), "0.2.0", fetch=lambda url: 200, tag_exists=must_not_be_called)
 
 
 def test_check_go_version_mismatch_reported(tmp_path: Path) -> None:

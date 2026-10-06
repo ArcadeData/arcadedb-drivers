@@ -784,18 +784,19 @@ object does not already implement.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.10.1.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.11.1-SNAPSHOT.proto`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.10.1"
+server-version = "26.11.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver-grpc` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
 | 0.2.0 | 26.10.1 |
+| 0.3.0 (unreleased) | 26.11.1-SNAPSHOT |
 
 This table is a historical record tied to a package version, not something derived
 automatically: `scripts/adopt-contract-version.sh` deliberately does not touch it when it retires

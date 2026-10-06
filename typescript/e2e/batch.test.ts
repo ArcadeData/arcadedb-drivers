@@ -9,7 +9,7 @@ import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 // Same image pin as data-plane.test.ts, for the same reason: the client under test and the
 // server it runs against come from the same contract-defining release. See that file's comment
 // for the full argument.
-const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.10.1";
+const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.11.1-SNAPSHOT";
 const ARCADEDB_IMAGE = process.env.ARCADEDB_DOCKER_IMAGE ?? DEFAULT_ARCADEDB_IMAGE;
 
 const ROOT_PASSWORD = "playwithdata";

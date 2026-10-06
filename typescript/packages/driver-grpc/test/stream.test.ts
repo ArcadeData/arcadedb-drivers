@@ -10,8 +10,8 @@ import {
   TimeSeriesQueryResultSchema,
   TimeSeriesWriteChunkSchema,
   TimeSeriesWriteSummarySchema,
-} from "../src/gen/arcadedb-server-26.10.1_pb.js";
-import type { TimeSeriesPoint } from "../src/gen/arcadedb-server-26.10.1_pb.js";
+} from "../src/gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
+import type { TimeSeriesPoint } from "../src/gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import { createInsertStream, createStreamQuery, createTimeSeriesQuery, createTimeSeriesWriteStream } from "../src/stream.js";
 
 type QueryResult = MessageShape<typeof QueryResultSchema>;

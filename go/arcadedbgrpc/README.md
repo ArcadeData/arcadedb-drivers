@@ -565,18 +565,19 @@ plain errors from the call that received them.
 
 ## Contract version and compatibility
 
-This module was generated from `contracts/arcadedb-server-26.10.1.proto`, recorded in
+This module was generated from `contracts/arcadedb-server-26.11.1-SNAPSHOT.proto`, recorded in
 `version.go` as `ServerVersion`:
 
 ```go
-const ServerVersion = "26.10.1"
+const ServerVersion = "26.11.1-SNAPSHOT"
 ```
 
 | `github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc` | ArcadeDB server |
 | --- | --- |
 | 0.2.0 | 26.10.1 |
+| 0.3.0 (unreleased) | 26.11.1-SNAPSHOT |
 
-The module had no 0.1.0 release: it joins the lockstep at the next version every package ships at.
+The module had no 0.1.0 release: it joined the lockstep at 0.2.0, its first published version.
 This table is a historical record tied to a module version, not something derived automatically:
 `scripts/adopt-contract-version.sh` deliberately does not touch it. Adding a row is a human
 decision made at release time.

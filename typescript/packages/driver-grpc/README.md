@@ -183,10 +183,10 @@ disagree.
 
 That boundary is measured, not inferred. A single-chunk stream carrying `database` on the chunk
 with `options.database` left empty inserts **0 of 2** rows on `arcadedata/arcadedb:26.8.1` and
-**2 of 2** on both `26.9.1` and `26.10.1-SNAPSHOT`; `7ccade7348` is an ancestor of the `26.9.1`
+**2 of 2** on both `26.9.1` and `26.10.1`; `7ccade7348` is an ancestor of the `26.9.1`
 tag and not of `26.8.1`. Earlier revisions of this paragraph said the fix was "not yet in a
 release", which was already stale when written and which the mechanical version rewrite in
-`scripts/adopt-contract-version.sh` then compounded into a claim about 26.10.1-SNAPSHOT.
+`scripts/adopt-contract-version.sh` then compounded into a claim about 26.10.1.
 
 The consequence: **every server version this package claims support for carries the fix** (the
 compatibility table below starts at 26.9.1), so the mirror is belt-and-braces rather than
@@ -242,7 +242,7 @@ Both remain available outside a transaction - `grpc.insertStream`/`grpc.raw.inse
 this gap and **has since landed**: its fix (`79d931070b`) is an ancestor of the `26.9.1` tag and
 not of `26.8.1`. Measured against real servers - begin a transaction over `BeginTransaction`, run
 an `InsertStream` carrying that server-issued `transaction_id`, then roll back - the rows survive
-the rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10.1-SNAPSHOT`, with
+the rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10.1`, with
 a commit persisting them on all three. So the restriction is now **removable** for every server
 version this package supports. It is kept for now because lifting it adds public surface, which is
 a deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
@@ -608,13 +608,13 @@ client surfaces the error its own transport actually gives it.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.10.1-SNAPSHOT.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.10.1.proto`, recorded in
 `package.json` as `arcadedb.serverVersion`:
 
 ```json
 {
   "arcadedb": {
-    "serverVersion": "26.10.1-SNAPSHOT"
+    "serverVersion": "26.10.1"
   }
 }
 ```
@@ -622,7 +622,7 @@ This package was generated from `contracts/arcadedb-server-26.10.1-SNAPSHOT.prot
 | `@arcadedb/driver-grpc` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
-| 0.2.0 (unreleased) | 26.10.1-SNAPSHOT |
+| 0.2.0 | 26.10.1 |
 
 Pointing it at a server on a materially different release may work for the RPCs both versions
 share, but is not tested or supported.

@@ -1,6 +1,6 @@
 {
   "name": "@arcadedb/driver-grpc",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript/JavaScript gRPC client for ArcadeDB, generated from ArcadeDB's Protobuf contract.",
   "type": "module",
   "sideEffects": false,
@@ -25,7 +25,7 @@
     "node": ">=20"
   },
   "arcadedb": {
-    "serverVersion": "26.10.1-SNAPSHOT"
+    "serverVersion": "26.10.1"
   },
   "exports": {
     ".": {

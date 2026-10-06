@@ -1,6 +1,6 @@
 [project]
 name = "arcadedb-driver-grpc"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python gRPC client for ArcadeDB's data plane, generated from ArcadeDB's protobuf contract."
 readme = "README.md"
 license = "Apache-2.0"
@@ -31,7 +31,7 @@ Repository = "https://github.com/ArcadeData/arcadedb-drivers"
 # scripts/adopt-contract-version.sh rewrites it on a contract bump - that script
 # requires this key to appear EXACTLY ONCE in this file.
 [tool.arcadedb]
-server-version = "26.10.1-SNAPSHOT"
+server-version = "26.10.1"
 
 [build-system]
 requires = ["hatchling"]

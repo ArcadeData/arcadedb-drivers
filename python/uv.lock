@@ -48,7 +48,7 @@ wheels = [
 
 [[package]]
 name = "arcadedb-driver"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/driver" }
 dependencies = [
     { name = "attrs" },
@@ -65,7 +65,7 @@ requires-dist = [
 
 [[package]]
 name = "arcadedb-driver-grpc"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "packages/driver-grpc" }
 dependencies = [
     { name = "grpcio" },

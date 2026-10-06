@@ -135,7 +135,7 @@ async def test_async_insert_stream_inserts_rows(async_client: AsyncArcadeDBGrpcC
     # test_insert_stream_inserts_rows): on a real 26.8.1 or earlier server, an insert_stream
     # that does not mirror `database` into `options` inserts nothing - inserted=0, or a
     # deferred-commit failure with "Invalid database name: name is required". As on the sync
-    # side, the pinned 26.10.1-SNAPSHOT image carries the #6597 fix (released in 26.9.1), so
+    # side, the pinned 26.10.1 image carries the #6597 fix (released in 26.9.1), so
     # this test passes with or without the mirror; see the sync test for the separate
     # measurement that established that boundary. The async facade's own `insert_stream`
     # shares `stream._build_chunk` with the sync one, but had never been run against a real

@@ -36,7 +36,7 @@ async def test_a_non_2xx_raises_arcadedb_error() -> None:
 @respx.mock
 async def test_list_databases_and_ready() -> None:
     respx.get(f"{BASE_URL}/api/v1/databases").mock(
-        return_value=httpx.Response(200, json={"result": ["one"], "user": "root", "version": "26.10.1-SNAPSHOT"})
+        return_value=httpx.Response(200, json={"result": ["one"], "user": "root", "version": "26.10.1"})
     )
     respx.get(f"{BASE_URL}/api/v1/ready").mock(return_value=httpx.Response(503))
     async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:

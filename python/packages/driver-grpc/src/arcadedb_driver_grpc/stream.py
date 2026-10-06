@@ -88,7 +88,7 @@ class InsertStreamRequest:
     field is part of the wire message and cannot be hidden.
 
     #6607 HAS since landed (`79d931070b`, released in 26.9.1). Measured against real
-    26.8.1, 26.9.1 and 26.10.1-SNAPSHOT servers - begin over `BeginTransaction`, insert
+    26.8.1, 26.9.1 and 26.10.1 servers - begin over `BeginTransaction`, insert
     with that server-issued `transaction_id`, then roll back - the rows survive the
     rollback on 26.8.1 and are correctly discarded on both later versions, with a commit
     persisting them on all three. So the guarantee IS honoured on every server version this
@@ -108,7 +108,7 @@ def _first_chunk_options(request: InsertStreamRequest) -> messages.InsertOptions
     """The caller's options with `database` forced onto them.
 
     Empirically established during M1b against a real server, and re-measured when this
-    package adopted the 26.10.1-SNAPSHOT contract: on 26.8.1 and every earlier release the
+    package adopted the 26.10.1 contract: on 26.8.1 and every earlier release the
     server builds its `InsertContext` from `InsertOptions.database` ALONE and never reads
     `InsertChunk.database` at all, despite the .proto documenting the latter as REQUIRED on
     the first chunk. Without this mirror a stream against such a server inserts nothing - it
@@ -120,7 +120,7 @@ def _first_chunk_options(request: InsertStreamRequest) -> messages.InsertOptions
     26.9.1) prefers a non-empty chunk `database` and falls back to this one, so setting both
     to the same value is correct on either side of that fix. Measured directly: a
     single-chunk stream with `options.database` left empty inserts 0 of 2 rows on 26.8.1 and
-    2 of 2 on both 26.9.1 and 26.10.1-SNAPSHOT.
+    2 of 2 on both 26.9.1 and 26.10.1.
 
     Every server version this package supports (the README's compatibility table starts at
     26.9.1) therefore carries the fix, so this mirror is belt-and-braces rather than

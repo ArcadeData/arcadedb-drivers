@@ -24,14 +24,14 @@ def async_server() -> AsyncArcadeDBServer:
     return AsyncArcadeDBServer(base_url=BASE_URL, auth=basic_auth("root", "playwithdata"))
 
 
-# The three vector response schemas gained a `required` list in the 26.10.1-SNAPSHOT refresh -
+# The three vector response schemas gained a `required` list in the 26.10.1 refresh -
 # they had none before, so every field was optional and these fixtures carried only what the
 # test asserted on. The generated models' `from_dict` now raises `KeyError` for a missing
 # required field, which is what made seven tests here fail on the refresh.
 #
 # The contract is right and the fixtures were thin: `python/e2e/test_data_plane.py`'s vector cases
 # (`test_vector_search_returns_a_non_empty_nearest_first_result` and its siblings) pass against a
-# live 26.10.1-SNAPSHOT container, so the server really does send all of them. That check mattered
+# live 26.10.1 container, so the server really does send all of them. That check mattered
 # - a field declared required and not always sent would have been a contract defect breaking every
 # real call, the third of its kind in this package (see the module docstring in facade/vector.py).
 #
@@ -93,7 +93,7 @@ def _fulltext_body(**overrides: Any) -> dict[str, Any]:
 
     `similarity` is "BM25", not "bm25". This fixture said lowercase from the day it
     was written and nothing caught it, because the contract typed the field as a free
-    string; 26.10.1-SNAPSHOT turned it into an enum of BM25/CLASSIC and the stale
+    string; 26.10.1 turned it into an enum of BM25/CLASSIC and the stale
     casing became a ValueError. The server has always emitted uppercase - see
     ArcadeData/arcadedb's `FullTextIndexMetadata.SIMILARITY_BM25` and the assertion in
     `MCPServerPluginTest` - so this is the fixture catching up with the server, not
@@ -229,7 +229,7 @@ async def test_async_hybrid_and_fulltext_reach_their_endpoints() -> None:
 
 @respx.mock
 def test_hybrid_sends_the_fusion_strategy_as_its_contract_value() -> None:
-    # 26.10.1-SNAPSHOT narrowed `fusionStrategy` from a free string to an enum of
+    # 26.10.1 narrowed `fusionStrategy` from a free string to an enum of
     # RRF/DBSF/LINEAR, and `openapi-python-client` turned that into a real Enum -
     # so `hybrid()` now takes HybridSearchRequestFusionStrategy, exactly as
     # `@arcadedb/driver` takes the "RRF" | "DBSF" | "LINEAR" union that

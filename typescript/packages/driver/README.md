@@ -42,7 +42,7 @@ const db = server.db("mydb");
 const { result } = await db.query({
   language: "sql",
   command: "SELECT FROM Person WHERE age > ?",
-  params: { 1: 21 },
+  params: { 0: 21 },
 });
 ```
 

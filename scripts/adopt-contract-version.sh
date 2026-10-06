@@ -47,8 +47,10 @@ for required in "$OPENAPI" "$PROTO"; do
   if [[ ! -f "$required" ]]; then
     echo "ERROR: $required does not exist." >&2
     echo "Fetch both contracts for $VERSION first:" >&2
+    echo "  scripts/fetch-contract.sh --release $VERSION     # a released version: fetches both" >&2
+    echo "or, for a SNAPSHOT:" >&2
     echo "  scripts/fetch-contract.sh --image arcadedata/arcadedb:$VERSION" >&2
-    echo "  scripts/fetch-contract.sh --proto-from <path-to-arcadedb-checkout>" >&2
+    echo "  scripts/fetch-contract.sh --proto-from <path-to-arcadedb-checkout> $VERSION" >&2
     exit 1
   fi
 done

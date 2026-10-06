@@ -71,7 +71,7 @@ this repository grows.
 `scripts/fetch-contract.sh` has three modes:
 
 ```bash
-scripts/fetch-contract.sh --release <tag>          # download + checksum-verify a GitHub release asset (OpenAPI)
+scripts/fetch-contract.sh --release <tag>          # download + checksum-verify both release assets (OpenAPI and .proto)
 scripts/fetch-contract.sh --image <image-reference> # start the image, fetch /api/v1/openapi.json (OpenAPI)
 scripts/fetch-contract.sh --proto-from <checkout> [<version>]  # copy arcadedb-server.proto out of a local arcadedb checkout
 ```
@@ -80,9 +80,11 @@ In the `--release` and `--image` modes, the resulting OpenAPI spec is refused un
 structurally provably post-M0 (checked via a marker that cannot be true of any pre-M0 spec: the
 `/api/v1/begin/{database}` 204 response carrying the `arcadedb-session-id` header). A version
 string alone proves nothing about a spec's content, so the script does not trust one. The `.proto`
-contract has no equivalent marker to check against - a running server has no endpoint that serves
-it, so `--proto-from` is a straight file copy out of a local `arcadedb` checkout rather than a
-download.
+contract has no equivalent marker to check against. A released ArcadeDB attaches it to the GitHub
+release beside the OpenAPI spec, so `--release` downloads both, verifies both checksums, and writes
+neither unless both pass. A running server has no endpoint that serves the `.proto`, so for a
+SNAPSHOT build, which has no release, `--proto-from` is a straight file copy out of a local
+`arcadedb` checkout instead.
 
 ## Development
 

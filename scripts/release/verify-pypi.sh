@@ -74,8 +74,8 @@ PY
     # which is generated from it, but only indirect evidence for
     # arcadedb-driver-grpc, which is generated from the .proto and never reads that
     # JSON at all. The two agree today only because adopt-contract-version.sh
-    # stamps every package from one argument; fetch-contract.sh has independent
-    # --release/--image (OpenAPI) and --proto-from (proto) modes, so the two
+    # stamps every package from one argument; fetch-contract.sh's --image (OpenAPI)
+    # and --proto-from (proto) modes are independent, so the two
     # contracts CAN be fetched apart and left disagreeing, and nothing else here
     # would notice. The publish workflow is the only irreversible one in the repository -
     # a wrong publish cannot be taken back - so the gRPC package gets its own gate

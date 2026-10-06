@@ -26,7 +26,7 @@ shopt -u nullglob
 
 if [[ "${#PROTOS[@]}" -eq 0 ]]; then
   echo "ERROR: no $CONTRACTS_DIR/arcadedb-server-*.proto found." >&2
-  echo "Run scripts/fetch-contract.sh --proto-from <arcadedb checkout> <version> first." >&2
+  echo "Run scripts/fetch-contract.sh --release <tag> or --proto-from <arcadedb checkout> <version> first." >&2
   exit 1
 fi
 

@@ -30,9 +30,9 @@ files make `openapi-typescript` silently generate from whichever the glob yields
 not version, order), and two `.proto` files make `buf generate` fail on a duplicate symbol.
 
 ```bash
-scripts/fetch-contract.sh --release <tag>            # download + checksum-verify a GitHub release asset (OpenAPI)
+scripts/fetch-contract.sh --release <tag>            # download + checksum-verify both release assets (OpenAPI and .proto)
 scripts/fetch-contract.sh --image <image-reference>  # start the image, fetch /api/v1/openapi.json (OpenAPI)
-scripts/fetch-contract.sh --proto-from <checkout> [<version>]  # copy arcadedb-server.proto from a local arcadedb checkout
+scripts/fetch-contract.sh --proto-from <checkout> [<version>]  # copy arcadedb-server.proto from a local arcadedb checkout (SNAPSHOTs)
 
 scripts/adopt-contract-version.sh <version>          # retire the old version, adopt the new one, repo-wide
 scripts/resolve-openapi-contract.sh                  # print the single OpenAPI contract path, or fail
@@ -46,7 +46,9 @@ scripts/check-licenses.py                            # fail if any dependency's 
 ```
 
 `fetch-contract.sh` writes the new contract **beside** the old one rather than in place, so a
-version bump is a two-step operation: fetch both contracts, then run
+version bump is a two-step operation: fetch both contracts (one `--release <tag>` for a released
+ArcadeDB, which publishes both as checksummed assets; `--image` plus `--proto-from` for a SNAPSHOT,
+which has no release), then run
 `adopt-contract-version.sh <version>`, which deletes the retired contract and generated module,
 rewrites the version-stamped imports, and updates each package's recorded server version
 (`arcadedb.serverVersion` in a TypeScript `package.json`, `[tool.arcadedb] server-version` in a

@@ -44,7 +44,7 @@ export interface QueryOptions extends CommandOptions {
  *
  * `QueryResponse` used to declare no `required` list, so every field was optional on the wire and
  * this client defaulted each one it did not get - `limit` to `-1`, `returned` to `0`, `truncated`
- * to `false` - asserting completeness the server itself never claimed. 26.10.1-SNAPSHOT made
+ * to `false` - asserting completeness the server itself never claimed. 26.10.1 made
  * `limit`, `returned` and `truncated` required, and the generated schema now types them as plain
  * `number`/`boolean`. `truncated === false` is therefore a server statement now, not a client-side
  * guess.
@@ -98,7 +98,7 @@ function asQueryResponse(data: QueryResponse | NdJsonQueryEvent): QueryResponse 
 }
 
 /**
- * 26.10.1-SNAPSHOT widened `result` into a union: an array of rows under the default `record`
+ * 26.10.1 widened `result` into a union: an array of rows under the default `record`
  * serializer, and one `{ vertices, edges }` object - plus `records` under `studio` - under the two
  * graph serializers. `QueryEnvelope.result` is `T[]` and cannot represent the second shape.
  *

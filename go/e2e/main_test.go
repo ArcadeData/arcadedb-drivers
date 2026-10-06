@@ -20,7 +20,7 @@ import (
 // defaultImage is the release the committed OpenAPI contract was generated from, so the
 // client under test and the server it runs against are the same version. It is a literal so
 // adopt-contract-version.sh can rewrite it when the contract moves.
-const defaultImage = "arcadedata/arcadedb:26.10.1-SNAPSHOT"
+const defaultImage = "arcadedata/arcadedb:26.10.1"
 
 const rootPassword = "playwithdata"
 

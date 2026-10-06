@@ -1,6 +1,6 @@
 [project]
 name = "arcadedb-driver"
-version = "0.1.0"
+version = "0.2.0"
 description = "Python HTTP client for ArcadeDB, generated from ArcadeDB's OpenAPI contract."
 readme = "README.md"
 license = "Apache-2.0"
@@ -22,7 +22,7 @@ Repository = "https://github.com/ArcadeData/arcadedb-drivers"
 # re-verifies this against the committed contract's info.version before publishing,
 # and scripts/adopt-contract-version.sh rewrites it on a contract bump.
 [tool.arcadedb]
-server-version = "26.10.1-SNAPSHOT"
+server-version = "26.10.1"
 
 [build-system]
 requires = ["hatchling"]

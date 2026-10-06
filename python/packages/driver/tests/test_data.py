@@ -34,11 +34,11 @@ def test_query_returns_the_whole_envelope() -> None:
 @respx.mock
 def test_query_defaults_an_omitted_result_to_empty() -> None:
     # This test used to send `{}` and assert that all four envelope fields defaulted.
-    # That premise died in 26.10.1-SNAPSHOT: QueryResponse gained a `required` list
+    # That premise died in 26.10.1: QueryResponse gained a `required` list
     # naming limit/returned/truncated, so the generated model pops them with no
     # fallback and `{}` now raises KeyError before the envelope is ever built.
     #
-    # The change is not a client regression. A real 26.10.1-SNAPSHOT server answers
+    # The change is not a client regression. A real 26.10.1 server answers
     # every query with all three present - `{"result":[],"limit":20000,"returned":0,
     # "truncated":false}` - so the contract tightened onto behaviour the server
     # already had. `result` stayed optional, and that one default is still real.
@@ -125,7 +125,7 @@ def test_raw_does_not_raise() -> None:
 
 @respx.mock
 def test_query_rejects_a_graph_shaped_result_instead_of_mangling_it() -> None:
-    # 26.10.1-SNAPSHOT widened QueryResponse.result from an array into a union: an
+    # 26.10.1 widened QueryResponse.result from an array into a union: an
     # array under the default `record` serializer, and a {vertices, edges, records}
     # object under the two graph serializers. `QueryEnvelope.result` is a list of
     # rows and cannot represent the second shape.

@@ -10,8 +10,8 @@ import {
   TimeSeriesQueryResultSchema,
   TimeSeriesWriteChunkSchema,
   TimeSeriesWriteSummarySchema,
-} from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
-import type { TimeSeriesPoint } from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+} from "../src/gen/arcadedb-server-26.10.1_pb.js";
+import type { TimeSeriesPoint } from "../src/gen/arcadedb-server-26.10.1_pb.js";
 import { createInsertStream, createStreamQuery, createTimeSeriesQuery, createTimeSeriesWriteStream } from "../src/stream.js";
 
 type QueryResult = MessageShape<typeof QueryResultSchema>;
@@ -184,7 +184,7 @@ describe("insertStream", () => {
     // released in 26.9.1) honour a non-empty `InsertChunk.database` and treat
     // `InsertOptions.database` as the fallback, so the two paths agree.
     //
-    // Measured against real 26.8.1 / 26.9.1 / 26.10.1-SNAPSHOT servers: chunk-only `database`
+    // Measured against real 26.8.1 / 26.9.1 / 26.10.1 servers: chunk-only `database`
     // inserts 0 of 2 rows on 26.8.1 and 2 of 2 on both later versions. Every version this package
     // supports therefore carries the fix, so this assertion now guards a workaround no supported
     // server needs; it stays because removing the mirror is a behaviour change.

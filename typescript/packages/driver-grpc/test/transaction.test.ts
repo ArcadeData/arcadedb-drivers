@@ -14,7 +14,7 @@ import type {
   TimeSeriesLatestRequestSchema,
   TimeSeriesQueryRequestSchema,
   VectorSearchRequestSchema,
-} from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+} from "../src/gen/arcadedb-server-26.10.1_pb.js";
 import { createTransaction } from "../src/transaction.js";
 
 type BeginRequest = MessageInitShape<typeof BeginTransactionRequestSchema>;

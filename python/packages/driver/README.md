@@ -92,7 +92,7 @@ the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused 
 rather than truncated, so once you are past that ceiling a narrower filter is the only way forward.
 
 `truncated is False` used to be a client-side default rather than a server guarantee: until
-26.10.1-SNAPSHOT, `QueryResponse` declared no required fields, so the envelope's `limit`,
+26.10.1, `QueryResponse` declared no required fields, so the envelope's `limit`,
 `returned` and `truncated` were all synthesised when the response omitted them. That caveat is
 retired. The contract now marks all three **required**, the server sends all three on every
 query and command, and a response missing one is a contract violation that surfaces as a
@@ -366,7 +366,7 @@ matches = db.vector.fulltext(query_text="cat")
 ```
 
 `hybrid`'s `fusion_strategy` takes a `HybridSearchRequestFusionStrategy` - `RRF`, `DBSF` or
-`LINEAR` - not a bare string. It was `str | Unset` until 26.10.1-SNAPSHOT turned the contract's
+`LINEAR` - not a bare string. It was `str | Unset` until 26.10.1 turned the contract's
 free-form field into an enum:
 
 ```python
@@ -577,18 +577,18 @@ this today because its response schemas do not have this shape.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.10.1-SNAPSHOT.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.10.1.json`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.10.1-SNAPSHOT"
+server-version = "26.10.1"
 ```
 
 | `arcadedb-driver` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
-| 0.2.0 (unreleased) | 26.10.1-SNAPSHOT |
+| 0.2.0 | 26.10.1 |
 
 This table is a historical record tied to a package version, not something derived automatically:
 `scripts/adopt-contract-version.sh` deliberately does not touch it when it retires an old contract

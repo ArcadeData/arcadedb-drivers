@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { ArcadeDbAdminService } from "../src/gen/arcadedb-server-26.10.1-SNAPSHOT_pb.js";
+import { ArcadeDbAdminService } from "../src/gen/arcadedb-server-26.10.1_pb.js";
 
 const README_PATH = fileURLToPath(new URL("../README.md", import.meta.url));
 const MARKER_BEGIN = "<!-- admin-rpcs:begin -->";

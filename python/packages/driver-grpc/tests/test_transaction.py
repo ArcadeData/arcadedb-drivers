@@ -181,7 +181,7 @@ def test_insert_stream_is_not_offered_on_the_handle(
     # ArcadeData/arcadedb#6607: on 26.8.1 and earlier the server ignored TransactionContext
     # for InsertStream and BulkInsert, so offering them here would have implied a guarantee
     # it did not honour. #6607 HAS since landed (79d931070b, released in 26.9.1) and was
-    # re-measured against real 26.8.1 / 26.9.1 / 26.10.1-SNAPSHOT servers, so this test now
+    # re-measured against real 26.8.1 / 26.9.1 / 26.10.1 servers, so this test now
     # pins a restriction no supported server needs. Delete it when the methods are added -
     # that is public surface, so it is a release decision, not a contract-adoption change.
     target, _ = fake_server

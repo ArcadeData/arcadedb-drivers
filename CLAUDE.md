@@ -195,7 +195,11 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   publisher, and its own bootstrap token for its first publish — npm has no equivalent of PyPI's
   pending publishers, so a package must exist before it can be trusted. Verify a publisher by
   reading back what npm stored (`npm trust list <package>`), never by eye against the web UI; npm
-  validates that configuration at neither save nor dispatch time. The dist assertions differ per
+  validates that configuration at neither save nor dispatch time. The job builds on Node 20 but
+  upgrades npm to 11 (pinned) just before publishing: Node 20's npm 10 never attempts trusted
+  publishing and silently authenticates with `NPM_TOKEN` alone, which is how 0.2.0 needed a
+  short-lived 2FA-bypass token to ship. With npm 11 and the secret deleted, OIDC is the only path.
+  The dist assertions differ per
   package — `driver-grpc`'s generated module carries the contract version in its filename, so the
   expected name is derived from `arcadedb.serverVersion` rather than hardcoded, and the step also
   asserts that exactly one such module exists (`tsc --build` never removes output whose source is
@@ -246,8 +250,12 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   git, the go command's own `go list -m`, and `release-packages.py`: it refuses unless `HEAD` is the
   commit `verify` checked, pushes the annotated module tag with the token passed on that one push
   (the checkout persists no credentials), continues if the tag already names this commit (an
-  earlier attempt) and fails if it names any other, then fetches through the proxy and polls
-  `is-published` until it answers `true`. Neither job restores a Go cache, and a per-package,
+  earlier attempt) and fails if it names any other, waits until an anonymous `git ls-remote` sees
+  the tag, then fetches through the proxy and polls `is-published` until it answers `true`. The
+  proxy must never be asked about a version before its tag is public: it caches the "not found"
+  for up to about half an hour (0.2.0 lost ~25 minutes to a `release.yml` probe sent three minutes
+  before the tag push), so `is-published` answers `false` for a Go row with no tag without
+  asking the proxy at all. Neither job restores a Go cache, and a per-package,
   per-version `concurrency` group keeps two dispatches of one version from racing to the tag.
   **A fetched version is permanent** — the proxy never forgets it and the checksum database pins
   its content, so it can be neither deleted nor replaced, and moving the tag afterwards only breaks

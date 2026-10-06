@@ -246,11 +246,17 @@ jobs:
 
       # The first fetch through proxy.golang.org is the publish. GOWORK=off in a scratch directory
       # so the request resolves against the proxy, not against the workspace's own copy of this
-      # module. The fetch is retried because the proxy can briefly miss a tag pushed seconds ago,
-      # and can briefly cache the not-found that release.yml's is-published probe got before the
-      # tag existed; the poll below, and re-running this job, cover both.
-      # Then the proxy's .info URL - the same one release.yml's is-published check asks - is polled
-      # until it answers 200, so this run goes green only once the version is really there.
+      # module.
+      #
+      # The proxy must never be asked about a version before the tag is publicly visible: a lookup
+      # it cannot resolve is cached as "not found" for up to about half an hour and served even after
+      # the tag appears. In 0.2.0 that cost ~25 minutes. Two things prevent it now: release.yml's
+      # is-published probe answers "not published" from the missing tag without asking the proxy
+      # (release-packages.py), and this step first waits until an UNAUTHENTICATED ls-remote - the
+      # view the proxy has - sees the tag it just pushed. The fetch is still retried, and the
+      # proxy's .info URL - the same one is-published asks - polled until it answers 200, so this
+      # run goes green only once the version is really there. If it is not there after 10 minutes,
+      # re-run this job 20-30 minutes later rather than at once.
       - name: Fetch the version through proxy.golang.org
         working-directory: ${{ runner.temp }}
         env:
@@ -261,6 +267,21 @@ jobs:
           GOFLAGS: -mod=mod
           RELEASE_PACKAGES: ${{ github.workspace }}/scripts/release-packages.py
         run: |
+          TAG="go/$PKG/v$VERSION"
+          visible=false
+          for attempt in $(seq 1 24); do
+            if [ -n "$(git ls-remote --tags "https://github.com/$GITHUB_REPOSITORY" "refs/tags/$TAG")" ]; then
+              visible=true
+              break
+            fi
+            echo "$TAG not yet visible to an anonymous clone (attempt $attempt of 24); waiting 5s"
+            sleep 5
+          done
+          if [ "$visible" != true ]; then
+            echo "::error::$TAG is not publicly visible 2 minutes after the push; the proxy was not asked. Re-run this job."
+            exit 1
+          fi
+
           fetched=false
           for attempt in 1 2 3 4 5; do
             if go list -m "$MODULE@v$VERSION"; then

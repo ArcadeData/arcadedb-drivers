@@ -109,6 +109,24 @@ jobs:
       - name: Verify the package before publishing
         run: ./scripts/release/verify-npm.sh "$PKG"
 
+      # Trusted publishing (OIDC) needs npm >= 11.5.1, and Node 20 - kept above as the declared
+      # floor the package is built and tested on - ships npm 10. npm 10 never attempts OIDC: it
+      # signs the provenance statement (that uses the id-token too, so the log looks healthy) and
+      # then authenticates with NODE_AUTH_TOKEN alone. That is how 0.2.0 failed: E404 on the PUT
+      # with the expired bootstrap token, then EOTP with a fresh token lacking 2FA bypass, and it
+      # shipped only on a short-lived bypass token. npm 11 tries OIDC first and falls back to
+      # NODE_AUTH_TOKEN only when no trusted publisher matches, so with the NPM_TOKEN secret
+      # deleted, OIDC is the only way this step can authenticate. Pinned exactly, like the actions.
+      - name: Upgrade npm for trusted publishing
+        run: |
+          npm install --global npm@11.19.1
+          actual=$(npm --version)
+          if [ "$(printf '%s\n' 11.5.1 "$actual" | sort -V | head -n1)" != 11.5.1 ]; then
+            echo "::error::npm $actual cannot do trusted publishing; it needs >= 11.5.1."
+            exit 1
+          fi
+          echo "OK: npm $actual"
+
       # Two caveats recorded here because both cost real debugging time when this workflow was set
       # up, and neither is discoverable by reading npm's docs in the moment:
       #
@@ -119,7 +137,11 @@ jobs:
       #    NPM_TOKEN secret below, NODE_AUTH_TOKEN in the environment) to create the package at
       #    all; afterwards the trusted publisher takes over and the secret goes away. Note there is
       #    no non-expiring token to fall back on: npm removed legacy tokens in November 2025, and
-      #    every granular token must carry an expiry. One day is the minimum, and enough.
+      #    every granular token must carry an expiry. One day is the minimum, and enough. If the
+      #    account enforces 2FA for publishing, the token must also have "Bypass two-factor
+      #    authentication" ticked, or the publish fails with EOTP. Delete the secret (and revoke
+      #    the token) once the publish is done: an empty NODE_AUTH_TOKEN is what keeps OIDC the
+      #    only path.
       #
       #    This bootstrap is PER PACKAGE, not per workflow: @arcadedb/driver having a trusted
       #    publisher does nothing for @arcadedb/driver-grpc. A scope-level token covers both.

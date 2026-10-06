@@ -626,14 +626,14 @@ echo "report-contract-watch.sh (pure functions, no gh)"
 
 # Sourced, not executed: main() is guarded so these can be exercised offline.
 # shellcheck source=/dev/null
-STATE=contract-changed VERSION=26.10.1-SNAPSHOT IMAGE=img VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success RUN_URL=x \
+STATE=contract-changed VERSION=26.10.1-SNAPSHOT IMAGE=img VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success VERIFY_PROTO=success RUN_URL=x \
   source "$SCRIPTS_DIR/report-contract-watch.sh"
 
 # THE defect this replaced: the body embeds the run URL, which is unique per run,
 # so comparing rendered bodies is never equal and posts a "the finding changed"
 # comment every single day while the code claims to be quiet. The fingerprint
 # must ignore the run and track only the finding.
-STATE=contract-changed VERSION=26.10.1-SNAPSHOT VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success CHANGED_FILES=" M a"
+STATE=contract-changed VERSION=26.10.1-SNAPSHOT VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success VERIFY_PROTO=success CHANGED_FILES=" M a"
 RUN_URL="https://example.invalid/runs/1"; a="$(finding_fingerprint)"
 RUN_URL="https://example.invalid/runs/2"; b="$(finding_fingerprint)"
 check "$a" "$b" "fingerprint ignores the run URL, so an unchanged finding stays unchanged"
@@ -658,6 +658,17 @@ VERIFY_PY=success
 VERIFY_GO=failure; g="$(finding_fingerprint)"
 if [[ "$g" != "$a" ]]; then ok "fingerprint moves when the Go verdict flips alone"; else bad "fingerprint moves when the Go verdict flips alone"; fi
 VERIFY_GO=success
+
+VERIFY_PROTO=failure; h="$(finding_fingerprint)"
+if [[ "$h" != "$a" ]]; then ok "fingerprint moves when the .proto compatibility verdict flips alone"; else bad "fingerprint moves when the .proto compatibility verdict flips alone"; fi
+VERIFY_PROTO=success
+
+# A breaking .proto with every suite green must not read as "all passing".
+IMAGE=img; VERIFY_PROTO=failure; vl="$(verify_line)"; VERIFY_PROTO=success
+case "$vl" in
+  *'compatibility (`buf breaking` against the previous contract): **failing**'*) ok "verify_line names a breaking .proto even when every suite passes" ;;
+  *) bad "verify_line names a breaking .proto even when every suite passes (got: $vl)" ;;
+esac
 
 # verify_line names the Go client when it is the only one failing.
 IMAGE=img; VERIFY_GO=failure; vl="$(verify_line)"; VERIFY_GO=success
@@ -703,6 +714,11 @@ out="$(env -i PATH="$PATH" STATE=quiet VERSION=v IMAGE=i VERIFY_TS=success VERIF
   bash "$SCRIPTS_DIR/report-contract-watch.sh" 2>&1)"; rc=$?
 if [[ "$rc" -ne 0 && "$out" == *VERIFY_GO* ]]; then ok "main refuses to run without VERIFY_GO"; else bad "main refuses to run without VERIFY_GO (rc=$rc out: $out)"; fi
 
+# ...and VERIFY_PROTO, for the same reason: an unset compatibility verdict must not read as a pass.
+out="$(env -i PATH="$PATH" STATE=quiet VERSION=v IMAGE=i VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success RUN_URL=x \
+  bash "$SCRIPTS_DIR/report-contract-watch.sh" 2>&1)"; rc=$?
+if [[ "$rc" -ne 0 && "$out" == *VERIFY_PROTO* ]]; then ok "main refuses to run without VERIFY_PROTO"; else bad "main refuses to run without VERIFY_PROTO (rc=$rc out: $out)"; fi
+
 # open_refresh_pr must COMMIT every language directory the regeneration touched.
 # It once staged `contracts typescript python` and not `go`, so every automated
 # refresh PR carried a Go client generated from the retired contract and turned
@@ -725,7 +741,7 @@ git init -q -b main "$RPR/work"
   cd "$RPR/work" || exit 1
   # shellcheck disable=SC2329 # invoked by open_refresh_pr, not here
   gh() { :; }
-  VERSION=v IMAGE=i VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success REFRESH_BRANCH=chore/contract-refresh
+  VERSION=v IMAGE=i VERIFY_TS=success VERIFY_PY=success VERIFY_GO=success VERIFY_PROTO=success REFRESH_BRANCH=chore/contract-refresh
   open_refresh_pr 1
 ) >/dev/null 2>&1
 committed="$(git -C "$RPR/work" show --name-only --format= chore/contract-refresh 2>/dev/null | sort | tr '\n' ' ')"
@@ -774,6 +790,62 @@ rm -f "$FIX"/contracts/arcadedb-server-*.proto
 "$FIX/scripts/resolve-proto-contract.sh" "$FIX/contracts" >/dev/null 2>&1; rc=$?
 check "$rc" "1" "refuses when no proto is present"
 rm -rf "$FIX"
+
+echo "check-proto-compat.sh"
+
+# Driven against the REAL script, not a fixture copy: it reads the rules from the root buf.yaml
+# and finds buf relative to itself, and both are what is under test. Needs buf, which every job
+# that runs this suite has (npm ci installs it); a missing buf is a failure, never a skip.
+COMPAT="$SCRIPTS_DIR/check-proto-compat.sh"
+PDIR="$(mktemp -d)"
+proto() { # proto <file> <body of message Row> [extra definitions]
+  printf 'syntax = "proto3";\npackage com.arcadedb.grpc;\nmessage Row {\n%s\n}\n%s\n' "$2" "${3:-}" > "$PDIR/$1"
+}
+proto base.proto '  string name = 1;
+  int64 count = 2;'
+
+proto additive.proto '  string name = 1;
+  int64 count = 2;
+  bool flag = 3;' 'message Extra { string note = 1; }'
+"$COMPAT" "$PDIR/base.proto" "$PDIR/additive.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "0" "passes an additive change (new field, new message)"
+
+proto removed.proto '  string name = 1;'
+out="$("$COMPAT" "$PDIR/base.proto" "$PDIR/removed.proto" 2>&1)"; rc=$?
+check "$rc" "1" "fails a removed field"
+case "$out" in *FAIL*breaks*) ok "and says it breaks clients" ;; *) bad "and says it breaks clients (got: $out)" ;; esac
+
+proto renumbered.proto '  string name = 1;
+  int64 count = 3;'
+"$COMPAT" "$PDIR/base.proto" "$PDIR/renumbered.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "1" "fails a renumbered field (a wire break)"
+
+proto retyped.proto '  string name = 1;
+  string count = 2;'
+"$COMPAT" "$PDIR/base.proto" "$PDIR/retyped.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "1" "fails a field whose type changed"
+
+# The reason the files are staged under one fixed name: compared under their own names, two
+# identical contracts with different version stamps read as one file deleted and one added.
+cp "$PDIR/base.proto" "$PDIR/arcadedb-server-1.0.0.proto"
+cp "$PDIR/base.proto" "$PDIR/arcadedb-server-1.1.0-SNAPSHOT.proto"
+"$COMPAT" "$PDIR/arcadedb-server-1.0.0.proto" "$PDIR/arcadedb-server-1.1.0-SNAPSHOT.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "0" "passes identical contracts under different version-stamped names"
+
+# Lint is reported, never a failure: upstream names new definitions in its own style.
+proto lintonly.proto '  string name = 1;
+  int64 count = 2;' 'enum Colour { RED = 0; GREEN = 1; }'
+out="$("$COMPAT" "$PDIR/base.proto" "$PDIR/lintonly.proto" 2>&1)"; rc=$?
+check "$rc" "0" "does not fail on a new lint finding"
+case "$out" in *"new: ENUM_"*) ok "but reports it" ;; *) bad "but reports it (got: $out)" ;; esac
+
+printf 'syntax = "proto3";\nmessage {\n' > "$PDIR/broken.proto"
+"$COMPAT" "$PDIR/base.proto" "$PDIR/broken.proto" >/dev/null 2>&1; rc=$?
+if [[ "$rc" -ne 0 ]]; then ok "fails a contract that does not compile"; else bad "fails a contract that does not compile"; fi
+
+"$COMPAT" "$PDIR/base.proto" "$PDIR/missing.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "2" "refuses a missing file"
+rm -rf "$PDIR"
 
 echo
 echo "passed: $PASS   failed: $FAIL"

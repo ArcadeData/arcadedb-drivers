@@ -59,6 +59,28 @@ jobs:
       - name: Contract script tests
         run: ./scripts/tests/test-contract-scripts.sh
 
+      # A pull request that moves the .proto must not break clients generated from the one it
+      # replaces (#29). The drift gate below cannot tell: it proves the generated output is
+      # REPRODUCIBLE from the committed contract, not that the change to it was SAFE. The
+      # "previous" side is whatever the base branch carries, looked up there by name, since the
+      # working tree holds only the new one. An unchanged .proto compares equal and passes.
+      # contract-watch.yml runs the same check itself, because the refresh PRs it opens are
+      # created with GITHUB_TOKEN and start no workflow here.
+      - name: Check the .proto for breaking changes against the base branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          mapfile -t previous < <(git ls-tree --name-only FETCH_HEAD contracts/ | grep -E '^contracts/arcadedb-server-.*\.proto$' || true)
+          if [[ "${#previous[@]}" -ne 1 ]]; then
+            echo "::error::expected exactly one .proto on $BASE_REF, found ${#previous[@]}: ${previous[*]:-none}"
+            exit 1
+          fi
+          git show "FETCH_HEAD:${previous[0]}" > "$RUNNER_TEMP/previous.proto"
+          ./scripts/check-proto-compat.sh "$RUNNER_TEMP/previous.proto" "$(./scripts/resolve-proto-contract.sh)"
+
       - name: Regenerate types and verify no drift
         working-directory: typescript
         run: |

@@ -20,11 +20,33 @@ __all__ = [
 ]
 
 
+def _as_metadata(
+    metadata: Sequence[tuple[str, str | bytes]] | None,
+) -> tuple[tuple[str, str | bytes], ...] | None:
+    """Adapts the sync facade's public `Sequence` parameter to the sync stub's own type.
+
+    `grpc-stubs` types the SYNC multi-callables' `__call__` `metadata` (unary-unary,
+    unary-stream and stream-unary alike) as `tuple[tuple[str, str | bytes], ...] | None` -
+    a concrete homogeneous tuple, not `Sequence` - while `grpc.aio`'s equivalent accepts
+    the broader `Metadata | Sequence[MetadatumType]`, which is why `aio.py` needs no
+    equivalent conversion. Narrowing the facade's own public parameter to a tuple would
+    fix the mismatch too, but `Sequence` is what a caller most naturally has on hand (a
+    list built up in a loop) and is already the shape `auth.Auth.metadata` documents, so
+    the conversion happens here instead of pushing a tuple requirement onto every caller.
+
+    Lives here rather than in `transaction.py`, which uses it for `TransactionHandle`'s
+    unary methods, because `transaction.py` imports this module: the streaming wrappers
+    below need it too, and the reverse import would be circular.
+    """
+    return None if metadata is None else tuple(metadata)
+
+
 def stream_query(
     raw: ArcadeDbServiceStub,
     request: messages.StreamQueryRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> Iterator[messages.GrpcRecord]:
     """Streams a query's results row by row.
 
@@ -35,8 +57,12 @@ def stream_query(
     as given and this wrapper picks no defaults for either, because CURSOR,
     MATERIALIZE_ALL and PAGED have materially different memory and consistency behaviour
     that only the caller can judge.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    for result in raw.StreamQuery(request, timeout=timeout):
+    for result in raw.StreamQuery(request, timeout=timeout, metadata=_as_metadata(metadata)):
         yield from result.records
 
 
@@ -45,6 +71,7 @@ def time_series_query(
     request: messages.TimeSeriesQueryRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> Iterator[messages.TimeSeriesQueryResult]:
     """Streams a time-series answer message by message.
 
@@ -67,8 +94,12 @@ def time_series_query(
     enforcement: an unknown tag name in `tags` and a `limit` above
     `arcadedb.server.grpcTimeSeriesMaxResultRows` are both refused by the server, not by
     this package - see the README's "Time series" section.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    yield from raw.TimeSeriesQuery(request, timeout=timeout)
+    yield from raw.TimeSeriesQuery(request, timeout=timeout, metadata=_as_metadata(metadata))
 
 
 @dataclass
@@ -217,6 +248,7 @@ def insert_stream(
     request: InsertStreamRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> messages.InsertSummary:
     """Streams rows to the server in chunks and returns the server's single `InsertSummary`.
 
@@ -240,8 +272,14 @@ def insert_stream(
     implied a transactional guarantee the server did not honour. That fix shipped in 26.9.1
     and the omission is now removable - see `InsertStreamRequest` for the measurement and
     why lifting it is a follow-up rather than part of a contract adoption.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    return raw.InsertStream(_envelope_chunks(request, str(uuid.uuid4())), timeout=timeout)
+    return raw.InsertStream(
+        _envelope_chunks(request, str(uuid.uuid4())), timeout=timeout, metadata=_as_metadata(metadata)
+    )
 
 
 @dataclass
@@ -356,6 +394,7 @@ def time_series_write_stream(
     request: TimeSeriesWriteStreamRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> messages.TimeSeriesWriteSummary:
     """Streams points to the server in chunks and returns the server's `TimeSeriesWriteSummary`.
 
@@ -385,5 +424,11 @@ def time_series_write_stream(
     there is nothing to bind. `TimeSeriesWrite` (the unary write) needs no wrapper either -
     its request has no `transaction` field, so `raw.TimeSeriesWrite` already works
     unassisted.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    return raw.TimeSeriesWriteStream(_envelope_time_series_chunks(request), timeout=timeout)
+    return raw.TimeSeriesWriteStream(
+        _envelope_time_series_chunks(request), timeout=timeout, metadata=_as_metadata(metadata)
+    )

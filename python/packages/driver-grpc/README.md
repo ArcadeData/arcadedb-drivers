@@ -115,6 +115,13 @@ Attaching auth as per-call metadata on just the top-level wrappers would leave e
 other calls silently anonymous. Attaching it to the channel instead makes that impossible -
 `client.raw.ExecuteCommand(...)` carries the same headers `client.stream_query(...)` does.
 
+Your own per-call headers are a separate thing, and every facade method takes them the same way:
+`timeout=` and `metadata=` (a sequence of `(key, value)` pairs), keyword-only, on the top-level
+streaming wrappers and on every `TransactionHandle` / `AsyncTransactionHandle` method alike.
+`metadata` is **appended** to what the channel's auth interceptor adds, never a replacement for it,
+and on a transaction handle it cannot rebind the call: `database` and `transaction` are request
+fields the handle overwrites, not headers.
+
 ### The async side needs four interceptor objects, not one
 
 `create_client` and `aio.create_client` both authenticate via a channel interceptor, but the async

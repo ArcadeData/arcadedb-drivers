@@ -72,7 +72,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          # refs/heads/ rather than the bare name: a branch named like an option cannot be read as one.
+          git fetch --no-tags --depth=1 origin "refs/heads/$BASE_REF"
           mapfile -t previous < <(git ls-tree --name-only FETCH_HEAD contracts/ | grep -E '^contracts/arcadedb-server-.*\.proto$' || true)
           if [[ "${#previous[@]}" -ne 1 ]]; then
             echo "::error::expected exactly one .proto on $BASE_REF, found ${#previous[@]}: ${previous[*]:-none}"

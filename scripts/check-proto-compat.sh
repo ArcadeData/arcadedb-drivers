@@ -57,6 +57,10 @@ for f in "$PREVIOUS" "$NEW"; do
   fi
 done
 
+# Every path handed to buf is ABSOLUTE, never `.`: the `go tool` branch has to run inside the
+# go/tools module, so it changes directory before buf starts, and a relative path would then
+# resolve against go/tools rather than the staged contract (go/scripts/generate-grpc.sh hands
+# buf absolute paths for the same reason).
 buf() {
   if [[ -n "${BUF:-}" ]]; then
     "$BUF" "$@"
@@ -91,7 +95,7 @@ stage new "$NEW"
 failed=0
 
 echo "buf breaking: $(basename "$NEW") against $(basename "$PREVIOUS")"
-if breaking="$(cd "$WORK/new" && buf breaking . --against "$WORK/previous" 2>&1)"; then
+if breaking="$(buf breaking "$WORK/new" --against "$WORK/previous" 2>&1)"; then
   echo "  OK: no breaking change"
 else
   while IFS= read -r line; do echo "  $line"; done <<<"$breaking"
@@ -103,7 +107,7 @@ fi
 # above them changes, so keying on them would report every finding below an insertion as new.
 findings() {
   local out rc=0
-  out="$(cd "$WORK/$1" && buf lint . --error-format=json 2>&1)" || rc=$?
+  out="$(buf lint "$WORK/$1" --error-format=json 2>&1)" || rc=$?
   # buf exits 100 when it found lint failures and anything else non-zero when it could not
   # lint at all; the second must not read as "no findings".
   if [[ "$rc" -ne 0 && "$rc" -ne 100 ]]; then

@@ -41,7 +41,13 @@ verify_line() {
     echo "All clients build and their full suites pass against \`${IMAGE:-}\`, and the \`.proto\` has no breaking change."
     return
   fi
-  echo "**One or more clients FAIL against \`${IMAGE:-}\`.** See the run for which stage."
+  # The header names what actually failed: the .proto check is not a client, so when it fails
+  # alone, "one or more clients FAIL" would be false - every client passed.
+  if [[ "$ts" == "success" && "$py" == "success" && "$go" == "success" ]]; then
+    echo "**All clients pass against \`${IMAGE:-}\`, but the refreshed \`.proto\` breaks clients generated from the previous contract.** Adopt it on purpose or not at all."
+  else
+    echo "**One or more clients FAIL against \`${IMAGE:-}\`.** See the run for which stage."
+  fi
   echo
   [[ "$ts" == "success" ]] && echo "- \`@arcadedb/driver\` (TypeScript): passing" || echo "- \`@arcadedb/driver\` (TypeScript): **failing**"
   [[ "$py" == "success" ]] && echo "- \`arcadedb-driver\` (Python): passing" || echo "- \`arcadedb-driver\` (Python): **failing**"

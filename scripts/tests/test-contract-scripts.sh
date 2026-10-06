@@ -669,6 +669,14 @@ case "$vl" in
   *'compatibility (`buf breaking` against the previous contract): **failing**'*) ok "verify_line names a breaking .proto even when every suite passes" ;;
   *) bad "verify_line names a breaking .proto even when every suite passes (got: $vl)" ;;
 esac
+case "$vl" in
+  *"clients FAIL"*) bad "and its header does not claim a client failed (got: $vl)" ;;
+  *"All clients pass"*"breaks clients generated from the previous contract"*) ok "and its header does not claim a client failed" ;;
+  *) bad "and its header does not claim a client failed (got: $vl)" ;;
+esac
+# A client failure still reads as one, whatever the .proto verdict.
+VERIFY_PY=failure; VERIFY_PROTO=failure; vl="$(verify_line)"; VERIFY_PY=success; VERIFY_PROTO=success
+case "$vl" in *"One or more clients FAIL"*) ok "a client failure keeps the client-failure header" ;; *) bad "a client failure keeps the client-failure header (got: $vl)" ;; esac
 
 # verify_line names the Go client when it is the only one failing.
 IMAGE=img; VERIFY_GO=failure; vl="$(verify_line)"; VERIFY_GO=success
@@ -865,6 +873,16 @@ BUF="${FIXBUF:-}" "$BFIX/scripts/check-proto-compat.sh" "$PDIR/base.proto" "$PDI
 check "$rc" "0" "stages only the lint and breaking blocks of buf.yaml, not keys after them"
 BUF="${FIXBUF:-}" "$BFIX/scripts/check-proto-compat.sh" "$PDIR/base.proto" "$PDIR/removed.proto" >/dev/null 2>&1; rc=$?
 check "$rc" "1" "and still applies those blocks' rules"
+
+# buf must not depend on the caller's working directory: the `go tool buf` fallback runs inside
+# go/tools, so a relative path to the staged contract would resolve there. A BUF wrapper that
+# changes directory before running buf reproduces that, without needing the Go toolchain here.
+printf '#!/usr/bin/env bash\ncd / && exec %q "$@"\n' "${FIXBUF:-buf}" > "$BFIX/cdbuf"
+chmod +x "$BFIX/cdbuf"
+BUF="$BFIX/cdbuf" "$COMPAT" "$PDIR/base.proto" "$PDIR/additive.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "0" "works when buf runs from another directory (the go tool fallback)"
+BUF="$BFIX/cdbuf" "$COMPAT" "$PDIR/base.proto" "$PDIR/removed.proto" >/dev/null 2>&1; rc=$?
+check "$rc" "1" "and still catches a break there"
 rm -rf "$BFIX"
 
 "$COMPAT" "$PDIR/base.proto" "$PDIR/missing.proto" >/dev/null 2>&1; rc=$?

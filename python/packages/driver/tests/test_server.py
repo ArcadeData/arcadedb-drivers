@@ -9,7 +9,7 @@ BASE_URL = "http://db.test"
 @respx.mock
 def test_list_databases_returns_names() -> None:
     respx.get(f"{BASE_URL}/api/v1/databases").mock(
-        return_value=httpx.Response(200, json={"result": ["one", "two"], "user": "root", "version": "26.10.1"})
+        return_value=httpx.Response(200, json={"result": ["one", "two"], "user": "root", "version": "26.11.1-SNAPSHOT"})
     )
     with ArcadeDBServer(base_url=BASE_URL) as srv:
         assert srv.list_databases() == ["one", "two"]
@@ -18,7 +18,7 @@ def test_list_databases_returns_names() -> None:
 @respx.mock
 def test_list_databases_rejects_a_response_missing_a_now_required_field() -> None:
     # Was "defaults an omitted result to empty". DatabaseList gained a `required`
-    # list naming result/user/version in 26.10.1, so there is no default
+    # list naming result/user/version in 26.11.1-SNAPSHOT, so there is no default
     # left to assert: the generated model pops all three. A real server sends all
     # three - `{"version":"...","user":"root","result":[]}` - so this pins the
     # tightening rather than mourning the default.

@@ -42,7 +42,7 @@ class QueryEnvelope:
     `QueryResponse` used to declare no `required` list, so every field was optional on
     the wire and this client defaulted each one it did not get - `limit` to `-1`,
     `returned` to `0`, `truncated` to `False` - asserting a completeness the server
-    itself never claimed. 26.10.1 made `limit`, `returned` and `truncated`
+    itself never claimed. 26.11.1-SNAPSHOT made `limit`, `returned` and `truncated`
     required, and the generated model now types them as plain `int`/`bool` that
     `from_dict` pops without a fallback. `truncated is False` is therefore a server
     statement now, not a client-side guess.
@@ -65,7 +65,7 @@ def to_envelope(data: QueryResponse) -> QueryEnvelope:
     Also flattens each row out of `QueryResponseResultType0Item`'s additional-properties
     wrapper into the plain dict a caller expects.
 
-    26.10.1 widened `result` into a union: an array of rows under the default
+    26.11.1-SNAPSHOT widened `result` into a union: an array of rows under the default
     `record` serializer, and a single `{vertices, edges}` object - plus `records` under
     `studio` - under the two graph serializers. `QueryEnvelope.result` is a list of rows
     and cannot represent the second shape.

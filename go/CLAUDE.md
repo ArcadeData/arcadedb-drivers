@@ -276,7 +276,7 @@ Preserve all of this exactly; it is repeated on `Transaction`'s doc comment for 
 
 ## Three contract quirks, and what each costs Go
 
-Each item below was checked against a live 26.10.1 server before its workaround was
+Each item below was checked against a live 26.11.1-SNAPSHOT server before its workaround was
 written, and each looks like a bug in this client until you know the cause is upstream.
 
 1. **The time-series and Grafana responses.** `TS().Query`, `TS().Latest` and `Grafana().Query`

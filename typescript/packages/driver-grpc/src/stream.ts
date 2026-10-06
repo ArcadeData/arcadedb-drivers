@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape, MessageShape } from "@bufbuild/protobuf";
-import type { ArcadeDbService, TimeSeriesPoint, TimeSeriesPrecision } from "./gen/arcadedb-server-26.10.1_pb.js";
+import type { ArcadeDbService, TimeSeriesPoint, TimeSeriesPrecision } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import {
   DatabaseCredentialsSchema,
   GrpcRecordSchema,
@@ -15,7 +15,7 @@ import {
   TimeSeriesWriteChunkSchema,
   TimeSeriesWriteSummarySchema,
   TransactionContextSchema,
-} from "./gen/arcadedb-server-26.10.1_pb.js";
+} from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
 type RawClient = Client<typeof ArcadeDbService>;
@@ -169,7 +169,7 @@ async function* envelopeChunks(request: InsertStreamRequest, sessionId: string):
         ...(isFirst ? { database: request.database } : {}),
         credentials: request.credentials,
         // Empirically verified against a real server (task 6 of the M1B plan, re-measured when
-        // this package adopted the 26.10.1 contract): on 26.8.1 and every earlier
+        // this package adopted the 26.11.1-SNAPSHOT contract): on 26.8.1 and every earlier
         // release, `InsertContext` builds itself from `InsertOptions.database` only and never
         // reads `InsertChunk.database` at all, despite the .proto contract documenting the latter
         // as REQUIRED on the first chunk. Without this mirror, a stream against such a server
@@ -181,9 +181,9 @@ async function* envelopeChunks(request: InsertStreamRequest, sessionId: string):
         // 26.9.1, not unreleased as this comment previously claimed): a fixed server prefers a
         // non-empty `InsertChunk.database` and falls back to `InsertOptions.database`, so setting
         // both here can never diverge. Measured directly against 26.8.1, 26.9.1 and
-        // 26.10.1: a single-chunk stream carrying `database` on the chunk with
+        // 26.11.1-SNAPSHOT: a single-chunk stream carrying `database` on the chunk with
         // `options.database` left empty inserts 0 rows on 26.8.1 and 2 of 2 on both 26.9.1 and
-        // 26.10.1.
+        // 26.11.1-SNAPSHOT.
         //
         // Every server version this package claims support for (see the compatibility table in
         // the README - 26.9.1 and up) therefore carries the fix, so the mirror is belt-and-braces

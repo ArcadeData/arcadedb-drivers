@@ -1,6 +1,6 @@
 """Turning structured rows into ArcadeDB's GraphBatch ndjson line format.
 
-This format was established against a live 26.10.1 server and reported upstream as
+This format was established against a live 26.11.1-SNAPSHOT server and reported upstream as
 ArcadeData/arcadedb#7570, because no contract described it. The contract now DOES describe it -
 the jsonl and ndjson bodies are `BatchLine`, a discriminated union over `BatchVertexLine` and
 `BatchEdgeLine`, and it matches what this module already emitted, field for field. That does not

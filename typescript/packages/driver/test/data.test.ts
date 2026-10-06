@@ -25,7 +25,7 @@ describe("ArcadeDBDatabase.query", () => {
   });
 
   it("rejects a graph-serializer result object instead of passing it off as rows", async () => {
-    // 26.10.1 widened QueryResponse.result into `rows[] | { vertices, edges }`.
+    // 26.11.1-SNAPSHOT widened QueryResponse.result into `rows[] | { vertices, edges }`.
     // `toEnvelope`'s `as T[]` cast satisfies the compiler on either arm, so without an explicit
     // check the object would reach the caller wearing an array's type and blow up at their first
     // `.map`. This client never sends `serializer`, so the shape is unreachable today - the test

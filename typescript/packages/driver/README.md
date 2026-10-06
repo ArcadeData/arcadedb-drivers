@@ -80,7 +80,7 @@ ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused with 413 rather th
 narrower filter is the only fix once you're past that ceiling.
 
 `truncated === false` used to be a client-side default rather than a server guarantee: until
-26.10.1, `QueryResponse` declared no required fields, so `limit`, `returned` and
+26.11.1-SNAPSHOT, `QueryResponse` declared no required fields, so `limit`, `returned` and
 `truncated` were all synthesised when the response omitted them. That caveat is retired. The
 schema now marks all three **required** and the server sends all three on every query and
 command. `result` stayed optional and still defaults to `[]`.
@@ -254,7 +254,7 @@ buffered load never sends it; but the generator does declare the field where it 
 `NdJsonBatchEvent`'s error object is the one genuine gap: it declares only `commitIndex`, `status`
 and `exceptionArgs`, not the `error` message and `exception` the server actually sends with them,
 so `NdJsonBatchEvent` is widened here by exactly those two fields. That widening was established
-against a live 26.10.1 server, is reported upstream as
+against a live 26.11.1-SNAPSHOT server, is reported upstream as
 [ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570), and should be
 narrowed back to the generated type once the contract declares the fields.
 
@@ -469,13 +469,13 @@ absent; it only means "not visible to this caller right now."
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.10.1.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.11.1-SNAPSHOT.json`, recorded in
 `package.json` as `arcadedb.serverVersion`:
 
 ```json
 {
   "arcadedb": {
-    "serverVersion": "26.10.1"
+    "serverVersion": "26.11.1-SNAPSHOT"
   }
 }
 ```

@@ -144,9 +144,9 @@ def test_insert_stream_inserts_rows(client: ArcadeDBGrpcClient, grpc_database: s
     # removed - restore it, do not work around it.
     #
     # Note what this test CANNOT prove on the pinned image. ArcadeData/arcadedb#6597 was
-    # fixed in 26.9.1, and the pin is 26.10.1, so this passes with OR without the
+    # fixed in 26.9.1, and the pin is 26.11.1-SNAPSHOT, so this passes with OR without the
     # mirror here. The boundary was established separately, by sending a chunk-only
-    # `database` against 26.8.1, 26.9.1 and 26.10.1 directly: 0 of 2 rows land on
+    # `database` against 26.8.1, 26.9.1 and 26.11.1-SNAPSHOT directly: 0 of 2 rows land on
     # 26.8.1, 2 of 2 on both later versions. The mirror is kept anyway - removing it is a
     # behaviour change, not a documentation fix.
     marker = f"is{uuid.uuid4().hex[:8]}"

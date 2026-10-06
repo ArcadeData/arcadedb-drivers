@@ -12,7 +12,7 @@ type RawClient = Client<paths>;
  *
  * The generated `error` object carries only `commitIndex`, `status` and `exceptionArgs` - but the
  * server sends `error` (the message) and `exception` on it too, the same fields the BUFFERED
- * encoding declares on `BatchError`. Established against a live 26.10.1 server and
+ * encoding declares on `BatchError`. Established against a live 26.11.1-SNAPSHOT server and
  * reported upstream as ArcadeData/arcadedb#7570. Unlike `idMappingStreamed` - which the contract
  * DOES declare, on `NdJsonBatchEvent["summary"]`, see `BatchSummary` below - this is a genuine
  * gap: no schema anywhere declares `error`/`exception` on the streamed error object. Without this

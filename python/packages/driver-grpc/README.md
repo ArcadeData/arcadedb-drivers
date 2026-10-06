@@ -243,7 +243,7 @@ exactly as the contract specifies. A server carrying the fix for
 
 That boundary is measured, not inferred. A single-chunk stream carrying `database` on the chunk
 with `options.database` left empty inserts **0 of 2** rows on `arcadedata/arcadedb:26.8.1` and
-**2 of 2** on both `26.9.1` and `26.10.1`; `7ccade7348` is an ancestor of the `26.9.1`
+**2 of 2** on both `26.9.1` and `26.11.1-SNAPSHOT`; `7ccade7348` is an ancestor of the `26.9.1`
 tag and not of `26.8.1`. So **every server version this package claims support for carries the
 fix** (the compatibility table below starts at 26.9.1), and the mirror is belt-and-braces rather
 than load-bearing today. It is still sent, because removing it would be a behaviour change;
@@ -341,7 +341,7 @@ Both remain reachable outside a transaction - `client.insert_stream(...)` and
 this gap and **has since landed**: its fix (`79d931070b`) is an ancestor of the `26.9.1` tag and
 not of `26.8.1`. Measured against real servers - begin over `BeginTransaction`, run an
 `InsertStream` carrying that server-issued `transaction_id`, then roll back - the rows survive the
-rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.10.1`, with a
+rollback on `26.8.1` and are correctly discarded on both `26.9.1` and `26.11.1-SNAPSHOT`, with a
 commit persisting them on all three. So the restriction is now **removable** for every server
 version this package supports. It is kept for now because lifting it adds public surface, a
 deliberate release decision rather than a documentation fix; it is tracked as a follow-up.
@@ -784,12 +784,12 @@ object does not already implement.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.10.1.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.11.1-SNAPSHOT.proto`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.10.1"
+server-version = "26.11.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver-grpc` | ArcadeDB server |

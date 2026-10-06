@@ -1,7 +1,7 @@
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape } from "@bufbuild/protobuf";
-import type { ArcadeDbService } from "./gen/arcadedb-server-26.10.1_pb.js";
-import { TransactionContextSchema } from "./gen/arcadedb-server-26.10.1_pb.js";
+import type { ArcadeDbService } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
+import { TransactionContextSchema } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import { createStreamQuery, createTimeSeriesQuery } from "./stream.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
@@ -27,7 +27,7 @@ type TransactionContextInit = MessageInitShape<typeof TransactionContextSchema>;
  *
  * [ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607) HAS since landed
  * server-side (`79d931070b`, released in 26.9.1), and measurement against 26.8.1, 26.9.1 and
- * 26.10.1 confirms it: an `InsertStream` carrying a server-issued `transaction_id`
+ * 26.11.1-SNAPSHOT confirms it: an `InsertStream` carrying a server-issued `transaction_id`
  * survives a rollback on 26.8.1 and is correctly discarded on both later versions. So this
  * exclusion is removable for every server version this package supports - but lifting it ADDS
  * public surface, a release decision rather than a documentation fix, so it is tracked as a

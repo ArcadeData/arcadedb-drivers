@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape, MessageShape } from "@bufbuild/protobuf";
-import type { ArcadeDbService, TimeSeriesPoint, TimeSeriesPrecision } from "./gen/arcadedb-server-26.10.1_pb.js";
+import type { ArcadeDbService, TimeSeriesPoint, TimeSeriesPrecision } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import {
   DatabaseCredentialsSchema,
   GrpcRecordSchema,
@@ -15,7 +15,7 @@ import {
   TimeSeriesWriteChunkSchema,
   TimeSeriesWriteSummarySchema,
   TransactionContextSchema,
-} from "./gen/arcadedb-server-26.10.1_pb.js";
+} from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
 type RawClient = Client<typeof ArcadeDbService>;

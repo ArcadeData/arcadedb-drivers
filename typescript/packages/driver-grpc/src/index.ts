@@ -1,7 +1,7 @@
 import { createClient as createConnectClient } from "@connectrpc/connect";
 import type { Client, Interceptor } from "@connectrpc/connect";
 import { createGrpcTransport } from "@connectrpc/connect-node";
-import { ArcadeDbAdminService, ArcadeDbService } from "./gen/arcadedb-server-26.10.1_pb.js";
+import { ArcadeDbAdminService, ArcadeDbService } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import { sendsPlaintextPassword } from "./auth.js";
 import { createInsertStream, createStreamQuery, createTimeSeriesQuery, createTimeSeriesWriteStream } from "./stream.js";
 import { createTransaction } from "./transaction.js";
@@ -18,12 +18,12 @@ export type { TransactionHandle } from "./transaction.js";
 // Re-exports every data-plane message type and enum the generated client uses (`GrpcRecord`,
 // `QueryResult`, `StreamQueryRequest_RetrievalMode`, etc.) under this package's own entry point.
 // Without this, a caller cannot name a single one of these types without importing the
-// version-stamped generated file directly (`./gen/arcadedb-server-26.10.1_pb.js`) - which
+// version-stamped generated file directly (`./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js`) - which
 // the `exports` map in package.json blocks for an installed copy anyway - and cannot use
 // `retrievalMode` at all, since `StreamQueryRequest_RetrievalMode` is a runtime enum, not a type:
 // without this re-export a caller would have to pass a bare numeric literal (e.g. `2`) instead of
 // `StreamQueryRequest_RetrievalMode.PAGED`.
-export * from "./gen/arcadedb-server-26.10.1_pb.js";
+export * from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService` (the data plane). */
 type RawClient = Client<typeof ArcadeDbService>;

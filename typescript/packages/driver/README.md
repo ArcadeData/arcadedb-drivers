@@ -469,13 +469,13 @@ absent; it only means "not visible to this caller right now."
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.10.1.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.11.1-SNAPSHOT.json`, recorded in
 `package.json` as `arcadedb.serverVersion`:
 
 ```json
 {
   "arcadedb": {
-    "serverVersion": "26.10.1"
+    "serverVersion": "26.11.1-SNAPSHOT"
   }
 }
 ```
@@ -484,6 +484,7 @@ This package was generated from `contracts/arcadedb-openapi-26.10.1.json`, recor
 | --- | --- |
 | 0.1.0 | 26.9.1 |
 | 0.2.0 | 26.10.1 |
+| 0.3.0 (unreleased) | 26.11.1-SNAPSHOT |
 
 The client speaks ArcadeDB's HTTP API as described by that contract. Pointing it at a server on a
 materially different release may work for the endpoints both versions share, but is not tested or

@@ -185,6 +185,12 @@ describe("end-to-end against a real ArcadeDB gRPC server", () => {
     // `targetClass` names the type the whole stream inserts into - the server resolves it from
     // `InsertOptions.targetClass` only; a per-row `GrpcRecord.type` (set on `batchRow` above for
     // documentation purposes) is not consulted by `insertStream`'s row-insert path.
+    //
+    // `options` deliberately carries no `database`, and `insertStream` adds none: the database
+    // travels only on the first chunk, as the .proto specifies. `inserted === 4n` below is
+    // therefore the proof that the pinned server honours a chunk-only `database`. A server
+    // without the fix for ArcadeData/arcadedb#6597 (before 26.9.1) would report `received: 4n`,
+    // `inserted: 0n` as a successful call.
     const summary = await rootGrpc.insertStream({
       database: DB_NAME,
       options: { targetClass: "BatchPerson" },
@@ -275,18 +281,16 @@ describe("end-to-end against a real ArcadeDB gRPC server", () => {
     // comment in `envelopeChunks`), so this pins the real contract: the call resolves (does not
     // throw) and comes back with every count at zero.
     async function* oneEmptyChunk() {
-      // `options.database` is included alongside the chunk-level `database` the brief specifies,
-      // for the same server-side reason `envelopeChunks` in `src/stream.ts` mirrors it: the
-      // deployed server's `InsertContext` only reads `InsertOptions.database`, not
-      // `InsertChunk.database`. Without it every chunk - empty or not - fails identically on
-      // that unrelated gap, which would tell us nothing about empty-chunk handling specifically.
-      // `options.targetClass` is set to an existing type for the same isolation reason: the
-      // server resolves the target type unconditionally (before it ever looks at how many rows
-      // the chunk carries), so a blank target_class would fail the probe on "type not found"
-      // rather than telling us anything about zero-row handling specifically.
+      // `database` is sent on the chunk only, as the .proto specifies and as `envelopeChunks` in
+      // `src/stream.ts` sends it; `options.database` is left empty. (Servers before 26.9.1 read
+      // only `InsertOptions.database` - ArcadeData/arcadedb#6597 - but none of them is in the
+      // compatibility table.) `options.targetClass` is set to an existing type for isolation:
+      // the server resolves the target type unconditionally (before it ever looks at how many
+      // rows the chunk carries), so a blank target_class would fail the probe on "type not
+      // found" rather than telling us anything about zero-row handling specifically.
       yield {
         database: DB_NAME,
-        options: { database: DB_NAME, targetClass: "BatchPerson" },
+        options: { targetClass: "BatchPerson" },
         sessionId: randomUUID(),
         chunkSeq: 1n,
         rows: [],

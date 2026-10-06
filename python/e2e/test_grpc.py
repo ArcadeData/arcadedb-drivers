@@ -137,18 +137,18 @@ def test_stream_query_returns_rows(client: ArcadeDBGrpcClient, grpc_database: st
 
 
 def test_insert_stream_inserts_rows(client: ArcadeDBGrpcClient, grpc_database: str) -> None:
-    # THE test for the options.database mirroring. On a real 26.8.1 or earlier server, an
-    # insert_stream that does not mirror `database` into `options` inserts nothing -
-    # inserted=0, or a deferred-commit failure with "Invalid database name: name is
-    # required". If this test ever fails that way, the mirroring in stream.py has been
-    # removed - restore it, do not work around it.
+    # Proves a chunk-only `database` works on the pinned server. insert_stream sends
+    # `database` on the first chunk only, as the .proto specifies, and leaves
+    # `options.database` empty - the `options.database` mirror clients up to 0.2.0 carried
+    # was retired in 0.3.0 - so the rows below land only because the server reads
+    # `InsertChunk.database`.
     #
-    # Note what this test CANNOT prove on the pinned image. ArcadeData/arcadedb#6597 was
-    # fixed in 26.9.1, and the pin is 26.11.1-SNAPSHOT, so this passes with OR without the
-    # mirror here. The boundary was established separately, by sending a chunk-only
-    # `database` against 26.8.1, 26.9.1 and 26.10.1 directly: 0 of 2 rows land on
-    # 26.8.1, 2 of 2 on both later versions. The mirror is kept anyway - removing it is a
-    # behaviour change, not a documentation fix.
+    # Against 26.8.1 this test would fail: servers before 26.9.1 read the database only
+    # from InsertOptions (ArcadeData/arcadedb#6597) and would insert NOTHING, reporting the
+    # rows as received with inserted=0 in a successful call. That boundary was measured
+    # directly with a chunk-only `database`: 0 of 2 rows on 26.8.1, 2 of 2 on 26.9.1 and
+    # later. If this fails that way, the pinned image predates the fix - this package does
+    # not support such servers, so do not reinstate the mirror to make it pass.
     marker = f"is{uuid.uuid4().hex[:8]}"
     summary = client.insert_stream(
         InsertStreamRequest(

@@ -445,9 +445,12 @@ never surfaces as `io.EOF`, and a server that ends early with `SendAndClose` mak
 its summary with a **nil** error. The summary, not the nil error, says how many rows landed.
 
 `InsertStream` ports Python's envelope exactly: one `session_id` per call (16 `crypto/rand` bytes,
-hex), `chunk_seq` 1..n, `Database` on chunk 1 only together with a `proto.Clone` of `Options`
-whose `database` is forced to it (the ArcadeData/arcadedb#6597 mirror; later chunks carry the
-caller's `Options` as given, as Python does), `Credentials` and `Transaction` on every chunk, and
+hex), `chunk_seq` 1..n, `Database` on chunk 1 only as the `.proto` specifies, the caller's
+`Options` on every chunk as given (`options.database` is never set: servers before 26.9.1, outside
+the compatibility table, read the database only from it (ArcadeData/arcadedb#6597) and answer a
+chunk-only database with rows received, `inserted=0` and no error, so the stream silently inserts
+nothing against them; 0.2.0 mirrored `Database` into it, 0.3.0 retired the mirror and the
+`proto.Clone`), `Credentials` and `Transaction` on every chunk, and
 `last=true` only on the final chunk, found by `iter.Pull` lookahead so a `nil` or empty batch in
 the middle is a zero-row chunk, not the end. An empty input sends one empty chunk with `last=true`.
 The generated chunk's row field is `Rows`.

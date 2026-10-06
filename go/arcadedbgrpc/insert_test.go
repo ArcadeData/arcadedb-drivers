@@ -119,14 +119,15 @@ func TestInsertStreamEnvelope(t *testing.T) {
 	if cs[0].Database != "db" {
 		t.Errorf("first chunk database = %q", cs[0].Database)
 	}
-	if cs[0].Options.GetDatabase() != "db" || cs[0].Options.GetTargetClass() != "V" {
-		t.Errorf("first chunk options = %v", cs[0].Options)
-	}
 	if cs[1].Database != "" || cs[2].Database != "" {
 		t.Errorf("database repeated after the first chunk: %q %q", cs[1].Database, cs[2].Database)
 	}
-	if cs[1].Options.GetTargetClass() != "V" {
-		t.Errorf("later chunk options = %v", cs[1].Options)
+	// Options travel as given on every chunk; the client never sets options.database.
+	wantOpts := &generated.InsertOptions{TargetClass: "V"}
+	for i, ch := range cs {
+		if !proto.Equal(ch.Options, wantOpts) {
+			t.Errorf("chunk %d options = %v, want %v", i, ch.Options, wantOpts)
+		}
 	}
 }
 
@@ -147,17 +148,52 @@ func TestInsertStreamSessionIDIsFreshPerCall(t *testing.T) {
 	}
 }
 
-func TestInsertStreamCallerOptionsNotMutated(t *testing.T) {
-	h, _ := collect[generated.InsertChunk](&generated.InsertSummary{})
-	c := newFake(t, clientStreamService{insert: h}, nil)
-	opts := &generated.InsertOptions{TargetClass: "V", Database: "callers"}
-	if _, err := c.InsertStream(context.Background(), InsertStreamRequest{
-		Database: "db", Options: opts, Chunks: batches([]*generated.GrpcRecord{rec("a")}),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if opts.Database != "callers" {
-		t.Fatalf("caller's Options.Database changed to %q", opts.Database)
+// The client puts Database on the first chunk only and never writes options.database:
+// the caller's Options reach every chunk exactly as given (nil stays nil, an unset
+// database stays unset, a database the caller set themselves is kept), and the caller's
+// message is not modified.
+func TestInsertStreamDoesNotSetOptionsDatabase(t *testing.T) {
+	for name, opts := range map[string]*generated.InsertOptions{
+		"nil options":       nil,
+		"no database":       {TargetClass: "V"},
+		"caller's database": {TargetClass: "V", Database: "callers"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h, chunks := collect[generated.InsertChunk](&generated.InsertSummary{})
+			c := newFake(t, clientStreamService{insert: h}, nil)
+			var before *generated.InsertOptions
+			if opts != nil {
+				before = proto.Clone(opts).(*generated.InsertOptions)
+			}
+			if _, err := c.InsertStream(context.Background(), InsertStreamRequest{
+				Database: "db",
+				Options:  opts,
+				Chunks:   batches([]*generated.GrpcRecord{rec("a")}, []*generated.GrpcRecord{rec("b")}),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			cs := chunks()
+			if len(cs) != 2 {
+				t.Fatalf("got %d chunks, want 2", len(cs))
+			}
+			if cs[0].Database != "db" || cs[1].Database != "" {
+				t.Errorf("chunk databases = %q, %q; want db on the first chunk only", cs[0].Database, cs[1].Database)
+			}
+			for i, ch := range cs {
+				if opts == nil {
+					if ch.Options != nil {
+						t.Errorf("chunk %d options = %v, want nil", i, ch.Options)
+					}
+					continue
+				}
+				if !proto.Equal(ch.Options, before) {
+					t.Errorf("chunk %d options = %v, want the caller's %v", i, ch.Options, before)
+				}
+			}
+			if opts != nil && !proto.Equal(opts, before) {
+				t.Errorf("caller's Options mutated to %v, was %v", opts, before)
+			}
+		})
 	}
 }
 
@@ -176,7 +212,7 @@ func TestInsertStreamEmptyInputSendsOneLastChunk(t *testing.T) {
 			if len(cs) != 1 {
 				t.Fatalf("got %d chunks, want 1", len(cs))
 			}
-			if cs[0].ChunkSeq != 1 || !cs[0].Last || len(cs[0].Rows) != 0 || cs[0].Database != "db" || cs[0].Options.GetDatabase() != "db" {
+			if cs[0].ChunkSeq != 1 || !cs[0].Last || len(cs[0].Rows) != 0 || cs[0].Database != "db" || cs[0].Options != nil {
 				t.Fatalf("chunk = %v", cs[0])
 			}
 		})

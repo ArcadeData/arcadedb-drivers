@@ -173,33 +173,68 @@ describe("insertStream", () => {
     expect(sent[2]?.database).toBeUndefined();
   });
 
-  it("mirrors database into options.database on the first chunk only, working around a server-side gap", async () => {
-    // Regression test for a real-server finding (task 6 of the M1B plan), filed as
-    // ArcadeData/arcadedb#6597: on 26.8.1 and every earlier server, `ArcadeDbGrpcService
-    // #insertStream` builds its `InsertContext` from `InsertOptions.database` only and never
-    // reads `InsertChunk.database`, even though the .proto contract documents the latter as
-    // REQUIRED on the first chunk. Without mirroring `database` into `options.database`, a real
-    // stream against such a server inserts nothing - `inserted: 0`, or a deferred-commit failure
-    // with "Invalid database name: name is required". Servers carrying the fix (7ccade7348,
-    // released in 26.9.1) honour a non-empty `InsertChunk.database` and treat
-    // `InsertOptions.database` as the fallback, so the two paths agree.
-    //
-    // Measured against real 26.8.1 / 26.9.1 / 26.10.1 servers: chunk-only `database`
-    // inserts 0 of 2 rows on 26.8.1 and 2 of 2 on both later versions. Every version this package
-    // supports therefore carries the fix, so this assertion now guards a workaround no supported
-    // server needs; it stays because removing the mirror is a behaviour change.
+  // ArcadeData/arcadedb#6597: servers before 26.9.1 read the database only from
+  // `InsertOptions.database`, so clients up to 0.2.0 mirrored the chunk-level `database` into
+  // `options.database` on the first chunk. Every server in the compatibility table carries the fix
+  // (7ccade7348, released in 26.9.1) - measured, a chunk-only `database` inserts 2 of 2 rows on
+  // 26.9.1 and later, 0 of 2 on 26.8.1 - and the mirror was retired in 0.3.0. These tests pin its
+  // absence: the client sends `database` on the first chunk and the caller's `options` as given.
+  it("does not set options.database when the caller gave no options", async () => {
     const { raw, sent } = mockRaw(insertSummary());
     const insertStream = createInsertStream(raw);
 
-    await insertStream({ database: "mydb", options: { targetClass: "Person" }, chunks: rowBatches() });
+    await insertStream({ database: "mydb", chunks: rowBatches() });
 
-    expect(sent[0]?.options?.database).toBe("mydb");
-    // The caller's other options survive the merge.
-    expect(sent[0]?.options?.targetClass).toBe("Person");
-    // Subsequent chunks are untouched: no invented database, and the caller's options (or lack
-    // thereof) pass through as given rather than being forced to repeat `database`.
-    expect(sent[1]?.options?.database).toBeUndefined();
-    expect(sent[1]?.options?.targetClass).toBe("Person");
+    expect(sent[0]?.database).toBe("mydb");
+    expect(sent[0]?.options?.database).toBeUndefined();
+    for (const chunk of sent) expect(chunk.options).toBeUndefined();
+  });
+
+  it("passes the caller's options through unchanged on every chunk, without adding database", async () => {
+    const { raw, sent } = mockRaw(insertSummary());
+    const insertStream = createInsertStream(raw);
+    const options = { targetClass: "Person" };
+
+    await insertStream({ database: "mydb", options, chunks: rowBatches() });
+
+    expect(sent).toHaveLength(3);
+    for (const chunk of sent) {
+      // The same object, not a copy with fields merged in.
+      expect(chunk.options).toBe(options);
+      expect(chunk.options?.database).toBeUndefined();
+    }
+    // The caller's object itself was not modified.
+    expect(options).toEqual({ targetClass: "Person" });
+  });
+
+  it("passes a caller-set options.database through as given, even when it differs from database", async () => {
+    const { raw, sent } = mockRaw(insertSummary());
+    const insertStream = createInsertStream(raw);
+    const options = { database: "otherdb", targetClass: "Person" };
+
+    await insertStream({ database: "mydb", options, chunks: rowBatches() });
+
+    expect(sent[0]?.database).toBe("mydb");
+    expect(sent[1]?.database).toBeUndefined();
+    expect(sent[2]?.database).toBeUndefined();
+    for (const chunk of sent) expect(chunk.options).toEqual({ database: "otherdb", targetClass: "Person" });
+  });
+
+  it("does not set options.database on the single chunk sent for an empty stream", async () => {
+    const { raw, sent } = mockRaw(insertSummary());
+    const insertStream = createInsertStream(raw);
+    const options = { targetClass: "Person" };
+
+    async function* noBatches(): AsyncGenerator<InsertChunk["rows"]> {
+      // Yields nothing.
+    }
+
+    await insertStream({ database: "mydb", options, chunks: noBatches() });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.database).toBe("mydb");
+    expect(sent[0]?.options).toBe(options);
+    expect(options).toEqual({ targetClass: "Person" });
   });
 
   it("marks only the final chunk as last", async () => {

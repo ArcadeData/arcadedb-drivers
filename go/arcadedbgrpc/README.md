@@ -321,12 +321,12 @@ fmt.Println(sum.GetInserted(), sum.GetFailed())
 
 - one `session_id` per call (16 random bytes, hex-encoded), stable for the whole stream;
 - `chunk_seq` 1, 2, 3, ...;
-- `Database` on the first chunk only, as the `.proto` specifies, and mirrored into a copy of
-  `Options` as `options.database` on that chunk. Servers before 26.9.1 read the database from
-  `InsertOptions` alone (ArcadeData/arcadedb#6597) and inserted nothing without the mirror; later
-  servers prefer the chunk's, so setting both is correct either side of the fix. Later chunks carry
-  your `Options` as given;
-- `Credentials` and `Transaction` on every chunk;
+- `Database` on the first chunk only, as the `.proto` specifies;
+- your `Options`, `Credentials` and `Transaction` on every chunk, as given. `InsertStream` never
+  sets `options.database`. Servers before 26.9.1, which are outside the compatibility table, read
+  the database from `InsertOptions` alone (ArcadeData/arcadedb#6597): against them the stream
+  reports its rows as received with `inserted=0`, as a successful call, and inserts nothing. 0.2.0
+  mirrored `Database` into `options.database` to cover them; 0.3.0 retired the mirror;
 - `last=true` on the final chunk only, found by one batch of lookahead, so a `nil` or empty batch
   in the middle of the sequence is sent as a zero-row chunk, never mistaken for the end.
 

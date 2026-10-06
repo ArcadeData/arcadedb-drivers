@@ -107,11 +107,12 @@ Points to preserve when editing:
   check is `protocol !== "https:"`, not `=== "http:"`, because `new URL("localhost:50051")` parses
   with protocol `"localhost:"`.
 - `insertStream` owns only the envelope bookkeeping — one stable `session_id`, `chunk_seq` from 1,
-  `database` on the first chunk, `last` on the final one — plus mirroring `options.database` as a
-  workaround for servers without the fix for `ArcadeData/arcadedb#6597` (i.e. 26.8.1 and earlier;
-  the fix shipped in 26.9.1, so no server version this package supports still needs the mirror —
-  it is kept because removing it is a behaviour change). An empty `chunks` iterable is valid, not
-  an error.
+  `database` on the first chunk, `last` on the final one — and nothing else. The caller's `options` goes out
+  unchanged: it does not mirror `database` into `options.database`. Clients up to 0.2.0 did, to
+  work around `ArcadeData/arcadedb#6597` (servers before 26.9.1 read only
+  `InsertOptions.database` and report `inserted: 0` as a successful call); every supported server
+  carries the fix, so the mirror was retired in 0.3.0. Do not reintroduce it. An empty `chunks`
+  iterable is valid, not an error.
 - `streamQuery` flattens batches into rows and nothing else; `retrievalMode` and `batchSize` stay
   the caller's choice.
 - `TransactionHandle` excludes `bulkInsert` and `insertStream` because the server committed those

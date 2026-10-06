@@ -90,12 +90,15 @@ export function createTimeSeriesQuery(raw: Pick<RawClient, "timeSeriesQuery">) {
 export interface InsertStreamRequest {
   /**
    * Sent on the first chunk only, per the `.proto` contract (`InsertChunk.database` is documented
-   * REQUIRED there on the first chunk). This field is authoritative on a server carrying the fix
-   * for [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (merged in
-   * `7ccade7348`, released in 26.9.1): such a server re-reads a non-empty chunk `database` on
-   * every chunk it appears on, it is not cached. 26.8.1 and every earlier server ignore it
-   * entirely, which is why {@link envelopeChunks} also mirrors it into `options.database` on the
-   * first chunk - see the comment there.
+   * REQUIRED there on the first chunk). It is not copied into `options.database`: `options` goes
+   * out exactly as the caller gave it.
+   *
+   * Servers before 26.9.1 never read `InsertChunk.database` at all
+   * ([ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597), fixed in
+   * `7ccade7348`, released in 26.9.1) - they read only `InsertOptions.database`, and with it empty
+   * they report the rows as `received` with `inserted: 0` as a successful call. Those servers are
+   * outside this package's compatibility table. Clients up to 0.2.0 mirrored this field into
+   * `options.database` to work around that; the mirror was retired in 0.3.0.
    */
   database: string;
   credentials?: MessageInitShape<typeof DatabaseCredentialsSchema>;
@@ -111,9 +114,9 @@ export interface InsertStreamRequest {
  * caller would otherwise have to hand-roll:
  * - one `session_id` (a fresh UUID), stable for the whole stream
  * - `chunk_seq` starting at 1 and incrementing by 1
- * - `database` set on the first chunk only, per the `.proto` contract, and mirrored into
- *   `options.database` there too for compatibility with servers that predate #6597's fix (see
- *   {@link InsertStreamRequest.database})
+ * - `database` set on the first chunk only, per the `.proto` contract (see
+ *   {@link InsertStreamRequest.database}); the caller's `options` is passed through unchanged on
+ *   every chunk
  * - `last: true` on the final chunk only
  *
  * An empty `request.chunks` sends a single chunk with zero rows and `last: true`, rather than
@@ -149,7 +152,7 @@ async function* envelopeChunks(request: InsertStreamRequest, sessionId: string):
       yield {
         database: request.database,
         credentials: request.credentials,
-        options: { ...request.options, database: request.database },
+        options: request.options,
         transaction: request.transaction,
         sessionId,
         chunkSeq: 1n,
@@ -168,28 +171,7 @@ async function* envelopeChunks(request: InsertStreamRequest, sessionId: string):
       yield {
         ...(isFirst ? { database: request.database } : {}),
         credentials: request.credentials,
-        // Empirically verified against a real server (task 6 of the M1B plan, re-measured when
-        // this package adopted the 26.10.1 contract): on 26.8.1 and every earlier
-        // release, `InsertContext` builds itself from `InsertOptions.database` only and never
-        // reads `InsertChunk.database` at all, despite the .proto contract documenting the latter
-        // as REQUIRED on the first chunk. Without this mirror, a stream against such a server
-        // inserts nothing - it reports `received` rows and `inserted: 0`, or fails on the
-        // deferred commit with "Invalid database name: name is required" - even though `database`
-        // was sent correctly per the .proto contract.
-        //
-        // Fixed server-side in ArcadeData/arcadedb#6597 (merged in 7ccade7348, RELEASED IN
-        // 26.9.1, not unreleased as this comment previously claimed): a fixed server prefers a
-        // non-empty `InsertChunk.database` and falls back to `InsertOptions.database`, so setting
-        // both here can never diverge. Measured directly against 26.8.1, 26.9.1 and
-        // 26.10.1: a single-chunk stream carrying `database` on the chunk with
-        // `options.database` left empty inserts 0 rows on 26.8.1 and 2 of 2 on both 26.9.1 and
-        // 26.10.1.
-        //
-        // Every server version this package claims support for (see the compatibility table in
-        // the README - 26.9.1 and up) therefore carries the fix, so the mirror is belt-and-braces
-        // rather than load-bearing today. It is kept because removing it is a behaviour change,
-        // and is tracked as a follow-up rather than done here.
-        options: isFirst ? { ...request.options, database: request.database } : request.options,
+        options: request.options,
         transaction: request.transaction,
         sessionId,
         chunkSeq,
@@ -245,14 +227,13 @@ export interface TimeSeriesWriteStreamRequest {
 /**
  * Wraps `ArcadeDbService.TimeSeriesWriteStream` (client-streaming): turns `request.chunks` into
  * the `AsyncIterable<TimeSeriesWriteChunk>` the generated client expects, setting `database`,
- * `credentials`, `type` and `precision` on EVERY chunk rather than mirroring them onto the first
- * one the way {@link envelopeChunks} mirrors `database` into `options.database` for `InsertStream`
- * (D-M6-4). That mirror exists to work around
- * [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597), a bug confirmed
- * specific to `InsertStream`/`InsertContext` (closed, fixed in 26.9.1); `TimeSeriesWriteChunk`
- * carries none of `InsertChunk`'s session/sequence/last fields and was never shown to share that
- * bug, so copying the workaround here would be cargo-culting a fix onto an RPC that never needed
- * one.
+ * `credentials`, `type` and `precision` on EVERY chunk rather than only on the first one the way
+ * {@link envelopeChunks} sends `database` for `InsertStream` (D-M6-4). `TimeSeriesWriteChunk`
+ * carries none of `InsertChunk`'s session/sequence/last fields, so there is no envelope here whose
+ * first chunk could be special. Nor was it ever shown to share
+ * [ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597), the
+ * `InsertStream`/`InsertContext` bug (fixed in 26.9.1) that once made `InsertStream` ignore a
+ * chunk-level `database`, so nothing here works around it.
  *
  * Repeating the envelope on every chunk is a deliberate SIMPLIFICATION, not something the `.proto`
  * asks for - an earlier version of this comment claimed the contract required it, and the contract

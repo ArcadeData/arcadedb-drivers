@@ -104,36 +104,6 @@ class InsertStreamRequest:
     transaction: messages.TransactionContext | None = None
 
 
-def _first_chunk_options(request: InsertStreamRequest) -> messages.InsertOptions:
-    """The caller's options with `database` forced onto them.
-
-    Empirically established during M1b against a real server, and re-measured when this
-    package adopted the 26.10.1 contract: on 26.8.1 and every earlier release the
-    server builds its `InsertContext` from `InsertOptions.database` ALONE and never reads
-    `InsertChunk.database` at all, despite the .proto documenting the latter as REQUIRED on
-    the first chunk. Without this mirror a stream against such a server inserts nothing - it
-    reports the rows as `received` with `inserted=0`, or fails at the deferred commit with
-    "Invalid database name: name is required" - even though `database` was sent exactly as
-    the contract specifies.
-
-    A server carrying the fix for ArcadeData/arcadedb#6597 (`7ccade7348`, released in
-    26.9.1) prefers a non-empty chunk `database` and falls back to this one, so setting both
-    to the same value is correct on either side of that fix. Measured directly: a
-    single-chunk stream with `options.database` left empty inserts 0 of 2 rows on 26.8.1 and
-    2 of 2 on both 26.9.1 and 26.10.1.
-
-    Every server version this package supports (the README's compatibility table starts at
-    26.9.1) therefore carries the fix, so this mirror is belt-and-braces rather than
-    load-bearing today. It is kept because removing it is a behaviour change; retiring it is
-    tracked as a follow-up.
-    """
-    options = messages.InsertOptions()
-    if request.options is not None:
-        options.CopyFrom(request.options)
-    options.database = request.database
-    return options
-
-
 def _build_chunk(
     request: InsertStreamRequest,
     session_id: str,
@@ -148,11 +118,14 @@ def _build_chunk(
     if request.transaction is not None:
         chunk.transaction.CopyFrom(request.transaction)
     if seq == 1:
-        # `database` on the first chunk only, per the .proto contract, and mirrored
-        # into options there too - see `_first_chunk_options`.
+        # `database` on the first chunk only, per the .proto contract. It is NOT copied into
+        # `options.database`: servers before 26.9.1 read only that field
+        # (ArcadeData/arcadedb#6597), and clients up to 0.2.0 mirrored it there; the mirror
+        # was retired in 0.3.0 because every supported server reads the chunk's `database`.
         chunk.database = request.database
-        chunk.options.CopyFrom(_first_chunk_options(request))
-    elif request.options is not None:
+    if request.options is not None:
+        # The caller's options, exactly as given, on every chunk. `CopyFrom` copies into
+        # the chunk's own message, so the caller's `InsertOptions` is never touched.
         chunk.options.CopyFrom(request.options)
     return chunk
 
@@ -252,9 +225,11 @@ def insert_stream(
 
     - one `session_id` (a fresh UUID), stable for the whole stream
     - `chunk_seq` starting at 1 and incrementing by 1
-    - `database` on the first chunk only, per the .proto contract, mirrored into
-      `options.database` there too for compatibility with servers predating #6597
-      (26.8.1 and earlier; see `_first_chunk_options`)
+    - `database` on the first chunk only, per the .proto contract; `request.options` is
+      sent as given and `options.database` is never set by this wrapper. A server before
+      26.9.1 ignores the chunk's `database` (ArcadeData/arcadedb#6597) and reports the rows
+      as `received` with `inserted=0` in a SUCCESSFUL call, so against one this stream
+      silently inserts nothing; such servers are outside the supported range
     - `last=True` on the final chunk only
 
     An empty `request.chunks` sends a single chunk with zero rows and `last=True` rather
@@ -278,12 +253,12 @@ class TimeSeriesWriteStreamRequest:
     session/sequence/last envelope for this wrapper to own: `TimeSeriesWriteChunk` declares
     only `database`, `credentials`, `type` and `precision` alongside its `points`, with no
     `session_id`, `chunk_seq` or `last` field on the message at all - so those four are
-    simply repeated on every chunk (see `_build_time_series_chunk`). Do NOT port
-    `insert_stream`'s first-chunk-only `database`-mirror-into-options workaround here: that
-    exists for ArcadeData/arcadedb#6597, a bug confirmed specific to
-    `InsertStream`/`InsertContext` (closed, fixed in 26.9.1); `TimeSeriesWriteChunk` was
-    never shown to share it, and copying the workaround would be cargo-culting a fix onto
-    an RPC that never needed one.
+    simply repeated on every chunk (see `_build_time_series_chunk`). There is no
+    `options.database`-style second home for `database` to fill here either:
+    ArcadeData/arcadedb#6597 (a server reading the database only from `InsertOptions`,
+    fixed in 26.9.1) was confirmed specific to `InsertStream`/`InsertContext`, and
+    `TimeSeriesWriteChunk` was never shown to share it, so a workaround for it would be
+    cargo-culting a fix onto an RPC that never needed one.
 
     Repeating the envelope on every chunk is a deliberate SIMPLIFICATION, not something the
     `.proto` asks for - an earlier version of this docstring claimed the contract required
@@ -385,8 +360,8 @@ def time_series_write_stream(
     """Streams points to the server in chunks and returns the server's `TimeSeriesWriteSummary`.
 
     Sets `database`, `credentials`, `type` and `precision` on EVERY wire chunk - see
-    `TimeSeriesWriteStreamRequest` for why there is no first-chunk-only mirror to write here,
-    unlike `insert_stream`.
+    `TimeSeriesWriteStreamRequest` for why this wrapper repeats the envelope rather than
+    sending `database` on the first chunk only, as `insert_stream` does.
 
     An empty `request.chunks` sends ZERO wire chunks, rather than `insert_stream`'s
     single-empty-chunk special case: `TimeSeriesWriteChunk` has no `last`/first-chunk field

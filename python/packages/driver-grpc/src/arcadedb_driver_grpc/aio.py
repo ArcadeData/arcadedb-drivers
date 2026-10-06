@@ -192,12 +192,14 @@ async def _envelope_chunks(request: InsertStreamRequest, session_id: str) -> Asy
     """Turns `request.chunks` into wire `InsertChunk`s, adding the envelope bookkeeping.
 
     One `session_id` stable for the whole stream, `chunk_seq` starting at 1, `database` on
-    the first chunk only (per the .proto contract, and mirrored into `options.database`
-    there too - on 26.8.1 and earlier the server builds its `InsertContext` from
-    `InsertOptions.database` ALONE and never reads `InsertChunk.database`, so without the
-    mirror a stream inserts nothing: `inserted=0`, or a deferred-commit failure with
-    "Invalid database name: name is required"; ArcadeData/arcadedb#6597, fixed in 26.9.1),
-    and `last=True` on the final chunk only.
+    the first chunk only (per the .proto contract), the caller's `options` exactly as
+    given on every chunk (`options.database` is never set here), and `last=True` on the
+    final chunk only. A server before 26.9.1 builds its `InsertContext` from
+    `InsertOptions.database` alone and ignores `InsertChunk.database`
+    (ArcadeData/arcadedb#6597), so against one this stream reports the rows as `received`
+    with `inserted=0` in a SUCCESSFUL call; such servers are outside the supported range,
+    and the `options.database` mirror clients up to 0.2.0 carried for them was retired in
+    0.3.0.
 
     The source is pulled MANUALLY rather than with a plain `async for`, because knowing
     which chunk is last needs one-element lookahead. That has two consequences this
@@ -670,8 +672,9 @@ class AsyncArcadeDBGrpcClient:
 
         Handles the envelope bookkeeping a caller would otherwise hand-roll: one
         `session_id` (a fresh UUID) stable for the whole stream, `chunk_seq` from 1,
-        `database` on the first chunk only and mirrored into `options.database` there too
-        (ArcadeData/arcadedb#6597), and `last=True` on the final chunk only.
+        `database` on the first chunk only (per the .proto contract; `options` is sent as
+        given and `options.database` is never set - see `_envelope_chunks` for what a
+        server before 26.9.1 does with that), and `last=True` on the final chunk only.
 
         `request.chunks` may be a sync OR an async iterable here - both halves of the
         declared union work, unlike on the sync facade.
@@ -732,9 +735,9 @@ class AsyncArcadeDBGrpcClient:
         `TimeSeriesWriteSummary`.
 
         Sets `database`, `credentials`, `type` and `precision` on EVERY wire chunk - unlike
-        `insert_stream`'s first-chunk-only `database` mirror, `TimeSeriesWriteChunk` has no
-        session/sequence/last fields forcing that special case (see
-        `TimeSeriesWriteStreamRequest` in `stream.py`).
+        `insert_stream`, which sends `database` on the first chunk only,
+        `TimeSeriesWriteChunk` has no session/sequence/last fields forcing that special case
+        (see `TimeSeriesWriteStreamRequest` in `stream.py`).
 
         `request.chunks` may be a sync OR an async iterable here - both halves of the
         declared union work, unlike on the sync facade.

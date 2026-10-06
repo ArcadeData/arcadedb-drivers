@@ -114,6 +114,10 @@ func TestGrpcStreamQuery(t *testing.T) {
 	}
 }
 
+// Options leaves database unset and the client no longer mirrors Database into it, so the
+// database reaches the server on the first chunk only. A server that ignored it
+// (ArcadeData/arcadedb#6597, fixed in 26.9.1) would answer received=3, inserted=0 with no
+// error; requiring inserted=3 and reading the rows back proves the chunk-only database works.
 func TestGrpcInsertStream(t *testing.T) {
 	db := newGrpcDatabase(t)
 	c := newGrpcClient(t, db)

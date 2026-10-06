@@ -516,12 +516,12 @@ class AsyncTransaction:
         KNOWN LIMITATION - a SECOND cancellation, arriving while `_rollback()` is still in
         flight, is not survived. That `CancelledError` is raised at the `await` and escapes
         `__aexit__` uncaught, replacing whatever the body raised; the rollback never
-        reaches the server and the transaction is left open until
-        the server's idle reaper reclaims it (5 minutes idle by default) - the ArcadeData/arcadedb#5042
-        shape this module otherwise exists to prevent. `_safe_rollback`, on the
-        commit-failure path, has the narrower version of the same gap: its
-        `contextlib.suppress(Exception)` does not cover `CancelledError`, so a cancellation
-        landing there replaces the commit error the caller was meant to see.
+        reaches the server and the transaction is left open until the server's idle reaper
+        reclaims it (5 minutes idle by default) - the ArcadeData/arcadedb#5042 shape this
+        module otherwise exists to prevent. `_safe_rollback`, on the commit-failure path,
+        has the narrower version of the same gap: its `contextlib.suppress(Exception)` does
+        not cover `CancelledError`, so a cancellation landing there replaces the commit
+        error the caller was meant to see.
 
         This is accepted rather than overlooked. The fix would be a shielded rollback
         (`asyncio.shield`, or a rollback issued from `asyncio.CancelledError`'s handler

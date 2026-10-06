@@ -313,12 +313,13 @@ dead id to the server.
 On a clean exit, `transaction` calls `CommitTransaction` and checks the response's `committed`
 field - not `success`. A transaction id the server no longer recognises (for example, one already
 reclaimed by the server's idle reaper, after 5 minutes idle by default) answers
-`success=true, committed=false`, with no error status at all. Trusting `success` alone would report the commit as having gone through while
-silently losing every write the transaction made; checking `committed` instead raises
-`RuntimeError` (including the server's own message) so that failure cannot pass unnoticed. The same
-check exists on both facades. `BeginTransaction`'s response is checked the same way: a missing or
-blank `transaction_id` raises immediately, before the block runs, rather than handing back a handle
-that would silently auto-commit every call outside any real transaction.
+`success=true, committed=false`, with no error status at all. Trusting `success` alone would report
+the commit as having gone through while silently losing every write the transaction made; checking
+`committed` instead raises `RuntimeError` (including the server's own message) so that failure
+cannot pass unnoticed. The same check exists on both facades. `BeginTransaction`'s response is
+checked the same way: a missing or blank `transaction_id` raises immediately, before the block
+runs, rather than handing back a handle that would silently auto-commit every call outside any real
+transaction.
 
 On any other exit - the block raises - the transaction rolls back and the block's own exception
 propagates; a rollback failure attaches as `__cause__` rather than replacing it. If the commit
@@ -755,12 +756,11 @@ the `CancelledError` has already been delivered and the task's `_must_cancel` fl
 
 The real limitation is narrower. A **second** cancellation, landing while that rollback is still in
 flight, is raised at the `await` and escapes `__aexit__` uncaught - replacing whatever the body
-raised, and leaving the transaction open on the server until
-the server's idle reaper reclaims it (5 minutes idle by default), the leaked-transaction shape
-(ArcadeData/arcadedb#5042) this package otherwise exists to prevent. `_safe_rollback`, on the
-commit-failure path, has the same gap in a smaller form: its `contextlib.suppress(Exception)`
-genuinely does not cover `CancelledError`, so a cancellation there replaces the commit error the
-caller was meant to see.
+raised, and leaving the transaction open on the server until the server's idle reaper reclaims it
+(5 minutes idle by default), the leaked-transaction shape (ArcadeData/arcadedb#5042) this package
+otherwise exists to prevent. `_safe_rollback`, on the commit-failure path, has the same gap in a
+smaller form: its `contextlib.suppress(Exception)` genuinely does not cover `CancelledError`, so a
+cancellation there replaces the commit error the caller was meant to see.
 
 This is accepted rather than silently overlooked: a real fix (a shielded rollback via
 `asyncio.shield`, say) trades a reaped transaction for a task that can hang against an unresponsive

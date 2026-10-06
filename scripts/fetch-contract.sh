@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 #
-# Fetches the ArcadeDB OpenAPI contract and writes a jq -S normalised copy into
-# contracts/. Every generated client, in every language this repository will
-# ever host, derives from the file this script writes.
+# Fetches the ArcadeDB contracts into contracts/: the OpenAPI spec (written as
+# a jq -S normalised copy) and, in --release and --proto-from modes, the gRPC
+# .proto. Every generated client, in every language this repository will ever
+# host, derives from the files this script writes.
 #
 # Three modes:
-#   --release <tag>   Downloads arcadedb-openapi-<tag>.json from the matching
-#                      GitHub release and verifies it against the published
-#                      .sha256 checksum.
+#   --release <tag>   Downloads BOTH contracts from the matching GitHub release,
+#                      arcadedb-openapi-<tag>.json and arcadedb-server-<tag>.proto,
+#                      and verifies each against its published .sha256 checksum.
+#                      Both or neither: nothing is written to contracts/ until
+#                      both assets are present and both checksums pass, and the
+#                      .proto is written only after the OpenAPI spec has passed
+#                      the post-M0 gate below. A release that predates the
+#                      .proto asset is refused rather than half-fetched; use
+#                      --proto-from for it.
 #   --image <image-reference>
 #                      Starts the given Docker image on an
 #                      ephemeral host port, waits for /api/v1/ready, and fetches
@@ -17,8 +24,9 @@
 #                      Copies grpc/src/main/proto/arcadedb-server.proto out of a
 #                      local arcadedb checkout. A running server does not serve
 #                      its own .proto, so --image cannot supply this the way it
-#                      supplies the OpenAPI spec; the checkout is the only
-#                      source. The copy is named with the version the OpenAPI
+#                      supplies the OpenAPI spec; for an unreleased (SNAPSHOT)
+#                      build, which has no release assets, the checkout is the
+#                      only source. The copy is named with the version the OpenAPI
 #                      contract already carries (read from the existing
 #                      contracts/arcadedb-openapi-*.json), so the REST and gRPC
 #                      contracts stay legible as one pair. Pass <version>
@@ -29,9 +37,10 @@
 # In the --release and --image modes, the resulting spec is refused unless it
 # is structurally provably post-M0: the /api/v1/begin/{database} 204 response
 # must carry the arcadedb-session-id header. A version string proves nothing
-# about content; this marker cannot be true of any pre-M0 spec. --proto-from
-# copies source text rather than transforming JSON, so no such gate applies -
-# the version match against the existing OpenAPI contract is the check.
+# about content; this marker cannot be true of any pre-M0 spec. The .proto,
+# from either --release or --proto-from, is source text rather than JSON, so no
+# such gate applies to it - the checksum (--release) or the version match
+# against the OpenAPI contract (--proto-from) is the check.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -94,24 +103,43 @@ trap cleanup EXIT
 RAW_SPEC=""
 VERSION_TAG=""
 
+RAW_PROTO=""
+
 if [[ "$MODE" == "release" ]]; then
   VERSION_TAG="$TARGET"
   ASSET_NAME="arcadedb-openapi-${VERSION_TAG}.json"
+  PROTO_ASSET_NAME="arcadedb-server-${VERSION_TAG}.proto"
 
   TMP_DIR="$(mktemp -d)"
   CLEANUP_TMP_DIR="$TMP_DIR"
 
-  echo "Downloading ${ASSET_NAME} from release ${VERSION_TAG}..." >&2
+  echo "Downloading ${ASSET_NAME} and ${PROTO_ASSET_NAME} from release ${VERSION_TAG}..." >&2
   gh release download "$VERSION_TAG" \
     --repo "$GITHUB_REPO" \
     --pattern "$ASSET_NAME" \
     --pattern "${ASSET_NAME}.sha256" \
+    --pattern "$PROTO_ASSET_NAME" \
+    --pattern "${PROTO_ASSET_NAME}.sha256" \
     --dir "$TMP_DIR"
 
-  echo "Verifying checksum..." >&2
-  (cd "$TMP_DIR" && shasum -a 256 -c "${ASSET_NAME}.sha256")
+  # gh exits 0 as long as ANY pattern matched, so a release missing one asset
+  # downloads the rest silently. Check each one, before anything is written.
+  for asset in "$ASSET_NAME" "${ASSET_NAME}.sha256" "$PROTO_ASSET_NAME" "${PROTO_ASSET_NAME}.sha256"; do
+    if [[ ! -f "$TMP_DIR/$asset" ]]; then
+      echo "ERROR: release ${VERSION_TAG} has no ${asset} asset; nothing was written." >&2
+      if [[ "$asset" == "$PROTO_ASSET_NAME"* ]]; then
+        echo "For a release that predates the .proto asset, copy the .proto from an arcadedb" >&2
+        echo "checkout at that tag: $0 --proto-from <checkout> ${VERSION_TAG}" >&2
+      fi
+      exit 1
+    fi
+  done
+
+  echo "Verifying checksums..." >&2
+  (cd "$TMP_DIR" && shasum -a 256 -c "${ASSET_NAME}.sha256" && shasum -a 256 -c "${PROTO_ASSET_NAME}.sha256")
 
   RAW_SPEC="$TMP_DIR/$ASSET_NAME"
+  RAW_PROTO="$TMP_DIR/$PROTO_ASSET_NAME"
 
 elif [[ "$MODE" == "image" ]]; then
   IMAGE="$TARGET"
@@ -223,3 +251,11 @@ if ! jq -e '.paths."/api/v1/begin/{database}".post.responses."204".headers."arca
 fi
 
 echo "Wrote $OUT" >&2
+
+# Only now, with the OpenAPI spec through its gate, does the .proto land: a
+# refused spec must not leave its .proto behind as half of a contract pair.
+if [[ -n "$RAW_PROTO" ]]; then
+  PROTO_OUT="$CONTRACTS_DIR/arcadedb-server-${VERSION_TAG}.proto"
+  cp "$RAW_PROTO" "$PROTO_OUT"
+  echo "Wrote $PROTO_OUT" >&2
+fi

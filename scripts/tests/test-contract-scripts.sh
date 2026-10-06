@@ -158,6 +158,91 @@ check "$(find "$FIX/contracts" -maxdepth 1 -name '*.json' | wc -l | tr -d '[:spa
 check "$rc" "1" "rejects a version argument in a mode that has no use for one"
 rm -rf "$FIX"
 
+echo "fetch-contract.sh --release"
+
+# gh is stubbed with a script on PATH that serves assets out of a local
+# directory, so nothing leaves the machine. Like the real gh, it exits 0 when
+# ANY pattern matches: a release missing one asset is otherwise silent, which is
+# the case the script's per-asset check exists for.
+make_release() {
+  local fix="$1" version="$2" release="$1/fake-release"
+  mkdir -p "$release" "$fix/bin"
+  printf '%s\n' '{"paths":{"/api/v1/begin/{database}":{"post":{"responses":{"204":{"headers":{"arcadedb-session-id":{}}}}}}}}' \
+    > "$release/arcadedb-openapi-${version}.json"
+  printf 'syntax = "proto3";\n// released %s\n' "$version" > "$release/arcadedb-server-${version}.proto"
+  (cd "$release" && for f in "arcadedb-openapi-${version}.json" "arcadedb-server-${version}.proto"; do
+     shasum -a 256 "$f" > "$f.sha256"; done)
+  cat > "$fix/bin/gh" <<'GH'
+#!/usr/bin/env bash
+dir=""; pats=()
+shift 3
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --pattern) pats+=("$2"); shift 2 ;;
+    --dir) dir="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "$dir"; n=0
+for p in "${pats[@]}"; do
+  if [[ -f "$FAKE_RELEASE/$p" ]]; then cp "$FAKE_RELEASE/$p" "$dir/"; n=$((n + 1)); fi
+done
+[[ "$n" -gt 0 ]] || { echo "no assets match the file pattern" >&2; exit 1; }
+GH
+  chmod +x "$fix/bin/gh"
+}
+fetch_release() { PATH="$FIX/bin:$PATH" FAKE_RELEASE="$FIX/fake-release" "$FIX/scripts/fetch-contract.sh" --release "$1"; }
+count_new() { find "$FIX/contracts" -maxdepth 1 -name "*-$1.*" | wc -l | tr -d '[:space:]'; }
+
+FIX="$(make_fixture 26.9.1)"
+make_release "$FIX" 26.10.1
+fetch_release 26.10.1 >/dev/null 2>&1; rc=$?
+check "$rc" "0" "fetches a release carrying both contracts"
+if [[ -f "$FIX/contracts/arcadedb-openapi-26.10.1.json" ]]; then ok "writes the OpenAPI contract"; else bad "writes the OpenAPI contract"; fi
+if cmp -s "$FIX/fake-release/arcadedb-server-26.10.1.proto" "$FIX/contracts/arcadedb-server-26.10.1.proto"; then
+  ok "writes the release's .proto byte-for-byte under the release version"
+else
+  bad "writes the release's .proto byte-for-byte under the release version"
+fi
+# The pair it writes is exactly what adopt-contract-version.sh requires.
+"$FIX/scripts/adopt-contract-version.sh" 26.10.1 >/dev/null 2>&1; rc=$?
+check "$rc" "0" "leaves a pair adopt-contract-version.sh accepts"
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1)"
+make_release "$FIX" 26.10.1
+rm -f "$FIX/fake-release/arcadedb-server-26.10.1.proto" "$FIX/fake-release/arcadedb-server-26.10.1.proto.sha256"
+out="$(fetch_release 26.10.1 2>&1)"; rc=$?
+check "$rc" "1" "refuses a release with no .proto asset"
+check "$(count_new 26.10.1)" "0" "and writes neither contract"
+case "$out" in *"--proto-from"*) ok "and points at --proto-from" ;; *) bad "and points at --proto-from (got: $out)" ;; esac
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1)"
+make_release "$FIX" 26.10.1
+rm -f "$FIX/fake-release/arcadedb-server-26.10.1.proto.sha256"
+fetch_release 26.10.1 >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses a .proto with no published checksum"
+check "$(count_new 26.10.1)" "0" "and writes neither contract"
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1)"
+make_release "$FIX" 26.10.1
+echo '// tampered' >> "$FIX/fake-release/arcadedb-server-26.10.1.proto"
+fetch_release 26.10.1 >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses a .proto that fails its checksum"
+check "$(count_new 26.10.1)" "0" "and writes neither contract"
+rm -rf "$FIX"
+
+FIX="$(make_fixture 26.9.1)"
+make_release "$FIX" 26.10.1
+(cd "$FIX/fake-release" && echo '{"paths":{}}' > arcadedb-openapi-26.10.1.json \
+  && shasum -a 256 arcadedb-openapi-26.10.1.json > arcadedb-openapi-26.10.1.json.sha256)
+fetch_release 26.10.1 >/dev/null 2>&1; rc=$?
+check "$rc" "1" "refuses a pre-M0 OpenAPI spec"
+check "$(count_new 26.10.1)" "0" "and does not leave its .proto behind"
+rm -rf "$FIX"
+
 echo "adopt-contract-version.sh"
 
 FIX="$(make_fixture 26.9.1-SNAPSHOT)"

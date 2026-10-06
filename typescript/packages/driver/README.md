@@ -67,6 +67,8 @@ interface QueryEnvelope<T> {
   limit: number;
   returned: number;
   truncated: boolean;
+  explain?: string; // EXPLAIN / PROFILE only
+  explainPlan?: Record<string, unknown>; // present exactly when `explain` is
 }
 ```
 
@@ -90,6 +92,12 @@ serializer, and a single `{ vertices, edges }` object - plus `records` under `st
 two graph serializers. `QueryEnvelope<T>["result"]` is `T[]` and cannot carry the second shape,
 so `query`/`command` throw an `ArcadeDBError` if it ever arrives. It cannot today: this client
 sends no `serializer` field, so the server always picks `record`.
+
+An `EXPLAIN` or `PROFILE` statement (or any statement run with `profileExecution`) answers with
+its execution plan instead of rows: `explain` holds it as indented text, one line per step, and
+`explainPlan` holds the same plan in structured form. `result` is then empty and `returned` is
+`0` - the plan is the answer and is not repeated as a row - so an empty `result` there does not
+mean "no rows matched". Both keys are absent on every other answer.
 
 ## Streaming a query or command: `queryStream`/`commandStream`
 

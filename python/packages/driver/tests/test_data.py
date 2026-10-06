@@ -31,6 +31,52 @@ def test_query_returns_the_whole_envelope() -> None:
     assert route.calls.last.request.headers["Authorization"].startswith("Basic ")
 
 
+EXPLAIN_TEXT = "+ FETCH FROM TYPE Person\n  + FETCH FROM BUCKET 1"
+EXPLAIN_PLAN: dict[str, Any] = {"type": "QueryExecutionPlan", "steps": [{"name": "FetchFromTypeExecutionStep"}]}
+EXPLAIN_BODY: dict[str, Any] = {
+    "result": [],
+    "limit": 20000,
+    "returned": 0,
+    "truncated": False,
+    "explain": EXPLAIN_TEXT,
+    "explainPlan": EXPLAIN_PLAN,
+}
+
+
+@respx.mock
+@pytest.mark.parametrize("endpoint", ["query", "command"])
+def test_an_explain_answer_carries_the_plan_and_no_rows(endpoint: str) -> None:
+    # EXPLAIN/PROFILE (or profileExecution) answer with the plan in `explain` /
+    # `explainPlan` and an empty `result`: the plan is the answer, not a row.
+    respx.post(f"{BASE_URL}/api/v1/{endpoint}/mydb").mock(return_value=httpx.Response(200, json=EXPLAIN_BODY))
+    with server() as srv:
+        db = srv.db("mydb")
+        call = db.query if endpoint == "query" else db.command
+        env = call(language="sql", command="EXPLAIN SELECT FROM Person")
+
+    assert env.explain == EXPLAIN_TEXT
+    assert env.explain_plan == EXPLAIN_PLAN
+    assert env.result == []
+    assert env.returned == 0
+
+
+@respx.mock
+@pytest.mark.parametrize("endpoint", ["query", "command"])
+def test_an_ordinary_answer_has_no_plan(endpoint: str) -> None:
+    respx.post(f"{BASE_URL}/api/v1/{endpoint}/mydb").mock(
+        return_value=httpx.Response(
+            200, json={"result": [{"name": "Ada"}], "limit": 100, "returned": 1, "truncated": False}
+        )
+    )
+    with server() as srv:
+        db = srv.db("mydb")
+        call = db.query if endpoint == "query" else db.command
+        env = call(language="sql", command="SELECT FROM Person")
+
+    assert env.explain is None
+    assert env.explain_plan is None
+
+
 @respx.mock
 def test_query_defaults_an_omitted_result_to_empty() -> None:
     # This test used to send `{}` and assert that all four envelope fields defaulted.

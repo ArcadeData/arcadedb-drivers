@@ -62,6 +62,26 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExplainCarriesPlan(t *testing.T) {
+	ctx := context.Background()
+	db := newDatabase(t)
+	mustCommand(t, db, "CREATE VERTEX TYPE Explained IF NOT EXISTS")
+	mustCommand(t, db, "INSERT INTO Explained SET n = 1")
+	env, err := db.Query(ctx, arcadedb.SQL, "EXPLAIN SELECT FROM Explained", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(env.Explain) == "" {
+		t.Fatalf("Explain is empty; env = %+v", env)
+	}
+	if len(env.ExplainPlan) == 0 {
+		t.Fatalf("ExplainPlan is empty; env = %+v", env)
+	}
+	if len(env.Result) != 0 || env.Returned != 0 {
+		t.Fatalf("Result = %v, Returned = %d, want empty and 0", env.Result, env.Returned)
+	}
+}
+
 func TestTransactionCommitAndRollback(t *testing.T) {
 	ctx := context.Background()
 	db := newDatabase(t)

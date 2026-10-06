@@ -53,12 +53,22 @@ export interface QueryOptions extends CommandOptions {
  * They are kept rather than deleted because `result` still needs one and because they cost nothing
  * if a later contract loosens the list again; nobody should go looking for the path that triggers
  * them today.
+ *
+ * `explain` and `explainPlan` carry the execution plan of an EXPLAIN or PROFILE statement (or of
+ * any statement run with `profileExecution`). On such an answer `result` is empty and `returned`
+ * is `0`: the plan is the answer and the server does not repeat it as a row, so an empty `result`
+ * there does not mean "no rows matched". Both keys are present only when the server sent them -
+ * absent, not `undefined`-valued, on every other answer.
  */
 export type QueryEnvelope<T = unknown> = {
   result: T[];
   limit: number;
   returned: number;
   truncated: boolean;
+  /** The execution plan as indented text, one line per step. Present exactly when the server sent one. */
+  explain?: string;
+  /** The same plan in structured form. Present exactly when `explain` is. */
+  explainPlan?: Record<string, unknown>;
 };
 
 type QueryResponse = components["schemas"]["QueryResponse"];
@@ -126,6 +136,8 @@ function toEnvelope<T>(data: QueryResponse): QueryEnvelope<T> {
     limit: data.limit ?? -1,
     returned: data.returned ?? 0,
     truncated: data.truncated ?? false,
+    ...(data.explain !== undefined ? { explain: data.explain } : {}),
+    ...(data.explainPlan !== undefined ? { explainPlan: data.explainPlan } : {}),
   };
 }
 

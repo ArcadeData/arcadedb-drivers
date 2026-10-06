@@ -95,6 +95,19 @@ describe("end-to-end against a real ArcadeDB server", () => {
     expect(envelope.result[0].name).toBe("Alice");
   });
 
+  it("EXPLAIN answers with the plan in explain/explainPlan and an empty result (issue #74)", async () => {
+    const db = rootServer.db(DB_NAME);
+
+    const envelope = await db.query({ language: "sql", command: "EXPLAIN SELECT FROM Person" });
+
+    expect(typeof envelope.explain).toBe("string");
+    expect(envelope.explain?.length).toBeGreaterThan(0);
+    expect(envelope.explainPlan).toBeTypeOf("object");
+    expect(Object.keys(envelope.explainPlan ?? {}).length).toBeGreaterThan(0);
+    expect(envelope.result).toEqual([]);
+    expect(envelope.returned).toBe(0);
+  });
+
   it("a transaction commits and its writes are visible afterwards", async () => {
     const db = rootServer.db(DB_NAME);
 

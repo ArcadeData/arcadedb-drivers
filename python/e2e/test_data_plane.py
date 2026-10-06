@@ -35,6 +35,39 @@ def test_sync_round_trip(base_url: str, database: str) -> None:
         assert env.truncated is False
 
 
+def test_explain_returns_the_plan_in_the_envelope(base_url: str, database: str) -> None:
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        db.command(language="sql", command="CREATE VERTEX TYPE ExplainSync IF NOT EXISTS")
+
+        env = db.query(language="sql", command="SELECT FROM ExplainSync")
+        assert env.explain is None
+        assert env.explain_plan is None
+
+        env = db.query(language="sql", command="EXPLAIN SELECT FROM ExplainSync")
+        assert isinstance(env.explain, str)
+        assert env.explain != ""
+        assert isinstance(env.explain_plan, dict)
+        assert env.explain_plan
+        assert env.result == []
+        assert env.returned == 0
+
+
+@pytest.mark.asyncio
+async def test_explain_returns_the_plan_in_the_envelope_async(base_url: str, database: str) -> None:
+    async with AsyncArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        await db.command(language="sql", command="CREATE VERTEX TYPE ExplainAsync IF NOT EXISTS")
+
+        env = await db.query(language="sql", command="EXPLAIN SELECT FROM ExplainAsync")
+        assert isinstance(env.explain, str)
+        assert env.explain != ""
+        assert isinstance(env.explain_plan, dict)
+        assert env.explain_plan
+        assert env.result == []
+        assert env.returned == 0
+
+
 def test_a_transaction_commits(base_url: str, database: str) -> None:
     with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
         db = srv.db(database)

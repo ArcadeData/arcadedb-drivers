@@ -24,6 +24,46 @@ async def test_query_returns_the_whole_envelope() -> None:
 
 
 @respx.mock
+@pytest.mark.parametrize("endpoint", ["query", "command"])
+async def test_an_explain_answer_carries_the_plan_and_no_rows(endpoint: str) -> None:
+    plan = {"type": "QueryExecutionPlan", "steps": [{"name": "FetchFromTypeExecutionStep"}]}
+    respx.post(f"{BASE_URL}/api/v1/{endpoint}/mydb").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "result": [],
+                "limit": 20000,
+                "returned": 0,
+                "truncated": False,
+                "explain": "+ FETCH FROM TYPE Person",
+                "explainPlan": plan,
+            },
+        )
+    )
+    async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:
+        db = srv.db("mydb")
+        call = db.query if endpoint == "query" else db.command
+        env = await call(language="sql", command="EXPLAIN SELECT FROM Person")
+
+    assert env.explain == "+ FETCH FROM TYPE Person"
+    assert env.explain_plan == plan
+    assert env.result == []
+    assert env.returned == 0
+
+
+@respx.mock
+async def test_an_ordinary_answer_has_no_plan() -> None:
+    respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(
+        return_value=httpx.Response(200, json={"result": [], "limit": 100, "returned": 0, "truncated": False})
+    )
+    async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:
+        env = await srv.db("mydb").query(language="sql", command="SELECT FROM Person")
+
+    assert env.explain is None
+    assert env.explain_plan is None
+
+
+@respx.mock
 async def test_a_non_2xx_raises_arcadedb_error() -> None:
     respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(return_value=httpx.Response(400, json={"error": "Invalid"}))
     async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:

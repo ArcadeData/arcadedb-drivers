@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from types import TracebackType
 
 import grpc
@@ -113,27 +113,56 @@ class ArcadeDBGrpcClient:
         self._channel.close()
 
     def stream_query(
-        self, request: messages.StreamQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.StreamQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> Iterator[messages.GrpcRecord]:
-        """Streams a query's results row by row. See `stream.stream_query`."""
-        return _stream_query(self.raw, request, timeout=timeout)
+        """Streams a query's results row by row. See `stream.stream_query`.
 
-    def insert_stream(self, request: InsertStreamRequest, *, timeout: float | None = None) -> messages.InsertSummary:
-        """Streams rows to the server in chunks. See `stream.insert_stream`."""
-        return _insert_stream(self.raw, request, timeout=timeout)
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
+        """
+        return _stream_query(self.raw, request, timeout=timeout, metadata=metadata)
+
+    def insert_stream(
+        self,
+        request: InsertStreamRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
+    ) -> messages.InsertSummary:
+        """Streams rows to the server in chunks. See `stream.insert_stream`.
+
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
+        """
+        return _insert_stream(self.raw, request, timeout=timeout, metadata=metadata)
 
     def time_series_query(
-        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.TimeSeriesQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> Iterator[messages.TimeSeriesQueryResult]:
         """Streams a time-series answer message by message. See `stream.time_series_query`.
 
         Also reachable, bound to an open transaction, as `TransactionHandle.time_series_query`
         (see `transaction.py`), since `TimeSeriesQueryRequest` carries a `transaction` field.
+
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
         """
-        return _time_series_query(self.raw, request, timeout=timeout)
+        return _time_series_query(self.raw, request, timeout=timeout, metadata=metadata)
 
     def time_series_write_stream(
-        self, request: TimeSeriesWriteStreamRequest, *, timeout: float | None = None
+        self,
+        request: TimeSeriesWriteStreamRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> messages.TimeSeriesWriteSummary:
         """Streams points to `TimeSeriesWriteStream`, one wire chunk per input batch. See
         `stream.time_series_write_stream`.
@@ -144,8 +173,11 @@ class ArcadeDBGrpcClient:
         only bound to a transaction, as `TransactionHandle.time_series_latest` - a bare stub
         drives both of those fine, so wrapping either would be a named passthrough adding
         nothing.
+
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
         """
-        return _time_series_write_stream(self.raw, request, timeout=timeout)
+        return _time_series_write_stream(self.raw, request, timeout=timeout, metadata=metadata)
 
     def transaction(self, database: str) -> Transaction:
         """Runs a server-side transaction: `with client.transaction("db") as tx:`."""

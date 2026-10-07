@@ -26,6 +26,7 @@ from typing import TypeVar
 
 from ._generated import arcadedb_server_pb2 as messages
 from ._generated.arcadedb_server_pb2_grpc import ArcadeDbServiceStub
+from .stream import _as_metadata
 from .stream import stream_query as _stream_query
 from .stream import time_series_query as _time_series_query
 
@@ -46,24 +47,6 @@ _Request = TypeVar(
     messages.TimeSeriesQueryRequest,
     messages.TimeSeriesLatestRequest,
 )
-
-
-def _as_metadata(
-    metadata: Sequence[tuple[str, str | bytes]] | None,
-) -> tuple[tuple[str, str | bytes], ...] | None:
-    """Adapts this facade's public `Sequence` parameter to the sync stub's own type.
-
-    `grpc-stubs` types the SYNC `UnaryUnaryMultiCallable.__call__`'s `metadata` as
-    `tuple[tuple[str, str | bytes], ...] | None` - a concrete homogeneous tuple, not
-    `Sequence` - while `grpc.aio`'s equivalent accepts the broader
-    `Metadata | Sequence[MetadatumType]`, which is why `aio.py`'s `AsyncTransactionHandle`
-    needs no equivalent conversion. Narrowing this handle's own public parameter to a
-    tuple would fix the mismatch too, but `Sequence` is what a caller most naturally has
-    on hand (a list built up in a loop) and is already the shape `auth.Auth.metadata`
-    documents, so the conversion happens here instead of pushing a tuple requirement onto
-    every caller.
-    """
-    return None if metadata is None else tuple(metadata)
 
 
 class TransactionHandle:
@@ -161,9 +144,20 @@ class TransactionHandle:
         return self._raw.LookupByRid(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
     def stream_query(
-        self, request: messages.StreamQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.StreamQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> Iterator[messages.GrpcRecord]:
-        return _stream_query(self._raw, self._bind(request), timeout=timeout)
+        """Streams a bound query's results row by row; see `stream.stream_query`.
+
+        `metadata` is per-call gRPC metadata, forwarded as the CRUD methods above forward
+        it: appended to whatever the channel's auth interceptor adds, never a substitute
+        for it, and unable to rebind the call - `database` and `transaction` are request
+        fields `_bind` overwrites, not headers.
+        """
+        return _stream_query(self._raw, self._bind(request), timeout=timeout, metadata=metadata)
 
     def vector_search(
         self,
@@ -193,15 +187,22 @@ class TransactionHandle:
         return self._raw.FullTextSearch(self._bind(request), timeout=timeout, metadata=_as_metadata(metadata))
 
     def time_series_query(
-        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.TimeSeriesQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> Iterator[messages.TimeSeriesQueryResult]:
         """Streams a bound time-series answer message by message; see `stream.time_series_query`.
 
         `TimeSeriesQueryRequest` carries a `transaction` field (issue #7370: a query naming
         an open transaction runs on that transaction's own thread and observes its
         uncommitted points), the same reason `stream_query` above is offered here.
+
+        `metadata` is forwarded exactly as `stream_query` above forwards it: per-call
+        headers appended to the channel's auth, with no say over the bound transaction.
         """
-        return _time_series_query(self._raw, self._bind(request), timeout=timeout)
+        return _time_series_query(self._raw, self._bind(request), timeout=timeout, metadata=metadata)
 
     def time_series_latest(
         self,

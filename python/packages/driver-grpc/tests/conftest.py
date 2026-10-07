@@ -50,6 +50,10 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         # / `self.time_remaining` above before the test gets to look at them. These two
         # lists are what a test asserting a specific call's timeout/metadata should read.
         self.command_metadata: list[list[tuple[str, str | bytes]]] = []
+        # The invocation metadata of the most recent call to each RPC, keyed by RPC name -
+        # the general form of `command_metadata`, for a test asserting what reached one
+        # specific RPC when other calls (a transaction's Begin/Commit) bracket it.
+        self.metadata_by_rpc: dict[str, list[tuple[str, str | bytes]]] = {}
         self.command_time_remaining: list[float | None] = []
         # Configurable responses.
         self.transaction_id = "tx-1"
@@ -65,6 +69,7 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
     def _record(self, name: str, context: grpc.ServicerContext) -> None:
         self.calls.append(name)
         self.metadata = [(k, v) for k, v in context.invocation_metadata()]
+        self.metadata_by_rpc[name] = self.metadata
         self.time_remaining = context.time_remaining()
 
     def StreamQuery(self, request: pb2.StreamQueryRequest, context: grpc.ServicerContext) -> Iterator[pb2.QueryResult]:

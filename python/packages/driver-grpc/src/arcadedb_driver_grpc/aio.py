@@ -72,6 +72,7 @@ async def _stream_query(
     request: messages.StreamQueryRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> AsyncIterator[messages.GrpcRecord]:
     """Streams a query's results row by row.
 
@@ -82,8 +83,12 @@ async def _stream_query(
     as given and this wrapper picks no defaults for either, because CURSOR,
     MATERIALIZE_ALL and PAGED have materially different memory and consistency behaviour
     that only the caller can judge.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    async for result in raw.StreamQuery(request, timeout=timeout):
+    async for result in raw.StreamQuery(request, timeout=timeout, metadata=metadata):
         for record in result.records:
             yield record
 
@@ -93,6 +98,7 @@ async def _time_series_query(
     request: messages.TimeSeriesQueryRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> AsyncIterator[messages.TimeSeriesQueryResult]:
     """Streams a time-series answer message by message.
 
@@ -115,8 +121,12 @@ async def _time_series_query(
     enforcement: an unknown tag name in `tags` and a `limit` above
     `arcadedb.server.grpcTimeSeriesMaxResultRows` are both refused by the server, not by
     this package - see the README's "Time series" section.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    async for result in raw.TimeSeriesQuery(request, timeout=timeout):
+    async for result in raw.TimeSeriesQuery(request, timeout=timeout, metadata=metadata):
         yield result
 
 
@@ -380,15 +390,24 @@ class AsyncTransactionHandle:
         return await self._raw.LookupByRid(self._bind(request), timeout=timeout, metadata=metadata)
 
     def stream_query(
-        self, request: messages.StreamQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.StreamQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> AsyncIterator[messages.GrpcRecord]:
         """Streams a bound query's results row by row: `async for r in tx.stream_query(...)`.
 
         A plain `def` returning the async generator `_stream_query` produces, rather than
         an `async def` that re-yields it: the caller gets the same directly-`async for`-able
         object either way, and this spelling keeps the flattening in exactly one place.
+
+        `metadata` is per-call gRPC metadata, forwarded as the CRUD methods above forward
+        it: appended to whatever the channel's auth interceptor adds, never a substitute
+        for it, and unable to rebind the call - `database` and `transaction` are request
+        fields `_bind` overwrites, not headers.
         """
-        return _stream_query(self._raw, self._bind(request), timeout=timeout)
+        return _stream_query(self._raw, self._bind(request), timeout=timeout, metadata=metadata)
 
     async def vector_search(
         self,
@@ -418,7 +437,11 @@ class AsyncTransactionHandle:
         return await self._raw.FullTextSearch(self._bind(request), timeout=timeout, metadata=metadata)
 
     def time_series_query(
-        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.TimeSeriesQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> AsyncIterator[messages.TimeSeriesQueryResult]:
         """Streams a bound time-series answer message by message: `async for r in
         tx.time_series_query(...)`.
@@ -430,8 +453,11 @@ class AsyncTransactionHandle:
         first pull. `TimeSeriesQueryRequest` carries a `transaction` field (issue #7370: a
         query naming an open transaction runs on that transaction's own thread and observes
         its uncommitted points), the same reason `stream_query` is offered here.
+
+        `metadata` is forwarded exactly as `stream_query` above forwards it: per-call
+        headers appended to the channel's auth, with no say over the bound transaction.
         """
-        return _time_series_query(self._raw, self._bind(request), timeout=timeout)
+        return _time_series_query(self._raw, self._bind(request), timeout=timeout, metadata=metadata)
 
     async def time_series_latest(
         self,
@@ -652,7 +678,11 @@ class AsyncArcadeDBGrpcClient:
         await self.close()
 
     def stream_query(
-        self, request: messages.StreamQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.StreamQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> AsyncIterator[messages.GrpcRecord]:
         """Streams a query's results row by row, flattening the wire batching.
 
@@ -662,11 +692,18 @@ class AsyncArcadeDBGrpcClient:
         `retrieval_mode` and `batch_size` pass through unchanged; this wrapper picks no
         default for either, because CURSOR, MATERIALIZE_ALL and PAGED have materially
         different memory and consistency behaviour that only the caller can judge.
+
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
         """
-        return _stream_query(self.raw, request, timeout=timeout)
+        return _stream_query(self.raw, request, timeout=timeout, metadata=metadata)
 
     async def insert_stream(
-        self, request: InsertStreamRequest, *, timeout: float | None = None
+        self,
+        request: InsertStreamRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> messages.InsertSummary:
         """Streams rows to the server in chunks and returns the server's `InsertSummary`.
 
@@ -697,16 +734,25 @@ class AsyncArcadeDBGrpcClient:
         which catches it and re-raises an opaque `_InactiveRpcError` ("Exception iterating
         requests!") instead. That is the failure mode the sync facade's eager-validation
         split closed; this is the async facade's cheaper form of the same guard.
+
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
         """
         if not isinstance(request.chunks, Iterable | AsyncIterable):
             raise TypeError(
                 "insert_stream: `chunks` must be an iterable or an async iterable of row batches, "
                 f"not {type(request.chunks).__name__}."
             )
-        return await self.raw.InsertStream(_envelope_chunks(request, str(uuid.uuid4())), timeout=timeout)
+        return await self.raw.InsertStream(
+            _envelope_chunks(request, str(uuid.uuid4())), timeout=timeout, metadata=metadata
+        )
 
     def time_series_query(
-        self, request: messages.TimeSeriesQueryRequest, *, timeout: float | None = None
+        self,
+        request: messages.TimeSeriesQueryRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> AsyncIterator[messages.TimeSeriesQueryResult]:
         """Streams a time-series answer message by message.
 
@@ -725,11 +771,18 @@ class AsyncArcadeDBGrpcClient:
         Also reachable, bound to an open transaction, as
         `AsyncTransactionHandle.time_series_query`, since `TimeSeriesQueryRequest` carries a
         `transaction` field (issue #7370).
+
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
         """
-        return _time_series_query(self.raw, request, timeout=timeout)
+        return _time_series_query(self.raw, request, timeout=timeout, metadata=metadata)
 
     async def time_series_write_stream(
-        self, request: TimeSeriesWriteStreamRequest, *, timeout: float | None = None
+        self,
+        request: TimeSeriesWriteStreamRequest,
+        *,
+        timeout: float | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] | None = None,
     ) -> messages.TimeSeriesWriteSummary:
         """Streams points to the server in chunks and returns the server's
         `TimeSeriesWriteSummary`.
@@ -770,13 +823,18 @@ class AsyncArcadeDBGrpcClient:
         generator whose body does not run until grpc pulls the first chunk, where the
         `TypeError` would otherwise be swallowed and replaced with grpc's own opaque
         `_InactiveRpcError`.
+
+        `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
+        interceptor adds rather than replacing them.
         """
         if not isinstance(request.chunks, Iterable | AsyncIterable):
             raise TypeError(
                 "time_series_write_stream: `chunks` must be an iterable or an async iterable of point batches, "
                 f"not {type(request.chunks).__name__}."
             )
-        return await self.raw.TimeSeriesWriteStream(_envelope_time_series_chunks(request), timeout=timeout)
+        return await self.raw.TimeSeriesWriteStream(
+            _envelope_time_series_chunks(request), timeout=timeout, metadata=metadata
+        )
 
     def transaction(self, database: str) -> AsyncTransaction:
         """Runs a server-side transaction: `async with client.transaction("db") as tx:`."""

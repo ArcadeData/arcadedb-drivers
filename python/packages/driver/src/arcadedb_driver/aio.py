@@ -37,11 +37,13 @@ from .facade.batch import BatchOptions, abatch_load, abatch_load_stream
 from .facade.dashboards import AsyncGrafanaNamespace, AsyncPromQLNamespace
 from .facade.data import (
     SESSION_HEADER,
+    DataUrls,
     QueryEnvelope,
     QueryLanguage,
-    build_command_request,
-    build_query_request,
-    session_kwarg,
+    command_body,
+    fast_envelope,
+    query_body,
+    request_headers,
     to_envelope,
 )
 from .facade.stream import astream_command, astream_query
@@ -139,6 +141,8 @@ class AsyncArcadeDBDatabase:
         self._client = client
         self.name = name
         self._session_id = session_id
+        self._request_headers = request_headers(session_id)
+        self._urls = DataUrls()
 
     async def query(
         self,
@@ -149,13 +153,17 @@ class AsyncArcadeDBDatabase:
         limit: int | None = None,
     ) -> QueryEnvelope:
         """Executes a read-or-write query and returns the whole result envelope - not just `result`."""
-        response = await execute_query_post.asyncio_detailed(
-            self.name,
-            client=self._client,
-            body=build_query_request(language=language, command=command, params=params, limit=limit),
-            arcadedb_session_id=session_kwarg(self._session_id),
+        http = self._client.get_async_httpx_client()
+        response = await http.request(
+            "POST",
+            self._urls.query(http, self.name),
+            json=query_body(language=language, command=command, params=params, limit=limit),
+            headers=self._request_headers,
         )
-        data = unwrap(response)
+        envelope = fast_envelope(response)
+        if envelope is not None:
+            return envelope
+        data = unwrap(execute_query_post._build_response(client=self._client, response=response))
         assert isinstance(data, QueryResponse)
         return to_envelope(data)
 
@@ -167,13 +175,17 @@ class AsyncArcadeDBDatabase:
         params: dict[str, Any] | None = None,
     ) -> QueryEnvelope:
         """Executes a command and returns the whole result envelope - not just `result`."""
-        response = await execute_command.asyncio_detailed(
-            self.name,
-            client=self._client,
-            body=build_command_request(language=language, command=command, params=params),
-            arcadedb_session_id=session_kwarg(self._session_id),
+        http = self._client.get_async_httpx_client()
+        response = await http.request(
+            "POST",
+            self._urls.command(http, self.name),
+            json=command_body(language=language, command=command, params=params),
+            headers=self._request_headers,
         )
-        data = unwrap(response)
+        envelope = fast_envelope(response)
+        if envelope is not None:
+            return envelope
+        data = unwrap(execute_command._build_response(client=self._client, response=response))
         assert isinstance(data, QueryResponse)
         return to_envelope(data)
 

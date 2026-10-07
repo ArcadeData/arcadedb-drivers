@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
+from urllib.parse import quote
+
+import httpx
 
 from .._generated.models.command_request import CommandRequest
 from .._generated.models.command_request_params import CommandRequestParams
@@ -158,3 +161,122 @@ def session_kwarg(session_id: str | None) -> str | Unset:
     needed.
     """
     return UNSET if session_id is None else session_id
+
+
+def query_body(
+    *,
+    language: QueryLanguage,
+    command: str,
+    params: dict[str, Any] | None,
+    limit: int | None,
+) -> dict[str, Any]:
+    """The JSON body of `POST /api/v1/query/{database}`, as the plain dict `build_query_request(...).to_dict()` yields.
+
+    Same keys in the same order, so the bytes on the wire do not change. This is what
+    `query` sends: building the generated request model only to turn it straight back
+    into this dict was pure overhead on the hot path. `build_query_request` stays for
+    the streaming calls.
+    """
+    body: dict[str, Any] = {"command": command, "language": language}
+    if limit is not None:
+        body["limit"] = limit
+    if params is not None:
+        body["params"] = dict(params)
+    return body
+
+
+def command_body(
+    *,
+    language: QueryLanguage,
+    command: str,
+    params: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The JSON body of `POST /api/v1/command/{database}`; the `command` twin of `query_body`."""
+    body: dict[str, Any] = {"command": command, "language": language}
+    if params is not None:
+        body["params"] = dict(params)
+    return body
+
+
+def request_headers(session_id: str | None) -> dict[str, str]:
+    """The per-request headers of a `/query` or `/command` call, in the order the generated operation builds them.
+
+    The session id (inside a transaction only) comes first, then `Content-Type`. httpx would add the content type
+    itself for `json=`, but after `Content-Length`; stating it here keeps the request byte for byte what it was.
+    """
+    if session_id is None:
+        return {"Content-Type": "application/json"}
+    return {SESSION_HEADER: session_id, "Content-Type": "application/json"}
+
+
+class DataUrls:
+    """The absolute `/query/{database}` and `/command/{database}` URLs of one database on one httpx client.
+
+    The generated operations pass httpx a RELATIVE path, which httpx re-parses and
+    merges with its `base_url` on every call. Resolving it once here, through
+    `build_request` so the result is exactly what httpx would have built, removes
+    about a fifth of a one-row read's cost. The URLs are rebuilt when the client's
+    `base_url` object changes (`set_httpx_client`) or when the database name does
+    (`ArcadeDBDatabase.name` is a public attribute), so neither goes stale.
+    Sync and async clients share this class: `build_request` is synchronous on both.
+    """
+
+    __slots__ = ("_base", "_command", "_name", "_query")
+
+    def __init__(self) -> None:
+        self._base: httpx.URL | None = None
+        self._name: str | None = None
+        self._query: httpx.URL
+        self._command: httpx.URL
+
+    def _resolve(self, http: httpx.Client | httpx.AsyncClient, database: str) -> None:
+        quoted = quote(str(database), safe="")
+        self._query = http.build_request("POST", f"/api/v1/query/{quoted}").url
+        self._command = http.build_request("POST", f"/api/v1/command/{quoted}").url
+        self._base = http.base_url
+        self._name = database
+
+    def query(self, http: httpx.Client | httpx.AsyncClient, database: str) -> httpx.URL:
+        if self._base is not http.base_url or self._name != database:
+            self._resolve(http, database)
+        return self._query
+
+    def command(self, http: httpx.Client | httpx.AsyncClient, database: str) -> httpx.URL:
+        if self._base is not http.base_url or self._name != database:
+            self._resolve(http, database)
+        return self._command
+
+
+def fast_envelope(response: httpx.Response) -> QueryEnvelope | None:
+    """The envelope of a plain `200` row result, read straight from the decoded JSON - or `None`.
+
+    `None` means "this response is not the common case": the caller then runs the
+    generated parse (`_build_response`, `unwrap`, `to_envelope`) on the SAME httpx
+    response, so every error, every odd shape and every `explain` response behaves as
+    it always did. The fast path only answers when the generated path would have
+    produced the same envelope without raising: a `200`, a JSON object holding
+    `limit`, `returned`, `truncated` and a `result` list of objects, and neither
+    `explain` nor `explainPlan`. It skips one `QueryResponse` and one attrs model per
+    row, each copied twice.
+    """
+    if response.status_code != 200:
+        return None
+    try:
+        data = response.json()
+    except ValueError:
+        return None
+    if type(data) is not dict:
+        return None
+    rows = data.get("result")
+    if type(rows) is not list or "explain" in data or "explainPlan" in data:
+        return None
+    try:
+        limit = data["limit"]
+        returned = data["returned"]
+        truncated = data["truncated"]
+    except KeyError:
+        return None
+    for row in rows:
+        if type(row) is not dict:
+            return None
+    return QueryEnvelope(result=rows, limit=limit, returned=returned, truncated=truncated)

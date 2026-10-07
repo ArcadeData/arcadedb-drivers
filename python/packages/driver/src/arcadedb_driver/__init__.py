@@ -28,11 +28,13 @@ from .errors import ArcadeDBError
 from .facade.batch import BatchOptions, batch_load, batch_load_stream
 from .facade.dashboards import GrafanaNamespace, PromQLNamespace
 from .facade.data import (
+    DataUrls,
     QueryEnvelope,
     QueryLanguage,
-    build_command_request,
-    build_query_request,
-    session_kwarg,
+    command_body,
+    fast_envelope,
+    query_body,
+    request_headers,
     to_envelope,
 )
 from .facade.stream import stream_command, stream_query
@@ -78,6 +80,8 @@ class ArcadeDBDatabase:
         self._client = client
         self.name = name
         self._session_id = session_id
+        self._request_headers = request_headers(session_id)
+        self._urls = DataUrls()
 
     def query(
         self,
@@ -96,13 +100,17 @@ class ArcadeDBDatabase:
         rather than truncated, so raising `limit` is not always the fix for a
         `truncated` response.
         """
-        response = execute_query_post.sync_detailed(
-            self.name,
-            client=self._client,
-            body=build_query_request(language=language, command=command, params=params, limit=limit),
-            arcadedb_session_id=session_kwarg(self._session_id),
+        http = self._client.get_httpx_client()
+        response = http.request(
+            "POST",
+            self._urls.query(http, self.name),
+            json=query_body(language=language, command=command, params=params, limit=limit),
+            headers=self._request_headers,
         )
-        data = unwrap(response)
+        envelope = fast_envelope(response)
+        if envelope is not None:
+            return envelope
+        data = unwrap(execute_query_post._build_response(client=self._client, response=response))
         # `unwrap` has already raised on any non-2xx, so the generated union's
         # ErrorResponse member cannot reach here; this narrows it for the typechecker.
         assert isinstance(data, QueryResponse)
@@ -116,13 +124,17 @@ class ArcadeDBDatabase:
         params: dict[str, Any] | None = None,
     ) -> QueryEnvelope:
         """Executes a command and returns the whole result envelope - not just `result`."""
-        response = execute_command.sync_detailed(
-            self.name,
-            client=self._client,
-            body=build_command_request(language=language, command=command, params=params),
-            arcadedb_session_id=session_kwarg(self._session_id),
+        http = self._client.get_httpx_client()
+        response = http.request(
+            "POST",
+            self._urls.command(http, self.name),
+            json=command_body(language=language, command=command, params=params),
+            headers=self._request_headers,
         )
-        data = unwrap(response)
+        envelope = fast_envelope(response)
+        if envelope is not None:
+            return envelope
+        data = unwrap(execute_command._build_response(client=self._client, response=response))
         assert isinstance(data, QueryResponse)
         return to_envelope(data)
 

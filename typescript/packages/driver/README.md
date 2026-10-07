@@ -316,6 +316,106 @@ itself also fails, that failure is attached as `err.cause` rather than replacing
 commit itself fails, `transaction` issues a best-effort rollback (to release the server-side
 session) before re-throwing the commit's error.
 
+## Duplex insert session: `db.insertSession`
+
+`db.insertSession()` opens the duplex insert session on the server's `/ws` endpoint. Where
+`batchLoad` fixes its commit policy before the load starts, a session lets the caller see the
+acknowledgement of chunk *n* and only then decide what to send next - including whether to commit
+or roll back at all.
+
+```ts
+const session = await db.insertSession({ targetType: "Person" });
+try {
+  const ack = await session.sendChunk([{ name: "a" }, { name: "b", "@class": "Employee" }]);
+  console.log(ack.inserted, ack.failed, ack.errors);   // per-chunk tallies; nothing is durable yet
+  const done = await session.commit();                 // or: await session.rollback()
+  console.log(done.outcome, done.summary.inserted);
+} finally {
+  await session.close();                               // rolls back if still open; idempotent
+}
+```
+
+`await using session = await db.insertSession(...)` works too on a runtime with explicit resource
+management, and calls `close()` the same way.
+
+Options: `sessionId`, `targetType` (a record's own `@class` overrides it), `transactionMode`
+(`per_stream` default, `per_batch`, `per_row`, `none`), `conflictMode` (`error` default, `update`,
+`ignore`, `abort`), `keyColumns`, `updateColumnsOnConflict`, `validateOnly`, `joinTransaction`,
+`onBatchAck` (called with every acknowledgement before `sendChunk` returns it), `timeoutMs`
+(per frame, and for the connect; default 60 s) and `WebSocket`.
+
+Failure modes worth knowing before relying on it:
+
+- **Sequence numbers are the session's job.** `chunkSeq` starts at 1 and advances only after the
+  server has acknowledged the chunk. A chunk the server refuses with an "Insert session error" -
+  more rows than `wsMaxInsertChunkRows`, a sequence that skips ahead, bad options or data - rejects
+  with `ArcadeDBError` and leaves the session open with the sequence where it was, so you can split the batch and resend it under the
+  same number (`session.lastChunkSeq` tells you where you are).
+- **A chunk can fail as a whole and still resolve (`per_batch` only).** When the chunk's own
+  transaction cannot commit (a duplicate key, say), the server answers a normal
+  `batchAck` with `failed === received` and a single `errors` entry at `rowIndex: -1`, and does
+  not advance its watermark. This client marks that ack `wholeChunkFailed: true` (still passed to
+  `onBatchAck`) and does not advance `lastChunkSeq` either: nothing in the chunk is durable, and
+  resending it goes out under the same sequence number. Treat it as "replay this chunk". Under
+  `per_stream` the same kind of failure surfaces only at the end: a duplicate key found at commit
+  time is an error answering `commit()`, and the session is then gone.
+- **A row the server cannot apply is not a refusal**: the chunk is acknowledged, the row is
+  counted in `ack.failed` and described in `ack.errors` (with its real `rowIndex`), and the rest
+  of the chunk went in. Check `failed`; a resolved `sendChunk` does not mean every row was written.
+- **A frame over `wsMaxInsertFrameSize` ends the session.** The byte cap is enforced before the
+  frame is parsed, so the server sends no `error` frame: it closes the connection (status 1009).
+  `sendChunk` rejects with "closed the /ws connection", the session is closed, and the server
+  rolls back what it held - there is no sequence to reuse. Size chunks well under the cap.
+- **Nothing is durable until `commit()`** (`per_stream`). `per_batch` and `per_row` commit as they
+  go, so `rollback()` cannot take back an acknowledged chunk; `summary.partialCommit` says so.
+- **Joining a transaction.** On the `tx` handle of `db.transaction()`,
+  `insertSession({ joinTransaction: true })` writes into that transaction (it sends the
+  transaction's id with `transactionMode: "none"`). The session's `commit()` and `rollback()`
+  then answer `outcome: "detached"` and decide nothing: the rows become durable when the
+  `transaction()` callback resolves and are undone if it throws. `joinTransaction` on any other
+  handle, or combined with a `transactionMode` other than `"none"`, is refused client-side before
+  any connection is made. Without `joinTransaction`, a session opened on a `tx` handle is an
+  ordinary server-managed one and does not take part in the transaction.
+- **Most `error` frames end the session.** Only the usable refusals above leave it open. These
+  close it (`session.open` becomes `false`, later calls reject with "is closed"):
+  "Security error" (the grant was revoked, which has already rolled the session back, or the
+  principal is no longer valid, which closes the connection), "Insert session expired" (the idle
+  sweep), "Internal error", and an "Insert session error" whose detail says the session is "not
+  found or expired" or "is closed". An error title this client does not recognise leaves the
+  session open, as the Go and Python clients do: if the server has in fact dropped it, the next
+  frame is answered "not found or expired", which closes it, whereas a session wrongly marked
+  closed is never rolled back by `close()`. Branch on `err.error` and `session.open`, not on the
+  message.
+- **An `error` frame can arrive at any time.** The server sweeps idle sessions and says so with an
+  unsolicited `error` frame. It is reported - the next call rejects with it, and nothing is sent -
+  never skipped, and the session is then closed. Likewise a connection the server drops, or a
+  frame not answered within `timeoutMs`, rejects and closes the session.
+- **Session ids share one server-wide namespace.** Leave `sessionId` out and the server generates
+  one (`session.sessionId`). A client-chosen id collides with any other connection's session of
+  that id, and the `start` is refused.
+- **One session, one caller.** A second call made while a frame is in flight rejects immediately
+  instead of being interleaved. A connection carries one session at a time.
+- **Errors are `ArcadeDBError` with `status: 0`**, since a frame has no HTTP status; `error`,
+  `detail` and `exception` carry what the server's `error` frame said, and `message` includes the
+  detail. `close()` never throws.
+
+**Runtimes and authentication.** The session needs a `WebSocket` that can send an `Authorization`
+header, because that is how the server authenticates `/ws` - the same `basicAuth`/`bearerAuth` you
+gave `createClient` is applied to the handshake.
+
+- **Node 22+**: the global `WebSocket` is used, and sends the header (verified against a real
+  server in `e2e/insert-session.test.ts`).
+- **Node 20**: there is no stable global `WebSocket`. Install the [`ws`](https://www.npmjs.com/package/ws)
+  package (MIT) and pass it: `createClient({ ..., WebSocket })` or `insertSession({ WebSocket })`.
+  It is not a dependency of this package, so nothing is installed for callers who do not use
+  sessions.
+- **Browsers: authenticated sessions are not supported.** The browser `WebSocket` cannot set
+  request headers, so a session against a server that requires credentials fails at the handshake.
+  This is a limit of the platform, not something this client can work around, and the server
+  accepts no credentials in the URL. The rest of this package works in a browser; only
+  `insertSession` does not (unless the server is reachable without credentials, or a proxy in
+  front of it adds the header).
+
 ## Vector, hybrid and full-text search: `db.vector`
 
 ```ts
@@ -500,15 +600,15 @@ supported.
 
 ## Bundling and tree-shaking
 
-`db.ts`, `db.grafana`, `db.promql`, and `db.vector` each load their implementation with a dynamic
+`db.ts`, `db.grafana`, `db.promql`, `db.vector`, and `db.insertSession` each load their implementation with a dynamic
 `import()` rather than a static one. On a bundler that supports code splitting - Vite, webpack,
 Rollup, or esbuild run with `--splitting` - code that only calls `query`, `command`, and
 `transaction` gets a chunk that excludes the time-series, Grafana, PromQL, and vector-search
-modules; they load only if and when `db.ts`, `db.grafana`, `db.promql`, or `db.vector` is actually
-reached. Without code splitting, a bundler inlines those dynamic imports into the single output
+modules and the insert session; they load only if and when `db.ts`, `db.grafana`, `db.promql`,
+`db.vector`, or `db.insertSession` is actually reached. Without code splitting, a bundler inlines those dynamic imports into the single output
 file, and all four modules ship regardless of whether they're used. This is verified by
 `test/treeshake.test.ts`, which bundles a data-plane-only entry point with esbuild's `splitting`
-option on and asserts the PromQL, Grafana, time-series, and vector route markers are all absent
+option on and asserts the PromQL, Grafana, time-series, vector route and insert-session markers are all absent
 from the chunk reachable via static imports alone - it does not claim, and this README does not
 claim, that the package sheds unused code under every bundler configuration.
 

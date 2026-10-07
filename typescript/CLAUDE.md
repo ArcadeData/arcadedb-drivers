@@ -83,11 +83,19 @@ with a per-request `bodySerializer` override rather than a second transport, and
 `src/internal/batch-rows.ts` owns the line format - which the contract now documents too, matching
 this client field for field (ArcadeData/arcadedb#7570).
 
-All four namespaces load their implementation with a **dynamic `import()`**. That is a
-tree-shaking contract, not a style choice: `test/treeshake.test.ts` bundles a data-plane-only
-entry with esbuild `splitting` and asserts all four route markers - time-series, Grafana, PromQL
-and vector-search - are absent. Converting one of those to a static import silently breaks that
+All four namespaces, and `db.insertSession()`, load their implementation with a **dynamic
+`import()`**. That is a tree-shaking contract, not a style choice: `test/treeshake.test.ts` bundles
+a data-plane-only entry with esbuild `splitting` and asserts all four route markers - time-series,
+Grafana, PromQL and vector-search - and the insert session's `batchAck` marker are absent. Converting one of those to a static import silently breaks that
 guarantee — and the test.
+
+`src/facade/insert-session.ts` is the `/ws` duplex insert session. It has **no WebSocket
+dependency**: it uses the global `WebSocket` (Node 22+) or a class injected through
+`createClient({ WebSocket })` / `insertSession({ WebSocket })` (the `ws` package on Node 20), and
+reads the `Authorization` header out of the client's `auth` middleware by running it on a throwaway
+request, because the browser `WebSocket` cannot send one. Its unit tests (`test/insert-session.test.ts`)
+run against an in-process fake socket; `e2e/insert-session.test.ts` mirrors the Java client's
+`Issue7403RemoteInsertSessionIT`. Errors are `ArcadeDBError` with `status: 0`.
 
 Transactions thread a session id: `transaction()` begins one, constructs a second
 `ArcadeDBDatabase` carrying `sessionId`, and every call through *that* handle sends

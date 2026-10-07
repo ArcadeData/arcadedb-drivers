@@ -74,3 +74,33 @@ class ArcadeDBError(Exception):
         """
         body: object = response.parsed if isinstance(response.parsed, ErrorResponse) else response.content
         return cls(int(response.status_code), body, response.headers.get(REQUEST_ID_HEADER))
+
+
+class InsertSessionError(Exception):
+    """Raised by a `/ws` insert session (`InsertSession` / `AsyncInsertSession`) for every failure.
+
+    Deliberately NOT an `ArcadeDBError`: that type carries an HTTP status, and nothing here has
+    one. The WebSocket handshake can fail with one (`__cause__` then holds the library's own
+    exception), but a refused frame, a timeout and a dropped connection have none.
+
+    `frame` is the server's `error` frame when the failure was one, else `None` (a timeout, a
+    dropped connection and a refusal made client-side carry none). `session_id` is the session the
+    failure concerns, or `None` when it was not yet known. `session_closed` says whether the
+    session can still be used: `False` for a chunk the server refused whole (the session carries
+    on and the chunk may be split and resent under the same sequence number), `True` for
+    everything that ended it - an expired session, a timeout, a closed connection, an out-of-step
+    answer.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        frame: dict[str, Any] | None = None,
+        session_id: str | None = None,
+        session_closed: bool = True,
+    ) -> None:
+        super().__init__(message)
+        self.frame = frame
+        self.session_id = session_id
+        self.session_closed = session_closed

@@ -19,6 +19,7 @@ import type {
   PromQLSeriesOptions,
   PromQLSeriesResponse,
 } from "./facade/dashboards.js";
+import type { InsertSession, InsertSessionContext, InsertSessionOptions, WebSocketConstructor } from "./facade/insert-session.js";
 import type { TimeSeriesQueryOptions, TimeSeriesQueryResult, TimeSeriesWriteOptions } from "./facade/timeseries.js";
 import type {
   FullTextSearchOptions,
@@ -34,6 +35,21 @@ export { basicAuth, bearerAuth } from "./auth.js";
 export type { Middleware } from "openapi-fetch";
 export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions } from "./facade/data.js";
 export type { NdJsonQueryEvent } from "./facade/stream.js";
+export type {
+  BatchAck,
+  CommittedFrame,
+  InsertConflictMode,
+  InsertRecord,
+  InsertRowError,
+  InsertSession,
+  InsertSessionContext,
+  InsertSessionOptions,
+  InsertSummary,
+  InsertTransactionMode,
+  WebSocketConstructor,
+  WebSocketEventLike,
+  WebSocketLike,
+} from "./facade/insert-session.js";
 export type { BatchLoadArgs, BatchOptions, BatchSummary, NdJsonBatchEvent } from "./facade/batch.js";
 export type { EdgeRow, VertexRow } from "./internal/batch-rows.js";
 export type {
@@ -205,6 +221,7 @@ export class ArcadeDBDatabase {
     private readonly client: RawClient,
     readonly name: string,
     private readonly sessionId?: string,
+    private readonly insertContext?: InsertSessionContext,
   ) {}
 
   /** Ingests and queries samples in a time-series type. Loaded on first use; see `TimeSeriesNamespace`. */
@@ -235,6 +252,19 @@ export class ArcadeDBDatabase {
   /** Executes a command and returns the whole result envelope - not just `result`. */
   async command<T = unknown>(opts: CommandOptions): Promise<QueryEnvelope<T>> {
     return executeCommand<T>(this.client, this.name, this.sessionId, opts);
+  }
+
+  /**
+   * Opens a duplex insert session on the server's `/ws` endpoint: send chunks, see each
+   * acknowledgement, then decide whether to `commit()` or `rollback()`. See `InsertSession` and
+   * the README for the protocol rules and failure modes. Loaded on first use, like `db.ts`.
+   *
+   * On the `tx` handle of `transaction()`, `{ joinTransaction: true }` writes into that
+   * transaction instead of a server-managed one.
+   */
+  async insertSession(opts: InsertSessionOptions = {}): Promise<InsertSession> {
+    const { openInsertSession } = await import("./facade/insert-session.js");
+    return openInsertSession(this.insertContext, this.name, this.sessionId, opts);
   }
 
   /**
@@ -318,7 +348,7 @@ export class ArcadeDBDatabase {
    */
   async transaction<T>(fn: (tx: ArcadeDBDatabase) => Promise<T>): Promise<T> {
     const sessionId = await beginTransaction(this.client, this.name);
-    const tx = new ArcadeDBDatabase(this.client, this.name, sessionId);
+    const tx = new ArcadeDBDatabase(this.client, this.name, sessionId, this.insertContext);
     let result: T;
     try {
       result = await fn(tx);
@@ -370,7 +400,10 @@ export class ArcadeDBServer {
    */
   readonly raw: RawClient;
 
-  constructor(client: RawClient) {
+  constructor(
+    client: RawClient,
+    private readonly insertContext?: InsertSessionContext,
+  ) {
     this.raw = client;
   }
 
@@ -431,7 +464,7 @@ export class ArcadeDBServer {
 
   /** Scopes subsequent calls to one database, reached through this server. */
   db(name: string): ArcadeDBDatabase {
-    return new ArcadeDBDatabase(this.raw, name);
+    return new ArcadeDBDatabase(this.raw, name, undefined, this.insertContext);
   }
 }
 
@@ -442,6 +475,11 @@ export interface CreateClientOptions {
   auth?: Middleware;
   /** Custom `fetch` implementation; defaults to the runtime global. */
   fetch?: typeof fetch;
+  /**
+   * WebSocket class used by `db.insertSession()`. Defaults to the runtime's global `WebSocket`
+   * (Node 22+); on Node 20 pass the `ws` package's `WebSocket`. Only the insert session uses it.
+   */
+  WebSocket?: WebSocketConstructor;
 }
 
 /** Builds an `ArcadeDBServer` client scoped to one ArcadeDB server. */
@@ -453,5 +491,5 @@ export function createClient(opts: CreateClientOptions): ArcadeDBServer {
   if (opts.auth) {
     client.use(opts.auth);
   }
-  return new ArcadeDBServer(client);
+  return new ArcadeDBServer(client, { baseUrl: opts.baseUrl, auth: opts.auth, WebSocket: opts.WebSocket });
 }

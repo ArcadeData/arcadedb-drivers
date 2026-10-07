@@ -302,6 +302,107 @@ undocumented as the ndjson line format, and a rows-in API has nowhere to put a h
 a CSV file into `VertexRow`/`EdgeRow` yourself, or post the bytes through `srv.raw`'s pooled httpx
 client.
 
+## A duplex insert session: `insert_session`
+
+`batch_load` fixes its commit policy by query parameters before the load starts. An **insert
+session** on the server's `/ws` WebSocket endpoint lifts that: you send a chunk, read its
+acknowledgement, and only then decide what to send next - including whether to `commit()` or
+`rollback()` at all. It is the counterpart of the Java client's `RemoteInsertSession`.
+
+```python
+with db.insert_session(target_type="Person") as session:
+    for batch in batches:
+        ack = session.send_chunk(batch)  # the server's batchAck, as a dict
+        if ack["failed"]:
+            session.rollback()
+            break
+    else:
+        session.commit()  # the `committed` frame: outcome, summary
+```
+
+`AsyncArcadeDBDatabase.insert_session()` returns an `AsyncInsertSession` with the same surface,
+awaited (`async with ... as session:`, `await session.send_chunk(...)`). Records are plain
+dicts; a record's own `"@class"` overrides `target_type`, and an edge names its endpoints with
+`"@from"` / `"@to"`. Options: `session_id`, `target_type`, `transaction_mode` (`per_stream` -
+the default -, `per_batch`, `per_row`, `none`), `conflict_mode` (`error`, `update`, `ignore`,
+`abort`) with `key_columns` / `update_columns_on_conflict`, `validate_only`,
+`join_current_transaction`, `on_batch_ack` (called with every ack before `send_chunk` returns
+it) and `timeout`. `session_id`, `transaction_mode`, `external_transaction_id`,
+`last_chunk_seq` and `is_open` are readable properties.
+
+`websockets` is a runtime dependency of this package (BSD-3-Clause). The connection reuses the
+server's base URL and `auth` headers (`http` becomes `ws`, `https` becomes `wss`) and honours
+`verify_ssl`.
+
+Things that look like bugs and are not:
+
+- **The session id is the server's unless you choose one, and a chosen one is shared.** A
+  client-chosen `session_id` lives in ONE server-wide namespace - not per user, not per
+  database - so two unrelated clients that both pick `batch-1` collide, and the second `start` is
+  refused. Leave it out unless the session must be nameable.
+- **A chunk the server refuses as a whole does not consume a sequence number.** `chunkSeq`
+  starts at 1 and is managed for you; it advances only after the acknowledgement. A chunk over
+  `arcadedb.server.wsMaxInsertChunkRows`, or out of sequence, raises `InsertSessionError` with
+  `session_closed=False`: the session is still usable, `last_chunk_seq` did not move, and a
+  smaller chunk sent next takes the **same** number. A row the server cannot apply is not a
+  refusal at all: it is counted in the ack's `failed`, described in `errors`, and the rest of the
+  chunk still goes in - so always read `failed`.
+- **A chunk whose transaction fails comes back as an ack, and is replayed under the same number.**
+  Under `per_batch` - and only there, since it is the one mode where each chunk commits in a
+  transaction of its own - a failure of that transaction (a duplicate key the engine reports on
+  commit, for one) undoes the whole chunk. The server answers a normal
+  `batchAck` - `failed == received`, an `errors` entry with `rowIndex` -1 - and does NOT advance its
+  watermark. `send_chunk` raises nothing for it and `on_batch_ack` still sees it, but the returned
+  ack carries `whole_chunk_failed: True` (a key this client adds; snake_case because the server
+  never sends it) and `last_chunk_seq` does not move: the next `send_chunk` is the replay of that
+  sequence number. Moving on without fixing and resending those rows loses them.
+- **A chunk over `arcadedb.server.wsMaxInsertFrameSize` bytes is not refused, it kills the
+  connection.** The server answers an oversized frame with a WebSocket close, not an `error`
+  frame, so the session is gone (and rolled back server-side) and the error has
+  `session_closed=True` and `frame=None`. The issue text this client was written from lists the
+  frame cap alongside the row cap as "refused, retry reuses the seq"; against a real server only
+  the row cap and a sequence error behave that way. Size chunks by rows, below the byte cap.
+- **Under `per_stream`, a commit-time failure arrives on `commit()`.** Nothing commits per chunk,
+  so a duplicate key the engine only checks at commit fails the `commit()` call with
+  `InsertSessionError`, and the session - every chunk it acknowledged - is gone.
+- **Some `error` frames end the session, others do not.** `session_closed` tells them apart. It
+  is `False` only for a refusal of that one frame (the row cap, a sequence that skips ahead, a
+  malformed record or option). It is `True` for `"Insert session expired"` (idle sweep),
+  `"Security error"` (the grant was revoked and the session rolled back, or the principal is no
+  longer valid and the connection is closing), `"Internal error"` (state unknown, treated as gone)
+  and an `"Insert session error"` saying the session is `not found or expired` or `is closed`;
+  the session is then marked closed and further calls raise. An error title this client does not
+  recognise is `False`, as in the Go and TypeScript clients: if the server has in fact dropped the
+  session, the next frame is answered `not found or expired`, which closes it.
+- **An `error` frame can arrive at any time.** The server's idle sweep rolls a session back and
+  pushes an unsolicited `error`; whichever call reads it raises `InsertSessionError`
+  (`session_closed=True`) instead of skipping it for the answer it was waiting for. The rows
+  already acknowledged are gone with the session.
+- **Every wait is bounded by `timeout`** (default 60 s). A timeout, a dropped connection or an
+  out-of-step answer ends the session, because a late answer could no longer be matched to its
+  frame - the server rolls it back when the connection closes. The synchronous client's *send* is
+  not bounded by `timeout` (the underlying `websockets` sync client has none); the async one's is.
+  Interrupting a call mid-exchange (`KeyboardInterrupt` on the sync client, task cancellation on
+  the async one) ends the session the same way.
+- **`close()` rolls back.** Leaving the `with` block, or calling `close()`, on a session that is
+  still open sends `rollback` and closes the connection; it is idempotent, so it is safe after
+  `commit()`. Failures while rolling back are swallowed - the connection closing rolls the
+  session back anyway.
+- **Joining a transaction.** `join_current_transaction=True`, called on the handle
+  `db.transaction()` yields, writes into that HTTP transaction and implies
+  `transaction_mode="none"`; passing any other explicit mode with it raises `InsertSessionError`
+  rather than being silently overridden, as in the Go and TypeScript clients. The session's `commit()` and `rollback()` then both answer
+  `outcome == "detached"`: neither decides anything, the `with db.transaction()` block does - the
+  rows are durable only when it exits cleanly, and a block that raises undoes them. Calling it on
+  a handle with no open transaction raises `InsertSessionError` immediately, rather than quietly
+  opening a server-managed session.
+- **`per_stream` is the only mode that can undo acknowledged chunks.** After `rollback()` the
+  `committed` frame's `summary.partialCommit` says whether anything stayed.
+- **Not thread-safe**, like the database handle: one session per thread (or per task, with one call
+  in flight at a time). The protocol allows pipelining frames; this client deliberately does not.
+- **Failures are `InsertSessionError`, not `ArcadeDBError`**: there is no HTTP status to carry.
+  `frame` holds the server's `error` frame when there was one, `session_id` the session concerned.
+
 ## Sync and async
 
 `ArcadeDBServer` and `AsyncArcadeDBServer` expose the same methods; the async one awaits them.

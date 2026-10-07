@@ -61,7 +61,8 @@ go/
 A module's `go.mod` requirements reach every consumer's module graph, so a test or tool
 dependency declared in `arcadedb/go.mod` would be downloaded and version-resolved by users who
 never run the tests. `arcadedb/go.mod` therefore requires only the generator's three runtime
-dependencies (`oapi-codegen/runtime`, `go-jsonmerge`, `google/uuid`); `testcontainers-go` lives in
+dependencies (`oapi-codegen/runtime`, `go-jsonmerge`, `google/uuid`) plus `coder/websocket` (ISC,
+no dependencies of its own), which `insertsession.go` needs for `/ws`; `testcontainers-go` lives in
 `e2e/go.mod`, and oapi-codegen, buf, the two protoc plugins, staticcheck and go-licenses live in
 `tools/go.mod`. The same rule holds for `arcadedbgrpc/go.mod`, which requires only
 `google.golang.org/grpc` and `google.golang.org/protobuf` (plus what those two pull in). The two
@@ -273,6 +274,35 @@ are under "The gRPC module" below.
 Both rollbacks run under `context.WithoutCancel(ctx)`: the commonest reason `fn` fails is that
 `ctx` was cancelled or timed out, and a rollback bound to that `ctx` would never reach the server.
 Preserve all of this exactly; it is repeated on `Transaction`'s doc comment for the same reason.
+
+## The `/ws` insert session
+
+`insertsession.go` (`Database.InsertSession`, issue #110) is hand-written: `/ws` is not in the
+OpenAPI contract, so nothing generated covers it and `TestEveryOperationIsGenerated` neither sees
+nor needs it. The prose in `arcadedb/README.md` and on `InsertSession`'s doc comment is the
+load-bearing part; the facts behind it, each checked against the server source and the e2e suite:
+
+- The sequence number advances only after the ack, **and not for an ack that reports a whole-chunk
+  failure** (`per_batch`, an `errors` entry with `rowIndex == -1`): the server leaves its watermark
+  there, so advancing would make the next chunk "skip ahead". The Java client advances anyway.
+  `e2e`'s `TestInsertSessionWholeChunkFailure` reaches it on a real server through a unique index.
+- Which error frames end the session (`InsertSessionError.SessionEnded`, `endsSession`) is matched
+  on the frame's `error` title and `detail` text, because the server sends no structured marker:
+  "Insert session expired", "Security error" and "Internal error" always; "Insert session error"
+  only when the detail says "not found or expired" or "' is closed". If the server rewords any of
+  those strings, `TestInsertSessionErrorClassification` still passes and only behaviour changes, so
+  re-check `WebSocketInsertProtocol`, `WebSocketInsertSessionManager.resolve` and
+  `WebSocketInsertSession.requireOpen` when the contract moves.
+- A chunk over `wsMaxInsertFrameSize` gets no error frame, the server closes the connection with
+  1009; only the row cap and a bad sequence are refusals that keep the session open.
+- A single goroutine reads the socket into a channel, so an unsolicited `error` frame is never lost
+  to a failed write; a frame waiting when a call starts is reported as that call's answer.
+- Close rolls back with `context.Background()` bounded by the frame timeout, mirroring
+  `Transaction`'s rollbacks: the reason to Close is often a cancelled `ctx`.
+- coder/websocket's default read limit is 32 KiB; the session raises it to 16 MiB because an ack
+  listing per-row errors for a large chunk can exceed that.
+- `e2e/main_test.go` starts the HTTP container with `wsMaxInsertChunkRows=4` so the row cap is
+  reachable; it only bounds `/ws` chunks.
 
 ## Three contract quirks, and what each costs Go
 

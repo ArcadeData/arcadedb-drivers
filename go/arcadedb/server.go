@@ -38,8 +38,10 @@ func WithHTTPClient(hc *http.Client) Option {
 
 // Server is a client for one ArcadeDB server. It is safe for concurrent use.
 type Server struct {
-	raw    *generated.ClientWithResponses
-	client *http.Client
+	raw     *generated.ClientWithResponses
+	client  *http.Client
+	baseURL string
+	headers map[string]string
 }
 
 // NewServer builds a Server for baseURL. Every request carries the configured auth
@@ -62,7 +64,7 @@ func NewServer(baseURL string, opts ...Option) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{raw: raw, client: cfg.client}, nil
+	return &Server{raw: raw, client: cfg.client, baseURL: baseURL, headers: cfg.headers}, nil
 }
 
 // DB returns a handle on the named database. It performs no request.

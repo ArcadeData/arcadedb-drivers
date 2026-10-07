@@ -3,6 +3,7 @@ package arcadedbgrpc
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -140,6 +141,25 @@ func (s *txService) TimeSeriesQuery(r *generated.TimeSeriesQueryRequest, ss grpc
 		return err
 	}
 	return ss.Send(&generated.TimeSeriesQueryResult{Last: true})
+}
+
+// InsertStream records one "InsertStream" call per chunk, with that chunk's Database (set on
+// the first chunk only) and Transaction, and answers the number of rows received.
+func (s *txService) InsertStream(ss grpc.ClientStreamingServer[generated.InsertChunk, generated.InsertSummary]) error {
+	var n int64
+	for {
+		ch, err := ss.Recv()
+		if errors.Is(err, io.EOF) {
+			return ss.SendAndClose(&generated.InsertSummary{Received: n, Inserted: n})
+		}
+		if err != nil {
+			return err
+		}
+		n += int64(len(ch.GetRows()))
+		if err := s.rec("InsertStream", ch.GetDatabase(), ch.GetTransaction()); err != nil {
+			return err
+		}
+	}
 }
 
 func wantOps(t *testing.T, s *txService, want ...string) {
@@ -584,4 +604,60 @@ func TestTxHandleRPCErrorPassesThrough(t *testing.T) {
 		t.Fatalf("callErr = %v, err = %v", callErr, err)
 	}
 	wantOps(t, s, "BeginTransaction", "ExecuteQuery", "RollbackTransaction")
+}
+
+// TxHandle.InsertStream replaces Database and Transaction whatever the caller set, on every
+// chunk, with no inline begin/commit/rollback flag surviving, and leaves the caller's
+// request as it was.
+func TestTxHandleInsertStreamBindsEveryChunk(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tx   func() *generated.TransactionContext
+	}{
+		{"no transaction", func() *generated.TransactionContext { return nil }},
+		{"stale id with begin and rollback", stale},
+		{"other id with commit", func() *generated.TransactionContext {
+			return &generated.TransactionContext{TransactionId: "other-tx", Database: "other", Commit: true}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTxService()
+			c := newFake(t, s, nil)
+			opts := &generated.InsertOptions{TargetClass: "Person"}
+			callerTx := tc.tx()
+			req := InsertStreamRequest{
+				Database:    "other",
+				Options:     opts,
+				Transaction: callerTx,
+				Chunks:      batches([]*generated.GrpcRecord{rec("#1:0"), rec("#1:1")}, []*generated.GrpcRecord{rec("#1:2")}),
+			}
+			var summary *generated.InsertSummary
+			err := c.Transaction(context.Background(), "d", func(tx *TxHandle) error {
+				var err error
+				summary, err = tx.InsertStream(context.Background(), req)
+				return err
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if summary.GetInserted() != 3 {
+				t.Errorf("summary = %v", summary)
+			}
+			wantOps(t, s, "BeginTransaction", "InsertStream", "InsertStream", "CommitTransaction")
+			calls := s.seen()
+			wantBound(t, calls[1])
+			// Database rides on the first chunk only; the transaction rides on every chunk.
+			if calls[2].db != "" {
+				t.Errorf("second chunk Database = %q, want empty", calls[2].db)
+			}
+			want := &generated.TransactionContext{TransactionId: "t1", Database: "d"}
+			if !proto.Equal(calls[2].tx, want) {
+				t.Errorf("second chunk Transaction = %v, want %v", calls[2].tx, want)
+			}
+			if req.Database != "other" || req.Options != opts || req.Transaction != callerTx ||
+				!proto.Equal(req.Transaction, tc.tx()) || opts.GetDatabase() != "" {
+				t.Fatalf("caller's request was mutated: %+v", req)
+			}
+		})
+	}
 }

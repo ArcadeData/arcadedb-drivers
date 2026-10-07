@@ -251,6 +251,50 @@ async def test_async_vector_hybrid_and_fulltext_search_through_raw_and_the_handl
     assert len(fulltext.results) > 0
 
 
+async def test_async_insert_stream_through_the_handle_commits_with_the_transaction(
+    async_client: AsyncArcadeDBGrpcClient, grpc_database: str
+) -> None:
+    # The async twin of test_grpc.py's: rows read back through the OUTER client, outside
+    # the transaction, are there only because the commit made them durable.
+    marker = f"aitc{uuid.uuid4().hex[:8]}"
+
+    async def chunks() -> AsyncIterator[list[messages.GrpcRecord]]:
+        yield [_person(f"{marker}-a")]
+        yield [_person(f"{marker}-b")]
+
+    async with async_client.transaction(grpc_database) as tx:
+        summary = await tx.insert_stream(
+            InsertStreamRequest(
+                database=grpc_database, options=messages.InsertOptions(target_class="Person"), chunks=chunks()
+            )
+        )
+        assert summary.inserted == 2
+    assert await _names(async_client, grpc_database, marker) == [f"{marker}-a", f"{marker}-b"]
+
+
+async def test_async_insert_stream_through_the_handle_is_discarded_on_rollback(
+    async_client: AsyncArcadeDBGrpcClient, grpc_database: str
+) -> None:
+    # The async twin of test_grpc.py's: on 26.8.1 (ArcadeData/arcadedb#6607) these rows
+    # survived the rollback. `summary.inserted == 2` inside the block rules out the vacuous
+    # pass of an insert that never happened.
+    marker = f"aitr{uuid.uuid4().hex[:8]}"
+    sentinel = RuntimeError("boom")
+    with pytest.raises(RuntimeError) as caught:
+        async with async_client.transaction(grpc_database) as tx:
+            summary = await tx.insert_stream(
+                InsertStreamRequest(
+                    database=grpc_database,
+                    options=messages.InsertOptions(target_class="Person"),
+                    chunks=[[_person(f"{marker}-a")], [_person(f"{marker}-b")]],
+                )
+            )
+            assert summary.inserted == 2
+            raise sentinel
+    assert caught.value is sentinel
+    assert await _names(async_client, grpc_database, marker) == []
+
+
 async def test_async_time_series_write_stream_multi_chunk_then_query_and_latest_through_a_transaction(
     async_client: AsyncArcadeDBGrpcClient, grpc_database: str, grpc_timeseries_type: str
 ) -> None:

@@ -135,6 +135,8 @@ class ArcadeDBGrpcClient:
     ) -> messages.InsertSummary:
         """Streams rows to the server in chunks. See `stream.insert_stream`.
 
+        Also reachable, bound to an open transaction, as `TransactionHandle.insert_stream`.
+
         `metadata` is per-call gRPC metadata, appended to the headers the channel's auth
         interceptor adds rather than replacing them.
         """

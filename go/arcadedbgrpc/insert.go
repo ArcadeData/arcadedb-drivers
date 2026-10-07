@@ -40,7 +40,9 @@ import (
 //
 // Options, Credentials and Transaction are never modified. Transaction is set on every
 // chunk as given, because the .proto declares the field; servers from 26.9.1 on honour it
-// (ArcadeData/arcadedb#6607), 26.8.1 and earlier ignored it.
+// (ArcadeData/arcadedb#6607), 26.8.1 and earlier ignored it, so rows inserted against
+// them survived a rollback. TxHandle.InsertStream replaces Database and Transaction with
+// the handle's own; through the Client both are sent as given.
 type InsertStreamRequest struct {
 	Database    string
 	Chunks      iter.Seq[[]*generated.GrpcRecord]
@@ -72,10 +74,19 @@ type InsertStreamRequest struct {
 // The caller's sequence is pulled on the caller's goroutine (iter.Pull, for the
 // lookahead), and is always stopped before InsertStream returns, including when the RPC
 // fails part-way: rows already sent stay sent, the remainder is never pulled.
+//
+// Inside a transaction, use TxHandle.InsertStream instead: it sends this same envelope
+// with Database and Transaction bound to the handle's transaction. Setting Transaction here
+// by hand is the inline model, with none of the handle's guarantees.
 func (c *Client) InsertStream(ctx context.Context, req InsertStreamRequest, opts ...grpc.CallOption) (*generated.InsertSummary, error) {
+	return insertStream(ctx, c.raw, req, opts)
+}
+
+// insertStream is the envelope shared by Client.InsertStream and TxHandle.InsertStream.
+func insertStream(ctx context.Context, raw generated.ArcadeDbServiceClient, req InsertStreamRequest, opts []grpc.CallOption) (*generated.InsertSummary, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stream, err := c.raw.InsertStream(ctx, opts...)
+	stream, err := raw.InsertStream(ctx, opts...)
 	if err != nil {
 		return nil, err
 	}

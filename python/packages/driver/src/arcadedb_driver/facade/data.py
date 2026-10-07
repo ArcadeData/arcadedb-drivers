@@ -51,12 +51,21 @@ class QueryEnvelope:
     those three fields. They are kept rather than deleted because `result` still needs
     one and because the fallbacks cost nothing if a later contract loosens the list
     again; nobody should go looking for the code path that triggers them today.
+
+    `explain` and `explain_plan` carry the execution plan of an EXPLAIN or PROFILE
+    statement, or of any statement run with `profileExecution`: `explain` as indented
+    text, one line per step, and `explain_plan` as the same plan in structured form.
+    Both are `None` exactly when the server sent no plan. When they are set, `result`
+    is empty and `returned` is `0` - the plan is the answer and is not repeated as a
+    row - so an empty `result` there does not mean "no rows matched".
     """
 
     result: list[dict[str, Any]]
     limit: int
     returned: int
     truncated: bool
+    explain: str | None = None
+    explain_plan: dict[str, Any] | None = None
 
 
 def to_envelope(data: QueryResponse) -> QueryEnvelope:
@@ -101,6 +110,8 @@ def to_envelope(data: QueryResponse) -> QueryEnvelope:
         limit=_or(data.limit, -1),
         returned=_or(data.returned, 0),
         truncated=_or(data.truncated, False),
+        explain=_or(data.explain, None),
+        explain_plan=None if isinstance(data.explain_plan, Unset) else data.explain_plan.to_dict(),
     )
 
 

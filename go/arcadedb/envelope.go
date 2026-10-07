@@ -40,11 +40,21 @@ const (
 //
 // Result's rows are decoded with encoding/json, so every number is a float64 and an integer
 // above 2^53 loses precision.
+//
+// Explain and ExplainPlan carry the execution plan of an EXPLAIN or PROFILE statement, or
+// of any statement run with profileExecution: Explain as indented text, one line per step,
+// and ExplainPlan as the same plan in structured form. The server sends both or neither.
+// When they are present Result is empty and Returned is 0, because the plan is the answer
+// and is not repeated as a row, so an empty Result there does not mean "no rows matched".
+// They are plain values rather than pointers for the reason the other fields are: Explain
+// is "" and ExplainPlan nil when the server sent no plan, and a real plan is never empty.
 type QueryEnvelope struct {
-	Result    []map[string]any
-	Limit     int
-	Returned  int
-	Truncated bool
+	Result      []map[string]any
+	Limit       int
+	Returned    int
+	Truncated   bool
+	Explain     string
+	ExplainPlan map[string]any
 }
 
 // QueryOption tunes a Query call.
@@ -94,6 +104,12 @@ func buildCommandRequest(lang QueryLanguage, command string, params map[string]a
 // envelopeFromBody, which can see which keys were present.
 func toEnvelope(qr *generated.QueryResponse) (QueryEnvelope, error) {
 	env := QueryEnvelope{Result: []map[string]any{}, Limit: qr.Limit, Returned: qr.Returned, Truncated: qr.Truncated}
+	if qr.Explain != nil {
+		env.Explain = *qr.Explain
+	}
+	if qr.ExplainPlan != nil {
+		env.ExplainPlan = *qr.ExplainPlan
+	}
 	if qr.Result == nil {
 		return env, nil
 	}

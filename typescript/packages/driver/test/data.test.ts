@@ -110,6 +110,56 @@ describe("ArcadeDBDatabase.command", () => {
   });
 });
 
+describe("EXPLAIN / PROFILE plans in the envelope (issue #74)", () => {
+  const plan = "+ FETCH FROM TYPE V\n  + FETCH FROM BUCKET 1";
+  const planObject = { steps: [{ name: "FetchFromTypeExecutionStep" }] };
+
+  it("query carries explain and explainPlan, with an empty result and returned 0", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ result: [], limit: 100, returned: 0, truncated: false, explain: plan, explainPlan: planObject }, 200),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const envelope = await server.db("mydb").query({ language: "sql", command: "EXPLAIN SELECT FROM V" });
+
+    expect(envelope).toStrictEqual({
+      result: [],
+      limit: 100,
+      returned: 0,
+      truncated: false,
+      explain: plan,
+      explainPlan: planObject,
+    });
+  });
+
+  it("command carries explain and explainPlan too", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ limit: -1, returned: 0, truncated: false, explain: plan, explainPlan: planObject }, 200),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const envelope = await server.db("mydb").command({ language: "sql", command: "PROFILE SELECT FROM V" });
+
+    expect(envelope.result).toEqual([]);
+    expect(envelope.returned).toBe(0);
+    expect(envelope.explain).toBe(plan);
+    expect(envelope.explainPlan).toEqual(planObject);
+  });
+
+  it("leaves both keys absent - not undefined-valued - when the server sent no plan", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ result: [{ name: "a" }], limit: 100, returned: 1, truncated: false }, 200),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const envelope = await server.db("mydb").query({ language: "sql", command: "SELECT FROM V" });
+
+    expect("explain" in envelope).toBe(false);
+    expect("explainPlan" in envelope).toBe(false);
+    expect(envelope).toStrictEqual({ result: [{ name: "a" }], limit: 100, returned: 1, truncated: false });
+  });
+});
+
 describe("ArcadeDBDatabase.transaction", () => {
   it("issues begin, then the body's calls, then commit, threading the session id onto every call", async () => {
     const calls: { url: string; sessionHeader: string | null }[] = [];

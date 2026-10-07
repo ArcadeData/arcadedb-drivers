@@ -15,7 +15,7 @@
 # and indistinguishable from it in the code until someone reads the run id.
 #
 # Consumes, from the environment: STATE, VERSION, IMAGE, VERIFY_TS, VERIFY_PY,
-# VERIFY_GO, RUN_URL, TRACKING_LABEL, REFRESH_BRANCH, GH_TOKEN.
+# VERIFY_GO, VERIFY_PROTO, RUN_URL, TRACKING_LABEL, REFRESH_BRANCH, GH_TOKEN.
 #
 # Sourceable: the pure functions below can be tested without gh or a network.
 set -euo pipefail
@@ -36,16 +36,26 @@ REFRESH_PATHS=(contracts typescript python go)
 # just asserting that something did - "the suite fails" is not actionable, but
 # "the Python client fails" tells a reader where to start.
 verify_line() {
-  local ts="${VERIFY_TS:-}" py="${VERIFY_PY:-}" go="${VERIFY_GO:-}"
-  if [[ "$ts" == "success" && "$py" == "success" && "$go" == "success" ]]; then
-    echo "All clients build and their full suites pass against \`${IMAGE:-}\`."
+  local ts="${VERIFY_TS:-}" py="${VERIFY_PY:-}" go="${VERIFY_GO:-}" proto="${VERIFY_PROTO:-}"
+  if [[ "$ts" == "success" && "$py" == "success" && "$go" == "success" && "$proto" == "success" ]]; then
+    echo "All clients build and their full suites pass against \`${IMAGE:-}\`, and the \`.proto\` has no breaking change."
     return
   fi
-  echo "**One or more clients FAIL against \`${IMAGE:-}\`.** See the run for which stage."
+  # The header names what actually failed: the .proto check is not a client, so when it fails
+  # alone, "one or more clients FAIL" would be false - every client passed.
+  if [[ "$ts" == "success" && "$py" == "success" && "$go" == "success" ]]; then
+    echo "**All clients pass against \`${IMAGE:-}\`, but the refreshed \`.proto\` breaks clients generated from the previous contract.** Adopt it on purpose or not at all."
+  else
+    echo "**One or more clients FAIL against \`${IMAGE:-}\`.** See the run for which stage."
+  fi
   echo
   [[ "$ts" == "success" ]] && echo "- \`@arcadedb/driver\` (TypeScript): passing" || echo "- \`@arcadedb/driver\` (TypeScript): **failing**"
   [[ "$py" == "success" ]] && echo "- \`arcadedb-driver\` (Python): passing" || echo "- \`arcadedb-driver\` (Python): **failing**"
   [[ "$go" == "success" ]] && echo "- \`github.com/ArcadeData/arcadedb-drivers/go/arcadedb\` (Go): passing" || echo "- \`github.com/ArcadeData/arcadedb-drivers/go/arcadedb\` (Go): **failing**"
+  # Not a client: `buf breaking` against the previously committed .proto (check-proto-compat.sh).
+  # Failing means the new contract breaks clients generated from the old one - something to adopt
+  # on purpose, never merely because every suite happened to stay green.
+  [[ "$proto" == "success" ]] && echo "- \`.proto\` compatibility (\`buf breaking\` against the previous contract): passing" || echo "- \`.proto\` compatibility (\`buf breaking\` against the previous contract): **failing**"
 }
 
 # Everything that makes this finding what it is, and nothing that merely makes
@@ -58,8 +68,8 @@ verify_line() {
 # that genuinely changed - the exact failure the fingerprint exists to prevent,
 # in a new disguise.
 finding_fingerprint() {
-  printf '%s\n%s\n%s\n%s\n%s\n%s\n' \
-    "${STATE:-}" "${VERSION:-}" "${VERIFY_TS:-}" "${VERIFY_PY:-}" "${VERIFY_GO:-}" "${CHANGED_FILES:-}" \
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+    "${STATE:-}" "${VERSION:-}" "${VERIFY_TS:-}" "${VERIFY_PY:-}" "${VERIFY_GO:-}" "${VERIFY_PROTO:-}" "${CHANGED_FILES:-}" \
     | shasum -a 256 | cut -c1-16
 }
 
@@ -213,7 +223,7 @@ MD
 }
 
 main() {
-  : "${STATE:?}" "${VERSION:?}" "${IMAGE:?}" "${VERIFY_TS:?}" "${VERIFY_PY:?}" "${VERIFY_GO:?}" "${RUN_URL:?}"
+  : "${STATE:?}" "${VERSION:?}" "${IMAGE:?}" "${VERIFY_TS:?}" "${VERIFY_PY:?}" "${VERIFY_GO:?}" "${VERIFY_PROTO:?}" "${RUN_URL:?}"
   CHANGED_FILES="$(git status --porcelain -- "${REFRESH_PATHS[@]}" || true)"
   export CHANGED_FILES
 

@@ -149,6 +149,11 @@ jobs:
       - name: Contract script tests
         run: ./scripts/tests/test-contract-scripts.sh
 
+      # Kept BEFORE the refresh, because the adoption step in it deletes the retired contract:
+      # this copy is the "previous" side of the compatibility check below.
+      - name: Keep the committed .proto for the compatibility check
+        run: cp "$(./scripts/resolve-proto-contract.sh)" "$RUNNER_TEMP/previous.proto"
+
       - name: Refresh both contracts
         run: |
           set -euo pipefail
@@ -195,6 +200,16 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "### Contract unchanged" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # Not a client verdict: is the refreshed .proto safe to adopt over the committed one?
+      # `buf breaking` (FILE rules) fails on a change that breaks clients generated from the
+      # previous contract; `buf lint` findings are printed but never fail (see the script's
+      # header for why). This runs HERE because the refresh PR this job opens is created with
+      # GITHUB_TOKEN, which starts no workflows: ci.yml's copy of this check never sees it.
+      - name: Check the .proto for breaking changes
+        id: verify_proto
+        continue-on-error: true
+        run: ./scripts/check-proto-compat.sh "$RUNNER_TEMP/previous.proto" "$(./scripts/resolve-proto-contract.sh)"
 
       - name: Verify the TypeScript client against the snapshot
         id: verify_ts
@@ -272,9 +287,10 @@ jobs:
           VERIFY_TS: ${{ steps.verify_ts.outcome }}
           VERIFY_PY: ${{ steps.verify_py.outcome }}
           VERIFY_GO: ${{ steps.verify_go.outcome }}
+          VERIFY_PROTO: ${{ steps.verify_proto.outcome }}
         run: |
           set -euo pipefail
-          if [[ "$CHANGED" == "false" && "$VERIFY_TS" == "success" && "$VERIFY_PY" == "success" && "$VERIFY_GO" == "success" ]]; then
+          if [[ "$CHANGED" == "false" && "$VERIFY_TS" == "success" && "$VERIFY_PY" == "success" && "$VERIFY_GO" == "success" && "$VERIFY_PROTO" == "success" ]]; then
             echo "state=quiet" >> "$GITHUB_OUTPUT"
           elif [[ "$CHANGED" == "false" ]]; then
             # The contract is byte-identical yet a client no longer works: the
@@ -300,6 +316,7 @@ jobs:
           VERIFY_TS: ${{ steps.verify_ts.outcome }}
           VERIFY_PY: ${{ steps.verify_py.outcome }}
           VERIFY_GO: ${{ steps.verify_go.outcome }}
+          VERIFY_PROTO: ${{ steps.verify_proto.outcome }}
           TRACKING_LABEL: ${{ env.TRACKING_LABEL }}
           REFRESH_BRANCH: ${{ env.REFRESH_BRANCH }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

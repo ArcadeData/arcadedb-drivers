@@ -455,19 +455,72 @@ async def test_stream_query_through_the_handle_is_bound_to_the_transaction(
     assert sent.database == "db"
 
 
-async def test_insert_stream_is_not_offered_on_the_handle(
+async def test_insert_stream_through_the_handle_is_bound_to_the_transaction(
     async_fake_server: tuple[str, RecordingServicer],
 ) -> None:
-    # ArcadeData/arcadedb#6607: on 26.8.1 and earlier the server ignored TransactionContext
-    # for InsertStream and BulkInsert, so offering them here would have implied a guarantee
-    # it did not honour - the same omission the sync handle makes. #6607 HAS since landed
-    # (79d931070b, released in 26.9.1), so this pins a restriction no supported server
-    # needs. Delete it when the methods are added; that is public surface, hence a release
-    # decision rather than a contract-adoption change.
+    # The async twin of the sync suite's, replacing the old exclusion test:
+    # ArcadeData/arcadedb#6607 is fixed from 26.9.1, where every compatibility table
+    # starts. The request is forged - another database, another transaction id, inline
+    # commit/rollback flags - because `_bind` must REPLACE all of it, not merge. The chunks
+    # are an async generator so the async-only half of the union is exercised too.
+    target, servicer = async_fake_server
+    servicer.transaction_id = "tx-42"
+    forged = messages.TransactionContext(
+        transaction_id="tx-forged", database="elsewhere", begin=True, commit=True, rollback=True, timeout_ms=5
+    )
+
+    async def chunks() -> AsyncIterator[list[messages.GrpcRecord]]:
+        yield _records("a")
+        yield _records("b")
+
+    request = InsertStreamRequest(database="somewhere-else", chunks=chunks(), transaction=forged)
+    async with create_client(target) as client, client.transaction("db") as tx:
+        summary = await tx.insert_stream(request, metadata=(("x-test-header", "hello"),))
+
+    assert summary.received == 2
+    assert servicer.calls == ["BeginTransaction", "InsertStream", "CommitTransaction"]
+    assert len(servicer.insert_chunks) == 2
+    for chunk in servicer.insert_chunks:
+        # The handle's context on EVERY chunk, with no lifecycle flags.
+        assert chunk.transaction == messages.TransactionContext(transaction_id="tx-42", database="db")
+    # `database` on the first chunk only - the client's envelope, reused, not duplicated.
+    assert [c.database for c in servicer.insert_chunks] == ["db", ""]
+    assert ("x-test-header", "hello") in servicer.metadata_by_rpc["InsertStream"]
+
+    # The caller's request is left alone.
+    assert request.database == "somewhere-else"
+    assert request.transaction is forged
+    assert forged == messages.TransactionContext(
+        transaction_id="tx-forged", database="elsewhere", begin=True, commit=True, rollback=True, timeout_ms=5
+    )
+
+
+async def test_insert_stream_through_the_handle_rejects_off_contract_chunks_eagerly(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The handle shares `_insert_stream` with the client, so the eager `TypeError` fires in
+    # the caller's frame here too, before any InsertStream RPC is opened; the `async with`
+    # then rolls the transaction back.
+    target, servicer = async_fake_server
+    async with create_client(target) as client:
+        with pytest.raises(TypeError, match="must be an iterable or an async iterable"):
+            async with client.transaction("db") as tx:
+                await tx.insert_stream(
+                    InsertStreamRequest(database="db", chunks=object())  # type: ignore[arg-type]  # off-contract on purpose
+                )
+    assert servicer.calls == ["BeginTransaction", "RollbackTransaction"]
+
+
+async def test_bulk_insert_and_graph_batch_load_are_not_offered_on_the_handle(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Only `insert_stream` joined the handle (#46). `BulkInsert` and `GraphBatchLoad` stay
+    # reachable through `client.raw` only - the parity bar in the 26.10.1 migration
+    # design, D4.
     target, _ = async_fake_server
     async with create_client(target) as client, client.transaction("db") as tx:
-        assert not hasattr(tx, "insert_stream")
         assert not hasattr(tx, "bulk_insert")
+        assert not hasattr(tx, "graph_batch_load")
 
 
 async def test_the_callers_async_generator_is_finalised_when_the_stream_is_abandoned() -> None:

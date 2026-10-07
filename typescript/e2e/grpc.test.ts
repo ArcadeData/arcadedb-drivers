@@ -122,6 +122,7 @@ beforeAll(async () => {
   const httpDb = httpRoot.db(DB_NAME);
   await httpDb.command({ language: "sql", command: "CREATE VERTEX TYPE Person IF NOT EXISTS" });
   await httpDb.command({ language: "sql", command: "CREATE VERTEX TYPE BatchPerson IF NOT EXISTS" });
+  await httpDb.command({ language: "sql", command: "CREATE VERTEX TYPE TxBatchPerson IF NOT EXISTS" });
 
   rootGrpc = createGrpcClient({
     baseUrl: grpcBaseUrl,
@@ -262,6 +263,59 @@ describe("end-to-end against a real ArcadeDB gRPC server", () => {
       rows.push(row);
     }
     expect(rows).toHaveLength(0);
+  });
+
+  // `tx.insertStream` joins the transaction only because the server reads `InsertChunk.transaction`
+  // - servers before 26.9.1 ignored it (ArcadeData/arcadedb#6607) and committed the rows on their
+  // own. These two tests are the proof against the pinned server: the same insert is discarded by a
+  // rollback and kept by a commit. Rows are read back outside the transaction, by name.
+  async function countTxBatchRows(name: string): Promise<number> {
+    let count = 0;
+    for await (const row of rootGrpc.streamQuery({
+      database: DB_NAME,
+      query: `SELECT FROM TxBatchPerson WHERE name = '${name}'`,
+      language: "sql",
+    })) {
+      if (row) count += 1;
+    }
+    return count;
+  }
+
+  async function* txBatches(name: string): AsyncGenerator<GrpcRecordInit[]> {
+    yield [{ type: "TxBatchPerson", properties: { name: stringProperty(name) } }];
+    yield [{ type: "TxBatchPerson", properties: { name: stringProperty(name) } }];
+  }
+
+  it("tx.insertStream rows are discarded when the transaction rolls back", async () => {
+    let summary: MessageShape<typeof InsertSummarySchema> | undefined;
+    await expect(
+      rootGrpc.transaction(DB_NAME, async (tx) => {
+        summary = await tx.insertStream({
+          database: DB_NAME,
+          options: { targetClass: "TxBatchPerson" },
+          chunks: txBatches("RolledBack"),
+        });
+        throw new Error("deliberate failure to force a rollback");
+      }),
+    ).rejects.toThrow("deliberate failure to force a rollback");
+
+    // The server did insert them inside the transaction - so their absence below is the rollback,
+    // not an insert that never happened.
+    expect(summary?.inserted).toBe(2n);
+    expect(await countTxBatchRows("RolledBack")).toBe(0);
+  });
+
+  it("tx.insertStream rows persist when the transaction commits", async () => {
+    const summary = await rootGrpc.transaction(DB_NAME, async (tx) =>
+      tx.insertStream({
+        database: DB_NAME,
+        options: { targetClass: "TxBatchPerson" },
+        chunks: txBatches("Committed"),
+      }),
+    );
+
+    expect(summary.inserted).toBe(2n);
+    expect(await countTxBatchRows("Committed")).toBe(2);
   });
 
   it("a single empty final insertStream chunk is accepted and returns an all-zero InsertSummary", async () => {

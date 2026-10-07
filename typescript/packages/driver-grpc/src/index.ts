@@ -90,7 +90,8 @@ export interface ArcadeDBGrpcClient {
   streamQuery: ReturnType<typeof createStreamQuery>;
   /**
    * Streams rows to the server in chunks, handling the `session_id` / `chunk_seq` / `database` /
-   * `last` envelope bookkeeping - see {@link InsertStreamRequest}.
+   * `last` envelope bookkeeping - see {@link InsertStreamRequest}. Also reachable, bound to an
+   * open transaction, as `TransactionHandle.insertStream` (see `transaction.ts`).
    */
   insertStream: ReturnType<typeof createInsertStream>;
   /**

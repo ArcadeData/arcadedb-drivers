@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import grpc
 import pytest
-from arcadedb_driver_grpc import create_client, messages
+from arcadedb_driver_grpc import InsertStreamRequest, create_client, messages
 
 from .conftest import RecordingServicer
 
@@ -175,19 +175,70 @@ def test_stream_query_through_the_handle_is_bound_to_the_transaction(
     assert sent.database == "db"
 
 
-def test_insert_stream_is_not_offered_on_the_handle(
+def test_insert_stream_through_the_handle_is_bound_to_the_transaction(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:
-    # ArcadeData/arcadedb#6607: on 26.8.1 and earlier the server ignored TransactionContext
-    # for InsertStream and BulkInsert, so offering them here would have implied a guarantee
-    # it did not honour. #6607 HAS since landed (79d931070b, released in 26.9.1) and was
-    # re-measured against real 26.8.1 / 26.9.1 / 26.10.1 servers, so this test now
-    # pins a restriction no supported server needs. Delete it when the methods are added -
-    # that is public surface, so it is a release decision, not a contract-adoption change.
+    # Replaces the old exclusion test: ArcadeData/arcadedb#6607 (the server ignoring
+    # TransactionContext on InsertStream) is fixed from 26.9.1, where every compatibility
+    # table starts. The request below is forged on purpose - another database, another
+    # transaction id, and inline commit/rollback flags - because `_bind` must REPLACE all
+    # of it, not merge: a surviving `rollback=True` or foreign id is #5040-#5042's shape.
+    target, servicer = fake_server
+    servicer.transaction_id = "tx-42"
+    forged = messages.TransactionContext(
+        transaction_id="tx-forged", database="elsewhere", begin=True, commit=True, rollback=True, timeout_ms=5
+    )
+    options = messages.InsertOptions(target_class="Person")
+    request = InsertStreamRequest(
+        database="somewhere-else",
+        chunks=[[messages.GrpcRecord(rid="#1:0")], [messages.GrpcRecord(rid="#1:1")]],
+        options=options,
+        transaction=forged,
+    )
+    with create_client(target) as client, client.transaction("db") as tx:
+        summary = tx.insert_stream(request)
+
+    assert summary.received == 2
+    assert servicer.calls == ["BeginTransaction", "InsertStream", "CommitTransaction"]
+    assert len(servicer.insert_chunks) == 2
+    for chunk in servicer.insert_chunks:
+        # The handle's context on EVERY chunk, with no lifecycle flags.
+        assert chunk.transaction == messages.TransactionContext(transaction_id="tx-42", database="db")
+        assert chunk.options.target_class == "Person"
+    # `database` on the first chunk only - the client's envelope, reused, not duplicated.
+    assert [c.database for c in servicer.insert_chunks] == ["db", ""]
+
+    # The caller's request is left alone.
+    assert request.database == "somewhere-else"
+    assert request.transaction is forged
+    assert forged == messages.TransactionContext(
+        transaction_id="tx-forged", database="elsewhere", begin=True, commit=True, rollback=True, timeout_ms=5
+    )
+    assert request.options is options
+
+
+def test_insert_stream_through_the_handle_forwards_timeout_and_metadata(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    target, servicer = fake_server
+    with create_client(target) as client, client.transaction("db") as tx:
+        tx.insert_stream(
+            InsertStreamRequest(database="db", chunks=[[messages.GrpcRecord(rid="#1:0")]]),
+            metadata=(("x-test-header", "hello"),),
+        )
+    assert ("x-test-header", "hello") in servicer.metadata_by_rpc["InsertStream"]
+
+
+def test_bulk_insert_and_graph_batch_load_are_not_offered_on_the_handle(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # Only `insert_stream` joined the handle (#46). `BulkInsert` and `GraphBatchLoad` stay
+    # reachable through `client.raw` only - the parity bar in the 26.10.1 migration
+    # design, D4. Adding either is public surface and a deliberate decision.
     target, _ = fake_server
     with create_client(target) as client, client.transaction("db") as tx:
-        assert not hasattr(tx, "insert_stream")
         assert not hasattr(tx, "bulk_insert")
+        assert not hasattr(tx, "graph_batch_load")
 
 
 def test_the_callers_request_object_is_left_unchanged(

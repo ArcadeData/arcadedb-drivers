@@ -2,7 +2,7 @@ import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { ArcadeDbService } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import { TransactionContextSchema } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
-import { createStreamQuery, createTimeSeriesQuery } from "./stream.js";
+import { createInsertStream, createStreamQuery, createTimeSeriesQuery } from "./stream.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
 type RawClient = Client<typeof ArcadeDbService>;
@@ -16,22 +16,9 @@ type TransactionContextInit = MessageInitShape<typeof TransactionContextSchema>;
  * `rollbackTransaction` (owned by the wrapper) and the two RPCs the design spec keeps
  * unwrapped (`insertBidirectional`, `graphBatchLoad` - reachable, unwrapped, via `client.raw`).
  *
- * Also excludes `bulkInsert` and `insertStream`: on 26.8.1 and every earlier server,
- * `ArcadeDbGrpcService#bulkInsert` and `#insertStream` never read the request's transaction
- * context at all - each builds its own `InsertContext`, which resolves its own `Database` and
- * commits on its own, independent of any `BeginTransaction`/`CommitTransaction`/
- * `RollbackTransaction` the caller issued. Binding them here would silently lie: their writes are
- * NOT part of the transaction, survive a rollback, and commit even when the callback throws. Both
- * remain reachable outside a transaction: `insertStream` via `client.insertStream` (or
- * `client.raw.insertStream`), `bulkInsert` via `client.raw.bulkInsert`.
- *
- * [ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607) HAS since landed
- * server-side (`79d931070b`, released in 26.9.1), and measurement against 26.8.1, 26.9.1 and
- * 26.10.1 confirms it: an `InsertStream` carrying a server-issued `transaction_id`
- * survives a rollback on 26.8.1 and is correctly discarded on both later versions. So this
- * exclusion is removable for every server version this package supports - but lifting it ADDS
- * public surface, a release decision rather than a documentation fix, so it is tracked as a
- * follow-up and not done here.
+ * Also excludes `bulkInsert`, which stays reachable only through `client.raw.bulkInsert` (the same
+ * parity bar that keeps `graphBatchLoad` raw-only). `insertStream` IS included - see its own doc
+ * below for the server-version caveat that applies to it.
  */
 export interface TransactionHandle {
   executeQuery: RawClient["executeQuery"];
@@ -59,6 +46,22 @@ export interface TransactionHandle {
    * `executeQuery`/`vectorSearch`/etc. are above.
    */
   timeSeriesLatest: RawClient["timeSeriesLatest"];
+  /**
+   * See {@link createInsertStream}; bound to this transaction. Same request and return as the
+   * client's own `insertStream`, and the same chunk envelope (it IS the client's implementation):
+   * `database` on the first chunk only, `transaction`, `options` and `credentials` on every chunk.
+   * Whatever `database` and `transaction` the caller puts on the request are replaced, as for
+   * every other handle method, with this transaction's database and a bare `{ transactionId,
+   * database }` context - no `commit`/`rollback` flags survive - so the rows commit or roll back
+   * with the transaction.
+   *
+   * That depends on a server that reads the chunk's transaction context: servers before 26.9.1
+   * ignored it on `InsertStream`
+   * ([ArcadeData/arcadedb#6607](https://github.com/ArcadeData/arcadedb/issues/6607), fixed in
+   * `79d931070b`) and committed the rows on their own, so they survived a rollback. Those servers
+   * are outside this package's compatibility table.
+   */
+  insertStream: ReturnType<typeof createInsertStream>;
 }
 
 /**
@@ -103,6 +106,10 @@ function createHandle(raw: RawClient, database: string, transactionId: string): 
     streamQuery: createStreamQuery(streamRaw),
     timeSeriesQuery: createTimeSeriesQuery(timeSeriesQueryRaw),
     timeSeriesLatest: bound(raw.timeSeriesLatest),
+    // The client's own `insertStream` wrapper, bound at the request level: `InsertStreamRequest`
+    // carries `database` and `transaction` like every other request here, so the same `bound`
+    // override applies before the envelope is built, and the envelope logic is not duplicated.
+    insertStream: bound(createInsertStream(raw)),
   };
 }
 

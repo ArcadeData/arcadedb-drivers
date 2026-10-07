@@ -8,6 +8,7 @@ import type {
   CommitTransactionResponseSchema,
   ExecuteQueryRequestSchema,
   FullTextSearchRequestSchema,
+  InsertChunkSchema,
   HybridSearchRequestSchema,
   RollbackTransactionRequestSchema,
   RollbackTransactionResponseSchema,
@@ -29,6 +30,7 @@ type HybridSearchRequest = MessageInitShape<typeof HybridSearchRequestSchema>;
 type FullTextSearchRequest = MessageInitShape<typeof FullTextSearchRequestSchema>;
 type TimeSeriesQueryRequest = MessageInitShape<typeof TimeSeriesQueryRequestSchema>;
 type TimeSeriesLatestRequest = MessageInitShape<typeof TimeSeriesLatestRequestSchema>;
+type InsertChunk = MessageInitShape<typeof InsertChunkSchema>;
 
 /** Records every call made through a fake `raw` client, mimicking the subset of
  * `Client<typeof ArcadeDbService>` the transaction wrapper touches. */
@@ -60,6 +62,8 @@ function mockRaw(
     fullTextSearch: FullTextSearchRequest[];
     timeSeriesQuery: TimeSeriesQueryRequest[];
     timeSeriesLatest: TimeSeriesLatestRequest[];
+    insertStream: InsertChunk[];
+    insertStreamOptions: (CallOptions | undefined)[];
   } = {
     begin: [],
     commit: [],
@@ -71,6 +75,8 @@ function mockRaw(
     fullTextSearch: [],
     timeSeriesQuery: [],
     timeSeriesLatest: [],
+    insertStream: [],
+    insertStreamOptions: [],
   };
 
   const raw = {
@@ -133,17 +139,21 @@ function mockRaw(
       finishedAt: undefined,
     }),
     streamQuery: async function* () {},
-    insertStream: async () => ({
-      received: 0n,
-      inserted: 0n,
-      updated: 0n,
-      ignored: 0n,
-      failed: 0n,
-      errors: [],
-      executionTimeMs: 0n,
-      startedAt: undefined,
-      finishedAt: undefined,
-    }),
+    insertStream: async (request: AsyncIterable<InsertChunk>, options?: CallOptions) => {
+      calls.insertStreamOptions.push(options);
+      for await (const chunk of request) calls.insertStream.push(chunk);
+      return {
+        received: 0n,
+        inserted: 0n,
+        updated: 0n,
+        ignored: 0n,
+        failed: 0n,
+        errors: [],
+        executionTimeMs: 0n,
+        startedAt: undefined,
+        finishedAt: undefined,
+      };
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 
@@ -514,6 +524,88 @@ describe("transaction", () => {
       // The caller's own object is left unmutated.
       expect(request.database).toBe("somewhere-else");
       expect(request.transaction?.transactionId).toBe("hijacked-tx-id");
+    });
+  });
+  describe("insertStream through the handle", () => {
+    // Replaces the exclusion this handle carried until #46: `insertStream` was left off
+    // `TransactionHandle` because servers up to 26.8.1 ignored its transaction context
+    // (ArcadeData/arcadedb#6607). Every supported server reads it, so it is now offered - bound
+    // through the same override as every other handle method.
+    async function* rowBatches() {
+      yield [{ type: "P", properties: {} }];
+      yield [{ type: "P", properties: {} }];
+      yield [{ type: "P", properties: {} }];
+    }
+
+    it("is offered on the handle", async () => {
+      const { raw } = mockRaw();
+      const transaction = createTransaction(raw);
+
+      await transaction("mydb", async (tx) => {
+        expect(typeof tx.insertStream).toBe("function");
+      });
+    });
+
+    it("sends the handle's database on the first chunk and its transaction on every chunk, with no commit/rollback flags, whatever the caller set (anti-hijack)", async () => {
+      const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+      const transaction = createTransaction(raw);
+      const callerTransaction = {
+        transactionId: "hijacked-tx-id",
+        database: "somewhere-else",
+        rollback: true,
+        readOnly: true,
+        commit: true,
+        timeoutMs: 5n,
+      };
+      const request = {
+        database: "somewhere-else",
+        options: { targetClass: "P" },
+        transaction: callerTransaction,
+        chunks: rowBatches(),
+      };
+      const callOptions: CallOptions = { timeoutMs: 1234 };
+
+      await transaction("mydb", async (tx) => {
+        await tx.insertStream(request, callOptions);
+      });
+
+      expect(calls.insertStream).toHaveLength(3);
+      expect(calls.insertStream[0]?.database).toBe("mydb");
+      expect(calls.insertStream[1]?.database).toBeUndefined();
+      expect(calls.insertStream[2]?.database).toBeUndefined();
+      for (const chunk of calls.insertStream) {
+        // Replaced wholesale, not merged: only `transactionId` and `database`, never the caller's
+        // `commit`/`rollback`/`readOnly`/`timeoutMs`.
+        expect(chunk.transaction).toEqual({ transactionId: "tx-abc", database: "mydb" });
+        expect(chunk.options).toEqual({ targetClass: "P" });
+      }
+      expect(calls.insertStream[2]?.last).toBe(true);
+      expect(calls.insertStreamOptions[0]).toBe(callOptions);
+
+      // The caller's own request is left unmutated.
+      expect(request.database).toBe("somewhere-else");
+      expect(request.transaction).toBe(callerTransaction);
+      expect(callerTransaction).toEqual({
+        transactionId: "hijacked-tx-id",
+        database: "somewhere-else",
+        rollback: true,
+        readOnly: true,
+        commit: true,
+        timeoutMs: 5n,
+      });
+    });
+
+    it("binds the transaction even when the caller set none, including on the empty-stream chunk", async () => {
+      const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+      const transaction = createTransaction(raw);
+
+      await transaction("mydb", async (tx) => {
+        await tx.insertStream({ database: "mydb", chunks: (async function* () {})() });
+      });
+
+      expect(calls.insertStream).toHaveLength(1);
+      expect(calls.insertStream[0]?.transaction).toEqual({ transactionId: "tx-abc", database: "mydb" });
+      expect(calls.insertStream[0]?.last).toBe(true);
     });
   });
 });

@@ -93,9 +93,9 @@ facade adds five things on top, for the RPCs the generated client alone handles 
 `StreamQuery`, `TimeSeriesQuery`, `InsertStream`, `TimeSeriesWriteStream` and `Transaction`.
 Everything else (the unary CRUD calls, `VectorSearch`/`HybridSearch`/`FullTextSearch`,
 `TimeSeriesLatest`, `TimeSeriesWrite`, `BulkInsert`, `InsertBidirectional`, `GraphBatchLoad`) is
-called directly through `Raw()`, exactly as above. The CRUD calls, the three searches and
-`TimeSeriesLatest` also get a bound method on `TxHandle` once a transaction is open; the rest never
-do.
+called directly through `Raw()`, exactly as above. The CRUD calls, the three searches,
+`TimeSeriesLatest`, `StreamQuery`, `TimeSeriesQuery` and `InsertStream` also get a bound method on
+`TxHandle` once a transaction is open; the rest never do.
 
 Every call takes a `context.Context` first, and there is **no default timeout**: bound a call with
 a `ctx` deadline. Every facade method also takes trailing `...grpc.CallOption`s, passed to grpc-go
@@ -334,7 +334,9 @@ Your `Options`, `Credentials` and `Transaction` are never modified. An empty inp
 it sends one chunk with `chunk_seq` 1, `last=true` and no rows, and returns whatever summary the
 server answers. The summary is returned unchanged.
 
-`InsertStream` is **not** available on a `TxHandle`; see "Transactions" below.
+Inside a transaction, call `tx.InsertStream` on the `TxHandle` instead: the same envelope, with
+`Database` and `Transaction` bound to the handle's transaction, so the rows commit or roll back
+with it. See "Transactions" below.
 
 ### Both client streams run your sequence on your goroutine
 
@@ -409,8 +411,8 @@ Both rollbacks run under `context.WithoutCancel(ctx)`: the commonest reason `fn`
 
 `TxHandle` has the ten unary data-plane methods that carry a transaction (`ExecuteQuery`,
 `ExecuteCommand`, `CreateRecord`, `UpdateRecord`, `DeleteRecord`, `LookupByRid`, `VectorSearch`,
-`HybridSearch`, `FullTextSearch`, `TimeSeriesLatest`) plus bound `StreamQuery` and
-`TimeSeriesQuery`. Each takes the generated request and sends a **copy** of it with `Database`
+`HybridSearch`, `FullTextSearch`, `TimeSeriesLatest`) plus bound `StreamQuery`, `TimeSeriesQuery` and
+`InsertStream`. Each takes the request and sends a **copy** of it with `Database`
 forced to the transaction's database and the whole `Transaction` field **replaced** by
 `TransactionContext{TransactionId, Database}`. That override is the safety mechanism: it makes
 transaction hijack (ArcadeData/arcadedb#5040) unrepeatable through the handle, since a request that
@@ -421,7 +423,14 @@ still reachable through `c.Raw()`. A request's own `Credentials` field passes th
 The request you pass in is **never mutated**. Binding it in place would leave it carrying this
 transaction's id after the transaction ended, and reusing it, through `c.Raw()` or in a later
 transaction, would send that dead id to the server: #5040's shape reached by aliasing. For the two
-streams, the copy is taken when you call the method, not when you range over the result.
+query streams, the copy is taken when you call the method, not when you range over the result.
+`InsertStream` takes its `InsertStreamRequest` by value and replaces `Database` and `Transaction`
+on that copy; your `Options` and `Credentials` are sent as given, `Transaction` on every chunk.
+
+`tx.InsertStream`'s rows are discarded when the transaction rolls back and kept when it commits on
+every server this module supports. Servers before 26.9.1, outside the compatibility table, ignored
+an insert stream's `TransactionContext` (ArcadeData/arcadedb#6607), so against them its rows would
+survive a rollback.
 
 **Do not keep the handle.** Once `Transaction` returns, the handle's calls carry an id the server
 has already committed or rolled back, and the server refuses them with `FailedPrecondition`
@@ -429,19 +438,9 @@ has already committed or rolled back, and the server refuses them with `FailedPr
 
 ### What the handle does not have
 
-`InsertStream` and `TimeSeriesWriteStream` are absent from `TxHandle`, as in the Python client,
-for two different reasons:
-
-- **`InsertStream`** is a release decision, not a limit. Servers up to 26.8.1 ignored an insert
-  stream's `TransactionContext`, so its rows survived a rollback; the server fix
-  (ArcadeData/arcadedb#6607) shipped in 26.9.1, and every server this module supports has it.
-  Adding the method to the handle is tracked as ArcadeData/arcadedb-drivers#46. Until then,
-  `c.InsertStream` is a top-level call only: its `Transaction` field is sent on every chunk as
-  given, and a server from 26.9.1 on honours it, but nothing binds it for you the way the handle
-  does.
-- **`TimeSeriesWriteStream`** cannot join a transaction at all: `TimeSeriesWriteChunk` has no
-  transaction field on the wire. Neither does the unary `TimeSeriesWrite`. Only a contract change
-  upstream could alter that.
+`TimeSeriesWriteStream` is absent from `TxHandle`, as in the Python and TypeScript clients: it
+cannot join a transaction at all, because `TimeSeriesWriteChunk` has no transaction field on the
+wire. Neither does the unary `TimeSeriesWrite`. Only a contract change upstream could alter that.
 
 `BulkInsert`, `InsertBidirectional` and `GraphBatchLoad` are raw-only at every level, as in the
 Python and TypeScript clients.

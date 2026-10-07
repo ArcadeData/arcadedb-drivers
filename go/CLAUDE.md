@@ -477,7 +477,8 @@ carrying the server's message, with no rollback since nothing is left to roll ba
 
 `TxHandle` has the ten unary data-plane methods (`ExecuteQuery`, `ExecuteCommand`, `CreateRecord`,
 `UpdateRecord`, `DeleteRecord`, `LookupByRid`, `VectorSearch`, `HybridSearch`, `FullTextSearch`,
-`TimeSeriesLatest`) plus bound `StreamQuery` and `TimeSeriesQuery`. Each `proto.Clone`s the request
+`TimeSeriesLatest`) plus bound `StreamQuery`, `TimeSeriesQuery` and `InsertStream`. Each
+`proto.Clone`s the request (`InsertStream` copies its by-value `InsertStreamRequest` instead)
 and assigns `r.Database, r.Transaction = h.binding()`: `Database` forced, and the whole
 `Transaction` field **replaced** by a fresh `TransactionContext{TransactionId, Database}`, so
 caller-set inline `begin`/`commit`/`rollback` flags are wiped, not merged. Three properties to
@@ -491,9 +492,14 @@ preserve:
 - **A request's own `Credentials` pass through unbound**; which principal may act is the server's
   business.
 
-`InsertStream` and `TimeSeriesWriteStream` are absent from the handle, as in Python:
-`InsertStream` is pending ArcadeData/arcadedb-drivers#46 (the server fix, ArcadeData/arcadedb#6607,
-shipped in 26.9.1), and `TimeSeriesWriteChunk` has no transaction field at all. A handle used after
+`TxHandle.InsertStream` reuses `Client.InsertStream`'s envelope (the shared `insertStream`) on a
+by-value copy of the `InsertStreamRequest` with `Database, Transaction = h.binding()`, so every
+chunk carries the handle's context and the caller's struct is untouched
+(`TestTxHandleInsertStreamBindsEveryChunk`). Servers before 26.9.1, outside the compatibility table,
+ignored the transaction on `InsertStream` (ArcadeData/arcadedb#6607), so rows would survive a
+rollback there; `e2e`'s `TestGrpcTxInsertStreamCommitAndRollback` pins both outcomes live.
+`TimeSeriesWriteStream` is absent from the handle: `TimeSeriesWriteChunk` has no transaction field
+at all. `BulkInsert` and `GraphBatchLoad` stay raw-only. A handle used after
 `Transaction` returns is refused by the server with `FailedPrecondition` ("Unknown or expired
 transaction id"), measured live by `e2e`'s `TestGrpcHandleAfterCommitIsRefused`; the client does
 not track handle liveness itself.
@@ -502,7 +508,7 @@ not track handle liveness itself.
 
 Unit tests use `google.golang.org/grpc/test/bufconn` and small fake servers embedding the
 generated `Unimplemented...Server` types (`fake_test.go`): no network, no Docker, no extra
-dependency. The e2e tests (`e2e/grpc_test.go`, twelve of them, mirroring `python/e2e/test_grpc.py`)
+dependency. The e2e tests (`e2e/grpc_test.go`, thirteen of them, mirroring `python/e2e/test_grpc.py`)
 run against the second container `e2e/grpc_main_test.go` starts: the same image with
 `JAVA_OPTS="-Darcadedb.server.rootPassword=playwithdata -Darcadedb.server.plugins=GRPC:com.arcadedb.server.grpc.GrpcServerPlugin"`,
 ports 2480 and 50051, ready on `/api/v1/ready` 204 and then on the log line

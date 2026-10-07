@@ -20,11 +20,33 @@ __all__ = [
 ]
 
 
+def _as_metadata(
+    metadata: Sequence[tuple[str, str | bytes]] | None,
+) -> tuple[tuple[str, str | bytes], ...] | None:
+    """Adapts the sync facade's public `Sequence` parameter to the sync stub's own type.
+
+    `grpc-stubs` types the SYNC multi-callables' `__call__` `metadata` (unary-unary,
+    unary-stream and stream-unary alike) as `tuple[tuple[str, str | bytes], ...] | None` -
+    a concrete homogeneous tuple, not `Sequence` - while `grpc.aio`'s equivalent accepts
+    the broader `Metadata | Sequence[MetadatumType]`, which is why `aio.py` needs no
+    equivalent conversion. Narrowing the facade's own public parameter to a tuple would
+    fix the mismatch too, but `Sequence` is what a caller most naturally has on hand (a
+    list built up in a loop) and is already the shape `auth.Auth.metadata` documents, so
+    the conversion happens here instead of pushing a tuple requirement onto every caller.
+
+    Lives here rather than in `transaction.py`, which uses it for `TransactionHandle`'s
+    unary methods, because `transaction.py` imports this module: the streaming wrappers
+    below need it too, and the reverse import would be circular.
+    """
+    return None if metadata is None else tuple(metadata)
+
+
 def stream_query(
     raw: ArcadeDbServiceStub,
     request: messages.StreamQueryRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> Iterator[messages.GrpcRecord]:
     """Streams a query's results row by row.
 
@@ -35,8 +57,12 @@ def stream_query(
     as given and this wrapper picks no defaults for either, because CURSOR,
     MATERIALIZE_ALL and PAGED have materially different memory and consistency behaviour
     that only the caller can judge.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    for result in raw.StreamQuery(request, timeout=timeout):
+    for result in raw.StreamQuery(request, timeout=timeout, metadata=_as_metadata(metadata)):
         yield from result.records
 
 
@@ -45,6 +71,7 @@ def time_series_query(
     request: messages.TimeSeriesQueryRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> Iterator[messages.TimeSeriesQueryResult]:
     """Streams a time-series answer message by message.
 
@@ -67,8 +94,12 @@ def time_series_query(
     enforcement: an unknown tag name in `tags` and a `limit` above
     `arcadedb.server.grpcTimeSeriesMaxResultRows` are both refused by the server, not by
     this package - see the README's "Time series" section.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    yield from raw.TimeSeriesQuery(request, timeout=timeout)
+    yield from raw.TimeSeriesQuery(request, timeout=timeout, metadata=_as_metadata(metadata))
 
 
 @dataclass
@@ -81,20 +112,19 @@ class InsertStreamRequest:
     not decide how rows are batched, which is the caller's call.
 
     `transaction` IS FORWARDED. It is set on every chunk, exactly as the caller gave it,
-    because the `.proto` declares the field. On 26.8.1 and earlier the server ignored
-    `TransactionContext` for `InsertStream` entirely (ArcadeData/arcadedb#6607), so setting
-    it bought no transactional guarantee; that is why `insert_stream` is not offered on
-    `TransactionHandle` at all - there the omission makes the gap visible, whereas here the
-    field is part of the wire message and cannot be hidden.
+    because the `.proto` declares the field - including any inline `begin`/`commit`/
+    `rollback` flags, which this wrapper does not police. `TransactionHandle.insert_stream`
+    is the safe spelling: its `_bind` replaces `database` and `transaction` with the
+    handle's own (id and database only, no flags) before this envelope ever sees the
+    request.
 
-    #6607 HAS since landed (`79d931070b`, released in 26.9.1). Measured against real
-    26.8.1, 26.9.1 and 26.10.1 servers - begin over `BeginTransaction`, insert
-    with that server-issued `transaction_id`, then roll back - the rows survive the
-    rollback on 26.8.1 and are correctly discarded on both later versions, with a commit
-    persisting them on all three. So the guarantee IS honoured on every server version this
-    package supports, and the `TransactionHandle` omission is now removable. Lifting it adds
-    public surface, so it is tracked as a follow-up rather than done during a contract
-    adoption.
+    On 26.8.1 and earlier the server ignored `TransactionContext` for `InsertStream`
+    entirely (ArcadeData/arcadedb#6607). The fix (`79d931070b`) shipped in 26.9.1; measured
+    against real 26.8.1, 26.9.1 and 26.10.1 servers - begin over `BeginTransaction`, insert
+    with that server-issued `transaction_id`, then roll back - the rows survive the rollback
+    on 26.8.1 and are discarded on both later versions, with a commit persisting them on all
+    three. Every server in the compatibility table is 26.9.1 or later; against an older one
+    the rows of a rolled-back transaction would survive.
     """
 
     database: str
@@ -217,6 +247,7 @@ def insert_stream(
     request: InsertStreamRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> messages.InsertSummary:
     """Streams rows to the server in chunks and returns the server's single `InsertSummary`.
 
@@ -235,13 +266,19 @@ def insert_stream(
     An empty `request.chunks` sends a single chunk with zero rows and `last=True` rather
     than raising.
 
-    NOT available on a `TransactionHandle`: on 26.8.1 and earlier, ArcadeData/arcadedb#6607
-    had the server ignoring `TransactionContext` here, so offering it there would have
-    implied a transactional guarantee the server did not honour. That fix shipped in 26.9.1
-    and the omission is now removable - see `InsertStreamRequest` for the measurement and
-    why lifting it is a follow-up rather than part of a contract adoption.
+    Also reachable, bound to an open transaction, as `TransactionHandle.insert_stream`
+    (see `transaction.py`), which replaces `database` and `transaction` with the handle's
+    own so the rows commit or roll back with it. Servers before 26.9.1, outside the
+    compatibility table, ignored `TransactionContext` here (ArcadeData/arcadedb#6607) - see
+    `InsertStreamRequest`.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    return raw.InsertStream(_envelope_chunks(request, str(uuid.uuid4())), timeout=timeout)
+    return raw.InsertStream(
+        _envelope_chunks(request, str(uuid.uuid4())), timeout=timeout, metadata=_as_metadata(metadata)
+    )
 
 
 @dataclass
@@ -356,6 +393,7 @@ def time_series_write_stream(
     request: TimeSeriesWriteStreamRequest,
     *,
     timeout: float | None = None,
+    metadata: Sequence[tuple[str, str | bytes]] | None = None,
 ) -> messages.TimeSeriesWriteSummary:
     """Streams points to the server in chunks and returns the server's `TimeSeriesWriteSummary`.
 
@@ -385,5 +423,11 @@ def time_series_write_stream(
     there is nothing to bind. `TimeSeriesWrite` (the unary write) needs no wrapper either -
     its request has no `transaction` field, so `raw.TimeSeriesWrite` already works
     unassisted.
+
+    `timeout` and `metadata` are forwarded to the stub call as given. `metadata` is
+    per-call gRPC metadata, APPENDED to whatever the channel's auth interceptor adds
+    (see `auth.py`) - never a substitute for channel auth.
     """
-    return raw.TimeSeriesWriteStream(_envelope_time_series_chunks(request), timeout=timeout)
+    return raw.TimeSeriesWriteStream(
+        _envelope_time_series_chunks(request), timeout=timeout, metadata=_as_metadata(metadata)
+    )

@@ -109,24 +109,40 @@ strip `await`/`async` mechanically to produce sync) is a **non-goal** here: it w
 step and a second thing that can drift, to remove duplication that mypy already keeps honest -
 `aio.py`'s docstring says the same. Keep both facades in sync by hand when one changes.
 
+The duplication covers the **prose** too, not only the code: both halves of a duplicated facade
+carry their own full docstrings. A reader of either half should learn the whole contract - what is
+passed through, what is refused and when, what the failure paths are - without opening the other
+half or a shared helper module such as `arcadedb-driver-grpc`'s `stream.py`. A one-line "see X"
+pointer where the twin states the contract is a gap, not a saving (issue #30 brought the gRPC
+sync facade up to its async twin for exactly this). Carry a passage over **adapted**, never
+copied blind: what is true of one call style can be false of the other (the async gRPC
+`AsyncTransaction.__aexit__` documents `asyncio` cancellation, where the sync
+`Transaction.__exit__` documents the `KeyboardInterrupt` analogue instead, and the two facades
+accept different halves of the `chunks` union). When a passage changes on one side, update its
+twin in the same change.
+
 `arcadedb-driver-grpc` follows the same shape with a much thinner facade: `create_client` /
 `aio.create_client` wrap only the RPCs the generated stub handles badly at the top level
-(`stream_query`, `insert_stream`, `transaction`) - there is no `_generated`-tree
+(`stream_query`, `insert_stream`, `time_series_query`, `time_series_write_stream`,
+`transaction`) - there is no `_generated`-tree
 envelope-normalising step to mirror `facade/data.py`, because gRPC responses need no such
 unwrapping (see that package's README, "Errors: `grpc.RpcError`, not a package-specific error").
 `transaction()` itself returns a **second** wrapper, `TransactionHandle` (`transaction.py`), not a
 bare route back to `raw`: every call made through it (`execute_query`, `execute_command`,
 `create_record`, `update_record`, `delete_record`, `lookup_by_rid`, `vector_search`,
-`hybrid_search`, `full_text_search`, plus `stream_query` again, bound this time) passes through
-`_bind`, which forcibly overwrites `request.database` and
-`request.transaction` with the handle's own values, discarding whatever the caller had set on the
-request object first. That override is the safety mechanism, not an incidental detail - it is
+`hybrid_search`, `full_text_search`, `time_series_latest`, plus `stream_query`,
+`time_series_query` and `insert_stream` again, bound this time) passes through `_bind`, which forcibly overwrites `request.database` and
+`request.transaction` with the handle's own values on a copy, discarding whatever the caller had set
+on the request object first. `InsertStreamRequest` is the package's own dataclass rather than a
+protobuf message, so `_bind` copies it with `dataclasses.replace` and a fresh
+`TransactionContext` instead of `CopyFrom`; the effect is the same, a caller's id or
+`commit`/`rollback` flags never reach the wire. That override is the safety mechanism, not an incidental detail - it is
 what makes transaction hijack, silent data loss, and leaked transactions
 (ArcadeData/arcadedb#5040-#5042) unrepeatable through the handle, the gRPC-specific way
 `arcadedb-driver`'s second `ArcadeDBDatabase` handle (see "The transaction contract" below) keeps a
-transaction's calls separated from the outer handle's. Only three data-plane RPCs are ever
+transaction's calls separated from the outer handle's. Only four data-plane RPCs are ever
 reachable solely through `raw` with no wrapper at any level: `BulkInsert`, `InsertBidirectional`,
-and `GraphBatchLoad` - `raw_admin`'s 44 control-plane RPCs are all reachable only through a bare
+`GraphBatchLoad` and `TimeSeriesWrite` (whose request has no `transaction` field to bind) - `raw_admin`'s 44 control-plane RPCs are all reachable only through a bare
 stub call the same way, since no facade wraps any of them (see `ArcadeDBGrpcClient`'s class
 docstring in `__init__.py`).
 

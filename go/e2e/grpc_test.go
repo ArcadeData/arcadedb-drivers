@@ -211,6 +211,54 @@ func TestGrpcTransactionCommitAndRollback(t *testing.T) {
 	}
 }
 
+// Rows sent through TxHandle.InsertStream join the transaction: discarded when the callback
+// fails, kept when it commits. Servers before 26.9.1 ignored the stream's transaction
+// (ArcadeData/arcadedb#6607) and kept rolled-back rows. The rows are read back through the
+// Client, outside the transaction.
+func TestGrpcTxInsertStreamCommitAndRollback(t *testing.T) {
+	ctx := context.Background()
+	db := newGrpcDatabase(t)
+	c := newGrpcClient(t, db)
+	insert := func(marker string) arcadedbgrpc.InsertStreamRequest {
+		return arcadedbgrpc.InsertStreamRequest{
+			Options: &generated.InsertOptions{TargetClass: "Person"},
+			Chunks:  slices.Values([][]*generated.GrpcRecord{{person(marker + "-a")}, {person(marker + "-b")}}),
+		}
+	}
+
+	rolledBack := uniqueMarker("itr")
+	sentinel := errors.New("boom")
+	err := c.Transaction(ctx, db, func(tx *arcadedbgrpc.TxHandle) error {
+		summary, err := tx.InsertStream(ctx, insert(rolledBack))
+		if err != nil {
+			return err
+		}
+		if summary.GetInserted() != 2 {
+			t.Errorf("rollback case summary = %v", summary)
+		}
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("err = %v, want the callback's sentinel", err)
+	}
+	if got := personNames(t, c, db, rolledBack); len(got) != 0 {
+		t.Fatalf("rows survived the rollback: %v", got)
+	}
+
+	committed := uniqueMarker("itc")
+	err = c.Transaction(ctx, db, func(tx *arcadedbgrpc.TxHandle) error {
+		_, err := tx.InsertStream(ctx, insert(committed))
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{committed + "-a", committed + "-b"}
+	if got := personNames(t, c, db, committed); !slices.Equal(got, want) {
+		t.Fatalf("committed names = %v, want %v", got, want)
+	}
+}
+
 // The handle outlives its callback in Go, unlike Python's context manager. What the server
 // does with a call bound to an already-committed transaction id is observed here, not
 // assumed; the doc comment on TxHandle depends on the answer.

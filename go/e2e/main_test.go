@@ -24,6 +24,9 @@ const defaultImage = "arcadedata/arcadedb:26.11.1-SNAPSHOT"
 
 const rootPassword = "playwithdata"
 
+// wsMaxChunkRows is the /ws row cap the HTTP container runs with.
+const wsMaxChunkRows = 4
+
 // baseURL is the running container's HTTP address, set by TestMain.
 var baseURL string
 
@@ -47,7 +50,10 @@ func run(m *testing.M) int {
 			Image:        image,
 			ExposedPorts: []string{"2480/tcp"},
 			Env: map[string]string{
-				"JAVA_OPTS": "-Darcadedb.server.rootPassword=" + rootPassword,
+				// wsMaxInsertChunkRows is set low so TestInsertSessionRefusedChunk can
+				// reach the row cap without sending 100,000 rows. It only bounds /ws chunks.
+				"JAVA_OPTS": "-Darcadedb.server.rootPassword=" + rootPassword +
+					" -Darcadedb.server.wsMaxInsertChunkRows=" + fmt.Sprint(wsMaxChunkRows),
 			},
 			WaitingFor: wait.ForHTTP("/api/v1/ready").WithPort("2480/tcp").
 				WithStatusCodeMatcher(func(s int) bool { return s == 204 }).

@@ -185,6 +185,50 @@ def grpc_database(grpc_server: tuple[str, str]) -> str:
     return GRPC_DB_NAME
 
 
+WS_DB_NAME = "clientteststws"
+#: Low enough that a frame-level refusal is reachable from a client without sending 100,000 rows;
+#: the Java IT (`Issue7403RemoteInsertSessionIT`) pins the same value for the same reason.
+WS_MAX_CHUNK_ROWS = 4
+
+
+@pytest.fixture(scope="session")
+def ws_server() -> Iterator[str]:
+    """Starts an ArcadeDB container with `arcadedb.server.wsMaxInsertChunkRows` lowered, and yields
+    its base URL.
+
+    A SEPARATE container from `base_url`'s, not an extension of it: the lowered cap would make any
+    other suite's larger chunk fail, and the `/ws` suite has no use for the default one.
+    """
+    container = (
+        DockerContainer(ARCADEDB_IMAGE)
+        .with_env(
+            "JAVA_OPTS",
+            f"-Darcadedb.server.rootPassword={ROOT_PASSWORD} "
+            f"-Darcadedb.server.wsMaxInsertChunkRows={WS_MAX_CHUNK_ROWS}",
+        )
+        .with_exposed_ports(2480)
+    )
+    with container:
+        url = f"http://{container.get_container_host_ip()}:{container.get_exposed_port(2480)}"
+        _wait_until_ready(url)
+        yield url
+
+
+@pytest.fixture(scope="session")
+def ws_database(ws_server: str) -> str:
+    """Creates the `/ws` test database over HTTP (see the `database` fixture for why the pooled
+    httpx client rather than a generated operation)."""
+    from arcadedb_driver import ArcadeDBServer, basic_auth
+
+    with ArcadeDBServer(base_url=ws_server, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        response = srv.raw.get_httpx_client().post(
+            "/api/v1/server",
+            json={"command": f"create database {WS_DB_NAME}", "language": "sql"},
+        )
+        assert response.is_success, response.text
+    return WS_DB_NAME
+
+
 VECTOR_TYPE = "VectorItem"
 
 

@@ -10,7 +10,7 @@ call style it uses. The duplication that remains is mechanical and deliberate;
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncGenerator, Iterable, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
 from functools import cached_property
 from types import TracebackType
 from typing import Any, Literal
@@ -32,7 +32,7 @@ from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
 from ._internal.batch_rows import EdgeRow, VertexRow
 from ._internal.unwrap import is_success, unwrap
-from .errors import ArcadeDBError
+from .errors import ArcadeDBError, InsertSessionError
 from .facade.batch import BatchOptions, abatch_load, abatch_load_stream
 from .facade.dashboards import AsyncGrafanaNamespace, AsyncPromQLNamespace
 from .facade.data import (
@@ -44,6 +44,7 @@ from .facade.data import (
     session_kwarg,
     to_envelope,
 )
+from .facade.insert_session import AsyncInsertSession
 from .facade.stream import astream_command, astream_query
 from .facade.timeseries import AsyncTimeSeriesNamespace
 from .facade.vector import AsyncVectorNamespace
@@ -277,6 +278,61 @@ class AsyncArcadeDBDatabase:
     def transaction(self) -> AsyncTransaction:
         """Runs a block inside a server-side transaction; see `AsyncTransaction`."""
         return AsyncTransaction(self._client, self.name)
+
+    def insert_session(
+        self,
+        *,
+        session_id: str | None = None,
+        target_type: str | None = None,
+        transaction_mode: str | None = None,
+        conflict_mode: str | None = None,
+        key_columns: Sequence[str] | None = None,
+        update_columns_on_conflict: Sequence[str] | None = None,
+        validate_only: bool = False,
+        join_current_transaction: bool = False,
+        on_batch_ack: Callable[[dict[str, Any]], None] | None = None,
+        timeout: float = 60.0,
+    ) -> AsyncInsertSession:
+        """Prepares a duplex insert session on the server's `/ws` endpoint; see `AsyncInsertSession`.
+
+        Nothing is connected until the result is entered (`async with db.insert_session(...) as s:`) or
+        `await open()`ed. Options map onto the `start` frame: `target_type` is the default type of every
+        record (a record's own `"@class"` overrides it); `transaction_mode` is one of `per_stream`
+        (the default), `per_batch`, `per_row`, `none`; `conflict_mode` one of `error` (the
+        default), `update`, `ignore`, `abort`, with `key_columns` / `update_columns_on_conflict`;
+        `validate_only` has the rows received, parsed and counted but not written. `session_id`
+        names the session; left out the server generates one, and a chosen one lives in a single
+        server-wide namespace. `on_batch_ack` is called with every `batchAck` before `send_chunk`
+        returns it. `timeout` bounds the handshake and each wait for an answer, in seconds.
+
+        `join_current_transaction=True` writes into the transaction THIS handle carries - so it only
+        works on the handle `async with db.transaction()` yields - and forces `transaction_mode="none"`. With
+        no open transaction there is nothing to join, and this raises `InsertSessionError` here
+        rather than quietly opening a server-managed session on the outer handle.
+        """
+        transaction_id: str | None = None
+        if join_current_transaction:
+            if self._session_id is None:
+                raise InsertSessionError(
+                    "The database has no open transaction to join: call insert_session() on the handle"
+                    " `async with db.transaction()` yields"
+                )
+            transaction_id = self._session_id
+            transaction_mode = "none"
+        return AsyncInsertSession(
+            self._client,
+            self.name,
+            session_id=session_id,
+            transaction_id=transaction_id,
+            target_type=target_type,
+            transaction_mode=transaction_mode,
+            conflict_mode=conflict_mode,
+            key_columns=key_columns,
+            update_columns_on_conflict=update_columns_on_conflict,
+            validate_only=validate_only,
+            on_batch_ack=on_batch_ack,
+            timeout=timeout,
+        )
 
     @cached_property
     def ts(self) -> AsyncTimeSeriesNamespace:

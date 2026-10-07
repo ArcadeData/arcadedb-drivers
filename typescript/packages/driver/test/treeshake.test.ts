@@ -25,6 +25,9 @@ const GRAFANA_MARKER = "grafana/query";
 const PROMQL_MARKER = "prom/api/v1";
 const TIMESERIES_MARKER = "/api/v1/ts/{database}/write";
 const VECTOR_MARKER = "/api/v1/vector/{database}/search";
+// The `/ws` insert session (`src/facade/insert-session.ts`): the frame name it waits for, a
+// string literal that exists nowhere else in the package.
+const INSERT_SESSION_MARKER = "batchAck";
 
 /**
  * The fixture's whole eagerly-loaded chunk set, openapi-fetch runtime included, is ~11KB
@@ -107,13 +110,14 @@ async function bundleDataPlaneEntryEagerChunks(): Promise<EagerBundle> {
 }
 
 describe("tree-shaking: the data plane excludes the dashboard, time-series, and vector modules", () => {
-  it("does not statically pull PromQL, Grafana, time-series, or vector routes into the eagerly-loaded chunk", async () => {
+  it("does not statically pull PromQL, Grafana, time-series, vector, or insert-session modules into the eagerly-loaded chunk", async () => {
     const { text, bytes } = await bundleDataPlaneEntryEagerChunks();
 
     expect(text).not.toContain(PROMQL_MARKER);
     expect(text).not.toContain(GRAFANA_MARKER);
     expect(text).not.toContain(TIMESERIES_MARKER);
     expect(text).not.toContain(VECTOR_MARKER);
+    expect(text).not.toContain(INSERT_SESSION_MARKER);
     expect(bytes).toBeLessThan(SIZE_CEILING_BYTES);
   });
 });

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
-from collections.abc import Generator, Iterable, Mapping
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from functools import cached_property
 from types import TracebackType
 from typing import Any
@@ -24,7 +24,7 @@ from ._internal.batch_rows import EdgeRow, VertexRow
 from ._internal.unwrap import is_success, unwrap
 from .aio import AsyncArcadeDBDatabase, AsyncArcadeDBServer, AsyncTransaction
 from .auth import basic_auth, bearer_auth
-from .errors import ArcadeDBError
+from .errors import ArcadeDBError, InsertSessionError
 from .facade.batch import BatchOptions, batch_load, batch_load_stream
 from .facade.dashboards import GrafanaNamespace, PromQLNamespace
 from .facade.data import (
@@ -35,6 +35,7 @@ from .facade.data import (
     session_kwarg,
     to_envelope,
 )
+from .facade.insert_session import AsyncInsertSession, InsertSession
 from .facade.stream import stream_command, stream_query
 from .facade.timeseries import TimeSeriesNamespace
 from .facade.transaction import Transaction
@@ -52,9 +53,12 @@ __all__ = [
     "ArcadeDBServer",
     "AsyncArcadeDBDatabase",
     "AsyncArcadeDBServer",
+    "AsyncInsertSession",
     "AsyncTransaction",
     "BatchOptions",
     "EdgeRow",
+    "InsertSession",
+    "InsertSessionError",
     "QueryEnvelope",
     "QueryLanguage",
     "Transaction",
@@ -226,6 +230,61 @@ class ArcadeDBDatabase:
     def transaction(self) -> Transaction:
         """Runs a block inside a server-side transaction; see `Transaction`."""
         return Transaction(self._client, self.name)
+
+    def insert_session(
+        self,
+        *,
+        session_id: str | None = None,
+        target_type: str | None = None,
+        transaction_mode: str | None = None,
+        conflict_mode: str | None = None,
+        key_columns: Sequence[str] | None = None,
+        update_columns_on_conflict: Sequence[str] | None = None,
+        validate_only: bool = False,
+        join_current_transaction: bool = False,
+        on_batch_ack: Callable[[dict[str, Any]], None] | None = None,
+        timeout: float = 60.0,
+    ) -> InsertSession:
+        """Prepares a duplex insert session on the server's `/ws` endpoint; see `InsertSession`.
+
+        Nothing is connected until the result is entered (`with db.insert_session(...) as s:`) or
+        `open()`ed. Options map onto the `start` frame: `target_type` is the default type of every
+        record (a record's own `"@class"` overrides it); `transaction_mode` is one of `per_stream`
+        (the default), `per_batch`, `per_row`, `none`; `conflict_mode` one of `error` (the
+        default), `update`, `ignore`, `abort`, with `key_columns` / `update_columns_on_conflict`;
+        `validate_only` has the rows received, parsed and counted but not written. `session_id`
+        names the session; left out the server generates one, and a chosen one lives in a single
+        server-wide namespace. `on_batch_ack` is called with every `batchAck` before `send_chunk`
+        returns it. `timeout` bounds the handshake and each wait for an answer, in seconds.
+
+        `join_current_transaction=True` writes into the transaction THIS handle carries - so it only
+        works on the handle `db.transaction()` yields - and forces `transaction_mode="none"`. With
+        no open transaction there is nothing to join, and this raises `InsertSessionError` here
+        rather than quietly opening a server-managed session on the outer handle.
+        """
+        transaction_id: str | None = None
+        if join_current_transaction:
+            if self._session_id is None:
+                raise InsertSessionError(
+                    "The database has no open transaction to join: call insert_session() on the handle"
+                    " `db.transaction()` yields"
+                )
+            transaction_id = self._session_id
+            transaction_mode = "none"
+        return InsertSession(
+            self._client,
+            self.name,
+            session_id=session_id,
+            transaction_id=transaction_id,
+            target_type=target_type,
+            transaction_mode=transaction_mode,
+            conflict_mode=conflict_mode,
+            key_columns=key_columns,
+            update_columns_on_conflict=update_columns_on_conflict,
+            validate_only=validate_only,
+            on_batch_ack=on_batch_ack,
+            timeout=timeout,
+        )
 
     @cached_property
     def ts(self) -> TimeSeriesNamespace:

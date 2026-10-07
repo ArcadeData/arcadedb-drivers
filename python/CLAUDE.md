@@ -311,6 +311,28 @@ Both defects are upstream contract inaccuracies. Both would be fixed by correcti
 contract's response schemas (element types in the first case, `POST /api/v1/server`'s `result`
 type in the second) - not by changing anything in this client.
 
+## The `/ws` insert session
+
+`facade/insert_session.py` holds `InsertSession` and `AsyncInsertSession` (side by side, like the
+time-series classes), opened with `insert_session()` on either database handle; the pure part -
+frame building, `started`/`batchAck`/`committed`/`error` interpretation, URL and TLS derivation -
+is `_internal/insert_protocol.py`, shared so the two cannot drift. It is the one place this
+package speaks WebSocket, through `websockets` (BSD-3-Clause, a runtime dependency), and it is
+hand-written beside the generated tree because `/ws` is not in the OpenAPI contract at all. It
+reads the generated `Client`'s private `_base_url` / `_headers` / `_verify_ssl` so the socket
+carries the same credentials as every HTTP call. Three rules each have a test in
+`tests/test_insert_session.py` (offline, against an in-process fake whose frames mirror
+`WebSocketInsertProtocol`; the fake is not the server) and in `e2e/test_insert_session.py`
+(real container with `wsMaxInsertChunkRows` lowered to 4, mirroring the Java
+`Issue7403RemoteInsertSessionIT`): `chunkSeq` advances only after the ack, so a refused chunk
+reuses it, and so does an ack reporting a whole-chunk transaction failure (`errors` entry at `rowIndex` -1, surfaced as the client-added `whole_chunk_failed` key), because the server does not advance its watermark for one; joining needs a transaction handle (`join_current_transaction` on the handle
+`db.transaction()` yields) and is refused client-side otherwise; and an unsolicited `error`
+(idle sweep) is raised by whichever call reads it. `websockets` is entered through an
+`ExitStack` because a bare `connect()` call warns on 17.x. Observed against the server: a chunk
+over `wsMaxInsertFrameSize` is a dropped connection (close code often `None` on the client), not
+an `error` frame, so unlike a row-cap refusal it ends the session. The README's "A duplex insert
+session" section documents all of it; keep both in step.
+
 ## Prose conventions
 
 The root `CLAUDE.md`'s note on prose conventions applies here too: each package's README and the

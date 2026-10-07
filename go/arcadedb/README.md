@@ -26,9 +26,10 @@ starts the publish. See "Releases are permanent" below before cutting one.
 go get github.com/ArcadeData/arcadedb-drivers/go/arcadedb@latest
 ```
 
-The module requires only the generated client's three runtime dependencies
-(`github.com/oapi-codegen/runtime`, `github.com/apapsch/go-jsonmerge/v2`, `github.com/google/uuid`).
-The test and tool dependencies live in separate modules and never reach your build.
+The module requires the generated client's three runtime dependencies
+(`github.com/oapi-codegen/runtime`, `github.com/apapsch/go-jsonmerge/v2`, `github.com/google/uuid`)
+and one WebSocket library for the insert session, `github.com/coder/websocket` (ISC). The test and
+tool dependencies live in separate modules and never reach your build.
 
 ## Quick start
 
@@ -235,6 +236,87 @@ landed. The iterator issues the request when you range over it, so ranging over 
 load twice. Breaking out of the loop aborts the upload.
 
 `text/csv` is not exposed: both methods always send `application/x-ndjson`.
+
+## Duplex insert session: `db.InsertSession`
+
+`/ws` carries a duplex insert session: you send a chunk, read its acknowledgement, and only then
+decide what to send next, including whether to commit at all. `BatchLoad`'s commit policy, by
+contrast, is fixed by query parameters before the load starts. The endpoint is not in the OpenAPI
+contract, so this is hand-written, over `github.com/coder/websocket`, and uses the `Server`'s
+credentials, headers and `http.Client`.
+
+```go
+s, err := db.InsertSession(ctx, arcadedb.WithInsertTargetType("Person"))
+if err != nil {
+	return err
+}
+defer s.Close() // rolls back if the session is still open; idempotent
+
+ack, err := s.SendChunk(ctx, []map[string]any{{"name": "Alice"}, {"@class": "Company", "name": "Acme"}})
+if err != nil {
+	return err
+}
+// ack.Inserted, ack.Failed, ack.Errors ... decide here whether to go on.
+res, err := s.Commit(ctx) // res.Outcome == "commit"
+```
+
+A record takes its type from its own `@class` or from `WithInsertTargetType`; an edge names its
+endpoints with `@from`/`@to`. Options: `WithInsertTransactionMode` (`InsertPerStream`, the default,
+`InsertPerBatch`, `InsertPerRow`), `WithInsertConflictMode`, `WithInsertKeyColumns`,
+`WithInsertUpdateColumnsOnConflict`, `WithInsertValidateOnly`, `WithOnInsertAck` (called with every
+acknowledgement before `SendChunk` returns it) and `WithInsertFrameTimeout` (default 60 s per
+exchange, on top of each call's `ctx`).
+
+**One session per goroutine.** The session is not safe for concurrent use, and it never pipelines
+frames: each call writes one frame and waits for its one answer.
+
+**Nothing is durable until you say so.** In the default `per_stream` mode `Commit` makes every chunk
+durable and `Rollback` (or `Close`, or a lost connection) discards them. `per_batch` and `per_row`
+commit as they go; their `Summary.PartialCommit` is true and a rollback cannot take back an
+acknowledged chunk.
+
+**Sequence numbers are managed for you.** They start at 1, are contiguous, and advance only after the
+server has accepted the chunk. A chunk the server refuses as a whole, for carrying more rows than
+`arcadedb.server.wsMaxInsertChunkRows` or arriving out of sequence, is an `*InsertSessionError`; the
+session stays open and the next chunk takes the same number, so split the batch and send it again.
+A `per_batch` chunk whose own transaction failed to commit (a unique index it trips, say) comes back
+as an ordinary acknowledgement with `WholeChunkFailed` true (one error with `RowIndex == -1`): the server keeps its watermark where
+it was, so the number is not advanced here either, and the next `SendChunk` replaces that attempt. A
+**row** the server cannot apply is not a refusal at all: it is counted in `Failed`, described in
+`Errors`, and the rest of the chunk still goes in.
+
+**A chunk over `wsMaxInsertFrameSize` is not refused, the connection is dropped.** The server closes
+it (status 1009) instead of answering, so `SendChunk` returns a connection error, the session is
+closed and the server rolls it back. Keep chunks below that byte limit; the row cap is the one to
+reason about.
+
+**Joining a transaction.** Inside `Transaction`, `tx.InsertSession(ctx, ..., WithJoinCurrentTransaction())`
+writes into that transaction (mode `none`). The session's `Commit` and `Rollback` then answer
+`Outcome == InsertOutcomeDetached` and decide nothing: the rows are durable only when `Transaction`
+commits, and undone if it rolls back. Called on a handle that is not inside a transaction it returns
+`ErrNoTransactionToJoin` before connecting.
+
+**A late `error` frame is reported, not skipped.** The server pushes one unsolicited when its idle
+sweep (`wsInsertSessionExpireTimeout`) rolls back a session you walked away from. The next call
+returns it as an `*InsertSessionError` with `Title` "Insert session expired" and the session is then
+closed, whatever that call was. `IsOpen` tells you.
+
+**Some error frames end the session, others do not.** `InsertSessionError.SessionEnded` tells them
+apart, and `IsOpen` follows it. It is false only for refusals that leave the session usable: the row
+cap, a chunk that skips ahead, and malformed options or data. It is true, and the session is closed,
+for an expiry; for a "Security error" (a revoked grant, which the server has already rolled back, or
+a principal that is no longer valid, which also closes the connection); for an "Insert session
+error" saying the session is "not found or expired" or "is closed"; and for an "Internal error". The
+server sends no structured marker, so this is matched on the frame's title and detail.
+
+**Timeouts and cancellation end the session.** If a frame's answer does not arrive within the frame
+timeout or `ctx` is cancelled, the connection is dropped (the late answer could no longer be matched
+to its frame) and the server rolls the session back. The error wraps `context.DeadlineExceeded` or
+`context.Canceled`.
+
+**Session ids.** Leave `WithInsertSessionID` out and the server generates one (`s.SessionID()`). An id
+you choose lives in ONE server-wide namespace shared by every user, database and connection, so two
+clients that both pick `batch-1` collide.
 
 ## Transactions
 

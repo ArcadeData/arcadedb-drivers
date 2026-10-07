@@ -37,6 +37,7 @@ scripts/fetch-contract.sh --proto-from <checkout> [<version>]  # copy arcadedb-s
 scripts/adopt-contract-version.sh <version>          # retire the old version, adopt the new one, repo-wide
 scripts/resolve-openapi-contract.sh                  # print the single OpenAPI contract path, or fail
 scripts/resolve-proto-contract.sh                    # print the single .proto contract path, or fail
+scripts/check-proto-compat.sh <previous> <new>       # buf breaking (fails) + buf lint (reported) between two .proto files
 scripts/tests/test-contract-scripts.sh               # tests for the scripts above (runs in CI)
 
 scripts/set-release-version.sh <version>             # write one release version into every package manifest and lockfile
@@ -105,7 +106,16 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
 - `ci.yml` — lint, typecheck, unit tests, the drift gate, and the "exactly one .proto" check on
   Node 20; then a separate e2e job on Node 24 (testcontainers@12 needs Node >= 22.22). Its `paths`
   filters include root `buf.yaml` and `.gitignore` on purpose: both can change generated output or
-  silence the drift gate while leaving `typescript/` untouched.
+  silence the drift gate while leaving `typescript/` untouched. On a pull request it also runs
+  `scripts/check-proto-compat.sh` against the `.proto` the base branch carries: `buf breaking`
+  (the root `buf.yaml`'s FILE rules) fails a change that would break clients generated from the
+  previous contract, which the drift gate cannot see — it proves generated output is reproducible,
+  not that the contract change was safe. `buf lint` runs in the same script but only **reports**:
+  the contract is upstream's and carries dozens of STANDARD-style findings nobody here can fix, and
+  a ratchet (fail on new findings only) was rejected after replaying the repository's history,
+  because upstream names every new RPC in its existing style, so each additive refresh would fail.
+  Both files are staged under one fixed name first, since the version-stamped filenames would
+  otherwise read as one file deleted and another added.
 - `ci-python.yml` — the same shape for the Python client: lint, typecheck, then **two** drift gates,
   one per package, then unit tests, all on the declared floor Python; a separate e2e job runs
   against a real container on a newer Python. The HTTP gate is three-part (regenerate and diff,
@@ -141,7 +151,11 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   verdict feeds the finding's fingerprint: dropping one would let that language recover or break
   while the tracking issue stayed silent. The Go verdict covers both modules: it runs both
   generators, each module's unit tests and generated-coverage test (`TestEveryOperationIsGenerated`,
-  `TestEveryRPCIsGenerated`, a literal `--- PASS` required), and the shared e2e suite.
+  `TestEveryRPCIsGenerated`, a literal `--- PASS` required), and the shared e2e suite. A fourth,
+  non-client verdict, `VERIFY_PROTO`, runs `scripts/check-proto-compat.sh` between the `.proto` that
+  was committed before the refresh and the refreshed one, and feeds the fingerprint and the issue
+  body like the others. It has to run here: the refresh PR is created with `GITHUB_TOKEN`, which
+  starts no workflows, so `ci.yml`'s copy of the check never sees it.
 - `release.yml` — the one way a release happens: every package in `scripts/release-packages.py`'s
   table, at one version, in two phases with a human between them. **Phase 1** (`workflow_dispatch`
   from `main`) runs `release-packages.py check`, dry-runs every package's gates

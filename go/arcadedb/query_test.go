@@ -108,6 +108,40 @@ func TestEnvelopeReadsTruncated(t *testing.T) {
 	}
 }
 
+func TestEnvelopeReadsExplain(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"result":[],"limit":-1,"returned":0,"truncated":false,`+
+			`"explain":"+ FETCH FROM TYPE V\n","explainPlan":{"steps":[{"name":"FetchFromType"}]}}`)
+	})
+	env, err := srv.DB("d").Query(context.Background(), SQL, "explain select from V", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.Explain != "+ FETCH FROM TYPE V\n" {
+		t.Fatalf("Explain = %q", env.Explain)
+	}
+	steps, _ := env.ExplainPlan["steps"].([]any)
+	if len(steps) != 1 {
+		t.Fatalf("ExplainPlan = %v", env.ExplainPlan)
+	}
+	if env.Result == nil || len(env.Result) != 0 || env.Returned != 0 {
+		t.Fatalf("env = %+v", env)
+	}
+}
+
+func TestEnvelopeWithoutExplain(t *testing.T) {
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, `{"result":[{"a":1}],"limit":-1,"returned":1,"truncated":false}`)
+	})
+	env, err := srv.DB("d").Command(context.Background(), SQL, "x", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env.Explain != "" || env.ExplainPlan != nil {
+		t.Fatalf("Explain = %q, ExplainPlan = %v", env.Explain, env.ExplainPlan)
+	}
+}
+
 func TestEnvelopeRejectsGraphShape(t *testing.T) {
 	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, `{"result":{"vertices":[],"edges":[]}}`)

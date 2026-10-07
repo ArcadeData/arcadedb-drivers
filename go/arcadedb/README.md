@@ -101,10 +101,12 @@ streaming prefer a per-call context.
 
 ```go
 type QueryEnvelope struct {
-	Result    []map[string]any
-	Limit     int
-	Returned  int
-	Truncated bool
+	Result      []map[string]any
+	Limit       int
+	Returned    int
+	Truncated   bool
+	Explain     string
+	ExplainPlan map[string]any
 }
 ```
 
@@ -122,6 +124,12 @@ When the server omits a field, the envelope reads `Result` as an empty, non-nil 
 fail on a response that omits one: it applies the default. Those defaults are the most reassuring
 possible reading of "the server did not say", so `Truncated == false` is only as good as the
 server's promise to send it.
+
+An `EXPLAIN` or `PROFILE` statement, or any statement run with `profileExecution`, answers with
+its execution plan instead of rows: `Explain` holds it as indented text and `ExplainPlan` as the
+same plan in structured form, while `Result` is empty and `Returned` is `0`. An empty `Result`
+there is not "no rows matched"; the plan is the answer and is not repeated as a row. On any other
+statement `Explain` is `""` and `ExplainPlan` is `nil`.
 
 Rows are `map[string]any` decoded with `encoding/json`: numbers arrive as `float64`, so an integer
 above 2^53 loses precision, exactly as in the TypeScript driver.

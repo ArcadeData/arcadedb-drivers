@@ -80,6 +80,8 @@ class QueryEnvelope:
     limit: int
     returned: int
     truncated: bool
+    explain: str | None = None
+    explain_plan: dict[str, Any] | None = None
 ```
 
 `truncated` is `True` when the server's serializer hit its row cap while a query still had more
@@ -90,6 +92,12 @@ treating `result` as the whole answer, and re-query with a narrower filter or a 
 when it is `True` - though raising `limit` is not always the fix: a result whose true size exceeds
 the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused outright with 413
 rather than truncated, so once you are past that ceiling a narrower filter is the only way forward.
+
+An EXPLAIN or PROFILE statement - or any statement run with `profileExecution` - answers with its
+execution plan instead of rows: `explain` holds it as indented text, one line per step, and
+`explain_plan` as the same plan in structured form. `result` is then empty and `returned` is `0`,
+because the plan is the answer and is not repeated as a row, so an empty `result` there does not
+mean "no rows matched". Both fields are `None` on every other answer.
 
 `truncated is False` used to be a client-side default rather than a server guarantee: until
 26.10.1, `QueryResponse` declared no required fields, so the envelope's `limit`,

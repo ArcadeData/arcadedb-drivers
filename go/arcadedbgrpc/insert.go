@@ -10,7 +10,6 @@ import (
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc/generated"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/proto"
 )
 
 // Both client-stream wrappers iterate the caller's sequence on the caller's own goroutine:
@@ -56,13 +55,13 @@ type InsertStreamRequest struct {
 //
 //   - one session_id per call, 16 random bytes hex-encoded, stable for the whole stream;
 //   - chunk_seq 1, 2, 3, ...;
-//   - Database on the first chunk only, as the .proto specifies, and mirrored into a copy
-//     of Options as options.database on that chunk. Servers before 26.9.1 built their
-//     insert context from options.database alone and never read the chunk's database
-//     (ArcadeData/arcadedb#6597), inserting nothing without the mirror; later servers prefer
-//     the chunk's database and fall back to the options one, so setting both is correct on
-//     either side of the fix. Later chunks carry the caller's Options unchanged;
-//   - Credentials and Transaction on every chunk;
+//   - Database on the first chunk only, as the .proto specifies;
+//   - Options, Credentials and Transaction on every chunk, as given. The wrapper never
+//     sets options.database: servers before 26.9.1 read the database from it alone
+//     (ArcadeData/arcadedb#6597) and answer a chunk-only database with rows received,
+//     inserted=0 and no error, so the stream silently inserts nothing against them. Those
+//     servers are outside the compatibility table; 0.2.0 mirrored Database into
+//     options.database to cover them, and 0.3.0 retired the mirror;
 //   - last=true on the final chunk only. That chunk is found by one batch of lookahead, so
 //     a nil or empty batch in the middle of the sequence is sent as a chunk with zero rows,
 //     never mistaken for the end of the stream.
@@ -81,11 +80,6 @@ func (c *Client) InsertStream(ctx context.Context, req InsertStreamRequest, opts
 		return nil, err
 	}
 
-	firstOptions := &generated.InsertOptions{}
-	if req.Options != nil {
-		firstOptions = proto.Clone(req.Options).(*generated.InsertOptions)
-	}
-	firstOptions.Database = req.Database
 	sessionID := newSessionID()
 	chunk := func(seq int64, rows []*generated.GrpcRecord, last bool) *generated.InsertChunk {
 		ch := &generated.InsertChunk{
@@ -99,7 +93,6 @@ func (c *Client) InsertStream(ctx context.Context, req InsertStreamRequest, opts
 		}
 		if seq == 1 {
 			ch.Database = req.Database
-			ch.Options = firstOptions
 		}
 		return ch
 	}

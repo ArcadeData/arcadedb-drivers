@@ -166,32 +166,25 @@ chunk with zero rows and `last: true`, and returns whatever `InsertSummary` the 
 for it (verified against a real server: this is accepted cleanly, in under 100ms, and comes back
 as an all-zero summary) - it does not invent a summary itself.
 
-### The `InsertOptions.database` workaround
+### `database` goes on the first chunk only - and servers before 26.9.1 ignore it there
 
-`insertStream` also sets `options.database` to the same value as the first chunk's `database`.
-This is a compatibility workaround for servers older than the fix for
-[ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (merged in
-`7ccade7348`, **released in 26.9.1**): `InsertChunk.database` is marked `// REQUIRED` on the first
-chunk in `arcadedb-server.proto`, but on **26.8.1 and every earlier release** the server's
-`InsertContext` construction only reads `InsertOptions.database` - it never looks at
-`InsertChunk.database` at all. Without this mirroring, a stream against such a server inserts
-nothing: the server reports the rows as `received` with `inserted: 0`, or fails at the deferred
-commit with `Invalid database name: name is required`, even though `database` was sent exactly as
-the contract specifies. A server carrying the #6597 fix prefers a non-empty `InsertChunk.database`
-and falls back to `InsertOptions.database`, so setting both to the same value here can never
-disagree.
+`insertStream` sends `database` on the first `InsertChunk` only, as `arcadedb-server.proto`
+specifies, and passes your `options` through exactly as given: it does not copy `database` into
+`options.database`.
 
-That boundary is measured, not inferred. A single-chunk stream carrying `database` on the chunk
-with `options.database` left empty inserts **0 of 2** rows on `arcadedata/arcadedb:26.8.1` and
-**2 of 2** on both `26.9.1` and `26.10.1`; `7ccade7348` is an ancestor of the `26.9.1`
-tag and not of `26.8.1`. Earlier revisions of this paragraph said the fix was "not yet in a
-release", which was already stale when written and which the mechanical version rewrite in
-`scripts/adopt-contract-version.sh` then compounded into a claim about 26.10.1.
+Servers before 26.9.1 - none of which is in the compatibility table below - never read
+`InsertChunk.database`. Because of
+[ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (fixed in
+`7ccade7348`, **released in 26.9.1**), their `InsertContext` reads only `InsertOptions.database`,
+and with that empty they report the rows as `received` with `inserted: 0`, **as a successful
+call**. Against such a server `insertStream` silently inserts nothing; check `inserted`, not just
+that the call resolved. Measured: a single-chunk stream with `database` on the chunk only inserts
+**0 of 2** rows on `arcadedata/arcadedb:26.8.1` (`received: 2`, no error) and **2 of 2** on
+26.9.1 and later.
 
-The consequence: **every server version this package claims support for carries the fix** (the
-compatibility table below starts at 26.9.1), so the mirror is belt-and-braces rather than
-load-bearing today. It is still sent, because removing it would be a behaviour change; retiring it
-is tracked as a follow-up.
+Clients up to 0.2.0 worked around this by mirroring `database` into `options.database` on the first
+chunk. Every supported server carries the fix, so the mirror was retired in 0.3.0. If you must talk
+to an older server anyway, set `options.database` yourself; `insertStream` sends it unchanged.
 
 ## Transactions: `transaction`
 
@@ -311,9 +304,8 @@ warning that the protection above stops at the streaming wrapper's edge.
 Unlike `insertStream`'s envelope (`database` on the first chunk only, `last: true` on the final
 one), `TimeSeriesWriteChunk` declares no `session_id`, `chunk_seq` or `last` field on the wire at
 all. `timeSeriesWriteStream` therefore simply sets `database`, `credentials`, `type` and
-`precision` on **every** chunk it sends, and `insertStream`'s `InsertOptions.database` mirroring
-workaround (see above) has nothing to port here: `TimeSeriesWriteChunk` was never shown to share
-`InsertChunk`'s bug (ArcadeData/arcadedb#6597).
+`precision` on **every** chunk it sends. `TimeSeriesWriteChunk` was never shown to share
+`InsertChunk`'s pre-26.9.1 bug (ArcadeData/arcadedb#6597, see above).
 
 That repetition is a deliberate **simplification on this wrapper's part, not something the
 `.proto` requires** - an earlier version of this section said the contract asked for it, and the

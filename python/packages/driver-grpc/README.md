@@ -227,27 +227,19 @@ only the envelope bookkeeping around those batches, which is easy to get wrong b
   documented `// REQUIRED` there for exactly that chunk)
 - `last=True` on the final chunk only
 
-### The `options.database` mirror
+### Servers before 26.9.1 insert nothing
 
-`insert_stream` also sets `options.database` to the same value as the first chunk's `database`.
-This is a compatibility workaround, established empirically against a real server: on ArcadeDB
-**26.8.1 and every earlier release**, the server builds its `InsertContext` from
-`InsertOptions.database` **alone** and never reads `InsertChunk.database` at all, despite the
-`.proto` documenting the latter as required. Without this mirror, a stream against such a server
-inserts nothing - the server reports the rows as `received` with `inserted=0`, or fails at the
-deferred commit with `Invalid database name: name is required` - even though `database` was sent
-exactly as the contract specifies. A server carrying the fix for
-[ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597) (`7ccade7348`,
-**released in 26.9.1**) prefers a non-empty `InsertChunk.database` and falls back to
-`InsertOptions.database`, so setting both to the same value is correct on either side of that fix.
+`insert_stream` sends `database` on the first chunk only, as the `.proto` specifies, and passes
+`options` through exactly as given: it never sets `options.database`. ArcadeDB servers before
+**26.9.1** - outside the compatibility table below - ignore `InsertChunk.database` and read the
+database from `InsertOptions.database` alone
+([ArcadeData/arcadedb#6597](https://github.com/ArcadeData/arcadedb/issues/6597), fixed by
+`7ccade7348`). Against such a server the stream **silently inserts nothing**: the server reports
+the rows as `received` with `inserted=0`, and the call **succeeds** - no exception is raised.
+Measured with a chunk-only `database`: 0 of 2 rows on `26.8.1`, 2 of 2 on `26.9.1` and later.
 
-That boundary is measured, not inferred. A single-chunk stream carrying `database` on the chunk
-with `options.database` left empty inserts **0 of 2** rows on `arcadedata/arcadedb:26.8.1` and
-**2 of 2** on both `26.9.1` and `26.10.1`; `7ccade7348` is an ancestor of the `26.9.1`
-tag and not of `26.8.1`. So **every server version this package claims support for carries the
-fix** (the compatibility table below starts at 26.9.1), and the mirror is belt-and-braces rather
-than load-bearing today. It is still sent, because removing it would be a behaviour change;
-retiring it is tracked as a follow-up.
+Clients up to 0.2.0 worked around this by mirroring `database` into `options.database` on the
+first chunk. Every supported server carries the fix, so that mirror was retired in 0.3.0.
 
 An empty stream is not an error. A caller whose row source produces zero batches (a filter that
 matched nothing, say) gets a single wire chunk with zero rows and `last=True`, and whatever
@@ -416,9 +408,8 @@ is a warning that the protection above stops at the streaming wrapper's edge.
 Unlike `insert_stream`'s envelope (`database` on the first chunk only, `last=True` on the final
 one), `TimeSeriesWriteChunk` declares no `session_id`, `chunk_seq` or `last` field on the wire at
 all. `time_series_write_stream` therefore simply sets `database`, `credentials`, `type` and
-`precision` on **every** chunk it builds, and `insert_stream`'s `options.database` mirroring
-workaround (see above) has nothing to port here: `TimeSeriesWriteChunk` was never shown to share
-`InsertChunk`'s bug (ArcadeData/arcadedb#6597).
+`precision` on **every** chunk it builds. ArcadeData/arcadedb#6597 (see above) is no reason to
+do otherwise: `TimeSeriesWriteChunk` was never shown to share `InsertChunk`'s bug.
 
 That repetition is a deliberate **simplification on this wrapper's part, not something the
 `.proto` requires** - an earlier version of this section said the contract asked for it, and the

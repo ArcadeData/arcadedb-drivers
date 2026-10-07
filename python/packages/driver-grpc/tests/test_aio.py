@@ -230,15 +230,36 @@ async def test_insert_stream_envelope_bookkeeping(
     # One session id, stable for the whole stream, and non-empty.
     assert len({c.session_id for c in sent}) == 1
     assert sent[0].session_id != ""
-    # `database` on the FIRST chunk only, per the .proto contract, and mirrored into
-    # `options.database` there too - ArcadeData/arcadedb#6597, where the server (26.8.1 and
-    # earlier) builds its InsertContext from InsertOptions.database ALONE. Fixed in 26.9.1,
-    # so the mirror is belt-and-braces on every supported server; it stays because removing
-    # it is a behaviour change.
-    assert sent[0].database == "db"
-    assert sent[0].options.database == "db"
-    assert sent[1].database == ""
+    # `database` on the FIRST chunk only, per the .proto contract, and nowhere else: the
+    # client does not set `options.database`. Clients up to 0.2.0 mirrored it there for
+    # ArcadeData/arcadedb#6597 (servers before 26.9.1 read only InsertOptions.database);
+    # the mirror was retired in 0.3.0 because every supported server carries the fix.
+    assert [c.database for c in sent] == ["db", ""]
+    assert [c.options.database for c in sent] == ["", ""]
     assert summary.received == 2
+
+
+async def test_insert_stream_passes_the_callers_options_through_unchanged(
+    async_fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The async twin of the sync suite's pass-through tests: the caller's options land on
+    # EVERY chunk exactly as given - including a `database` the caller set themselves,
+    # which the wrapper neither overwrites nor clears - and the caller's own message is
+    # not mutated.
+    target, servicer = async_fake_server
+    options = messages.InsertOptions(target_class="Person", server_batch_size=32, database="other")
+
+    async def chunks() -> AsyncIterator[list[messages.GrpcRecord]]:
+        yield _records("a")
+        yield _records("b")
+
+    async with create_client(target) as client:
+        await client.insert_stream(InsertStreamRequest(database="db", chunks=chunks(), options=options))
+
+    sent = servicer.insert_chunks
+    assert [c.database for c in sent] == ["db", ""]
+    assert [c.options for c in sent] == [options, options]
+    assert options == messages.InsertOptions(target_class="Person", server_batch_size=32, database="other")
 
 
 async def test_a_sync_iterable_of_batches_is_accepted(
@@ -308,7 +329,7 @@ async def test_an_empty_async_stream_sends_one_empty_final_chunk(
     assert only.last is True
     assert only.chunk_seq == 1
     assert only.database == "db"
-    assert only.options.database == "db"
+    assert only.options.database == ""
     assert summary.received == 0
 
 

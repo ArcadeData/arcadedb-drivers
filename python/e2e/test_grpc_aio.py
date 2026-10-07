@@ -131,13 +131,12 @@ async def test_async_stream_query_returns_rows(async_client: AsyncArcadeDBGrpcCl
 
 
 async def test_async_insert_stream_inserts_rows(async_client: AsyncArcadeDBGrpcClient, grpc_database: str) -> None:
-    # Same defect this asserts against on the sync side (test_grpc.py's
-    # test_insert_stream_inserts_rows): on a real 26.8.1 or earlier server, an insert_stream
-    # that does not mirror `database` into `options` inserts nothing - inserted=0, or a
-    # deferred-commit failure with "Invalid database name: name is required". As on the sync
-    # side, the pinned 26.10.1 image carries the #6597 fix (released in 26.9.1), so
-    # this test passes with or without the mirror; see the sync test for the separate
-    # measurement that established that boundary. The async facade's own `insert_stream`
+    # The async twin of test_grpc.py's test_insert_stream_inserts_rows: it proves a
+    # chunk-only `database` works on the pinned server, since the client no longer mirrors
+    # `database` into `options` (retired in 0.3.0). On 26.8.1 this would insert nothing -
+    # inserted=0 in a successful call, because servers before 26.9.1 read the database only
+    # from InsertOptions (ArcadeData/arcadedb#6597); see the sync test for the measurement
+    # that established that boundary. The async facade's own `insert_stream`
     # shares `stream._build_chunk` with the sync one, but had never been run against a real
     # server before this test.
     marker = f"ais{uuid.uuid4().hex[:8]}"

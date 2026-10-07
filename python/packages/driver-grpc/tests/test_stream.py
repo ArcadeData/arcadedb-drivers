@@ -86,63 +86,56 @@ def test_envelope_bookkeeping_across_several_chunks(
     assert summary.received == 3
 
 
-def test_the_first_chunk_mirrors_database_into_options(
+def test_the_client_does_not_set_options_database(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:
-    # Compatibility with servers predating the fix for ArcadeData/arcadedb#6597. On 26.8.1
-    # and earlier the server builds InsertContext from InsertOptions.database ALONE and
-    # never reads InsertChunk.database, despite the .proto marking the latter REQUIRED on
-    # the first chunk. Without this mirror a stream inserts nothing - inserted=0, or a
-    # deferred-commit failure with "Invalid database name: name is required". Measured
-    # against real servers: 0 of 2 rows land on 26.8.1, 2 of 2 on 26.9.1 and on
-    # 26.10.1, so the fix shipped in 26.9.1 and no supported server still needs
-    # the mirror. It stays because removing it is a behaviour change.
+    # `database` travels on the first chunk only, as the .proto specifies, and nowhere else.
+    # Clients up to 0.2.0 also mirrored it into `options.database`, a workaround for
+    # ArcadeData/arcadedb#6597 (servers before 26.9.1 read the database only from
+    # InsertOptions). Every supported server carries the fix, so the mirror was retired in
+    # 0.3.0; this pins that it does not come back. Measured against real servers: a
+    # chunk-only `database` inserts 2 of 2 rows on 26.9.1 and later, 0 of 2 on 26.8.1.
     target, servicer = fake_server
     with create_client(target) as client:
-        client.insert_stream(InsertStreamRequest(database="db", chunks=[_records("a")]))
-    assert servicer.insert_chunks[0].options.database == "db"
+        client.insert_stream(InsertStreamRequest(database="db", chunks=[_records("a"), _records("b")]))
+    sent = servicer.insert_chunks
+    assert [c.database for c in sent] == ["db", ""]
+    assert [c.options.database for c in sent] == ["", ""]
 
 
-def test_mirroring_preserves_the_callers_other_options(
+def test_the_callers_options_pass_through_unchanged_on_every_chunk(
     fake_server: tuple[str, RecordingServicer],
 ) -> None:
+    # `_build_chunk` copies the caller's options onto EVERY chunk, not just the first:
+    # asserting only chunk 1 would pass for an implementation that dropped `options` after
+    # it. The copy is exact - nothing added, nothing removed - and is made into the chunk's
+    # own message, so the caller's InsertOptions is not mutated.
     target, servicer = fake_server
-    with create_client(target) as client:
-        client.insert_stream(
-            InsertStreamRequest(
-                database="db",
-                chunks=[_records("a")],
-                options=messages.InsertOptions(target_class="Person", server_batch_size=32),
-            )
-        )
-    sent = servicer.insert_chunks[0].options
-    assert sent.database == "db"
-    assert sent.target_class == "Person"
-    assert sent.server_batch_size == 32
-
-
-def test_later_chunks_carry_the_callers_options_without_the_database_mirror(
-    fake_server: tuple[str, RecordingServicer],
-) -> None:
-    # `_build_chunk`'s `elif request.options is not None` branch. The `database` mirror is
-    # a first-chunk-only workaround (#6597), so it must NOT leak onto chunk 2+ - while the
-    # caller's own option fields must survive on every chunk, not just the first. Asserting
-    # only the first chunk (as `test_mirroring_preserves_the_callers_other_options` does)
-    # leaves this branch unexercised: an implementation that dropped `options` entirely
-    # after chunk 1, or that mirrored `database` onto every chunk, passes that test.
-    target, servicer = fake_server
-    options = messages.InsertOptions(target_class="Person")
+    options = messages.InsertOptions(target_class="Person", server_batch_size=32)
     with create_client(target) as client:
         client.insert_stream(InsertStreamRequest(database="db", chunks=[_records("a"), _records("b")], options=options))
 
     sent = servicer.insert_chunks
     assert len(sent) == 2
-    assert sent[0].options.target_class == "Person"
-    assert sent[0].options.database == "db"
-    assert sent[1].options.target_class == "Person"
-    assert sent[1].options.database == ""
-    # The mirror is built on a copy: the caller's own InsertOptions is not touched.
-    assert options == messages.InsertOptions(target_class="Person")
+    assert [c.options for c in sent] == [options, options]
+    assert options == messages.InsertOptions(target_class="Person", server_batch_size=32)
+
+
+def test_a_database_the_caller_put_in_options_is_sent_as_given(
+    fake_server: tuple[str, RecordingServicer],
+) -> None:
+    # The wrapper neither sets nor clears `options.database`: a caller who fills it in
+    # themselves gets exactly that value, on every chunk, even when it differs from
+    # `request.database` - reconciling the two is the server's business, not this wrapper's.
+    target, servicer = fake_server
+    options = messages.InsertOptions(database="other")
+    with create_client(target) as client:
+        client.insert_stream(InsertStreamRequest(database="db", chunks=[_records("a"), _records("b")], options=options))
+
+    sent = servicer.insert_chunks
+    assert [c.database for c in sent] == ["db", ""]
+    assert [c.options.database for c in sent] == ["other", "other"]
+    assert options == messages.InsertOptions(database="other")
 
 
 def test_an_empty_stream_sends_one_empty_final_chunk_rather_than_raising(
@@ -161,7 +154,7 @@ def test_an_empty_stream_sends_one_empty_final_chunk_rather_than_raising(
     assert only.last is True
     assert only.chunk_seq == 1
     assert only.database == "db"
-    assert only.options.database == "db"
+    assert only.options.database == ""
     assert summary.received == 0
 
 
@@ -318,8 +311,7 @@ def test_write_stream_returns_the_summary_whole(fake_server: tuple[str, Recordin
 
 
 def test_write_stream_sets_the_envelope_on_every_chunk(fake_server: tuple[str, RecordingServicer]) -> None:
-    # Unlike `insert_stream`'s first-chunk-only `database` mirror (a workaround for
-    # ArcadeData/arcadedb#6597, a bug specific to InsertStream/InsertContext),
+    # Unlike `insert_stream`, which sends `database` on the first chunk only,
     # `TimeSeriesWriteChunk` declares no session/sequence/last fields at all - `database`,
     # `credentials`, `type` and `precision` are simply set on EVERY chunk, the
     # contract-faithful reading of the .proto.

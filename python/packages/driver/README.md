@@ -371,7 +371,9 @@ Things that look like bugs and are not:
   `"Security error"` (the grant was revoked and the session rolled back, or the principal is no
   longer valid and the connection is closing), `"Internal error"` (state unknown, treated as gone)
   and an `"Insert session error"` saying the session is `not found or expired` or `is closed`;
-  the session is then marked closed and further calls raise.
+  the session is then marked closed and further calls raise. An error title this client does not
+  recognise is `False`, as in the Go and TypeScript clients: if the server has in fact dropped the
+  session, the next frame is answered `not found or expired`, which closes it.
 - **An `error` frame can arrive at any time.** The server's idle sweep rolls a session back and
   pushes an unsolicited `error`; whichever call reads it raises `InsertSessionError`
   (`session_closed=True`) instead of skipping it for the answer it was waiting for. The rows
@@ -387,8 +389,9 @@ Things that look like bugs and are not:
   `commit()`. Failures while rolling back are swallowed - the connection closing rolls the
   session back anyway.
 - **Joining a transaction.** `join_current_transaction=True`, called on the handle
-  `db.transaction()` yields, writes into that HTTP transaction and forces
-  `transaction_mode="none"`. The session's `commit()` and `rollback()` then both answer
+  `db.transaction()` yields, writes into that HTTP transaction and implies
+  `transaction_mode="none"`; passing any other explicit mode with it raises `InsertSessionError`
+  rather than being silently overridden, as in the Go and TypeScript clients. The session's `commit()` and `rollback()` then both answer
   `outcome == "detached"`: neither decides anything, the `with db.transaction()` block does - the
   rows are durable only when it exits cleanly, and a block that raises undoes them. Calling it on
   a handle with no open transaction raises `InsertSessionError` immediately, rather than quietly

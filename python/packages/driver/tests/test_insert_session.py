@@ -302,18 +302,30 @@ def test_joining_a_transaction_sends_it_and_commit_answers_detached(
     fake: FakeInsertServer, db: ArcadeDBDatabase
 ) -> None:
     handle = ArcadeDBDatabase(db._client, "mydb", "AS-42")
-    with handle.insert_session(
-        target_type="Person", transaction_mode="per_row", join_current_transaction=True
-    ) as session:
+    with handle.insert_session(target_type="Person", join_current_transaction=True) as session:
         assert session.transaction_mode == "none"
         assert session.external_transaction_id == "AS-42"
         session.send_chunk([{"name": "a"}])
         committed = session.commit()
 
     assert fake.frames[0]["transactionId"] == "AS-42"
-    assert fake.frames[0]["options"]["transactionMode"] == "none", "the alias must be overridden, not merged"
+    assert fake.frames[0]["options"]["transactionMode"] == "none"
     assert committed["outcome"] == "detached"
     assert committed["summary"]["externalTransaction"] is True
+
+
+@pytest.mark.parametrize("mode", ["per_row", "per_batch", "per_stream"])
+@pytest.mark.asyncio
+async def test_joining_with_a_conflicting_transaction_mode_is_refused_before_any_connection(
+    fake: FakeInsertServer, db: ArcadeDBDatabase, adb: AsyncArcadeDBDatabase, mode: str
+) -> None:
+    handle = ArcadeDBDatabase(db._client, "mydb", "AS-42")
+    with pytest.raises(InsertSessionError, match="implies transaction_mode='none'"):
+        handle.insert_session(transaction_mode=mode, join_current_transaction=True)
+    ahandle = AsyncArcadeDBDatabase(adb._client, "mydb", "AS-42")
+    with pytest.raises(InsertSessionError, match="implies transaction_mode='none'"):
+        ahandle.insert_session(transaction_mode=mode, join_current_transaction=True)
+    assert fake.headers == []
 
 
 def test_joining_without_an_open_transaction_is_refused_before_any_connection(
@@ -537,6 +549,15 @@ async def test_async_an_error_that_ends_the_session_closes_it(
         assert err.value.session_closed is True
         assert not session.is_open
     assert actions(fake) == ["start", "chunk"]
+
+
+def test_an_unrecognised_error_title_keeps_the_session_open(fake: FakeInsertServer, db: ArcadeDBDatabase) -> None:
+    with db.insert_session() as session:
+        fake.error_on_next_chunk = {"error": "Too many frames in flight", "detail": "slow down"}
+        with pytest.raises(InsertSessionError) as err:
+            session.send_chunk([{"name": "a"}])
+        assert err.value.session_closed is False
+        assert session.is_open
 
 
 def test_a_skip_ahead_refusal_keeps_the_session_open(fake: FakeInsertServer, db: ArcadeDBDatabase) -> None:

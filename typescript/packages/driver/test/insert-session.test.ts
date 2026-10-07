@@ -344,6 +344,13 @@ describe("db.insertSession: chunks", () => {
     expect(session.open).toBe(false);
   });
 
+  it("an unrecognised error title leaves the session open, as in the Go and Python clients", async () => {
+    healthyServer({ chunk: (_f, socket) => socket.reply({ ...errorFrame("slow down"), error: "Too many frames in flight" }) });
+    const session = await client().db("d").insertSession();
+    await expect(session.sendChunk([{}])).rejects.toThrow(/slow down/);
+    expect(session.open).toBe(true);
+  });
+
   it("a row-cap refusal and a skip-ahead refusal leave the session open", async () => {
     let n = 0;
     healthyServer({

@@ -376,12 +376,16 @@ Failure modes worth knowing before relying on it:
   handle, or combined with a `transactionMode` other than `"none"`, is refused client-side before
   any connection is made. Without `joinTransaction`, a session opened on a `tx` handle is an
   ordinary server-managed one and does not take part in the transaction.
-- **Most `error` frames end the session.** Only the usable refusals above leave it open. Every
-  other error closes it (`session.open` becomes `false`, later calls reject with "is closed"):
+- **Most `error` frames end the session.** Only the usable refusals above leave it open. These
+  close it (`session.open` becomes `false`, later calls reject with "is closed"):
   "Security error" (the grant was revoked, which has already rolled the session back, or the
   principal is no longer valid, which closes the connection), "Insert session expired" (the idle
   sweep), "Internal error", and an "Insert session error" whose detail says the session is "not
-  found or expired" or "is closed". Branch on `err.error` and `session.open`, not on the message.
+  found or expired" or "is closed". An error title this client does not recognise leaves the
+  session open, as the Go and Python clients do: if the server has in fact dropped it, the next
+  frame is answered "not found or expired", which closes it, whereas a session wrongly marked
+  closed is never rolled back by `close()`. Branch on `err.error` and `session.open`, not on the
+  message.
 - **An `error` frame can arrive at any time.** The server sweeps idle sessions and says so with an
   unsolicited `error` frame. It is reported - the next call rejects with it, and nothing is sent -
   never skipped, and the session is then closed. Likewise a connection the server drops, or a

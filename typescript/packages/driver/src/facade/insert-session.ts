@@ -303,9 +303,10 @@ export class InsertSession {
    * with `ArcadeDBError` and leaves the session open with the sequence where it was, so the caller can split the batch and resend it
    * under the same number. A chunk whose own transaction fails is acknowledged with
    * `wholeChunkFailed: true` (`per_batch` only) and likewise leaves the sequence where it was.
-   * Every other `error` frame ENDS the session (`open` becomes false): "Security error" (grant
+   * These `error` frames END the session (`open` becomes false): "Security error" (grant
    * revoked or principal invalid), "Insert session expired" (idle sweep), "Internal error", and an
-   * "Insert session error" saying the session is "not found or expired" or "is closed". A row the server
+   * "Insert session error" saying the session is "not found or expired" or "is closed". An
+   * unrecognised title leaves it open, as in the Go and Python clients. A row the server
    * cannot apply is NOT a refusal: it comes back counted in `failed` and described in `errors`.
    *
    * A frame larger than `wsMaxInsertFrameSize` is different: the server answers no frame at all
@@ -476,10 +477,15 @@ export class InsertSession {
  * leaves it usable; and not even that kind when its detail says the session is gone ("not found
  * or expired", "' is closed"). "Security error" (a revoked grant has already rolled the session
  * back; an invalid principal closes the connection), "Insert session expired" (the idle sweep),
- * "Internal error" and anything unrecognised all end it.
+ * and "Internal error" end it. An unrecognised title does NOT, the same default the Go and Python
+ * clients take: a session marked closed is never rolled back by `close()`, so wrongly giving up
+ * on one leaves the server holding it until the idle sweep, while wrongly keeping it costs one
+ * more frame, answered "not found or expired", which does end it.
  */
 function endsSession(frame: Frame): boolean {
-  if (frame.error !== "Insert session error") return true;
+  if (frame.error === "Insert session expired" || frame.error === "Security error" || frame.error === "Internal error")
+    return true;
+  if (frame.error !== "Insert session error") return false;
   const detail = typeof frame.detail === "string" ? frame.detail : "";
   return detail.includes("not found or expired") || detail.includes("' is closed");
 }

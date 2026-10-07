@@ -306,7 +306,9 @@ class AsyncArcadeDBDatabase:
         returns it. `timeout` bounds the handshake and each wait for an answer, in seconds.
 
         `join_current_transaction=True` writes into the transaction THIS handle carries - so it only
-        works on the handle `async with db.transaction()` yields - and forces `transaction_mode="none"`. With
+        works on the handle `async with db.transaction()` yields - and implies `transaction_mode="none"`;
+        any other explicit mode raises `InsertSessionError`, as it does in the Go and TypeScript
+        clients, rather than being silently overridden. With
         no open transaction there is nothing to join, and this raises `InsertSessionError` here
         rather than quietly opening a server-managed session on the outer handle.
         """
@@ -316,6 +318,10 @@ class AsyncArcadeDBDatabase:
                 raise InsertSessionError(
                     "The database has no open transaction to join: call insert_session() on the handle"
                     " `async with db.transaction()` yields"
+                )
+            if transaction_mode not in (None, "none"):
+                raise InsertSessionError(
+                    f"join_current_transaction=True implies transaction_mode='none', not {transaction_mode!r}"
                 )
             transaction_id = self._session_id
             transaction_mode = "none"

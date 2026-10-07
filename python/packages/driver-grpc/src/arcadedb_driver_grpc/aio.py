@@ -898,7 +898,21 @@ class AsyncArcadeDBGrpcClient:
         )
 
     def transaction(self, database: str) -> AsyncTransaction:
-        """Runs a server-side transaction: `async with client.transaction("db") as tx:`."""
+        """Runs a server-side transaction: `async with client.transaction("db") as tx:`.
+
+        Returns an `AsyncTransaction` without contacting the server; `BeginTransaction` is
+        awaited on `__aenter__`, which refuses to run the body (raising `RuntimeError`) if
+        the server hands back a blank transaction id. The body gets an
+        `AsyncTransactionHandle`, and only calls made through that handle take part in the
+        transaction - each is bound by its `_bind`, which forces this transaction's
+        `database` and id onto a copy of the request. Calls made through this client, or
+        through `raw`, do NOT.
+
+        A clean exit commits, and raises `RuntimeError` if the server reports the commit did
+        not take effect; any exception from the body - an `asyncio.CancelledError` included
+        - rolls back and propagates. See `AsyncTransaction.__aexit__` for the failure paths
+        and the one known gap (a second cancellation arriving mid-rollback).
+        """
         return AsyncTransaction(self.raw, database)
 
 

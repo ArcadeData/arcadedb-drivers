@@ -30,8 +30,11 @@ from typing import TYPE_CHECKING, Any
 from websockets.asyncio.client import ClientConnection as AsyncConnection
 from websockets.asyncio.client import connect as aconnect
 from websockets.exceptions import ConnectionClosed, WebSocketException
-from websockets.sync.client import ClientConnection as SyncConnection
 from websockets.sync.client import connect as sconnect
+
+# The base class, not ClientConnection: websockets 16 (resolved on the 3.10 floor) types
+# `ClientConnection.__enter__` as returning `Connection`, which mypy refuses to narrow.
+from websockets.sync.connection import Connection as SyncConnection
 
 from .._internal import insert_protocol as proto
 from ..errors import InsertSessionError

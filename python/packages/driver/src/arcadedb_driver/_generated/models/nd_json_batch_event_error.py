@@ -21,6 +21,10 @@ class NdJsonBatchEventError:
                 bookmarks the chunks that were committed before the failure
             exception_args (str | Unset): Structured arguments of the failure, as the buffered error body carries them:
                 present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.
+            retry_after (int | Unset): Seconds to wait before retrying, the value the buffered encoding sends as a Retry-
+                After header for the same failure: present only for a refusal that carries one - 503 when the node cannot
+                execute the request yet (e.g. a snapshot install), 409 when an identical request is still in flight. A header
+                cannot be added once the stream has started, so the back-off travels in band (issue #8899).
             status (int | Unset): HTTP status the buffered encoding would have used for the same failure - 400 or 408 for a
                 malformed or truncated body, and for an engine failure raised after the stream started the status the standard
                 error mapping gives it: 409 for a duplicated key, 503 for a retryable conflict, 413 for a body past
@@ -29,6 +33,7 @@ class NdJsonBatchEventError:
 
     commit_index: int | Unset = UNSET
     exception_args: str | Unset = UNSET
+    retry_after: int | Unset = UNSET
     status: int | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -36,6 +41,8 @@ class NdJsonBatchEventError:
         commit_index = self.commit_index
 
         exception_args = self.exception_args
+
+        retry_after = self.retry_after
 
         status = self.status
 
@@ -46,6 +53,8 @@ class NdJsonBatchEventError:
             field_dict["commitIndex"] = commit_index
         if exception_args is not UNSET:
             field_dict["exceptionArgs"] = exception_args
+        if retry_after is not UNSET:
+            field_dict["retryAfter"] = retry_after
         if status is not UNSET:
             field_dict["status"] = status
 
@@ -58,11 +67,14 @@ class NdJsonBatchEventError:
 
         exception_args = d.pop("exceptionArgs", UNSET)
 
+        retry_after = d.pop("retryAfter", UNSET)
+
         status = d.pop("status", UNSET)
 
         nd_json_batch_event_error = cls(
             commit_index=commit_index,
             exception_args=exception_args,
+            retry_after=retry_after,
             status=status,
         )
 

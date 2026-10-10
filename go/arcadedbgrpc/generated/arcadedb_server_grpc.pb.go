@@ -929,50 +929,52 @@ var ArcadeDbService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ArcadeDbAdminService_Ping_FullMethodName               = "/com.arcadedb.grpc.ArcadeDbAdminService/Ping"
-	ArcadeDbAdminService_GetServerInfo_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/GetServerInfo"
-	ArcadeDbAdminService_ListDatabases_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/ListDatabases"
-	ArcadeDbAdminService_ExistsDatabase_FullMethodName     = "/com.arcadedb.grpc.ArcadeDbAdminService/ExistsDatabase"
-	ArcadeDbAdminService_CreateDatabase_FullMethodName     = "/com.arcadedb.grpc.ArcadeDbAdminService/CreateDatabase"
-	ArcadeDbAdminService_DropDatabase_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/DropDatabase"
-	ArcadeDbAdminService_OpenDatabase_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/OpenDatabase"
-	ArcadeDbAdminService_CloseDatabase_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/CloseDatabase"
-	ArcadeDbAdminService_AlignDatabase_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/AlignDatabase"
-	ArcadeDbAdminService_GetDatabaseInfo_FullMethodName    = "/com.arcadedb.grpc.ArcadeDbAdminService/GetDatabaseInfo"
-	ArcadeDbAdminService_GetProgress_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/GetProgress"
-	ArcadeDbAdminService_CreateUser_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/CreateUser"
-	ArcadeDbAdminService_UpdateUser_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/UpdateUser"
-	ArcadeDbAdminService_DeleteUser_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteUser"
-	ArcadeDbAdminService_ListUsers_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/ListUsers"
-	ArcadeDbAdminService_ListGroups_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/ListGroups"
-	ArcadeDbAdminService_SaveGroup_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/SaveGroup"
-	ArcadeDbAdminService_DeleteGroup_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteGroup"
-	ArcadeDbAdminService_ListApiTokens_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/ListApiTokens"
-	ArcadeDbAdminService_CreateApiToken_FullMethodName     = "/com.arcadedb.grpc.ArcadeDbAdminService/CreateApiToken"
-	ArcadeDbAdminService_DeleteApiToken_FullMethodName     = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteApiToken"
-	ArcadeDbAdminService_SetServerSetting_FullMethodName   = "/com.arcadedb.grpc.ArcadeDbAdminService/SetServerSetting"
-	ArcadeDbAdminService_SetDatabaseSetting_FullMethodName = "/com.arcadedb.grpc.ArcadeDbAdminService/SetDatabaseSetting"
-	ArcadeDbAdminService_GetBackupConfig_FullMethodName    = "/com.arcadedb.grpc.ArcadeDbAdminService/GetBackupConfig"
-	ArcadeDbAdminService_SetBackupConfig_FullMethodName    = "/com.arcadedb.grpc.ArcadeDbAdminService/SetBackupConfig"
-	ArcadeDbAdminService_ListBackups_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/ListBackups"
-	ArcadeDbAdminService_TriggerBackup_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/TriggerBackup"
-	ArcadeDbAdminService_DeleteBackup_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteBackup"
-	ArcadeDbAdminService_ProfilerStart_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStart"
-	ArcadeDbAdminService_ProfilerStop_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStop"
-	ArcadeDbAdminService_ProfilerReset_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerReset"
-	ArcadeDbAdminService_ProfilerResults_FullMethodName    = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerResults"
-	ArcadeDbAdminService_ProfilerList_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerList"
-	ArcadeDbAdminService_ProfilerLoad_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerLoad"
-	ArcadeDbAdminService_RestoreBackup_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/RestoreBackup"
-	ArcadeDbAdminService_RestoreDatabase_FullMethodName    = "/com.arcadedb.grpc.ArcadeDbAdminService/RestoreDatabase"
-	ArcadeDbAdminService_ImportDatabase_FullMethodName     = "/com.arcadedb.grpc.ArcadeDbAdminService/ImportDatabase"
-	ArcadeDbAdminService_GetServerEvents_FullMethodName    = "/com.arcadedb.grpc.ArcadeDbAdminService/GetServerEvents"
-	ArcadeDbAdminService_Shutdown_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/Shutdown"
-	ArcadeDbAdminService_DisconnectCluster_FullMethodName  = "/com.arcadedb.grpc.ArcadeDbAdminService/DisconnectCluster"
-	ArcadeDbAdminService_ConnectCluster_FullMethodName     = "/com.arcadedb.grpc.ArcadeDbAdminService/ConnectCluster"
-	ArcadeDbAdminService_ListSessions_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/ListSessions"
-	ArcadeDbAdminService_Health_FullMethodName             = "/com.arcadedb.grpc.ArcadeDbAdminService/Health"
-	ArcadeDbAdminService_Ready_FullMethodName              = "/com.arcadedb.grpc.ArcadeDbAdminService/Ready"
+	ArcadeDbAdminService_Ping_FullMethodName                   = "/com.arcadedb.grpc.ArcadeDbAdminService/Ping"
+	ArcadeDbAdminService_GetServerInfo_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/GetServerInfo"
+	ArcadeDbAdminService_ListDatabases_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/ListDatabases"
+	ArcadeDbAdminService_ExistsDatabase_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/ExistsDatabase"
+	ArcadeDbAdminService_CreateDatabase_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/CreateDatabase"
+	ArcadeDbAdminService_DropDatabase_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/DropDatabase"
+	ArcadeDbAdminService_OpenDatabase_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/OpenDatabase"
+	ArcadeDbAdminService_CloseDatabase_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/CloseDatabase"
+	ArcadeDbAdminService_AlignDatabase_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/AlignDatabase"
+	ArcadeDbAdminService_GetDatabaseInfo_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/GetDatabaseInfo"
+	ArcadeDbAdminService_GetProgress_FullMethodName            = "/com.arcadedb.grpc.ArcadeDbAdminService/GetProgress"
+	ArcadeDbAdminService_CreateUser_FullMethodName             = "/com.arcadedb.grpc.ArcadeDbAdminService/CreateUser"
+	ArcadeDbAdminService_UpdateUser_FullMethodName             = "/com.arcadedb.grpc.ArcadeDbAdminService/UpdateUser"
+	ArcadeDbAdminService_DeleteUser_FullMethodName             = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteUser"
+	ArcadeDbAdminService_ListUsers_FullMethodName              = "/com.arcadedb.grpc.ArcadeDbAdminService/ListUsers"
+	ArcadeDbAdminService_ListGroups_FullMethodName             = "/com.arcadedb.grpc.ArcadeDbAdminService/ListGroups"
+	ArcadeDbAdminService_SaveGroup_FullMethodName              = "/com.arcadedb.grpc.ArcadeDbAdminService/SaveGroup"
+	ArcadeDbAdminService_DeleteGroup_FullMethodName            = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteGroup"
+	ArcadeDbAdminService_ListApiTokens_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/ListApiTokens"
+	ArcadeDbAdminService_CreateApiToken_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/CreateApiToken"
+	ArcadeDbAdminService_DeleteApiToken_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteApiToken"
+	ArcadeDbAdminService_SetServerSetting_FullMethodName       = "/com.arcadedb.grpc.ArcadeDbAdminService/SetServerSetting"
+	ArcadeDbAdminService_SetDatabaseSetting_FullMethodName     = "/com.arcadedb.grpc.ArcadeDbAdminService/SetDatabaseSetting"
+	ArcadeDbAdminService_GetBackupConfig_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/GetBackupConfig"
+	ArcadeDbAdminService_SetBackupConfig_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/SetBackupConfig"
+	ArcadeDbAdminService_ListBackups_FullMethodName            = "/com.arcadedb.grpc.ArcadeDbAdminService/ListBackups"
+	ArcadeDbAdminService_TriggerBackup_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/TriggerBackup"
+	ArcadeDbAdminService_DeleteBackup_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/DeleteBackup"
+	ArcadeDbAdminService_ProfilerStart_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStart"
+	ArcadeDbAdminService_ProfilerStop_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerStop"
+	ArcadeDbAdminService_ProfilerReset_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerReset"
+	ArcadeDbAdminService_ProfilerResults_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerResults"
+	ArcadeDbAdminService_ProfilerList_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerList"
+	ArcadeDbAdminService_ProfilerLoad_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/ProfilerLoad"
+	ArcadeDbAdminService_RestoreBackup_FullMethodName          = "/com.arcadedb.grpc.ArcadeDbAdminService/RestoreBackup"
+	ArcadeDbAdminService_RestoreDatabase_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/RestoreDatabase"
+	ArcadeDbAdminService_ImportDatabase_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/ImportDatabase"
+	ArcadeDbAdminService_GetServerEvents_FullMethodName        = "/com.arcadedb.grpc.ArcadeDbAdminService/GetServerEvents"
+	ArcadeDbAdminService_Shutdown_FullMethodName               = "/com.arcadedb.grpc.ArcadeDbAdminService/Shutdown"
+	ArcadeDbAdminService_DisconnectCluster_FullMethodName      = "/com.arcadedb.grpc.ArcadeDbAdminService/DisconnectCluster"
+	ArcadeDbAdminService_ConnectCluster_FullMethodName         = "/com.arcadedb.grpc.ArcadeDbAdminService/ConnectCluster"
+	ArcadeDbAdminService_AcceptDivergedDatabase_FullMethodName = "/com.arcadedb.grpc.ArcadeDbAdminService/AcceptDivergedDatabase"
+	ArcadeDbAdminService_AcceptStaleSnapshot_FullMethodName    = "/com.arcadedb.grpc.ArcadeDbAdminService/AcceptStaleSnapshot"
+	ArcadeDbAdminService_ListSessions_FullMethodName           = "/com.arcadedb.grpc.ArcadeDbAdminService/ListSessions"
+	ArcadeDbAdminService_Health_FullMethodName                 = "/com.arcadedb.grpc.ArcadeDbAdminService/Health"
+	ArcadeDbAdminService_Ready_FullMethodName                  = "/com.arcadedb.grpc.ArcadeDbAdminService/Ready"
 )
 
 // ArcadeDbAdminServiceClient is the client API for ArcadeDbAdminService service.
@@ -1057,6 +1059,18 @@ type ArcadeDbAdminServiceClient interface {
 	// the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
 	// membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
 	ConnectCluster(ctx context.Context, in *ConnectClusterRequest, opts ...grpc.CallOption) (*ConnectClusterResponse, error)
+	// The operator's override of issue #9449, the RPC twin of POST /api/v1/cluster/accept-diverged/{database}:
+	// lifts the quarantine (and its read floor) standing on one database of a node that is the only voter of
+	// its cluster, or whose every voter holds the same database quarantined (issue #9553), accepting its copy
+	// as it is WITHOUT a resync. Root only. NOT_FOUND when nothing stands on the database, FAILED_PRECONDITION
+	// on a node a peer could still resync (a resync from a peer is the way out there) or without HA,
+	// INVALID_ARGUMENT on a malformed database name.
+	AcceptDivergedDatabase(ctx context.Context, in *AcceptDivergedDatabaseRequest, opts ...grpc.CallOption) (*AcceptDivergedDatabaseResponse, error)
+	// The operator's override of issue #9498, the RPC twin of POST /api/v1/cluster/accept-stale-snapshot: lifts the
+	// node-wide stale-snapshot read floor (issue #6111) of a node that is the only voter of its cluster, accepting its
+	// databases as they are WITHOUT a resync. Root only. NOT_FOUND when no floor stands, FAILED_PRECONDITION on a node a
+	// peer could still resync, while a snapshot download is running, or without HA.
+	AcceptStaleSnapshot(ctx context.Context, in *AcceptStaleSnapshotRequest, opts ...grpc.CallOption) (*AcceptStaleSnapshotResponse, error)
 	// Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
 	// session of its own - every admin RPC authenticates from the credentials on the request body - so
 	// there is no Login/Logout to go with it (issue #7310).
@@ -1511,6 +1525,26 @@ func (c *arcadeDbAdminServiceClient) ConnectCluster(ctx context.Context, in *Con
 	return out, nil
 }
 
+func (c *arcadeDbAdminServiceClient) AcceptDivergedDatabase(ctx context.Context, in *AcceptDivergedDatabaseRequest, opts ...grpc.CallOption) (*AcceptDivergedDatabaseResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AcceptDivergedDatabaseResponse)
+	err := c.cc.Invoke(ctx, ArcadeDbAdminService_AcceptDivergedDatabase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *arcadeDbAdminServiceClient) AcceptStaleSnapshot(ctx context.Context, in *AcceptStaleSnapshotRequest, opts ...grpc.CallOption) (*AcceptStaleSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AcceptStaleSnapshotResponse)
+	err := c.cc.Invoke(ctx, ArcadeDbAdminService_AcceptStaleSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *arcadeDbAdminServiceClient) ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListSessionsResponse)
@@ -1623,6 +1657,18 @@ type ArcadeDbAdminServiceServer interface {
 	// the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
 	// membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
 	ConnectCluster(context.Context, *ConnectClusterRequest) (*ConnectClusterResponse, error)
+	// The operator's override of issue #9449, the RPC twin of POST /api/v1/cluster/accept-diverged/{database}:
+	// lifts the quarantine (and its read floor) standing on one database of a node that is the only voter of
+	// its cluster, or whose every voter holds the same database quarantined (issue #9553), accepting its copy
+	// as it is WITHOUT a resync. Root only. NOT_FOUND when nothing stands on the database, FAILED_PRECONDITION
+	// on a node a peer could still resync (a resync from a peer is the way out there) or without HA,
+	// INVALID_ARGUMENT on a malformed database name.
+	AcceptDivergedDatabase(context.Context, *AcceptDivergedDatabaseRequest) (*AcceptDivergedDatabaseResponse, error)
+	// The operator's override of issue #9498, the RPC twin of POST /api/v1/cluster/accept-stale-snapshot: lifts the
+	// node-wide stale-snapshot read floor (issue #6111) of a node that is the only voter of its cluster, accepting its
+	// databases as they are WITHOUT a resync. Root only. NOT_FOUND when no floor stands, FAILED_PRECONDITION on a node a
+	// peer could still resync, while a snapshot download is running, or without HA.
+	AcceptStaleSnapshot(context.Context, *AcceptStaleSnapshotRequest) (*AcceptStaleSnapshotResponse, error)
 	// Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
 	// session of its own - every admin RPC authenticates from the credentials on the request body - so
 	// there is no Login/Logout to go with it (issue #7310).
@@ -1762,6 +1808,12 @@ func (UnimplementedArcadeDbAdminServiceServer) DisconnectCluster(context.Context
 }
 func (UnimplementedArcadeDbAdminServiceServer) ConnectCluster(context.Context, *ConnectClusterRequest) (*ConnectClusterResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ConnectCluster not implemented")
+}
+func (UnimplementedArcadeDbAdminServiceServer) AcceptDivergedDatabase(context.Context, *AcceptDivergedDatabaseRequest) (*AcceptDivergedDatabaseResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptDivergedDatabase not implemented")
+}
+func (UnimplementedArcadeDbAdminServiceServer) AcceptStaleSnapshot(context.Context, *AcceptStaleSnapshotRequest) (*AcceptStaleSnapshotResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptStaleSnapshot not implemented")
 }
 func (UnimplementedArcadeDbAdminServiceServer) ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSessions not implemented")
@@ -2510,6 +2562,42 @@ func _ArcadeDbAdminService_ConnectCluster_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ArcadeDbAdminService_AcceptDivergedDatabase_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptDivergedDatabaseRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArcadeDbAdminServiceServer).AcceptDivergedDatabase(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArcadeDbAdminService_AcceptDivergedDatabase_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArcadeDbAdminServiceServer).AcceptDivergedDatabase(ctx, req.(*AcceptDivergedDatabaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ArcadeDbAdminService_AcceptStaleSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptStaleSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ArcadeDbAdminServiceServer).AcceptStaleSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ArcadeDbAdminService_AcceptStaleSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ArcadeDbAdminServiceServer).AcceptStaleSnapshot(ctx, req.(*AcceptStaleSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ArcadeDbAdminService_ListSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListSessionsRequest)
 	if err := dec(in); err != nil {
@@ -2722,6 +2810,14 @@ var ArcadeDbAdminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ConnectCluster",
 			Handler:    _ArcadeDbAdminService_ConnectCluster_Handler,
+		},
+		{
+			MethodName: "AcceptDivergedDatabase",
+			Handler:    _ArcadeDbAdminService_AcceptDivergedDatabase_Handler,
+		},
+		{
+			MethodName: "AcceptStaleSnapshot",
+			Handler:    _ArcadeDbAdminService_AcceptStaleSnapshot_Handler,
 		},
 		{
 			MethodName: "ListSessions",

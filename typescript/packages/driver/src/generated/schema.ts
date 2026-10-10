@@ -252,6 +252,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cluster/accept-diverged/{database}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lift a database quarantine no peer can resync
+         * @description Lifts the quarantine standing on one database, and the read floor that goes with it, accepting this node's copy as it is without a resync. A quarantined database keeps the node not-ready and its Raft log un-checkpointed until a resync from a peer restores it; a node that is the only voter of its cluster has no peer, so a quarantine restored from disk, or raised while the cluster still had peers, never lifts there, and neither does one that every voter of the cluster holds on the same database, since no node then serves a copy to resync from (the no-healthy-copy-on-any-voter alert). The entry the quarantine skipped is NOT replayed: if the copy is missing it, it stays missing. The change is persisted and logged with who made it, at which applied index, over which cause. Root only. Answers 404 when no quarantine and no read floor stands on the database, and 409 on a node that is not the sole voter while some voter does not report the database quarantined, where the resync is the way out; nothing standing is checked first, so a node with peers and no quarantine answers 404. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         */
+        post: operations["acceptClusterDivergedDatabase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cluster/accept-stale-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Lift the node-wide stale-snapshot read floor no peer can resync
+         * @description Lifts the node-wide stale-snapshot read floor, accepting this node's databases as they are without a resync. The floor stands while the replication snapshot marker runs ahead of the entries this node applied: the node reports not-ready and LINEARIZABLE reads are clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, so on a node that is the only voter of its cluster the floor never lifts. The entries between the floor and the marker are NOT replayed: if a database is missing them, it stays missing. The marker index is persisted as the applied position, so a restart does not raise the floor again, and the change is logged with who made it, the floor and the marker index. A database quarantined on its own keeps its quarantine (see accept-diverged). Root only. Answers 404 when no floor stands, and 409 on a node that is not the sole voter, where the resync is the way out, or while a snapshot download is running. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+         */
+        post: operations["acceptClusterStaleSnapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cluster/auth-session": {
         parameters: {
             query?: never;
@@ -1981,18 +2021,24 @@ export interface components {
         };
         /** @description Outcome of a cluster management action */
         ClusterActionResponse: {
-            /** @description Last Raft index applied to the accepted copy, or -1 when none is recorded. Present on accept-copy. */
+            /** @description Last Raft index applied to the accepted copy, or -1 when none is recorded. Present on accept-copy and accept-diverged. On accept-stale-snapshot, the applied position now recorded for the node. */
             appliedIndex?: number;
-            /** @description Database the action applied to. Present on resync and accept-copy. */
+            /** @description Database the action applied to. Present on resync, accept-copy and accept-diverged. */
             database?: string;
+            /** @description Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE), when one stood. Present on accept-diverged. */
+            divergenceCause?: string;
             /** @description Leader after the action. Present on leadership transfer. */
             leaderId?: string;
-            /** @description Server that performed the action. Present on resync and accept-copy. */
+            /** @description Server that performed the action. Present on resync, accept-copy, accept-diverged and accept-stale-snapshot. */
             localServer?: string;
             /** @description Why the leader had refused to reopen the copy, when a refusal was standing. Present on accept-copy. */
             overriddenRefusal?: string;
+            /** @description The read floor that was lifted with the quarantine, when one stood. Present on accept-diverged, and on accept-stale-snapshot as the node-wide floor that was lifted. */
+            readFloor?: number;
             /** @description Human-readable outcome */
             result: string;
+            /** @description The snapshot marker index the node-wide read floor was short of, or -1 when no marker was on disk. Present on accept-stale-snapshot. */
+            snapshotIndex?: number;
         };
         /** @description A session token and the action to apply to it */
         ClusterAuthSessionRequest: {
@@ -2107,10 +2153,21 @@ export interface components {
             localAppliedIndex: number;
             /** @description Last Raft index this node knows to be committed. -1 under the same condition */
             localCommitIndex: number;
+            /** @description How many times this node's Raft layer has been restarted in place since the process started, by what happened to its Raft storage. Both counts only grow, and both start again from 0 when the process restarts. Also published as the 'arcadedb.ha.in_place_restarts.recovered' and '.reformatted' metrics. */
+            localInPlaceRestarts: {
+                /** @description Restarts that kept the Raft log: the health monitor's recovery of a CLOSED or EXCEPTION division, for example after a long JVM pause */
+                recovered: number;
+                /** @description Restarts that discarded the Raft storage, after which the node is refilled from a leader snapshot: the divergence reformat. An increase outside a known divergence is worth investigating */
+                reformatted: number;
+            };
+            /** @description True when 'localReplicationPathUnproven' has held, while no leader made itself known to this node or while 'leaderCommitIndex' is past every entry this node holds, for more than twice the election timeout. The leader's appends are not reaching this node and it does not count toward quorum. Always false on the leader. No leader known is also what every node of a cluster without a quorum sees; the 'follower-leader-unreachable-since-restart' alert says which case applies in 'details.leaderKnown' and is critical only when a known leader reports entries this node does not hold */
+            localLeaderUnreachableSinceRestart: boolean;
             /** @description This server's peer identifier */
             localPeerId: string;
             /** @description Entries this node has yet to apply: 'localCommitIndex' minus 'localAppliedIndex', where on a follower 'localCommitIndex' is replaced by 'leaderCommitIndex' when the leader reported a larger one. -1 rather than a fabricated difference whenever either side is unknown */
             localReplicationLag: number;
+            /** @description True when this node's Raft layer was restarted in place and has taken no replicated entry since, and no newer term with a known leader either. It holds back the automatic Raft-storage reformat of a node stuck at a stale term, so with 'localStuckAtStaleTerm' it means 'restart this node by hand' rather than 'will self-heal'. On its own it is not an incident: an idle cluster sends a restarted node no entry either */
+            localReplicationPathUnproven: boolean;
             /** @description This node's resync state. Present on every answer. The database names it carries are reduced to the ones the caller is authorized on, so a caller scoped to one database cannot learn another tenant's database name from a status poll. */
             localResync: {
                 /** @description Per-database applied floor, keyed by database name */
@@ -2121,7 +2178,7 @@ export interface components {
                 divergedDatabases: string[];
                 /** @description Why each quarantined database was quarantined, keyed by database name. Same keys as 'divergedDatabases' */
                 divergenceCauses: {
-                    [key: string]: "WAL_VERSION_GAP" | "UNDECODABLE_LOG_ENTRY" | "APPLY_ERROR" | "SNAPSHOT_INSTALL_INCOMPLETE";
+                    [key: string]: "WAL_VERSION_GAP" | "UNDECODABLE_LOG_ENTRY" | "APPLY_ERROR" | "SNAPSHOT_INSTALL_INCOMPLETE" | "UNPUBLISHED_SCHEMA_CHANGE";
                 };
                 /** @description True while a resync is holding this node out of the ready set. NOT the whole answer '/api/v1/ready' gives: a node halted by a critical error or wedged by a log-write failure has this false and answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872), and 'bootstrapInstalls' (issue #8044). */
                 inProgress: boolean;
@@ -2779,6 +2836,8 @@ export interface components {
                 commitIndex?: number;
                 /** @description Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key. */
                 exceptionArgs?: string;
+                /** @description Seconds to wait before retrying, the value the buffered encoding sends as a Retry-After header for the same failure: present only for a refusal that carries one - 503 when the node cannot execute the request yet (e.g. a snapshot install), 409 when an identical request is still in flight. A header cannot be added once the stream has started, so the back-off travels in band (issue #8899). */
+                retryAfter?: number;
                 /** @description HTTP status the buffered encoding would have used for the same failure - 400 or 408 for a malformed or truncated body, and for an engine failure raised after the stream started the status the standard error mapping gives it: 409 for a duplicated key, 503 for a retryable conflict, 413 for a body past arcadedb.server.httpBodyContentMaxSize, 403, 404, 500 (issue #7396). */
                 status?: number;
             };
@@ -2817,12 +2876,20 @@ export interface components {
         NdJsonQueryEvent: {
             /** @description A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows. */
             error?: {
+                /** @description Cause chain of the failure, as the buffered error body carries it. Absent in production mode. */
+                detail?: string;
+                /** @description Classified label of the failure, the value the buffered error body carries in its 'error' member. */
+                error?: string;
                 /** @description Class name of the reported exception, the value the buffered error body carries in its 'exception' member. */
                 exception?: string;
                 /** @description Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key. */
                 exceptionArgs?: string;
-                /** @description Why the stream failed */
+                /** @description Why the stream failed. Outside production mode the failure's own message; in production mode the classified label also carried in 'error', because the raw text can carry file paths and engine internals the buffered error body conceals for the same failure (issue #8899). */
                 message: string;
+                /** @description Correlation id echoing X-Request-Id, for cross-referencing the failure against the server log. Absent when the request carried no correlation id. */
+                requestId?: string;
+                /** @description Seconds to wait before retrying, the value the buffered encoding sends as a Retry-After header for the same failure: present only for a refusal that carries one - 503 when the node cannot execute the request yet (e.g. a snapshot install), 409 when an identical request is still in flight. A header cannot be added once the stream has started, so the back-off travels in band (issue #8899). */
+                retryAfter?: number;
                 /** @description HTTP status the buffered encoding would have answered the same failure with, decided by the same error mapping: 503 for a retryable conflict, 409 for a duplicated key, 403 for a security refusal, 413 when arcadedb.server.httpQueryMaxResultRows cut the result short, 500 for an unexpected failure (issue #8235). Key on this rather than on 'message' to decide whether to retry. */
                 status: number;
             };
@@ -3355,6 +3422,8 @@ export interface components {
             requestId?: string;
             /** @description Measurements naming a time-series type whose storage engine failed to load; see the server log for why */
             unavailableTypes?: string[];
+            /** @description Tag or field keys the measurement's time-series type does not declare in that role; the samples carrying them were dropped. Capped at 100 entries. Set arcadedb.timeSeriesUndeclaredKeys=ignore to store such samples with the undeclared keys discarded instead */
+            undeclaredKeys?: string[];
             /** @description Measurements naming a type that does not exist */
             unknownTypes?: string[];
             /** @description Samples successfully ingested */
@@ -4755,6 +4824,179 @@ export interface operations {
                 };
             };
             /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    acceptClusterDivergedDatabase: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path: {
+                /** @description Database name */
+                database: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Quarantine lifted */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterActionResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            409: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterHeader"];
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    acceptClusterStaleSnapshot: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
+                "X-Request-Id"?: components["parameters"]["RequestIdParam"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read floor lifted */
+            200: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterActionResponse"];
+                };
+            };
+            /** @description Bad request */
+            400: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
                     "Retry-After": components["headers"]["RetryAfterHeader"];

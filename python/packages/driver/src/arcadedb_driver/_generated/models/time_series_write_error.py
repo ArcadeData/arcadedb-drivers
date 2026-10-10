@@ -23,6 +23,9 @@ class TimeSeriesWriteError:
         request_id (str | Unset): Correlation id echoing X-Request-Id, for matching against server logs
         unavailable_types (list[str] | Unset): Measurements naming a time-series type whose storage engine failed to
             load; see the server log for why
+        undeclared_keys (list[str] | Unset): Tag or field keys the measurement's time-series type does not declare in
+            that role; the samples carrying them were dropped. Capped at 100 entries. Set
+            arcadedb.timeSeriesUndeclaredKeys=ignore to store such samples with the undeclared keys discarded instead
         unknown_types (list[str] | Unset): Measurements naming a type that does not exist
     """
 
@@ -32,6 +35,7 @@ class TimeSeriesWriteError:
     non_time_series_types: list[str] | Unset = UNSET
     request_id: str | Unset = UNSET
     unavailable_types: list[str] | Unset = UNSET
+    undeclared_keys: list[str] | Unset = UNSET
     unknown_types: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -52,6 +56,10 @@ class TimeSeriesWriteError:
         if not isinstance(self.unavailable_types, Unset):
             unavailable_types = self.unavailable_types
 
+        undeclared_keys: list[str] | Unset = UNSET
+        if not isinstance(self.undeclared_keys, Unset):
+            undeclared_keys = self.undeclared_keys
+
         unknown_types: list[str] | Unset = UNSET
         if not isinstance(self.unknown_types, Unset):
             unknown_types = self.unknown_types
@@ -71,6 +79,8 @@ class TimeSeriesWriteError:
             field_dict["requestId"] = request_id
         if unavailable_types is not UNSET:
             field_dict["unavailableTypes"] = unavailable_types
+        if undeclared_keys is not UNSET:
+            field_dict["undeclaredKeys"] = undeclared_keys
         if unknown_types is not UNSET:
             field_dict["unknownTypes"] = unknown_types
 
@@ -91,6 +101,8 @@ class TimeSeriesWriteError:
 
         unavailable_types = cast(list[str], d.pop("unavailableTypes", UNSET))
 
+        undeclared_keys = cast(list[str], d.pop("undeclaredKeys", UNSET))
+
         unknown_types = cast(list[str], d.pop("unknownTypes", UNSET))
 
         time_series_write_error = cls(
@@ -100,6 +112,7 @@ class TimeSeriesWriteError:
             non_time_series_types=non_time_series_types,
             request_id=request_id,
             unavailable_types=unavailable_types,
+            undeclared_keys=undeclared_keys,
             unknown_types=unknown_types,
         )
 

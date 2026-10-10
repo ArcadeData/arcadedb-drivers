@@ -5412,8 +5412,12 @@ type TimeSeriesWriteSummary struct {
 	// The type IS a TIMESERIES type; its storage engine failed to load (see the server log for why).
 	UnavailableTypes []string `protobuf:"bytes,6,rep,name=unavailable_types,json=unavailableTypes,proto3" json:"unavailable_types,omitempty"`
 	ExecutionTimeMs  int64    `protobuf:"varint,7,opt,name=execution_time_ms,json=executionTimeMs,proto3" json:"execution_time_ms,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Tag or field keys a measurement's TIMESERIES type does not declare in that role, as
+	// '<measurement>.<key> (tag|field)'. The points carrying them were dropped (issue #8646) unless the database sets
+	// arcadedb.timeSeriesUndeclaredKeys=ignore. Capped at 100 entries; 'dropped' still counts every point.
+	UndeclaredKeys []string `protobuf:"bytes,8,rep,name=undeclared_keys,json=undeclaredKeys,proto3" json:"undeclared_keys,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TimeSeriesWriteSummary) Reset() {
@@ -5493,6 +5497,13 @@ func (x *TimeSeriesWriteSummary) GetExecutionTimeMs() int64 {
 		return x.ExecutionTimeMs
 	}
 	return 0
+}
+
+func (x *TimeSeriesWriteSummary) GetUndeclaredKeys() []string {
+	if x != nil {
+		return x.UndeclaredKeys
+	}
+	return nil
 }
 
 // Conjunction of tag equality predicates. Values are coerced to the tag column's declared type, so a tag
@@ -10605,6 +10616,254 @@ func (*ConnectClusterResponse) Descriptor() ([]byte, []int) {
 	return file_arcadedb_server_proto_rawDescGZIP(), []int{151}
 }
 
+type AcceptDivergedDatabaseRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Credentials   *DatabaseCredentials   `protobuf:"bytes,1,opt,name=credentials,proto3" json:"credentials,omitempty"`
+	Database      string                 `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptDivergedDatabaseRequest) Reset() {
+	*x = AcceptDivergedDatabaseRequest{}
+	mi := &file_arcadedb_server_proto_msgTypes[152]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptDivergedDatabaseRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptDivergedDatabaseRequest) ProtoMessage() {}
+
+func (x *AcceptDivergedDatabaseRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_arcadedb_server_proto_msgTypes[152]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptDivergedDatabaseRequest.ProtoReflect.Descriptor instead.
+func (*AcceptDivergedDatabaseRequest) Descriptor() ([]byte, []int) {
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{152}
+}
+
+func (x *AcceptDivergedDatabaseRequest) GetCredentials() *DatabaseCredentials {
+	if x != nil {
+		return x.Credentials
+	}
+	return nil
+}
+
+func (x *AcceptDivergedDatabaseRequest) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+type AcceptDivergedDatabaseResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Database string                 `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	// The server that lifted the quarantine.
+	LocalServer string `protobuf:"bytes,2,opt,name=local_server,json=localServer,proto3" json:"local_server,omitempty"`
+	// Last Raft index applied to the accepted copy, or -1 when none is recorded.
+	AppliedIndex int64 `protobuf:"varint,3,opt,name=applied_index,json=appliedIndex,proto3" json:"applied_index,omitempty"`
+	// Why the lifted quarantine had been raised (a DivergenceCause name), empty when only a read floor stood.
+	DivergenceCause string `protobuf:"bytes,4,opt,name=divergence_cause,json=divergenceCause,proto3" json:"divergence_cause,omitempty"`
+	// The read floor lifted with the quarantine, or -1 when none stood.
+	ReadFloor     int64 `protobuf:"varint,5,opt,name=read_floor,json=readFloor,proto3" json:"read_floor,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptDivergedDatabaseResponse) Reset() {
+	*x = AcceptDivergedDatabaseResponse{}
+	mi := &file_arcadedb_server_proto_msgTypes[153]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptDivergedDatabaseResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptDivergedDatabaseResponse) ProtoMessage() {}
+
+func (x *AcceptDivergedDatabaseResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_arcadedb_server_proto_msgTypes[153]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptDivergedDatabaseResponse.ProtoReflect.Descriptor instead.
+func (*AcceptDivergedDatabaseResponse) Descriptor() ([]byte, []int) {
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{153}
+}
+
+func (x *AcceptDivergedDatabaseResponse) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *AcceptDivergedDatabaseResponse) GetLocalServer() string {
+	if x != nil {
+		return x.LocalServer
+	}
+	return ""
+}
+
+func (x *AcceptDivergedDatabaseResponse) GetAppliedIndex() int64 {
+	if x != nil {
+		return x.AppliedIndex
+	}
+	return 0
+}
+
+func (x *AcceptDivergedDatabaseResponse) GetDivergenceCause() string {
+	if x != nil {
+		return x.DivergenceCause
+	}
+	return ""
+}
+
+func (x *AcceptDivergedDatabaseResponse) GetReadFloor() int64 {
+	if x != nil {
+		return x.ReadFloor
+	}
+	return 0
+}
+
+type AcceptStaleSnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Credentials   *DatabaseCredentials   `protobuf:"bytes,1,opt,name=credentials,proto3" json:"credentials,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptStaleSnapshotRequest) Reset() {
+	*x = AcceptStaleSnapshotRequest{}
+	mi := &file_arcadedb_server_proto_msgTypes[154]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptStaleSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptStaleSnapshotRequest) ProtoMessage() {}
+
+func (x *AcceptStaleSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_arcadedb_server_proto_msgTypes[154]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptStaleSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*AcceptStaleSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{154}
+}
+
+func (x *AcceptStaleSnapshotRequest) GetCredentials() *DatabaseCredentials {
+	if x != nil {
+		return x.Credentials
+	}
+	return nil
+}
+
+type AcceptStaleSnapshotResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The server that lifted the read floor.
+	LocalServer string `protobuf:"bytes,1,opt,name=local_server,json=localServer,proto3" json:"local_server,omitempty"`
+	// The node-wide read floor that was lifted: the last Raft index the databases were known to hold.
+	ReadFloor int64 `protobuf:"varint,2,opt,name=read_floor,json=readFloor,proto3" json:"read_floor,omitempty"`
+	// The snapshot marker index the floor was short of, or -1 when no marker was on disk.
+	SnapshotIndex int64 `protobuf:"varint,3,opt,name=snapshot_index,json=snapshotIndex,proto3" json:"snapshot_index,omitempty"`
+	// The applied position now recorded for the node.
+	AppliedIndex  int64 `protobuf:"varint,4,opt,name=applied_index,json=appliedIndex,proto3" json:"applied_index,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcceptStaleSnapshotResponse) Reset() {
+	*x = AcceptStaleSnapshotResponse{}
+	mi := &file_arcadedb_server_proto_msgTypes[155]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcceptStaleSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcceptStaleSnapshotResponse) ProtoMessage() {}
+
+func (x *AcceptStaleSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_arcadedb_server_proto_msgTypes[155]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcceptStaleSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*AcceptStaleSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{155}
+}
+
+func (x *AcceptStaleSnapshotResponse) GetLocalServer() string {
+	if x != nil {
+		return x.LocalServer
+	}
+	return ""
+}
+
+func (x *AcceptStaleSnapshotResponse) GetReadFloor() int64 {
+	if x != nil {
+		return x.ReadFloor
+	}
+	return 0
+}
+
+func (x *AcceptStaleSnapshotResponse) GetSnapshotIndex() int64 {
+	if x != nil {
+		return x.SnapshotIndex
+	}
+	return 0
+}
+
+func (x *AcceptStaleSnapshotResponse) GetAppliedIndex() int64 {
+	if x != nil {
+		return x.AppliedIndex
+	}
+	return 0
+}
+
 // One long-running maintenance operation (CHECK DATABASE, REBUILD INDEX, COMPACT INDEX, backup,
 // import) currently running on the server that answers the call. Field for field the document
 // OperationProgress.toJSON() emits on GET /api/v1/progress/{database}.
@@ -10627,7 +10886,7 @@ type OperationProgressInfo struct {
 
 func (x *OperationProgressInfo) Reset() {
 	*x = OperationProgressInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[152]
+	mi := &file_arcadedb_server_proto_msgTypes[156]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10639,7 +10898,7 @@ func (x *OperationProgressInfo) String() string {
 func (*OperationProgressInfo) ProtoMessage() {}
 
 func (x *OperationProgressInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[152]
+	mi := &file_arcadedb_server_proto_msgTypes[156]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10652,7 +10911,7 @@ func (x *OperationProgressInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperationProgressInfo.ProtoReflect.Descriptor instead.
 func (*OperationProgressInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{152}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{156}
 }
 
 func (x *OperationProgressInfo) GetId() int64 {
@@ -10742,7 +11001,7 @@ type GetProgressRequest struct {
 
 func (x *GetProgressRequest) Reset() {
 	*x = GetProgressRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[153]
+	mi := &file_arcadedb_server_proto_msgTypes[157]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10754,7 +11013,7 @@ func (x *GetProgressRequest) String() string {
 func (*GetProgressRequest) ProtoMessage() {}
 
 func (x *GetProgressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[153]
+	mi := &file_arcadedb_server_proto_msgTypes[157]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10767,7 +11026,7 @@ func (x *GetProgressRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProgressRequest.ProtoReflect.Descriptor instead.
 func (*GetProgressRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{153}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *GetProgressRequest) GetCredentials() *DatabaseCredentials {
@@ -10800,7 +11059,7 @@ type GetProgressResponse struct {
 
 func (x *GetProgressResponse) Reset() {
 	*x = GetProgressResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[154]
+	mi := &file_arcadedb_server_proto_msgTypes[158]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10812,7 +11071,7 @@ func (x *GetProgressResponse) String() string {
 func (*GetProgressResponse) ProtoMessage() {}
 
 func (x *GetProgressResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[154]
+	mi := &file_arcadedb_server_proto_msgTypes[158]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10825,7 +11084,7 @@ func (x *GetProgressResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProgressResponse.ProtoReflect.Descriptor instead.
 func (*GetProgressResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{154}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *GetProgressResponse) GetOperations() []*OperationProgressInfo {
@@ -10861,7 +11120,7 @@ type SessionInfo struct {
 
 func (x *SessionInfo) Reset() {
 	*x = SessionInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[155]
+	mi := &file_arcadedb_server_proto_msgTypes[159]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10873,7 +11132,7 @@ func (x *SessionInfo) String() string {
 func (*SessionInfo) ProtoMessage() {}
 
 func (x *SessionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[155]
+	mi := &file_arcadedb_server_proto_msgTypes[159]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10886,7 +11145,7 @@ func (x *SessionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionInfo.ProtoReflect.Descriptor instead.
 func (*SessionInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{155}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{159}
 }
 
 func (x *SessionInfo) GetToken() string {
@@ -10961,7 +11220,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[156]
+	mi := &file_arcadedb_server_proto_msgTypes[160]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10973,7 +11232,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[156]
+	mi := &file_arcadedb_server_proto_msgTypes[160]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10986,7 +11245,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{156}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *ListSessionsRequest) GetCredentials() *DatabaseCredentials {
@@ -11008,7 +11267,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[157]
+	mi := &file_arcadedb_server_proto_msgTypes[161]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11020,7 +11279,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[157]
+	mi := &file_arcadedb_server_proto_msgTypes[161]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11033,7 +11292,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{157}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*SessionInfo {
@@ -11062,7 +11321,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[158]
+	mi := &file_arcadedb_server_proto_msgTypes[162]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11074,7 +11333,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[158]
+	mi := &file_arcadedb_server_proto_msgTypes[162]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11087,7 +11346,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{158}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{162}
 }
 
 type HealthResponse struct {
@@ -11099,7 +11358,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[159]
+	mi := &file_arcadedb_server_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11111,7 +11370,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[159]
+	mi := &file_arcadedb_server_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11124,7 +11383,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{159}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *HealthResponse) GetOk() bool {
@@ -11143,7 +11402,7 @@ type ReadyRequest struct {
 
 func (x *ReadyRequest) Reset() {
 	*x = ReadyRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[160]
+	mi := &file_arcadedb_server_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11155,7 +11414,7 @@ func (x *ReadyRequest) String() string {
 func (*ReadyRequest) ProtoMessage() {}
 
 func (x *ReadyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[160]
+	mi := &file_arcadedb_server_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11168,7 +11427,7 @@ func (x *ReadyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadyRequest.ProtoReflect.Descriptor instead.
 func (*ReadyRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{160}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{164}
 }
 
 type ReadyResponse struct {
@@ -11182,7 +11441,7 @@ type ReadyResponse struct {
 
 func (x *ReadyResponse) Reset() {
 	*x = ReadyResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[161]
+	mi := &file_arcadedb_server_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11194,7 +11453,7 @@ func (x *ReadyResponse) String() string {
 func (*ReadyResponse) ProtoMessage() {}
 
 func (x *ReadyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[161]
+	mi := &file_arcadedb_server_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11207,7 +11466,7 @@ func (x *ReadyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadyResponse.ProtoReflect.Descriptor instead.
 func (*ReadyResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{161}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *ReadyResponse) GetReady() bool {
@@ -11728,7 +11987,7 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\vcredentials\x18\x02 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12D\n" +
 	"\tprecision\x18\x04 \x01(\x0e2&.com.arcadedb.grpc.TimeSeriesPrecisionR\tprecision\x12:\n" +
-	"\x06points\x18\x05 \x03(\v2\".com.arcadedb.grpc.TimeSeriesPointR\x06points\"\x99\x02\n" +
+	"\x06points\x18\x05 \x03(\v2\".com.arcadedb.grpc.TimeSeriesPointR\x06points\"\xc2\x02\n" +
 	"\x16TimeSeriesWriteSummary\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\x03R\breceived\x12\x18\n" +
 	"\awritten\x18\x02 \x01(\x03R\awritten\x12\x18\n" +
@@ -11736,7 +11995,8 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\runknown_types\x18\x04 \x03(\tR\funknownTypes\x121\n" +
 	"\x15non_time_series_types\x18\x05 \x03(\tR\x12nonTimeSeriesTypes\x12+\n" +
 	"\x11unavailable_types\x18\x06 \x03(\tR\x10unavailableTypes\x12*\n" +
-	"\x11execution_time_ms\x18\a \x01(\x03R\x0fexecutionTimeMs\"\xba\x01\n" +
+	"\x11execution_time_ms\x18\a \x01(\x03R\x0fexecutionTimeMs\x12'\n" +
+	"\x0fundeclared_keys\x18\b \x03(\tR\x0eundeclaredKeys\"\xba\x01\n" +
 	"\x13TimeSeriesTagFilter\x12J\n" +
 	"\x06equals\x18\x01 \x03(\v22.com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntryR\x06equals\x1aW\n" +
 	"\vEqualsEntry\x12\x10\n" +
@@ -12084,7 +12344,25 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x15ConnectClusterRequest\x12H\n" +
 	"\vcredentials\x18\x01 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\x12%\n" +
 	"\x0eserver_address\x18\x02 \x01(\tR\rserverAddress\"\x18\n" +
-	"\x16ConnectClusterResponse\"\xc6\x02\n" +
+	"\x16ConnectClusterResponse\"\x85\x01\n" +
+	"\x1dAcceptDivergedDatabaseRequest\x12H\n" +
+	"\vcredentials\x18\x01 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\x12\x1a\n" +
+	"\bdatabase\x18\x02 \x01(\tR\bdatabase\"\xce\x01\n" +
+	"\x1eAcceptDivergedDatabaseResponse\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12!\n" +
+	"\flocal_server\x18\x02 \x01(\tR\vlocalServer\x12#\n" +
+	"\rapplied_index\x18\x03 \x01(\x03R\fappliedIndex\x12)\n" +
+	"\x10divergence_cause\x18\x04 \x01(\tR\x0fdivergenceCause\x12\x1d\n" +
+	"\n" +
+	"read_floor\x18\x05 \x01(\x03R\treadFloor\"f\n" +
+	"\x1aAcceptStaleSnapshotRequest\x12H\n" +
+	"\vcredentials\x18\x01 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\"\xab\x01\n" +
+	"\x1bAcceptStaleSnapshotResponse\x12!\n" +
+	"\flocal_server\x18\x01 \x01(\tR\vlocalServer\x12\x1d\n" +
+	"\n" +
+	"read_floor\x18\x02 \x01(\x03R\treadFloor\x12%\n" +
+	"\x0esnapshot_index\x18\x03 \x01(\x03R\rsnapshotIndex\x12#\n" +
+	"\rapplied_index\x18\x04 \x01(\x03R\fappliedIndex\"\xc6\x02\n" +
 	"\x15OperationProgressInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1a\n" +
 	"\bdatabase\x18\x02 \x01(\tR\bdatabase\x12\x1c\n" +
@@ -12180,7 +12458,7 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x0fTimeSeriesWrite\x12).com.arcadedb.grpc.TimeSeriesWriteRequest\x1a).com.arcadedb.grpc.TimeSeriesWriteSummary\x12m\n" +
 	"\x15TimeSeriesWriteStream\x12'.com.arcadedb.grpc.TimeSeriesWriteChunk\x1a).com.arcadedb.grpc.TimeSeriesWriteSummary(\x01\x12h\n" +
 	"\x0fTimeSeriesQuery\x12).com.arcadedb.grpc.TimeSeriesQueryRequest\x1a(.com.arcadedb.grpc.TimeSeriesQueryResult0\x01\x12k\n" +
-	"\x10TimeSeriesLatest\x12*.com.arcadedb.grpc.TimeSeriesLatestRequest\x1a+.com.arcadedb.grpc.TimeSeriesLatestResponse2\xdf!\n" +
+	"\x10TimeSeriesLatest\x12*.com.arcadedb.grpc.TimeSeriesLatestRequest\x1a+.com.arcadedb.grpc.TimeSeriesLatestResponse2\xd4#\n" +
 	"\x14ArcadeDbAdminService\x12G\n" +
 	"\x04Ping\x12\x1e.com.arcadedb.grpc.PingRequest\x1a\x1f.com.arcadedb.grpc.PingResponse\x12b\n" +
 	"\rGetServerInfo\x12'.com.arcadedb.grpc.GetServerInfoRequest\x1a(.com.arcadedb.grpc.GetServerInfoResponse\x12b\n" +
@@ -12226,7 +12504,9 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x0fGetServerEvents\x12).com.arcadedb.grpc.GetServerEventsRequest\x1a*.com.arcadedb.grpc.GetServerEventsResponse\x12S\n" +
 	"\bShutdown\x12\".com.arcadedb.grpc.ShutdownRequest\x1a#.com.arcadedb.grpc.ShutdownResponse\x12n\n" +
 	"\x11DisconnectCluster\x12+.com.arcadedb.grpc.DisconnectClusterRequest\x1a,.com.arcadedb.grpc.DisconnectClusterResponse\x12e\n" +
-	"\x0eConnectCluster\x12(.com.arcadedb.grpc.ConnectClusterRequest\x1a).com.arcadedb.grpc.ConnectClusterResponse\x12_\n" +
+	"\x0eConnectCluster\x12(.com.arcadedb.grpc.ConnectClusterRequest\x1a).com.arcadedb.grpc.ConnectClusterResponse\x12}\n" +
+	"\x16AcceptDivergedDatabase\x120.com.arcadedb.grpc.AcceptDivergedDatabaseRequest\x1a1.com.arcadedb.grpc.AcceptDivergedDatabaseResponse\x12t\n" +
+	"\x13AcceptStaleSnapshot\x12-.com.arcadedb.grpc.AcceptStaleSnapshotRequest\x1a..com.arcadedb.grpc.AcceptStaleSnapshotResponse\x12_\n" +
 	"\fListSessions\x12&.com.arcadedb.grpc.ListSessionsRequest\x1a'.com.arcadedb.grpc.ListSessionsResponse\x12M\n" +
 	"\x06Health\x12 .com.arcadedb.grpc.HealthRequest\x1a!.com.arcadedb.grpc.HealthResponse\x12J\n" +
 	"\x05Ready\x12\x1f.com.arcadedb.grpc.ReadyRequest\x1a .com.arcadedb.grpc.ReadyResponseB\xd4\x01\n" +
@@ -12245,7 +12525,7 @@ func file_arcadedb_server_proto_rawDescGZIP() []byte {
 }
 
 var file_arcadedb_server_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_arcadedb_server_proto_msgTypes = make([]protoimpl.MessageInfo, 181)
+var file_arcadedb_server_proto_msgTypes = make([]protoimpl.MessageInfo, 185)
 var file_arcadedb_server_proto_goTypes = []any{
 	(TransactionIsolation)(0),                  // 0: com.arcadedb.grpc.TransactionIsolation
 	(TimeSeriesPrecision)(0),                   // 1: com.arcadedb.grpc.TimeSeriesPrecision
@@ -12407,52 +12687,56 @@ var file_arcadedb_server_proto_goTypes = []any{
 	(*DisconnectClusterResponse)(nil),          // 157: com.arcadedb.grpc.DisconnectClusterResponse
 	(*ConnectClusterRequest)(nil),              // 158: com.arcadedb.grpc.ConnectClusterRequest
 	(*ConnectClusterResponse)(nil),             // 159: com.arcadedb.grpc.ConnectClusterResponse
-	(*OperationProgressInfo)(nil),              // 160: com.arcadedb.grpc.OperationProgressInfo
-	(*GetProgressRequest)(nil),                 // 161: com.arcadedb.grpc.GetProgressRequest
-	(*GetProgressResponse)(nil),                // 162: com.arcadedb.grpc.GetProgressResponse
-	(*SessionInfo)(nil),                        // 163: com.arcadedb.grpc.SessionInfo
-	(*ListSessionsRequest)(nil),                // 164: com.arcadedb.grpc.ListSessionsRequest
-	(*ListSessionsResponse)(nil),               // 165: com.arcadedb.grpc.ListSessionsResponse
-	(*HealthRequest)(nil),                      // 166: com.arcadedb.grpc.HealthRequest
-	(*HealthResponse)(nil),                     // 167: com.arcadedb.grpc.HealthResponse
-	(*ReadyRequest)(nil),                       // 168: com.arcadedb.grpc.ReadyRequest
-	(*ReadyResponse)(nil),                      // 169: com.arcadedb.grpc.ReadyResponse
-	nil,                                        // 170: com.arcadedb.grpc.GrpcRecord.PropertiesEntry
-	nil,                                        // 171: com.arcadedb.grpc.GrpcMap.EntriesEntry
-	nil,                                        // 172: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
-	nil,                                        // 173: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
-	nil,                                        // 174: com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
-	nil,                                        // 175: com.arcadedb.grpc.HybridSearchResponse.LegsEntry
-	nil,                                        // 176: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
-	nil,                                        // 177: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
-	nil,                                        // 178: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
-	nil,                                        // 179: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
-	nil,                                        // 180: com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
-	nil,                                        // 181: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
-	nil,                                        // 182: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
-	nil,                                        // 183: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
-	nil,                                        // 184: com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
-	nil,                                        // 185: com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
-	nil,                                        // 186: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
-	nil,                                        // 187: com.arcadedb.grpc.UserInfo.DatabasesEntry
-	nil,                                        // 188: com.arcadedb.grpc.UserDatabases.DatabasesEntry
-	(*timestamppb.Timestamp)(nil),              // 189: google.protobuf.Timestamp
-	(*wrapperspb.Int32Value)(nil),              // 190: google.protobuf.Int32Value
+	(*AcceptDivergedDatabaseRequest)(nil),      // 160: com.arcadedb.grpc.AcceptDivergedDatabaseRequest
+	(*AcceptDivergedDatabaseResponse)(nil),     // 161: com.arcadedb.grpc.AcceptDivergedDatabaseResponse
+	(*AcceptStaleSnapshotRequest)(nil),         // 162: com.arcadedb.grpc.AcceptStaleSnapshotRequest
+	(*AcceptStaleSnapshotResponse)(nil),        // 163: com.arcadedb.grpc.AcceptStaleSnapshotResponse
+	(*OperationProgressInfo)(nil),              // 164: com.arcadedb.grpc.OperationProgressInfo
+	(*GetProgressRequest)(nil),                 // 165: com.arcadedb.grpc.GetProgressRequest
+	(*GetProgressResponse)(nil),                // 166: com.arcadedb.grpc.GetProgressResponse
+	(*SessionInfo)(nil),                        // 167: com.arcadedb.grpc.SessionInfo
+	(*ListSessionsRequest)(nil),                // 168: com.arcadedb.grpc.ListSessionsRequest
+	(*ListSessionsResponse)(nil),               // 169: com.arcadedb.grpc.ListSessionsResponse
+	(*HealthRequest)(nil),                      // 170: com.arcadedb.grpc.HealthRequest
+	(*HealthResponse)(nil),                     // 171: com.arcadedb.grpc.HealthResponse
+	(*ReadyRequest)(nil),                       // 172: com.arcadedb.grpc.ReadyRequest
+	(*ReadyResponse)(nil),                      // 173: com.arcadedb.grpc.ReadyResponse
+	nil,                                        // 174: com.arcadedb.grpc.GrpcRecord.PropertiesEntry
+	nil,                                        // 175: com.arcadedb.grpc.GrpcMap.EntriesEntry
+	nil,                                        // 176: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
+	nil,                                        // 177: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
+	nil,                                        // 178: com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
+	nil,                                        // 179: com.arcadedb.grpc.HybridSearchResponse.LegsEntry
+	nil,                                        // 180: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
+	nil,                                        // 181: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
+	nil,                                        // 182: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
+	nil,                                        // 183: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
+	nil,                                        // 184: com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
+	nil,                                        // 185: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
+	nil,                                        // 186: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
+	nil,                                        // 187: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
+	nil,                                        // 188: com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
+	nil,                                        // 189: com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
+	nil,                                        // 190: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
+	nil,                                        // 191: com.arcadedb.grpc.UserInfo.DatabasesEntry
+	nil,                                        // 192: com.arcadedb.grpc.UserDatabases.DatabasesEntry
+	(*timestamppb.Timestamp)(nil),              // 193: google.protobuf.Timestamp
+	(*wrapperspb.Int32Value)(nil),              // 194: google.protobuf.Int32Value
 }
 var file_arcadedb_server_proto_depIdxs = []int32{
-	170, // 0: com.arcadedb.grpc.GrpcRecord.properties:type_name -> com.arcadedb.grpc.GrpcRecord.PropertiesEntry
-	189, // 1: com.arcadedb.grpc.GrpcValue.timestamp_value:type_name -> google.protobuf.Timestamp
+	174, // 0: com.arcadedb.grpc.GrpcRecord.properties:type_name -> com.arcadedb.grpc.GrpcRecord.PropertiesEntry
+	193, // 1: com.arcadedb.grpc.GrpcValue.timestamp_value:type_name -> google.protobuf.Timestamp
 	13,  // 2: com.arcadedb.grpc.GrpcValue.list_value:type_name -> com.arcadedb.grpc.GrpcList
 	14,  // 3: com.arcadedb.grpc.GrpcValue.map_value:type_name -> com.arcadedb.grpc.GrpcMap
 	15,  // 4: com.arcadedb.grpc.GrpcValue.embedded_value:type_name -> com.arcadedb.grpc.GrpcEmbedded
 	16,  // 5: com.arcadedb.grpc.GrpcValue.link_value:type_name -> com.arcadedb.grpc.GrpcLink
 	17,  // 6: com.arcadedb.grpc.GrpcValue.decimal_value:type_name -> com.arcadedb.grpc.GrpcDecimal
 	12,  // 7: com.arcadedb.grpc.GrpcList.values:type_name -> com.arcadedb.grpc.GrpcValue
-	171, // 8: com.arcadedb.grpc.GrpcMap.entries:type_name -> com.arcadedb.grpc.GrpcMap.EntriesEntry
-	172, // 9: com.arcadedb.grpc.GrpcEmbedded.fields:type_name -> com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
+	175, // 8: com.arcadedb.grpc.GrpcMap.entries:type_name -> com.arcadedb.grpc.GrpcMap.EntriesEntry
+	176, // 9: com.arcadedb.grpc.GrpcEmbedded.fields:type_name -> com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
 	3,   // 10: com.arcadedb.grpc.ProjectionSettings.projection_encoding:type_name -> com.arcadedb.grpc.ProjectionSettings.ProjectionEncoding
-	190, // 11: com.arcadedb.grpc.ProjectionSettings.soft_limit_bytes:type_name -> google.protobuf.Int32Value
-	173, // 12: com.arcadedb.grpc.StreamQueryRequest.parameters:type_name -> com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
+	194, // 11: com.arcadedb.grpc.ProjectionSettings.soft_limit_bytes:type_name -> google.protobuf.Int32Value
+	177, // 12: com.arcadedb.grpc.StreamQueryRequest.parameters:type_name -> com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
 	8,   // 13: com.arcadedb.grpc.StreamQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	4,   // 14: com.arcadedb.grpc.StreamQueryRequest.retrieval_mode:type_name -> com.arcadedb.grpc.StreamQueryRequest.RetrievalMode
 	9,   // 15: com.arcadedb.grpc.StreamQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
@@ -12463,11 +12747,11 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	11,  // 20: com.arcadedb.grpc.SearchHit.record:type_name -> com.arcadedb.grpc.GrpcRecord
 	22,  // 21: com.arcadedb.grpc.VectorSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
 	8,   // 22: com.arcadedb.grpc.HybridSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	174, // 23: com.arcadedb.grpc.HybridSearchRequest.weights:type_name -> com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
+	178, // 23: com.arcadedb.grpc.HybridSearchRequest.weights:type_name -> com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
 	24,  // 24: com.arcadedb.grpc.HybridSearchRequest.expand:type_name -> com.arcadedb.grpc.HybridExpand
 	9,   // 25: com.arcadedb.grpc.HybridSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
 	22,  // 26: com.arcadedb.grpc.HybridSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
-	175, // 27: com.arcadedb.grpc.HybridSearchResponse.legs:type_name -> com.arcadedb.grpc.HybridSearchResponse.LegsEntry
+	179, // 27: com.arcadedb.grpc.HybridSearchResponse.legs:type_name -> com.arcadedb.grpc.HybridSearchResponse.LegsEntry
 	8,   // 28: com.arcadedb.grpc.FullTextSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	9,   // 29: com.arcadedb.grpc.FullTextSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
 	22,  // 30: com.arcadedb.grpc.FullTextSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
@@ -12479,13 +12763,13 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	8,   // 36: com.arcadedb.grpc.RollbackTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 37: com.arcadedb.grpc.DeleteRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	9,   // 38: com.arcadedb.grpc.DeleteRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	176, // 39: com.arcadedb.grpc.ExecuteCommandRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
+	180, // 39: com.arcadedb.grpc.ExecuteCommandRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
 	8,   // 40: com.arcadedb.grpc.ExecuteCommandRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	9,   // 41: com.arcadedb.grpc.ExecuteCommandRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
 	18,  // 42: com.arcadedb.grpc.ExecuteCommandRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
 	11,  // 43: com.arcadedb.grpc.ExecuteCommandResponse.records:type_name -> com.arcadedb.grpc.GrpcRecord
 	39,  // 44: com.arcadedb.grpc.ExecuteCommandResponse.stats:type_name -> com.arcadedb.grpc.QueryUpdateStats
-	177, // 45: com.arcadedb.grpc.ExecuteQueryRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
+	181, // 45: com.arcadedb.grpc.ExecuteQueryRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
 	8,   // 46: com.arcadedb.grpc.ExecuteQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	9,   // 47: com.arcadedb.grpc.ExecuteQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
 	18,  // 48: com.arcadedb.grpc.ExecuteQueryRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
@@ -12493,7 +12777,7 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	8,   // 50: com.arcadedb.grpc.CreateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	11,  // 51: com.arcadedb.grpc.CreateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
 	9,   // 52: com.arcadedb.grpc.CreateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	178, // 53: com.arcadedb.grpc.PropertiesUpdate.properties:type_name -> com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
+	182, // 53: com.arcadedb.grpc.PropertiesUpdate.properties:type_name -> com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
 	8,   // 54: com.arcadedb.grpc.UpdateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	11,  // 55: com.arcadedb.grpc.UpdateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
 	44,  // 56: com.arcadedb.grpc.UpdateRecordRequest.partial:type_name -> com.arcadedb.grpc.PropertiesUpdate
@@ -12502,8 +12786,8 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	9,   // 59: com.arcadedb.grpc.LookupByRidRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
 	11,  // 60: com.arcadedb.grpc.LookupByRidResponse.record:type_name -> com.arcadedb.grpc.GrpcRecord
 	49,  // 61: com.arcadedb.grpc.InsertSummary.errors:type_name -> com.arcadedb.grpc.InsertError
-	189, // 62: com.arcadedb.grpc.InsertSummary.started_at:type_name -> google.protobuf.Timestamp
-	189, // 63: com.arcadedb.grpc.InsertSummary.finished_at:type_name -> google.protobuf.Timestamp
+	193, // 62: com.arcadedb.grpc.InsertSummary.started_at:type_name -> google.protobuf.Timestamp
+	193, // 63: com.arcadedb.grpc.InsertSummary.finished_at:type_name -> google.protobuf.Timestamp
 	5,   // 64: com.arcadedb.grpc.InsertOptions.conflict_mode:type_name -> com.arcadedb.grpc.InsertOptions.ConflictMode
 	6,   // 65: com.arcadedb.grpc.InsertOptions.transaction_mode:type_name -> com.arcadedb.grpc.InsertOptions.TransactionMode
 	8,   // 66: com.arcadedb.grpc.InsertOptions.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
@@ -12528,20 +12812,20 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	49,  // 85: com.arcadedb.grpc.BatchAck.errors:type_name -> com.arcadedb.grpc.InsertError
 	50,  // 86: com.arcadedb.grpc.Committed.summary:type_name -> com.arcadedb.grpc.InsertSummary
 	7,   // 87: com.arcadedb.grpc.GraphBatchRecord.kind:type_name -> com.arcadedb.grpc.GraphBatchRecord.Kind
-	179, // 88: com.arcadedb.grpc.GraphBatchRecord.properties:type_name -> com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
+	183, // 88: com.arcadedb.grpc.GraphBatchRecord.properties:type_name -> com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
 	8,   // 89: com.arcadedb.grpc.GraphBatchChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	61,  // 90: com.arcadedb.grpc.GraphBatchChunk.options:type_name -> com.arcadedb.grpc.GraphBatchOptions
 	62,  // 91: com.arcadedb.grpc.GraphBatchChunk.records:type_name -> com.arcadedb.grpc.GraphBatchRecord
-	180, // 92: com.arcadedb.grpc.GraphBatchResult.id_mapping:type_name -> com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
-	181, // 93: com.arcadedb.grpc.TimeSeriesPoint.tags:type_name -> com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
-	182, // 94: com.arcadedb.grpc.TimeSeriesPoint.fields:type_name -> com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
+	184, // 92: com.arcadedb.grpc.GraphBatchResult.id_mapping:type_name -> com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
+	185, // 93: com.arcadedb.grpc.TimeSeriesPoint.tags:type_name -> com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
+	186, // 94: com.arcadedb.grpc.TimeSeriesPoint.fields:type_name -> com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
 	8,   // 95: com.arcadedb.grpc.TimeSeriesWriteRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	1,   // 96: com.arcadedb.grpc.TimeSeriesWriteRequest.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
 	65,  // 97: com.arcadedb.grpc.TimeSeriesWriteRequest.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
 	8,   // 98: com.arcadedb.grpc.TimeSeriesWriteChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	1,   // 99: com.arcadedb.grpc.TimeSeriesWriteChunk.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
 	65,  // 100: com.arcadedb.grpc.TimeSeriesWriteChunk.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
-	183, // 101: com.arcadedb.grpc.TimeSeriesTagFilter.equals:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
+	187, // 101: com.arcadedb.grpc.TimeSeriesTagFilter.equals:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
 	2,   // 102: com.arcadedb.grpc.TimeSeriesAggregationRequest.type:type_name -> com.arcadedb.grpc.TimeSeriesAggregationType
 	70,  // 103: com.arcadedb.grpc.TimeSeriesAggregation.requests:type_name -> com.arcadedb.grpc.TimeSeriesAggregationRequest
 	8,   // 104: com.arcadedb.grpc.TimeSeriesQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
@@ -12558,25 +12842,25 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	73,  // 115: com.arcadedb.grpc.TimeSeriesLatestResponse.latest:type_name -> com.arcadedb.grpc.TimeSeriesRow
 	8,   // 116: com.arcadedb.grpc.PingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 117: com.arcadedb.grpc.GetServerInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	184, // 118: com.arcadedb.grpc.GetServerInfoResponse.features:type_name -> com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
+	188, // 118: com.arcadedb.grpc.GetServerInfoResponse.features:type_name -> com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
 	8,   // 119: com.arcadedb.grpc.ListDatabasesRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 120: com.arcadedb.grpc.ExistsDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 121: com.arcadedb.grpc.CreateDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 122: com.arcadedb.grpc.DropDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 123: com.arcadedb.grpc.GetDatabaseInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	185, // 124: com.arcadedb.grpc.GetDatabaseInfoResponse.properties:type_name -> com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
+	189, // 124: com.arcadedb.grpc.GetDatabaseInfoResponse.properties:type_name -> com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
 	8,   // 125: com.arcadedb.grpc.CreateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	186, // 126: com.arcadedb.grpc.CreateUserRequest.databases:type_name -> com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
+	190, // 126: com.arcadedb.grpc.CreateUserRequest.databases:type_name -> com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
 	8,   // 127: com.arcadedb.grpc.DeleteUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 128: com.arcadedb.grpc.OpenDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 129: com.arcadedb.grpc.CloseDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 130: com.arcadedb.grpc.AlignDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 131: com.arcadedb.grpc.SetServerSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 132: com.arcadedb.grpc.SetDatabaseSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	187, // 133: com.arcadedb.grpc.UserInfo.databases:type_name -> com.arcadedb.grpc.UserInfo.DatabasesEntry
+	191, // 133: com.arcadedb.grpc.UserInfo.databases:type_name -> com.arcadedb.grpc.UserInfo.DatabasesEntry
 	8,   // 134: com.arcadedb.grpc.ListUsersRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	107, // 135: com.arcadedb.grpc.ListUsersResponse.users:type_name -> com.arcadedb.grpc.UserInfo
-	188, // 136: com.arcadedb.grpc.UserDatabases.databases:type_name -> com.arcadedb.grpc.UserDatabases.DatabasesEntry
+	192, // 136: com.arcadedb.grpc.UserDatabases.databases:type_name -> com.arcadedb.grpc.UserDatabases.DatabasesEntry
 	8,   // 137: com.arcadedb.grpc.UpdateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	110, // 138: com.arcadedb.grpc.UpdateUserRequest.databases:type_name -> com.arcadedb.grpc.UserDatabases
 	8,   // 139: com.arcadedb.grpc.ListGroupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
@@ -12607,160 +12891,166 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	8,   // 164: com.arcadedb.grpc.ShutdownRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 165: com.arcadedb.grpc.DisconnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	8,   // 166: com.arcadedb.grpc.ConnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 167: com.arcadedb.grpc.GetProgressRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	160, // 168: com.arcadedb.grpc.GetProgressResponse.operations:type_name -> com.arcadedb.grpc.OperationProgressInfo
-	8,   // 169: com.arcadedb.grpc.ListSessionsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	163, // 170: com.arcadedb.grpc.ListSessionsResponse.sessions:type_name -> com.arcadedb.grpc.SessionInfo
-	12,  // 171: com.arcadedb.grpc.GrpcRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 172: com.arcadedb.grpc.GrpcMap.EntriesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 173: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 174: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 175: com.arcadedb.grpc.HybridSearchResponse.LegsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 176: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 177: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 178: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 179: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 180: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 181: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 182: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	106, // 183: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	106, // 184: com.arcadedb.grpc.UserInfo.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	106, // 185: com.arcadedb.grpc.UserDatabases.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	19,  // 186: com.arcadedb.grpc.ArcadeDbService.StreamQuery:input_type -> com.arcadedb.grpc.StreamQueryRequest
-	37,  // 187: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:input_type -> com.arcadedb.grpc.ExecuteCommandRequest
-	40,  // 188: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:input_type -> com.arcadedb.grpc.ExecuteQueryRequest
-	42,  // 189: com.arcadedb.grpc.ArcadeDbService.CreateRecord:input_type -> com.arcadedb.grpc.CreateRecordRequest
-	45,  // 190: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:input_type -> com.arcadedb.grpc.UpdateRecordRequest
-	47,  // 191: com.arcadedb.grpc.ArcadeDbService.LookupByRid:input_type -> com.arcadedb.grpc.LookupByRidRequest
-	35,  // 192: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:input_type -> com.arcadedb.grpc.DeleteRecordRequest
-	52,  // 193: com.arcadedb.grpc.ArcadeDbService.BulkInsert:input_type -> com.arcadedb.grpc.BulkInsertRequest
-	53,  // 194: com.arcadedb.grpc.ArcadeDbService.InsertStream:input_type -> com.arcadedb.grpc.InsertChunk
-	54,  // 195: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:input_type -> com.arcadedb.grpc.InsertRequest
-	29,  // 196: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:input_type -> com.arcadedb.grpc.BeginTransactionRequest
-	31,  // 197: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:input_type -> com.arcadedb.grpc.CommitTransactionRequest
-	33,  // 198: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:input_type -> com.arcadedb.grpc.RollbackTransactionRequest
-	63,  // 199: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:input_type -> com.arcadedb.grpc.GraphBatchChunk
-	21,  // 200: com.arcadedb.grpc.ArcadeDbService.VectorSearch:input_type -> com.arcadedb.grpc.VectorSearchRequest
-	25,  // 201: com.arcadedb.grpc.ArcadeDbService.HybridSearch:input_type -> com.arcadedb.grpc.HybridSearchRequest
-	27,  // 202: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:input_type -> com.arcadedb.grpc.FullTextSearchRequest
-	66,  // 203: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:input_type -> com.arcadedb.grpc.TimeSeriesWriteRequest
-	67,  // 204: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:input_type -> com.arcadedb.grpc.TimeSeriesWriteChunk
-	72,  // 205: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:input_type -> com.arcadedb.grpc.TimeSeriesQueryRequest
-	76,  // 206: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:input_type -> com.arcadedb.grpc.TimeSeriesLatestRequest
-	78,  // 207: com.arcadedb.grpc.ArcadeDbAdminService.Ping:input_type -> com.arcadedb.grpc.PingRequest
-	80,  // 208: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:input_type -> com.arcadedb.grpc.GetServerInfoRequest
-	82,  // 209: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:input_type -> com.arcadedb.grpc.ListDatabasesRequest
-	84,  // 210: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:input_type -> com.arcadedb.grpc.ExistsDatabaseRequest
-	86,  // 211: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:input_type -> com.arcadedb.grpc.CreateDatabaseRequest
-	88,  // 212: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:input_type -> com.arcadedb.grpc.DropDatabaseRequest
-	96,  // 213: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:input_type -> com.arcadedb.grpc.OpenDatabaseRequest
-	98,  // 214: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:input_type -> com.arcadedb.grpc.CloseDatabaseRequest
-	100, // 215: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:input_type -> com.arcadedb.grpc.AlignDatabaseRequest
-	90,  // 216: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:input_type -> com.arcadedb.grpc.GetDatabaseInfoRequest
-	161, // 217: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:input_type -> com.arcadedb.grpc.GetProgressRequest
-	92,  // 218: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:input_type -> com.arcadedb.grpc.CreateUserRequest
-	111, // 219: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:input_type -> com.arcadedb.grpc.UpdateUserRequest
-	94,  // 220: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:input_type -> com.arcadedb.grpc.DeleteUserRequest
-	108, // 221: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:input_type -> com.arcadedb.grpc.ListUsersRequest
-	113, // 222: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:input_type -> com.arcadedb.grpc.ListGroupsRequest
-	115, // 223: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:input_type -> com.arcadedb.grpc.SaveGroupRequest
-	117, // 224: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:input_type -> com.arcadedb.grpc.DeleteGroupRequest
-	120, // 225: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:input_type -> com.arcadedb.grpc.ListApiTokensRequest
-	122, // 226: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:input_type -> com.arcadedb.grpc.CreateApiTokenRequest
-	124, // 227: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:input_type -> com.arcadedb.grpc.DeleteApiTokenRequest
-	102, // 228: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:input_type -> com.arcadedb.grpc.SetServerSettingRequest
-	104, // 229: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:input_type -> com.arcadedb.grpc.SetDatabaseSettingRequest
-	126, // 230: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:input_type -> com.arcadedb.grpc.GetBackupConfigRequest
-	128, // 231: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:input_type -> com.arcadedb.grpc.SetBackupConfigRequest
-	131, // 232: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:input_type -> com.arcadedb.grpc.ListBackupsRequest
-	133, // 233: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:input_type -> com.arcadedb.grpc.TriggerBackupRequest
-	135, // 234: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:input_type -> com.arcadedb.grpc.DeleteBackupRequest
-	137, // 235: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:input_type -> com.arcadedb.grpc.ProfilerStartRequest
-	138, // 236: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:input_type -> com.arcadedb.grpc.ProfilerStopRequest
-	139, // 237: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:input_type -> com.arcadedb.grpc.ProfilerResetRequest
-	140, // 238: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:input_type -> com.arcadedb.grpc.ProfilerResultsRequest
-	141, // 239: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:input_type -> com.arcadedb.grpc.ProfilerListRequest
-	142, // 240: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:input_type -> com.arcadedb.grpc.ProfilerLoadRequest
-	147, // 241: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:input_type -> com.arcadedb.grpc.RestoreBackupRequest
-	148, // 242: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:input_type -> com.arcadedb.grpc.RestoreDatabaseRequest
-	149, // 243: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:input_type -> com.arcadedb.grpc.ImportDatabaseRequest
-	152, // 244: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:input_type -> com.arcadedb.grpc.GetServerEventsRequest
-	154, // 245: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:input_type -> com.arcadedb.grpc.ShutdownRequest
-	156, // 246: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:input_type -> com.arcadedb.grpc.DisconnectClusterRequest
-	158, // 247: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:input_type -> com.arcadedb.grpc.ConnectClusterRequest
-	164, // 248: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:input_type -> com.arcadedb.grpc.ListSessionsRequest
-	166, // 249: com.arcadedb.grpc.ArcadeDbAdminService.Health:input_type -> com.arcadedb.grpc.HealthRequest
-	168, // 250: com.arcadedb.grpc.ArcadeDbAdminService.Ready:input_type -> com.arcadedb.grpc.ReadyRequest
-	20,  // 251: com.arcadedb.grpc.ArcadeDbService.StreamQuery:output_type -> com.arcadedb.grpc.QueryResult
-	38,  // 252: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:output_type -> com.arcadedb.grpc.ExecuteCommandResponse
-	41,  // 253: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:output_type -> com.arcadedb.grpc.ExecuteQueryResponse
-	43,  // 254: com.arcadedb.grpc.ArcadeDbService.CreateRecord:output_type -> com.arcadedb.grpc.CreateRecordResponse
-	46,  // 255: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:output_type -> com.arcadedb.grpc.UpdateRecordResponse
-	48,  // 256: com.arcadedb.grpc.ArcadeDbService.LookupByRid:output_type -> com.arcadedb.grpc.LookupByRidResponse
-	36,  // 257: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:output_type -> com.arcadedb.grpc.DeleteRecordResponse
-	50,  // 258: com.arcadedb.grpc.ArcadeDbService.BulkInsert:output_type -> com.arcadedb.grpc.InsertSummary
-	50,  // 259: com.arcadedb.grpc.ArcadeDbService.InsertStream:output_type -> com.arcadedb.grpc.InsertSummary
-	57,  // 260: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:output_type -> com.arcadedb.grpc.InsertResponse
-	30,  // 261: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:output_type -> com.arcadedb.grpc.BeginTransactionResponse
-	32,  // 262: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:output_type -> com.arcadedb.grpc.CommitTransactionResponse
-	34,  // 263: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:output_type -> com.arcadedb.grpc.RollbackTransactionResponse
-	64,  // 264: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:output_type -> com.arcadedb.grpc.GraphBatchResult
-	23,  // 265: com.arcadedb.grpc.ArcadeDbService.VectorSearch:output_type -> com.arcadedb.grpc.VectorSearchResponse
-	26,  // 266: com.arcadedb.grpc.ArcadeDbService.HybridSearch:output_type -> com.arcadedb.grpc.HybridSearchResponse
-	28,  // 267: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:output_type -> com.arcadedb.grpc.FullTextSearchResponse
-	68,  // 268: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
-	68,  // 269: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
-	75,  // 270: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:output_type -> com.arcadedb.grpc.TimeSeriesQueryResult
-	77,  // 271: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:output_type -> com.arcadedb.grpc.TimeSeriesLatestResponse
-	79,  // 272: com.arcadedb.grpc.ArcadeDbAdminService.Ping:output_type -> com.arcadedb.grpc.PingResponse
-	81,  // 273: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:output_type -> com.arcadedb.grpc.GetServerInfoResponse
-	83,  // 274: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:output_type -> com.arcadedb.grpc.ListDatabasesResponse
-	85,  // 275: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:output_type -> com.arcadedb.grpc.ExistsDatabaseResponse
-	87,  // 276: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:output_type -> com.arcadedb.grpc.CreateDatabaseResponse
-	89,  // 277: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:output_type -> com.arcadedb.grpc.DropDatabaseResponse
-	97,  // 278: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:output_type -> com.arcadedb.grpc.OpenDatabaseResponse
-	99,  // 279: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:output_type -> com.arcadedb.grpc.CloseDatabaseResponse
-	101, // 280: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:output_type -> com.arcadedb.grpc.AlignDatabaseResponse
-	91,  // 281: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:output_type -> com.arcadedb.grpc.GetDatabaseInfoResponse
-	162, // 282: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:output_type -> com.arcadedb.grpc.GetProgressResponse
-	93,  // 283: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:output_type -> com.arcadedb.grpc.CreateUserResponse
-	112, // 284: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:output_type -> com.arcadedb.grpc.UpdateUserResponse
-	95,  // 285: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:output_type -> com.arcadedb.grpc.DeleteUserResponse
-	109, // 286: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:output_type -> com.arcadedb.grpc.ListUsersResponse
-	114, // 287: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:output_type -> com.arcadedb.grpc.ListGroupsResponse
-	116, // 288: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:output_type -> com.arcadedb.grpc.SaveGroupResponse
-	118, // 289: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:output_type -> com.arcadedb.grpc.DeleteGroupResponse
-	121, // 290: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:output_type -> com.arcadedb.grpc.ListApiTokensResponse
-	123, // 291: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:output_type -> com.arcadedb.grpc.CreateApiTokenResponse
-	125, // 292: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:output_type -> com.arcadedb.grpc.DeleteApiTokenResponse
-	103, // 293: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:output_type -> com.arcadedb.grpc.SetServerSettingResponse
-	105, // 294: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:output_type -> com.arcadedb.grpc.SetDatabaseSettingResponse
-	127, // 295: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:output_type -> com.arcadedb.grpc.GetBackupConfigResponse
-	129, // 296: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:output_type -> com.arcadedb.grpc.SetBackupConfigResponse
-	132, // 297: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:output_type -> com.arcadedb.grpc.ListBackupsResponse
-	134, // 298: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:output_type -> com.arcadedb.grpc.TriggerBackupResponse
-	136, // 299: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:output_type -> com.arcadedb.grpc.DeleteBackupResponse
-	143, // 300: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:output_type -> com.arcadedb.grpc.ProfilerStateResponse
-	144, // 301: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	143, // 302: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:output_type -> com.arcadedb.grpc.ProfilerStateResponse
-	144, // 303: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	146, // 304: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:output_type -> com.arcadedb.grpc.ProfilerListResponse
-	144, // 305: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	150, // 306: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:output_type -> com.arcadedb.grpc.RestoreProgress
-	150, // 307: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:output_type -> com.arcadedb.grpc.RestoreProgress
-	151, // 308: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:output_type -> com.arcadedb.grpc.ImportProgress
-	153, // 309: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:output_type -> com.arcadedb.grpc.GetServerEventsResponse
-	155, // 310: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:output_type -> com.arcadedb.grpc.ShutdownResponse
-	157, // 311: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:output_type -> com.arcadedb.grpc.DisconnectClusterResponse
-	159, // 312: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:output_type -> com.arcadedb.grpc.ConnectClusterResponse
-	165, // 313: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:output_type -> com.arcadedb.grpc.ListSessionsResponse
-	167, // 314: com.arcadedb.grpc.ArcadeDbAdminService.Health:output_type -> com.arcadedb.grpc.HealthResponse
-	169, // 315: com.arcadedb.grpc.ArcadeDbAdminService.Ready:output_type -> com.arcadedb.grpc.ReadyResponse
-	251, // [251:316] is the sub-list for method output_type
-	186, // [186:251] is the sub-list for method input_type
-	186, // [186:186] is the sub-list for extension type_name
-	186, // [186:186] is the sub-list for extension extendee
-	0,   // [0:186] is the sub-list for field type_name
+	8,   // 167: com.arcadedb.grpc.AcceptDivergedDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 168: com.arcadedb.grpc.AcceptStaleSnapshotRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 169: com.arcadedb.grpc.GetProgressRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	164, // 170: com.arcadedb.grpc.GetProgressResponse.operations:type_name -> com.arcadedb.grpc.OperationProgressInfo
+	8,   // 171: com.arcadedb.grpc.ListSessionsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	167, // 172: com.arcadedb.grpc.ListSessionsResponse.sessions:type_name -> com.arcadedb.grpc.SessionInfo
+	12,  // 173: com.arcadedb.grpc.GrpcRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 174: com.arcadedb.grpc.GrpcMap.EntriesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 175: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 176: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 177: com.arcadedb.grpc.HybridSearchResponse.LegsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 178: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 179: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 180: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 181: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 182: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 183: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 184: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	106, // 185: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	106, // 186: com.arcadedb.grpc.UserInfo.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	106, // 187: com.arcadedb.grpc.UserDatabases.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	19,  // 188: com.arcadedb.grpc.ArcadeDbService.StreamQuery:input_type -> com.arcadedb.grpc.StreamQueryRequest
+	37,  // 189: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:input_type -> com.arcadedb.grpc.ExecuteCommandRequest
+	40,  // 190: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:input_type -> com.arcadedb.grpc.ExecuteQueryRequest
+	42,  // 191: com.arcadedb.grpc.ArcadeDbService.CreateRecord:input_type -> com.arcadedb.grpc.CreateRecordRequest
+	45,  // 192: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:input_type -> com.arcadedb.grpc.UpdateRecordRequest
+	47,  // 193: com.arcadedb.grpc.ArcadeDbService.LookupByRid:input_type -> com.arcadedb.grpc.LookupByRidRequest
+	35,  // 194: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:input_type -> com.arcadedb.grpc.DeleteRecordRequest
+	52,  // 195: com.arcadedb.grpc.ArcadeDbService.BulkInsert:input_type -> com.arcadedb.grpc.BulkInsertRequest
+	53,  // 196: com.arcadedb.grpc.ArcadeDbService.InsertStream:input_type -> com.arcadedb.grpc.InsertChunk
+	54,  // 197: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:input_type -> com.arcadedb.grpc.InsertRequest
+	29,  // 198: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:input_type -> com.arcadedb.grpc.BeginTransactionRequest
+	31,  // 199: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:input_type -> com.arcadedb.grpc.CommitTransactionRequest
+	33,  // 200: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:input_type -> com.arcadedb.grpc.RollbackTransactionRequest
+	63,  // 201: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:input_type -> com.arcadedb.grpc.GraphBatchChunk
+	21,  // 202: com.arcadedb.grpc.ArcadeDbService.VectorSearch:input_type -> com.arcadedb.grpc.VectorSearchRequest
+	25,  // 203: com.arcadedb.grpc.ArcadeDbService.HybridSearch:input_type -> com.arcadedb.grpc.HybridSearchRequest
+	27,  // 204: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:input_type -> com.arcadedb.grpc.FullTextSearchRequest
+	66,  // 205: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:input_type -> com.arcadedb.grpc.TimeSeriesWriteRequest
+	67,  // 206: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:input_type -> com.arcadedb.grpc.TimeSeriesWriteChunk
+	72,  // 207: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:input_type -> com.arcadedb.grpc.TimeSeriesQueryRequest
+	76,  // 208: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:input_type -> com.arcadedb.grpc.TimeSeriesLatestRequest
+	78,  // 209: com.arcadedb.grpc.ArcadeDbAdminService.Ping:input_type -> com.arcadedb.grpc.PingRequest
+	80,  // 210: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:input_type -> com.arcadedb.grpc.GetServerInfoRequest
+	82,  // 211: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:input_type -> com.arcadedb.grpc.ListDatabasesRequest
+	84,  // 212: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:input_type -> com.arcadedb.grpc.ExistsDatabaseRequest
+	86,  // 213: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:input_type -> com.arcadedb.grpc.CreateDatabaseRequest
+	88,  // 214: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:input_type -> com.arcadedb.grpc.DropDatabaseRequest
+	96,  // 215: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:input_type -> com.arcadedb.grpc.OpenDatabaseRequest
+	98,  // 216: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:input_type -> com.arcadedb.grpc.CloseDatabaseRequest
+	100, // 217: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:input_type -> com.arcadedb.grpc.AlignDatabaseRequest
+	90,  // 218: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:input_type -> com.arcadedb.grpc.GetDatabaseInfoRequest
+	165, // 219: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:input_type -> com.arcadedb.grpc.GetProgressRequest
+	92,  // 220: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:input_type -> com.arcadedb.grpc.CreateUserRequest
+	111, // 221: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:input_type -> com.arcadedb.grpc.UpdateUserRequest
+	94,  // 222: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:input_type -> com.arcadedb.grpc.DeleteUserRequest
+	108, // 223: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:input_type -> com.arcadedb.grpc.ListUsersRequest
+	113, // 224: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:input_type -> com.arcadedb.grpc.ListGroupsRequest
+	115, // 225: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:input_type -> com.arcadedb.grpc.SaveGroupRequest
+	117, // 226: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:input_type -> com.arcadedb.grpc.DeleteGroupRequest
+	120, // 227: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:input_type -> com.arcadedb.grpc.ListApiTokensRequest
+	122, // 228: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:input_type -> com.arcadedb.grpc.CreateApiTokenRequest
+	124, // 229: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:input_type -> com.arcadedb.grpc.DeleteApiTokenRequest
+	102, // 230: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:input_type -> com.arcadedb.grpc.SetServerSettingRequest
+	104, // 231: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:input_type -> com.arcadedb.grpc.SetDatabaseSettingRequest
+	126, // 232: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:input_type -> com.arcadedb.grpc.GetBackupConfigRequest
+	128, // 233: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:input_type -> com.arcadedb.grpc.SetBackupConfigRequest
+	131, // 234: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:input_type -> com.arcadedb.grpc.ListBackupsRequest
+	133, // 235: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:input_type -> com.arcadedb.grpc.TriggerBackupRequest
+	135, // 236: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:input_type -> com.arcadedb.grpc.DeleteBackupRequest
+	137, // 237: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:input_type -> com.arcadedb.grpc.ProfilerStartRequest
+	138, // 238: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:input_type -> com.arcadedb.grpc.ProfilerStopRequest
+	139, // 239: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:input_type -> com.arcadedb.grpc.ProfilerResetRequest
+	140, // 240: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:input_type -> com.arcadedb.grpc.ProfilerResultsRequest
+	141, // 241: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:input_type -> com.arcadedb.grpc.ProfilerListRequest
+	142, // 242: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:input_type -> com.arcadedb.grpc.ProfilerLoadRequest
+	147, // 243: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:input_type -> com.arcadedb.grpc.RestoreBackupRequest
+	148, // 244: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:input_type -> com.arcadedb.grpc.RestoreDatabaseRequest
+	149, // 245: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:input_type -> com.arcadedb.grpc.ImportDatabaseRequest
+	152, // 246: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:input_type -> com.arcadedb.grpc.GetServerEventsRequest
+	154, // 247: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:input_type -> com.arcadedb.grpc.ShutdownRequest
+	156, // 248: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:input_type -> com.arcadedb.grpc.DisconnectClusterRequest
+	158, // 249: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:input_type -> com.arcadedb.grpc.ConnectClusterRequest
+	160, // 250: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:input_type -> com.arcadedb.grpc.AcceptDivergedDatabaseRequest
+	162, // 251: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:input_type -> com.arcadedb.grpc.AcceptStaleSnapshotRequest
+	168, // 252: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:input_type -> com.arcadedb.grpc.ListSessionsRequest
+	170, // 253: com.arcadedb.grpc.ArcadeDbAdminService.Health:input_type -> com.arcadedb.grpc.HealthRequest
+	172, // 254: com.arcadedb.grpc.ArcadeDbAdminService.Ready:input_type -> com.arcadedb.grpc.ReadyRequest
+	20,  // 255: com.arcadedb.grpc.ArcadeDbService.StreamQuery:output_type -> com.arcadedb.grpc.QueryResult
+	38,  // 256: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:output_type -> com.arcadedb.grpc.ExecuteCommandResponse
+	41,  // 257: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:output_type -> com.arcadedb.grpc.ExecuteQueryResponse
+	43,  // 258: com.arcadedb.grpc.ArcadeDbService.CreateRecord:output_type -> com.arcadedb.grpc.CreateRecordResponse
+	46,  // 259: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:output_type -> com.arcadedb.grpc.UpdateRecordResponse
+	48,  // 260: com.arcadedb.grpc.ArcadeDbService.LookupByRid:output_type -> com.arcadedb.grpc.LookupByRidResponse
+	36,  // 261: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:output_type -> com.arcadedb.grpc.DeleteRecordResponse
+	50,  // 262: com.arcadedb.grpc.ArcadeDbService.BulkInsert:output_type -> com.arcadedb.grpc.InsertSummary
+	50,  // 263: com.arcadedb.grpc.ArcadeDbService.InsertStream:output_type -> com.arcadedb.grpc.InsertSummary
+	57,  // 264: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:output_type -> com.arcadedb.grpc.InsertResponse
+	30,  // 265: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:output_type -> com.arcadedb.grpc.BeginTransactionResponse
+	32,  // 266: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:output_type -> com.arcadedb.grpc.CommitTransactionResponse
+	34,  // 267: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:output_type -> com.arcadedb.grpc.RollbackTransactionResponse
+	64,  // 268: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:output_type -> com.arcadedb.grpc.GraphBatchResult
+	23,  // 269: com.arcadedb.grpc.ArcadeDbService.VectorSearch:output_type -> com.arcadedb.grpc.VectorSearchResponse
+	26,  // 270: com.arcadedb.grpc.ArcadeDbService.HybridSearch:output_type -> com.arcadedb.grpc.HybridSearchResponse
+	28,  // 271: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:output_type -> com.arcadedb.grpc.FullTextSearchResponse
+	68,  // 272: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
+	68,  // 273: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
+	75,  // 274: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:output_type -> com.arcadedb.grpc.TimeSeriesQueryResult
+	77,  // 275: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:output_type -> com.arcadedb.grpc.TimeSeriesLatestResponse
+	79,  // 276: com.arcadedb.grpc.ArcadeDbAdminService.Ping:output_type -> com.arcadedb.grpc.PingResponse
+	81,  // 277: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:output_type -> com.arcadedb.grpc.GetServerInfoResponse
+	83,  // 278: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:output_type -> com.arcadedb.grpc.ListDatabasesResponse
+	85,  // 279: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:output_type -> com.arcadedb.grpc.ExistsDatabaseResponse
+	87,  // 280: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:output_type -> com.arcadedb.grpc.CreateDatabaseResponse
+	89,  // 281: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:output_type -> com.arcadedb.grpc.DropDatabaseResponse
+	97,  // 282: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:output_type -> com.arcadedb.grpc.OpenDatabaseResponse
+	99,  // 283: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:output_type -> com.arcadedb.grpc.CloseDatabaseResponse
+	101, // 284: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:output_type -> com.arcadedb.grpc.AlignDatabaseResponse
+	91,  // 285: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:output_type -> com.arcadedb.grpc.GetDatabaseInfoResponse
+	166, // 286: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:output_type -> com.arcadedb.grpc.GetProgressResponse
+	93,  // 287: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:output_type -> com.arcadedb.grpc.CreateUserResponse
+	112, // 288: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:output_type -> com.arcadedb.grpc.UpdateUserResponse
+	95,  // 289: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:output_type -> com.arcadedb.grpc.DeleteUserResponse
+	109, // 290: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:output_type -> com.arcadedb.grpc.ListUsersResponse
+	114, // 291: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:output_type -> com.arcadedb.grpc.ListGroupsResponse
+	116, // 292: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:output_type -> com.arcadedb.grpc.SaveGroupResponse
+	118, // 293: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:output_type -> com.arcadedb.grpc.DeleteGroupResponse
+	121, // 294: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:output_type -> com.arcadedb.grpc.ListApiTokensResponse
+	123, // 295: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:output_type -> com.arcadedb.grpc.CreateApiTokenResponse
+	125, // 296: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:output_type -> com.arcadedb.grpc.DeleteApiTokenResponse
+	103, // 297: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:output_type -> com.arcadedb.grpc.SetServerSettingResponse
+	105, // 298: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:output_type -> com.arcadedb.grpc.SetDatabaseSettingResponse
+	127, // 299: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:output_type -> com.arcadedb.grpc.GetBackupConfigResponse
+	129, // 300: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:output_type -> com.arcadedb.grpc.SetBackupConfigResponse
+	132, // 301: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:output_type -> com.arcadedb.grpc.ListBackupsResponse
+	134, // 302: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:output_type -> com.arcadedb.grpc.TriggerBackupResponse
+	136, // 303: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:output_type -> com.arcadedb.grpc.DeleteBackupResponse
+	143, // 304: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:output_type -> com.arcadedb.grpc.ProfilerStateResponse
+	144, // 305: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	143, // 306: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:output_type -> com.arcadedb.grpc.ProfilerStateResponse
+	144, // 307: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	146, // 308: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:output_type -> com.arcadedb.grpc.ProfilerListResponse
+	144, // 309: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	150, // 310: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:output_type -> com.arcadedb.grpc.RestoreProgress
+	150, // 311: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:output_type -> com.arcadedb.grpc.RestoreProgress
+	151, // 312: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:output_type -> com.arcadedb.grpc.ImportProgress
+	153, // 313: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:output_type -> com.arcadedb.grpc.GetServerEventsResponse
+	155, // 314: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:output_type -> com.arcadedb.grpc.ShutdownResponse
+	157, // 315: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:output_type -> com.arcadedb.grpc.DisconnectClusterResponse
+	159, // 316: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:output_type -> com.arcadedb.grpc.ConnectClusterResponse
+	161, // 317: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:output_type -> com.arcadedb.grpc.AcceptDivergedDatabaseResponse
+	163, // 318: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:output_type -> com.arcadedb.grpc.AcceptStaleSnapshotResponse
+	169, // 319: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:output_type -> com.arcadedb.grpc.ListSessionsResponse
+	171, // 320: com.arcadedb.grpc.ArcadeDbAdminService.Health:output_type -> com.arcadedb.grpc.HealthResponse
+	173, // 321: com.arcadedb.grpc.ArcadeDbAdminService.Ready:output_type -> com.arcadedb.grpc.ReadyResponse
+	255, // [255:322] is the sub-list for method output_type
+	188, // [188:255] is the sub-list for method input_type
+	188, // [188:188] is the sub-list for extension type_name
+	188, // [188:188] is the sub-list for extension extendee
+	0,   // [0:188] is the sub-list for field type_name
 }
 
 func init() { file_arcadedb_server_proto_init() }
@@ -12811,7 +13101,7 @@ func file_arcadedb_server_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_arcadedb_server_proto_rawDesc), len(file_arcadedb_server_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   181,
+			NumMessages:   185,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -145,6 +145,7 @@ const (
 	APPLYERROR                ClusterStatusLocalResyncDivergenceCauses = "APPLY_ERROR"
 	SNAPSHOTINSTALLINCOMPLETE ClusterStatusLocalResyncDivergenceCauses = "SNAPSHOT_INSTALL_INCOMPLETE"
 	UNDECODABLELOGENTRY       ClusterStatusLocalResyncDivergenceCauses = "UNDECODABLE_LOG_ENTRY"
+	UNPUBLISHEDSCHEMACHANGE   ClusterStatusLocalResyncDivergenceCauses = "UNPUBLISHED_SCHEMA_CHANGE"
 	WALVERSIONGAP             ClusterStatusLocalResyncDivergenceCauses = "WAL_VERSION_GAP"
 )
 
@@ -156,6 +157,8 @@ func (e ClusterStatusLocalResyncDivergenceCauses) Valid() bool {
 	case SNAPSHOTINSTALLINCOMPLETE:
 		return true
 	case UNDECODABLELOGENTRY:
+		return true
+	case UNPUBLISHEDSCHEMACHANGE:
 		return true
 	case WALVERSIONGAP:
 		return true
@@ -1151,23 +1154,32 @@ type BootstrapStateResponse struct {
 
 // ClusterActionResponse Outcome of a cluster management action
 type ClusterActionResponse struct {
-	// AppliedIndex Last Raft index applied to the accepted copy, or -1 when none is recorded. Present on accept-copy.
+	// AppliedIndex Last Raft index applied to the accepted copy, or -1 when none is recorded. Present on accept-copy and accept-diverged. On accept-stale-snapshot, the applied position now recorded for the node.
 	AppliedIndex *int `json:"appliedIndex,omitempty"`
 
-	// Database Database the action applied to. Present on resync and accept-copy.
+	// Database Database the action applied to. Present on resync, accept-copy and accept-diverged.
 	Database *string `json:"database,omitempty"`
+
+	// DivergenceCause Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE), when one stood. Present on accept-diverged.
+	DivergenceCause *string `json:"divergenceCause,omitempty"`
 
 	// LeaderId Leader after the action. Present on leadership transfer.
 	LeaderId *string `json:"leaderId,omitempty"`
 
-	// LocalServer Server that performed the action. Present on resync and accept-copy.
+	// LocalServer Server that performed the action. Present on resync, accept-copy, accept-diverged and accept-stale-snapshot.
 	LocalServer *string `json:"localServer,omitempty"`
 
 	// OverriddenRefusal Why the leader had refused to reopen the copy, when a refusal was standing. Present on accept-copy.
 	OverriddenRefusal *string `json:"overriddenRefusal,omitempty"`
 
+	// ReadFloor The read floor that was lifted with the quarantine, when one stood. Present on accept-diverged, and on accept-stale-snapshot as the node-wide floor that was lifted.
+	ReadFloor *int `json:"readFloor,omitempty"`
+
 	// Result Human-readable outcome
 	Result string `json:"result"`
+
+	// SnapshotIndex The snapshot marker index the node-wide read floor was short of, or -1 when no marker was on disk. Present on accept-stale-snapshot.
+	SnapshotIndex *int `json:"snapshotIndex,omitempty"`
 }
 
 // ClusterAuthSessionRequest A session token and the action to apply to it
@@ -1316,11 +1328,26 @@ type ClusterStatus struct {
 	// LocalCommitIndex Last Raft index this node knows to be committed. -1 under the same condition
 	LocalCommitIndex int `json:"localCommitIndex"`
 
+	// LocalInPlaceRestarts How many times this node's Raft layer has been restarted in place since the process started, by what happened to its Raft storage. Both counts only grow, and both start again from 0 when the process restarts. Also published as the 'arcadedb.ha.in_place_restarts.recovered' and '.reformatted' metrics.
+	LocalInPlaceRestarts struct {
+		// Recovered Restarts that kept the Raft log: the health monitor's recovery of a CLOSED or EXCEPTION division, for example after a long JVM pause
+		Recovered int `json:"recovered"`
+
+		// Reformatted Restarts that discarded the Raft storage, after which the node is refilled from a leader snapshot: the divergence reformat. An increase outside a known divergence is worth investigating
+		Reformatted int `json:"reformatted"`
+	} `json:"localInPlaceRestarts"`
+
+	// LocalLeaderUnreachableSinceRestart True when 'localReplicationPathUnproven' has held, while no leader made itself known to this node or while 'leaderCommitIndex' is past every entry this node holds, for more than twice the election timeout. The leader's appends are not reaching this node and it does not count toward quorum. Always false on the leader. No leader known is also what every node of a cluster without a quorum sees; the 'follower-leader-unreachable-since-restart' alert says which case applies in 'details.leaderKnown' and is critical only when a known leader reports entries this node does not hold
+	LocalLeaderUnreachableSinceRestart bool `json:"localLeaderUnreachableSinceRestart"`
+
 	// LocalPeerId This server's peer identifier
 	LocalPeerId string `json:"localPeerId"`
 
 	// LocalReplicationLag Entries this node has yet to apply: 'localCommitIndex' minus 'localAppliedIndex', where on a follower 'localCommitIndex' is replaced by 'leaderCommitIndex' when the leader reported a larger one. -1 rather than a fabricated difference whenever either side is unknown
 	LocalReplicationLag int `json:"localReplicationLag"`
+
+	// LocalReplicationPathUnproven True when this node's Raft layer was restarted in place and has taken no replicated entry since, and no newer term with a known leader either. It holds back the automatic Raft-storage reformat of a node stuck at a stale term, so with 'localStuckAtStaleTerm' it means 'restart this node by hand' rather than 'will self-heal'. On its own it is not an incident: an idle cluster sends a restarted node no entry either
+	LocalReplicationPathUnproven bool `json:"localReplicationPathUnproven"`
 
 	// LocalResync This node's resync state. Present on every answer. The database names it carries are reduced to the ones the caller is authorized on, so a caller scoped to one database cannot learn another tenant's database name from a status poll.
 	LocalResync struct {
@@ -1455,7 +1482,7 @@ type ClusterStatus struct {
 // ClusterStatusAlertsSeverity How urgent the condition is. 'critical' means this node or the cluster is not serving correctly right now, 'warning' that it will not keep serving correctly, 'info' that a declared configuration and the live one differ without consequence yet.
 type ClusterStatusAlertsSeverity string
 
-// ClusterStatusLocalResyncDivergenceCauses Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index.
+// ClusterStatusLocalResyncDivergenceCauses Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index; 'UNPUBLISHED_SCHEMA_CHANGE' a schema change or compaction this node ran locally whose replication was refused or could not be published, so no other node holds it.
 type ClusterStatusLocalResyncDivergenceCauses string
 
 // ClusterStatusPeersCapabilitiesUnknownKind What kind of unknown 'capabilitiesUnknownReason' describes, present exactly when it is (issue #8655): ROUTE_MISSING (the peer answered HTTP 404 on the capability route, so its build predates it - every node's probe gets that answer, the leader's included), UNREACHABLE (the answering node got no usable answer - a transport failure, a timeout, another status, or an answer naming another peer - which says nothing about what another node's probe gets), ADDRESS_REFUSED (the answering node has no address it may dial for this peer) or STALE (the last answer aged out with no failed probe behind it). Lets a client on a follower gate on ROUTE_MISSING without matching the reason's text.
@@ -2161,6 +2188,9 @@ type NdJsonBatchEvent struct {
 		// ExceptionArgs Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.
 		ExceptionArgs *string `json:"exceptionArgs,omitempty"`
 
+		// RetryAfter Seconds to wait before retrying, the value the buffered encoding sends as a Retry-After header for the same failure: present only for a refusal that carries one - 503 when the node cannot execute the request yet (e.g. a snapshot install), 409 when an identical request is still in flight. A header cannot be added once the stream has started, so the back-off travels in band (issue #8899).
+		RetryAfter *int `json:"retryAfter,omitempty"`
+
 		// Status HTTP status the buffered encoding would have used for the same failure - 400 or 408 for a malformed or truncated body, and for an engine failure raised after the stream started the status the standard error mapping gives it: 409 for a duplicated key, 503 for a retryable conflict, 413 for a body past arcadedb.server.httpBodyContentMaxSize, 403, 404, 500 (issue #7396).
 		Status *int `json:"status,omitempty"`
 	} `json:"error,omitempty"`
@@ -2209,14 +2239,26 @@ type NdJsonBatchEvent struct {
 type NdJsonQueryEvent struct {
 	// Error A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.
 	Error *struct {
+		// Detail Cause chain of the failure, as the buffered error body carries it. Absent in production mode.
+		Detail *string `json:"detail,omitempty"`
+
+		// Error Classified label of the failure, the value the buffered error body carries in its 'error' member.
+		Error *string `json:"error,omitempty"`
+
 		// Exception Class name of the reported exception, the value the buffered error body carries in its 'exception' member.
 		Exception *string `json:"exception,omitempty"`
 
 		// ExceptionArgs Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.
 		ExceptionArgs *string `json:"exceptionArgs,omitempty"`
 
-		// Message Why the stream failed
+		// Message Why the stream failed. Outside production mode the failure's own message; in production mode the classified label also carried in 'error', because the raw text can carry file paths and engine internals the buffered error body conceals for the same failure (issue #8899).
 		Message string `json:"message"`
+
+		// RequestId Correlation id echoing X-Request-Id, for cross-referencing the failure against the server log. Absent when the request carried no correlation id.
+		RequestId *string `json:"requestId,omitempty"`
+
+		// RetryAfter Seconds to wait before retrying, the value the buffered encoding sends as a Retry-After header for the same failure: present only for a refusal that carries one - 503 when the node cannot execute the request yet (e.g. a snapshot install), 409 when an identical request is still in flight. A header cannot be added once the stream has started, so the back-off travels in band (issue #8899).
+		RetryAfter *int `json:"retryAfter,omitempty"`
 
 		// Status HTTP status the buffered encoding would have answered the same failure with, decided by the same error mapping: 503 for a retryable conflict, 409 for a duplicated key, 403 for a security refusal, 413 when arcadedb.server.httpQueryMaxResultRows cut the result short, 500 for an unexpected failure (issue #8235). Key on this rather than on 'message' to decide whether to retry.
 		Status int `json:"status"`
@@ -2885,6 +2927,9 @@ type TimeSeriesWriteError struct {
 	// UnavailableTypes Measurements naming a time-series type whose storage engine failed to load; see the server log for why
 	UnavailableTypes *[]string `json:"unavailableTypes,omitempty"`
 
+	// UndeclaredKeys Tag or field keys the measurement's time-series type does not declare in that role; the samples carrying them were dropped. Capped at 100 entries. Set arcadedb.timeSeriesUndeclaredKeys=ignore to store such samples with the undeclared keys discarded instead
+	UndeclaredKeys *[]string `json:"undeclaredKeys,omitempty"`
+
 	// UnknownTypes Measurements naming a type that does not exist
 	UnknownTypes *[]string `json:"unknownTypes,omitempty"`
 
@@ -3212,6 +3257,18 @@ type GetClusterStatusParams struct {
 
 // AcceptClusterDatabaseCopyParams defines parameters for AcceptClusterDatabaseCopy.
 type AcceptClusterDatabaseCopyParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// AcceptClusterDivergedDatabaseParams defines parameters for AcceptClusterDivergedDatabase.
+type AcceptClusterDivergedDatabaseParams struct {
+	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
+	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
+}
+
+// AcceptClusterStaleSnapshotParams defines parameters for AcceptClusterStaleSnapshot.
+type AcceptClusterStaleSnapshotParams struct {
 	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
 	XRequestId *RequestIdParam `json:"X-Request-Id,omitempty"`
 }
@@ -5019,6 +5076,20 @@ type ClientInterface interface {
 	// Corresponds with POST /api/v1/cluster/accept-copy/{database} (the `AcceptClusterDatabaseCopy` operationId).
 	AcceptClusterDatabaseCopy(ctx context.Context, database string, params *AcceptClusterDatabaseCopyParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// AcceptClusterDivergedDatabase Lift a database quarantine no peer can resync
+	//
+	// Lifts the quarantine standing on one database, and the read floor that goes with it, accepting this node's copy as it is without a resync. A quarantined database keeps the node not-ready and its Raft log un-checkpointed until a resync from a peer restores it; a node that is the only voter of its cluster has no peer, so a quarantine restored from disk, or raised while the cluster still had peers, never lifts there, and neither does one that every voter of the cluster holds on the same database, since no node then serves a copy to resync from (the no-healthy-copy-on-any-voter alert). The entry the quarantine skipped is NOT replayed: if the copy is missing it, it stays missing. The change is persisted and logged with who made it, at which applied index, over which cause. Root only. Answers 404 when no quarantine and no read floor stands on the database, and 409 on a node that is not the sole voter while some voter does not report the database quarantined, where the resync is the way out; nothing standing is checked first, so a node with peers and no quarantine answers 404. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+	//
+	// Corresponds with POST /api/v1/cluster/accept-diverged/{database} (the `AcceptClusterDivergedDatabase` operationId).
+	AcceptClusterDivergedDatabase(ctx context.Context, database string, params *AcceptClusterDivergedDatabaseParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AcceptClusterStaleSnapshot Lift the node-wide stale-snapshot read floor no peer can resync
+	//
+	// Lifts the node-wide stale-snapshot read floor, accepting this node's databases as they are without a resync. The floor stands while the replication snapshot marker runs ahead of the entries this node applied: the node reports not-ready and LINEARIZABLE reads are clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, so on a node that is the only voter of its cluster the floor never lifts. The entries between the floor and the marker are NOT replayed: if a database is missing them, it stays missing. The marker index is persisted as the applied position, so a restart does not raise the floor again, and the change is logged with who made it, the floor and the marker index. A database quarantined on its own keeps its quarantine (see accept-diverged). Root only. Answers 404 when no floor stands, and 409 on a node that is not the sole voter, where the resync is the way out, or while a snapshot download is running. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+	//
+	// Corresponds with POST /api/v1/cluster/accept-stale-snapshot (the `AcceptClusterStaleSnapshot` operationId).
+	AcceptClusterStaleSnapshot(ctx context.Context, params *AcceptClusterStaleSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ResolveClusterAuthSessionWithBody Confirm or revoke an authentication session on the node that issued it
 	//
 	// Cluster-internal. A session token is held by the node that answered /api/v1/login and names that node ('AU-<server name>-<uuid>'). A peer that receives the token asks the issuer through this route whether the session is still valid ('validate', which also counts as activity on the issuer), and a logout tells every peer to drop its copy ('revoke'). Peers authenticate with the cluster token; a request that carries user credentials instead is refused with 403 (issue #7424).
@@ -6345,6 +6416,40 @@ func (c *Client) GetClusterStatus(ctx context.Context, params *GetClusterStatusP
 // Corresponds with POST /api/v1/cluster/accept-copy/{database} (the `AcceptClusterDatabaseCopy` operationId).
 func (c *Client) AcceptClusterDatabaseCopy(ctx context.Context, database string, params *AcceptClusterDatabaseCopyParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAcceptClusterDatabaseCopyRequest(c.Server, database, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AcceptClusterDivergedDatabase Lift a database quarantine no peer can resync
+//
+// Lifts the quarantine standing on one database, and the read floor that goes with it, accepting this node's copy as it is without a resync. A quarantined database keeps the node not-ready and its Raft log un-checkpointed until a resync from a peer restores it; a node that is the only voter of its cluster has no peer, so a quarantine restored from disk, or raised while the cluster still had peers, never lifts there, and neither does one that every voter of the cluster holds on the same database, since no node then serves a copy to resync from (the no-healthy-copy-on-any-voter alert). The entry the quarantine skipped is NOT replayed: if the copy is missing it, it stays missing. The change is persisted and logged with who made it, at which applied index, over which cause. Root only. Answers 404 when no quarantine and no read floor stands on the database, and 409 on a node that is not the sole voter while some voter does not report the database quarantined, where the resync is the way out; nothing standing is checked first, so a node with peers and no quarantine answers 404. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+//
+// Corresponds with POST /api/v1/cluster/accept-diverged/{database} (the `AcceptClusterDivergedDatabase` operationId).
+func (c *Client) AcceptClusterDivergedDatabase(ctx context.Context, database string, params *AcceptClusterDivergedDatabaseParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAcceptClusterDivergedDatabaseRequest(c.Server, database, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AcceptClusterStaleSnapshot Lift the node-wide stale-snapshot read floor no peer can resync
+//
+// Lifts the node-wide stale-snapshot read floor, accepting this node's databases as they are without a resync. The floor stands while the replication snapshot marker runs ahead of the entries this node applied: the node reports not-ready and LINEARIZABLE reads are clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, so on a node that is the only voter of its cluster the floor never lifts. The entries between the floor and the marker are NOT replayed: if a database is missing them, it stays missing. The marker index is persisted as the applied position, so a restart does not raise the floor again, and the change is logged with who made it, the floor and the marker index. A database quarantined on its own keeps its quarantine (see accept-diverged). Root only. Answers 404 when no floor stands, and 409 on a node that is not the sole voter, where the resync is the way out, or while a snapshot download is running. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+//
+// Corresponds with POST /api/v1/cluster/accept-stale-snapshot (the `AcceptClusterStaleSnapshot` operationId).
+func (c *Client) AcceptClusterStaleSnapshot(ctx context.Context, params *AcceptClusterStaleSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAcceptClusterStaleSnapshotRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -9247,6 +9352,97 @@ func NewAcceptClusterDatabaseCopyRequest(server string, database string, params 
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/cluster/accept-copy/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewAcceptClusterDivergedDatabaseRequest constructs an http.Request for the AcceptClusterDivergedDatabase method
+func NewAcceptClusterDivergedDatabaseRequest(server string, database string, params *AcceptClusterDivergedDatabaseParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "database", database, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/cluster/accept-diverged/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.XRequestId != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Request-Id", *params.XRequestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("X-Request-Id", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewAcceptClusterStaleSnapshotRequest constructs an http.Request for the AcceptClusterStaleSnapshot method
+func NewAcceptClusterStaleSnapshotRequest(server string, params *AcceptClusterStaleSnapshotParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/cluster/accept-stale-snapshot")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -13788,6 +13984,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/v1/cluster/accept-copy/{database} (the `AcceptClusterDatabaseCopy` operationId).
 	AcceptClusterDatabaseCopyWithResponse(ctx context.Context, database string, params *AcceptClusterDatabaseCopyParams, reqEditors ...RequestEditorFn) (*AcceptClusterDatabaseCopyResp, error)
 
+	// AcceptClusterDivergedDatabaseWithResponse Lift a database quarantine no peer can resync
+	//
+	// Lifts the quarantine standing on one database, and the read floor that goes with it, accepting this node's copy as it is without a resync. A quarantined database keeps the node not-ready and its Raft log un-checkpointed until a resync from a peer restores it; a node that is the only voter of its cluster has no peer, so a quarantine restored from disk, or raised while the cluster still had peers, never lifts there, and neither does one that every voter of the cluster holds on the same database, since no node then serves a copy to resync from (the no-healthy-copy-on-any-voter alert). The entry the quarantine skipped is NOT replayed: if the copy is missing it, it stays missing. The change is persisted and logged with who made it, at which applied index, over which cause. Root only. Answers 404 when no quarantine and no read floor stands on the database, and 409 on a node that is not the sole voter while some voter does not report the database quarantined, where the resync is the way out; nothing standing is checked first, so a node with peers and no quarantine answers 404. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/cluster/accept-diverged/{database} (the `AcceptClusterDivergedDatabase` operationId).
+	AcceptClusterDivergedDatabaseWithResponse(ctx context.Context, database string, params *AcceptClusterDivergedDatabaseParams, reqEditors ...RequestEditorFn) (*AcceptClusterDivergedDatabaseResp, error)
+
+	// AcceptClusterStaleSnapshotWithResponse Lift the node-wide stale-snapshot read floor no peer can resync
+	//
+	// Lifts the node-wide stale-snapshot read floor, accepting this node's databases as they are without a resync. The floor stands while the replication snapshot marker runs ahead of the entries this node applied: the node reports not-ready and LINEARIZABLE reads are clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, so on a node that is the only voter of its cluster the floor never lifts. The entries between the floor and the marker are NOT replayed: if a database is missing them, it stays missing. The marker index is persisted as the applied position, so a restart does not raise the floor again, and the change is logged with who made it, the floor and the marker index. A database quarantined on its own keeps its quarantine (see accept-diverged). Root only. Answers 404 when no floor stands, and 409 on a node that is not the sole voter, where the resync is the way out, or while a snapshot download is running. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/cluster/accept-stale-snapshot (the `AcceptClusterStaleSnapshot` operationId).
+	AcceptClusterStaleSnapshotWithResponse(ctx context.Context, params *AcceptClusterStaleSnapshotParams, reqEditors ...RequestEditorFn) (*AcceptClusterStaleSnapshotResp, error)
+
 	// ResolveClusterAuthSessionWithBodyWithResponse Confirm or revoke an authentication session on the node that issued it
 	//
 	// Cluster-internal. A session token is held by the node that answered /api/v1/login and names that node ('AU-<server name>-<uuid>'). A peer that receives the token asks the issuer through this route whether the session is still valid ('validate', which also counts as activity on the issuer), and a logout tells every peer to drop its copy ('revoke'). Peers authenticate with the cluster token; a request that carries user credentials instead is refused with 403 (issue #7424).
@@ -16601,6 +16815,272 @@ func (r AcceptClusterDatabaseCopyResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r AcceptClusterDatabaseCopyResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AcceptClusterDivergedDatabaseResp200Headers the declared response headers of an HTTP 200 response for AcceptClusterDivergedDatabase
+type AcceptClusterDivergedDatabaseResp200Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterDivergedDatabaseResp400Headers the declared response headers of an HTTP 400 response for AcceptClusterDivergedDatabase
+type AcceptClusterDivergedDatabaseResp400Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterDivergedDatabaseResp401Headers the declared response headers of an HTTP 401 response for AcceptClusterDivergedDatabase
+type AcceptClusterDivergedDatabaseResp401Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterDivergedDatabaseResp403Headers the declared response headers of an HTTP 403 response for AcceptClusterDivergedDatabase
+type AcceptClusterDivergedDatabaseResp403Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterDivergedDatabaseResp404Headers the declared response headers of an HTTP 404 response for AcceptClusterDivergedDatabase
+type AcceptClusterDivergedDatabaseResp404Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterDivergedDatabaseResp409Headers the declared response headers of an HTTP 409 response for AcceptClusterDivergedDatabase
+type AcceptClusterDivergedDatabaseResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// AcceptClusterDivergedDatabaseResp500Headers the declared response headers of an HTTP 500 response for AcceptClusterDivergedDatabase
+type AcceptClusterDivergedDatabaseResp500Headers struct {
+	XRequestId *string
+}
+
+type AcceptClusterDivergedDatabaseResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ClusterActionResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AcceptClusterDivergedDatabaseResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *AcceptClusterDivergedDatabaseResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *AcceptClusterDivergedDatabaseResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *AcceptClusterDivergedDatabaseResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *AcceptClusterDivergedDatabaseResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *AcceptClusterDivergedDatabaseResp409Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *AcceptClusterDivergedDatabaseResp500Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AcceptClusterDivergedDatabaseResp) GetJSON200() *ClusterActionResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AcceptClusterDivergedDatabaseResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AcceptClusterDivergedDatabaseResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AcceptClusterDivergedDatabaseResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AcceptClusterDivergedDatabaseResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r AcceptClusterDivergedDatabaseResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r AcceptClusterDivergedDatabaseResp) GetJSON500() *ErrorResponse {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r AcceptClusterDivergedDatabaseResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AcceptClusterDivergedDatabaseResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AcceptClusterDivergedDatabaseResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AcceptClusterDivergedDatabaseResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AcceptClusterStaleSnapshotResp200Headers the declared response headers of an HTTP 200 response for AcceptClusterStaleSnapshot
+type AcceptClusterStaleSnapshotResp200Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterStaleSnapshotResp400Headers the declared response headers of an HTTP 400 response for AcceptClusterStaleSnapshot
+type AcceptClusterStaleSnapshotResp400Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterStaleSnapshotResp401Headers the declared response headers of an HTTP 401 response for AcceptClusterStaleSnapshot
+type AcceptClusterStaleSnapshotResp401Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterStaleSnapshotResp403Headers the declared response headers of an HTTP 403 response for AcceptClusterStaleSnapshot
+type AcceptClusterStaleSnapshotResp403Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterStaleSnapshotResp404Headers the declared response headers of an HTTP 404 response for AcceptClusterStaleSnapshot
+type AcceptClusterStaleSnapshotResp404Headers struct {
+	XRequestId *string
+}
+
+// AcceptClusterStaleSnapshotResp409Headers the declared response headers of an HTTP 409 response for AcceptClusterStaleSnapshot
+type AcceptClusterStaleSnapshotResp409Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// AcceptClusterStaleSnapshotResp500Headers the declared response headers of an HTTP 500 response for AcceptClusterStaleSnapshot
+type AcceptClusterStaleSnapshotResp500Headers struct {
+	XRequestId *string
+}
+
+type AcceptClusterStaleSnapshotResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ClusterActionResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorResponse
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorResponse
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorResponse
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AcceptClusterStaleSnapshotResp200Headers
+	// Headers400 the parsed response headers for an HTTP 400 response
+	Headers400 *AcceptClusterStaleSnapshotResp400Headers
+	// Headers401 the parsed response headers for an HTTP 401 response
+	Headers401 *AcceptClusterStaleSnapshotResp401Headers
+	// Headers403 the parsed response headers for an HTTP 403 response
+	Headers403 *AcceptClusterStaleSnapshotResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *AcceptClusterStaleSnapshotResp404Headers
+	// Headers409 the parsed response headers for an HTTP 409 response
+	Headers409 *AcceptClusterStaleSnapshotResp409Headers
+	// Headers500 the parsed response headers for an HTTP 500 response
+	Headers500 *AcceptClusterStaleSnapshotResp500Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AcceptClusterStaleSnapshotResp) GetJSON200() *ClusterActionResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r AcceptClusterStaleSnapshotResp) GetJSON400() *ErrorResponse {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AcceptClusterStaleSnapshotResp) GetJSON401() *ErrorResponse {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AcceptClusterStaleSnapshotResp) GetJSON403() *ErrorResponse {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r AcceptClusterStaleSnapshotResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r AcceptClusterStaleSnapshotResp) GetJSON409() *ErrorResponse {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r AcceptClusterStaleSnapshotResp) GetJSON500() *ErrorResponse {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r AcceptClusterStaleSnapshotResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AcceptClusterStaleSnapshotResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AcceptClusterStaleSnapshotResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AcceptClusterStaleSnapshotResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -26644,6 +27124,36 @@ func (c *ClientWithResponses) AcceptClusterDatabaseCopyWithResponse(ctx context.
 	return ParseAcceptClusterDatabaseCopyResp(rsp)
 }
 
+// AcceptClusterDivergedDatabaseWithResponse Lift a database quarantine no peer can resync
+//
+// Lifts the quarantine standing on one database, and the read floor that goes with it, accepting this node's copy as it is without a resync. A quarantined database keeps the node not-ready and its Raft log un-checkpointed until a resync from a peer restores it; a node that is the only voter of its cluster has no peer, so a quarantine restored from disk, or raised while the cluster still had peers, never lifts there, and neither does one that every voter of the cluster holds on the same database, since no node then serves a copy to resync from (the no-healthy-copy-on-any-voter alert). The entry the quarantine skipped is NOT replayed: if the copy is missing it, it stays missing. The change is persisted and logged with who made it, at which applied index, over which cause. Root only. Answers 404 when no quarantine and no read floor stands on the database, and 409 on a node that is not the sole voter while some voter does not report the database quarantined, where the resync is the way out; nothing standing is checked first, so a node with peers and no quarantine answers 404. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/cluster/accept-diverged/{database} (the `AcceptClusterDivergedDatabase` operationId).
+func (c *ClientWithResponses) AcceptClusterDivergedDatabaseWithResponse(ctx context.Context, database string, params *AcceptClusterDivergedDatabaseParams, reqEditors ...RequestEditorFn) (*AcceptClusterDivergedDatabaseResp, error) {
+	rsp, err := c.AcceptClusterDivergedDatabase(ctx, database, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAcceptClusterDivergedDatabaseResp(rsp)
+}
+
+// AcceptClusterStaleSnapshotWithResponse Lift the node-wide stale-snapshot read floor no peer can resync
+//
+// Lifts the node-wide stale-snapshot read floor, accepting this node's databases as they are without a resync. The floor stands while the replication snapshot marker runs ahead of the entries this node applied: the node reports not-ready and LINEARIZABLE reads are clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, so on a node that is the only voter of its cluster the floor never lifts. The entries between the floor and the marker are NOT replayed: if a database is missing them, it stays missing. The marker index is persisted as the applied position, so a restart does not raise the floor again, and the change is logged with who made it, the floor and the marker index. A database quarantined on its own keeps its quarantine (see accept-diverged). Root only. Answers 404 when no floor stands, and 409 on a node that is not the sole voter, where the resync is the way out, or while a snapshot download is running. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/cluster/accept-stale-snapshot (the `AcceptClusterStaleSnapshot` operationId).
+func (c *ClientWithResponses) AcceptClusterStaleSnapshotWithResponse(ctx context.Context, params *AcceptClusterStaleSnapshotParams, reqEditors ...RequestEditorFn) (*AcceptClusterStaleSnapshotResp, error) {
+	rsp, err := c.AcceptClusterStaleSnapshot(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAcceptClusterStaleSnapshotResp(rsp)
+}
+
 // ResolveClusterAuthSessionWithBodyWithResponse Confirm or revoke an authentication session on the node that issued it
 //
 // Cluster-internal. A session token is held by the node that answered /api/v1/login and names that node ('AU-<server name>-<uuid>'). A peer that receives the token asks the issuer through this route whether the session is still valid ('validate', which also counts as activity on the issuer), and a logout tells every peer to drop its copy ('revoke'). Peers authenticate with the cluster token; a request that carries user credentials instead is refused with 403 (issue #7424).
@@ -30298,6 +30808,302 @@ func ParseAcceptClusterDatabaseCopyResp(rsp *http.Response) (*AcceptClusterDatab
 		response.Headers409 = &headers
 	case rsp.StatusCode == 500:
 		var headers AcceptClusterDatabaseCopyResp500Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers500 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAcceptClusterDivergedDatabaseResp parses an HTTP response from a AcceptClusterDivergedDatabaseWithResponse call
+func ParseAcceptClusterDivergedDatabaseResp(rsp *http.Response) (*AcceptClusterDivergedDatabaseResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AcceptClusterDivergedDatabaseResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ClusterActionResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AcceptClusterDivergedDatabaseResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers AcceptClusterDivergedDatabaseResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers AcceptClusterDivergedDatabaseResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers AcceptClusterDivergedDatabaseResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers AcceptClusterDivergedDatabaseResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers AcceptClusterDivergedDatabaseResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 500:
+		var headers AcceptClusterDivergedDatabaseResp500Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers500 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAcceptClusterStaleSnapshotResp parses an HTTP response from a AcceptClusterStaleSnapshotWithResponse call
+func ParseAcceptClusterStaleSnapshotResp(rsp *http.Response) (*AcceptClusterStaleSnapshotResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AcceptClusterStaleSnapshotResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ClusterActionResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AcceptClusterStaleSnapshotResp200Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 400:
+		var headers AcceptClusterStaleSnapshotResp400Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers400 = &headers
+	case rsp.StatusCode == 401:
+		var headers AcceptClusterStaleSnapshotResp401Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers401 = &headers
+	case rsp.StatusCode == 403:
+		var headers AcceptClusterStaleSnapshotResp403Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers AcceptClusterStaleSnapshotResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
+	case rsp.StatusCode == 409:
+		var headers AcceptClusterStaleSnapshotResp409Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers409 = &headers
+	case rsp.StatusCode == 500:
+		var headers AcceptClusterStaleSnapshotResp500Headers
 		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
 			var value string
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {

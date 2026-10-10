@@ -791,11 +791,15 @@
         "description": "Outcome of a cluster management action",
         "properties": {
           "appliedIndex": {
-            "description": "Last Raft index applied to the accepted copy, or -1 when none is recorded. Present on accept-copy.",
+            "description": "Last Raft index applied to the accepted copy, or -1 when none is recorded. Present on accept-copy and accept-diverged. On accept-stale-snapshot, the applied position now recorded for the node.",
             "type": "integer"
           },
           "database": {
-            "description": "Database the action applied to. Present on resync and accept-copy.",
+            "description": "Database the action applied to. Present on resync, accept-copy and accept-diverged.",
+            "type": "string"
+          },
+          "divergenceCause": {
+            "description": "Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE), when one stood. Present on accept-diverged.",
             "type": "string"
           },
           "leaderId": {
@@ -803,16 +807,24 @@
             "type": "string"
           },
           "localServer": {
-            "description": "Server that performed the action. Present on resync and accept-copy.",
+            "description": "Server that performed the action. Present on resync, accept-copy, accept-diverged and accept-stale-snapshot.",
             "type": "string"
           },
           "overriddenRefusal": {
             "description": "Why the leader had refused to reopen the copy, when a refusal was standing. Present on accept-copy.",
             "type": "string"
           },
+          "readFloor": {
+            "description": "The read floor that was lifted with the quarantine, when one stood. Present on accept-diverged, and on accept-stale-snapshot as the node-wide floor that was lifted.",
+            "type": "integer"
+          },
           "result": {
             "description": "Human-readable outcome",
             "type": "string"
+          },
+          "snapshotIndex": {
+            "description": "The snapshot marker index the node-wide read floor was short of, or -1 when no marker was on disk. Present on accept-stale-snapshot.",
+            "type": "integer"
           }
         },
         "required": [
@@ -1099,6 +1111,28 @@
             "description": "Last Raft index this node knows to be committed. -1 under the same condition",
             "type": "integer"
           },
+          "localInPlaceRestarts": {
+            "description": "How many times this node's Raft layer has been restarted in place since the process started, by what happened to its Raft storage. Both counts only grow, and both start again from 0 when the process restarts. Also published as the 'arcadedb.ha.in_place_restarts.recovered' and '.reformatted' metrics.",
+            "properties": {
+              "recovered": {
+                "description": "Restarts that kept the Raft log: the health monitor's recovery of a CLOSED or EXCEPTION division, for example after a long JVM pause",
+                "type": "integer"
+              },
+              "reformatted": {
+                "description": "Restarts that discarded the Raft storage, after which the node is refilled from a leader snapshot: the divergence reformat. An increase outside a known divergence is worth investigating",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "recovered",
+              "reformatted"
+            ],
+            "type": "object"
+          },
+          "localLeaderUnreachableSinceRestart": {
+            "description": "True when 'localReplicationPathUnproven' has held, while no leader made itself known to this node or while 'leaderCommitIndex' is past every entry this node holds, for more than twice the election timeout. The leader's appends are not reaching this node and it does not count toward quorum. Always false on the leader. No leader known is also what every node of a cluster without a quorum sees; the 'follower-leader-unreachable-since-restart' alert says which case applies in 'details.leaderKnown' and is critical only when a known leader reports entries this node does not hold",
+            "type": "boolean"
+          },
           "localPeerId": {
             "description": "This server's peer identifier",
             "type": "string"
@@ -1106,6 +1140,10 @@
           "localReplicationLag": {
             "description": "Entries this node has yet to apply: 'localCommitIndex' minus 'localAppliedIndex', where on a follower 'localCommitIndex' is replaced by 'leaderCommitIndex' when the leader reported a larger one. -1 rather than a fabricated difference whenever either side is unknown",
             "type": "integer"
+          },
+          "localReplicationPathUnproven": {
+            "description": "True when this node's Raft layer was restarted in place and has taken no replicated entry since, and no newer term with a known leader either. It holds back the automatic Raft-storage reformat of a node stuck at a stale term, so with 'localStuckAtStaleTerm' it means 'restart this node by hand' rather than 'will self-heal'. On its own it is not an incident: an idle cluster sends a restarted node no entry either",
+            "type": "boolean"
           },
           "localResync": {
             "description": "This node's resync state. Present on every answer. The database names it carries are reduced to the ones the caller is authorized on, so a caller scoped to one database cannot learn another tenant's database name from a status poll.",
@@ -1128,12 +1166,13 @@
               },
               "divergenceCauses": {
                 "additionalProperties": {
-                  "description": "Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index.",
+                  "description": "Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index; 'UNPUBLISHED_SCHEMA_CHANGE' a schema change or compaction this node ran locally whose replication was refused or could not be published, so no other node holds it.",
                   "enum": [
                     "WAL_VERSION_GAP",
                     "UNDECODABLE_LOG_ENTRY",
                     "APPLY_ERROR",
-                    "SNAPSHOT_INSTALL_INCOMPLETE"
+                    "SNAPSHOT_INSTALL_INCOMPLETE",
+                    "UNPUBLISHED_SCHEMA_CHANGE"
                   ],
                   "type": "string"
                 },
@@ -1373,8 +1412,11 @@
           "leaderReady",
           "localAppliedIndex",
           "localCommitIndex",
+          "localInPlaceRestarts",
+          "localLeaderUnreachableSinceRestart",
           "localPeerId",
           "localReplicationLag",
+          "localReplicationPathUnproven",
           "localResync",
           "localStalledBehindLeader",
           "localStuckAtStaleTerm",
@@ -2759,6 +2801,10 @@
                 "description": "Structured arguments of the failure, as the buffered error body carries them: present only for a failure that has any, e.g. 'index|keys|rid' for a duplicated key.",
                 "type": "string"
               },
+              "retryAfter": {
+                "description": "Seconds to wait before retrying, the value the buffered encoding sends as a Retry-After header for the same failure: present only for a refusal that carries one - 503 when the node cannot execute the request yet (e.g. a snapshot install), 409 when an identical request is still in flight. A header cannot be added once the stream has started, so the back-off travels in band (issue #8899).",
+                "type": "integer"
+              },
               "status": {
                 "description": "HTTP status the buffered encoding would have used for the same failure - 400 or 408 for a malformed or truncated body, and for an engine failure raised after the stream started the status the standard error mapping gives it: 409 for a duplicated key, 503 for a retryable conflict, 413 for a body past arcadedb.server.httpBodyContentMaxSize, 403, 404, 500 (issue #7396).",
                 "type": "integer"
@@ -2835,6 +2881,14 @@
           "error": {
             "description": "A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.",
             "properties": {
+              "detail": {
+                "description": "Cause chain of the failure, as the buffered error body carries it. Absent in production mode.",
+                "type": "string"
+              },
+              "error": {
+                "description": "Classified label of the failure, the value the buffered error body carries in its 'error' member.",
+                "type": "string"
+              },
               "exception": {
                 "description": "Class name of the reported exception, the value the buffered error body carries in its 'exception' member.",
                 "type": "string"
@@ -2844,8 +2898,16 @@
                 "type": "string"
               },
               "message": {
-                "description": "Why the stream failed",
+                "description": "Why the stream failed. Outside production mode the failure's own message; in production mode the classified label also carried in 'error', because the raw text can carry file paths and engine internals the buffered error body conceals for the same failure (issue #8899).",
                 "type": "string"
+              },
+              "requestId": {
+                "description": "Correlation id echoing X-Request-Id, for cross-referencing the failure against the server log. Absent when the request carried no correlation id.",
+                "type": "string"
+              },
+              "retryAfter": {
+                "description": "Seconds to wait before retrying, the value the buffered encoding sends as a Retry-After header for the same failure: present only for a refusal that carries one - 503 when the node cannot execute the request yet (e.g. a snapshot install), 409 when an identical request is still in flight. A header cannot be added once the stream has started, so the back-off travels in band (issue #8899).",
+                "type": "integer"
               },
               "status": {
                 "description": "HTTP status the buffered encoding would have answered the same failure with, decided by the same error mapping: 503 for a retryable conflict, 409 for a duplicated key, 403 for a security refusal, 413 when arcadedb.server.httpQueryMaxResultRows cut the result short, 500 for an unexpected failure (issue #8235). Key on this rather than on 'message' to decide whether to retry.",
@@ -4148,6 +4210,14 @@
             "description": "Measurements naming a time-series type whose storage engine failed to load; see the server log for why",
             "items": {
               "description": "Type name",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "undeclaredKeys": {
+            "description": "Tag or field keys the measurement's time-series type does not declare in that role; the samples carrying them were dropped. Capped at 100 entries. Set arcadedb.timeSeriesUndeclaredKeys=ignore to store such samples with the undeclared keys discarded instead",
+            "items": {
+              "description": "'<measurement>.<key> (tag|field)'",
               "type": "string"
             },
             "type": "array"
@@ -6584,6 +6654,265 @@
           }
         },
         "summary": "Accept the leader's unverified copy of a database",
+        "tags": [
+          "Cluster"
+        ]
+      }
+    },
+    "/api/v1/cluster/accept-diverged/{database}": {
+      "post": {
+        "description": "Lifts the quarantine standing on one database, and the read floor that goes with it, accepting this node's copy as it is without a resync. A quarantined database keeps the node not-ready and its Raft log un-checkpointed until a resync from a peer restores it; a node that is the only voter of its cluster has no peer, so a quarantine restored from disk, or raised while the cluster still had peers, never lifts there, and neither does one that every voter of the cluster holds on the same database, since no node then serves a copy to resync from (the no-healthy-copy-on-any-voter alert). The entry the quarantine skipped is NOT replayed: if the copy is missing it, it stays missing. The change is persisted and logged with who made it, at which applied index, over which cause. Root only. Answers 404 when no quarantine and no read floor stands on the database, and 409 on a node that is not the sole voter while some voter does not report the database quarantined, where the resync is the way out; nothing standing is checked first, so a node with peers and no quarantine answers 404. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "operationId": "acceptClusterDivergedDatabase",
+        "parameters": [
+          {
+            "description": "Database name",
+            "in": "path",
+            "name": "database",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterActionResponse"
+                }
+              }
+            },
+            "description": "Quarantine lifted",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Lift a database quarantine no peer can resync",
+        "tags": [
+          "Cluster"
+        ]
+      }
+    },
+    "/api/v1/cluster/accept-stale-snapshot": {
+      "post": {
+        "description": "Lifts the node-wide stale-snapshot read floor, accepting this node's databases as they are without a resync. The floor stands while the replication snapshot marker runs ahead of the entries this node applied: the node reports not-ready and LINEARIZABLE reads are clamped until a full resync from a peer fills the gap. A leader cannot resync from itself, so on a node that is the only voter of its cluster the floor never lifts. The entries between the floor and the marker are NOT replayed: if a database is missing them, it stays missing. The marker index is persisted as the applied position, so a restart does not raise the floor again, and the change is logged with who made it, the floor and the marker index. A database quarantined on its own keeps its quarantine (see accept-diverged). Root only. Answers 404 when no floor stands, and 409 on a node that is not the sole voter, where the resync is the way out, or while a snapshot download is running. The body is ignored. Requires RaftHAPlugin: the route is registered on every server, but answers only where high availability is configured.",
+        "operationId": "acceptClusterStaleSnapshot",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/RequestIdParam"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterActionResponse"
+                }
+              }
+            },
+            "description": "Read floor lifted",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "headers": {
+              "Retry-After": {
+                "$ref": "#/components/headers/RetryAfterHeader"
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Internal server error",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          }
+        },
+        "summary": "Lift the node-wide stale-snapshot read floor no peer can resync",
         "tags": [
           "Cluster"
         ]

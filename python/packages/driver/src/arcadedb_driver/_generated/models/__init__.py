@@ -54,6 +54,7 @@ from .cluster_status_bootstrap_installs import ClusterStatusBootstrapInstalls
 from .cluster_status_critical_halt_type_0 import ClusterStatusCriticalHaltType0
 from .cluster_status_database_presence import ClusterStatusDatabasePresence
 from .cluster_status_databases_item import ClusterStatusDatabasesItem
+from .cluster_status_local_in_place_restarts import ClusterStatusLocalInPlaceRestarts
 from .cluster_status_local_resync import ClusterStatusLocalResync
 from .cluster_status_local_resync_database_applied_floors import ClusterStatusLocalResyncDatabaseAppliedFloors
 from .cluster_status_local_resync_divergence_causes import ClusterStatusLocalResyncDivergenceCauses
@@ -325,6 +326,7 @@ __all__ = (
     "ClusterStatusCriticalHaltType0",
     "ClusterStatusDatabasePresence",
     "ClusterStatusDatabasesItem",
+    "ClusterStatusLocalInPlaceRestarts",
     "ClusterStatusLocalResync",
     "ClusterStatusLocalResyncDatabaseAppliedFloors",
     "ClusterStatusLocalResyncDivergenceCauses",

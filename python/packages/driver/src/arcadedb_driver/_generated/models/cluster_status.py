@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ..models.cluster_status_critical_halt_type_0 import ClusterStatusCriticalHaltType0
     from ..models.cluster_status_database_presence import ClusterStatusDatabasePresence
     from ..models.cluster_status_databases_item import ClusterStatusDatabasesItem
+    from ..models.cluster_status_local_in_place_restarts import ClusterStatusLocalInPlaceRestarts
     from ..models.cluster_status_local_resync import ClusterStatusLocalResync
     from ..models.cluster_status_peers_item import ClusterStatusPeersItem
     from ..models.cluster_status_raft_log_failure_type_0 import ClusterStatusRaftLogFailureType0
@@ -66,10 +67,25 @@ class ClusterStatus:
         local_applied_index (int): Last Raft index this node has applied. -1 when the division cannot be read, e.g.
             during an in-place restart
         local_commit_index (int): Last Raft index this node knows to be committed. -1 under the same condition
+        local_in_place_restarts (ClusterStatusLocalInPlaceRestarts): How many times this node's Raft layer has been
+            restarted in place since the process started, by what happened to its Raft storage. Both counts only grow, and
+            both start again from 0 when the process restarts. Also published as the
+            'arcadedb.ha.in_place_restarts.recovered' and '.reformatted' metrics.
+        local_leader_unreachable_since_restart (bool): True when 'localReplicationPathUnproven' has held, while no
+            leader made itself known to this node or while 'leaderCommitIndex' is past every entry this node holds, for more
+            than twice the election timeout. The leader's appends are not reaching this node and it does not count toward
+            quorum. Always false on the leader. No leader known is also what every node of a cluster without a quorum sees;
+            the 'follower-leader-unreachable-since-restart' alert says which case applies in 'details.leaderKnown' and is
+            critical only when a known leader reports entries this node does not hold
         local_peer_id (str): This server's peer identifier
         local_replication_lag (int): Entries this node has yet to apply: 'localCommitIndex' minus 'localAppliedIndex',
             where on a follower 'localCommitIndex' is replaced by 'leaderCommitIndex' when the leader reported a larger one.
             -1 rather than a fabricated difference whenever either side is unknown
+        local_replication_path_unproven (bool): True when this node's Raft layer was restarted in place and has taken no
+            replicated entry since, and no newer term with a known leader either. It holds back the automatic Raft-storage
+            reformat of a node stuck at a stale term, so with 'localStuckAtStaleTerm' it means 'restart this node by hand'
+            rather than 'will self-heal'. On its own it is not an incident: an idle cluster sends a restarted node no entry
+            either
         local_resync (ClusterStatusLocalResync): This node's resync state. Present on every answer. The database names
             it carries are reduced to the ones the caller is authorized on, so a caller scoped to one database cannot learn
             another tenant's database name from a status poll.
@@ -121,8 +137,11 @@ class ClusterStatus:
     leader_ready: bool
     local_applied_index: int
     local_commit_index: int
+    local_in_place_restarts: ClusterStatusLocalInPlaceRestarts
+    local_leader_unreachable_since_restart: bool
     local_peer_id: str
     local_replication_lag: int
+    local_replication_path_unproven: bool
     local_resync: ClusterStatusLocalResync
     local_stalled_behind_leader: bool
     local_stuck_at_stale_term: bool
@@ -188,9 +207,15 @@ class ClusterStatus:
 
         local_commit_index = self.local_commit_index
 
+        local_in_place_restarts = self.local_in_place_restarts.to_dict()
+
+        local_leader_unreachable_since_restart = self.local_leader_unreachable_since_restart
+
         local_peer_id = self.local_peer_id
 
         local_replication_lag = self.local_replication_lag
+
+        local_replication_path_unproven = self.local_replication_path_unproven
 
         local_resync = self.local_resync.to_dict()
 
@@ -242,8 +267,11 @@ class ClusterStatus:
                 "leaderReady": leader_ready,
                 "localAppliedIndex": local_applied_index,
                 "localCommitIndex": local_commit_index,
+                "localInPlaceRestarts": local_in_place_restarts,
+                "localLeaderUnreachableSinceRestart": local_leader_unreachable_since_restart,
                 "localPeerId": local_peer_id,
                 "localReplicationLag": local_replication_lag,
+                "localReplicationPathUnproven": local_replication_path_unproven,
                 "localResync": local_resync,
                 "localStalledBehindLeader": local_stalled_behind_leader,
                 "localStuckAtStaleTerm": local_stuck_at_stale_term,
@@ -267,6 +295,7 @@ class ClusterStatus:
         from ..models.cluster_status_critical_halt_type_0 import ClusterStatusCriticalHaltType0
         from ..models.cluster_status_database_presence import ClusterStatusDatabasePresence
         from ..models.cluster_status_databases_item import ClusterStatusDatabasesItem
+        from ..models.cluster_status_local_in_place_restarts import ClusterStatusLocalInPlaceRestarts
         from ..models.cluster_status_local_resync import ClusterStatusLocalResync
         from ..models.cluster_status_peers_item import ClusterStatusPeersItem
         from ..models.cluster_status_raft_log_failure_type_0 import ClusterStatusRaftLogFailureType0
@@ -344,9 +373,15 @@ class ClusterStatus:
 
         local_commit_index = d.pop("localCommitIndex")
 
+        local_in_place_restarts = ClusterStatusLocalInPlaceRestarts.from_dict(d.pop("localInPlaceRestarts"))
+
+        local_leader_unreachable_since_restart = d.pop("localLeaderUnreachableSinceRestart")
+
         local_peer_id = d.pop("localPeerId")
 
         local_replication_lag = d.pop("localReplicationLag")
+
+        local_replication_path_unproven = d.pop("localReplicationPathUnproven")
 
         local_resync = ClusterStatusLocalResync.from_dict(d.pop("localResync"))
 
@@ -409,8 +444,11 @@ class ClusterStatus:
             leader_ready=leader_ready,
             local_applied_index=local_applied_index,
             local_commit_index=local_commit_index,
+            local_in_place_restarts=local_in_place_restarts,
+            local_leader_unreachable_since_restart=local_leader_unreachable_since_restart,
             local_peer_id=local_peer_id,
             local_replication_lag=local_replication_lag,
+            local_replication_path_unproven=local_replication_path_unproven,
             local_resync=local_resync,
             local_stalled_behind_leader=local_stalled_behind_leader,
             local_stuck_at_stale_term=local_stuck_at_stale_term,

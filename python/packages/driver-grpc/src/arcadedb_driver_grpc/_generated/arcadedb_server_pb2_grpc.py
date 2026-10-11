@@ -1224,6 +1224,16 @@ class ArcadeDbAdminServiceStub:
                 request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterRequest.SerializeToString,
                 response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterResponse.FromString,
                 _registered_method=True)
+        self.AcceptDivergedDatabase = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/AcceptDivergedDatabase',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptDivergedDatabaseRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptDivergedDatabaseResponse.FromString,
+                _registered_method=True)
+        self.AcceptStaleSnapshot = channel.unary_unary(
+                '/com.arcadedb.grpc.ArcadeDbAdminService/AcceptStaleSnapshot',
+                request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptStaleSnapshotRequest.SerializeToString,
+                response_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptStaleSnapshotResponse.FromString,
+                _registered_method=True)
         self.ListSessions = channel.unary_unary(
                 '/com.arcadedb.grpc.ArcadeDbAdminService/ListSessions',
                 request_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ListSessionsRequest.SerializeToString,
@@ -1530,6 +1540,28 @@ class ArcadeDbAdminServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def AcceptDivergedDatabase(self, request, context):
+        """The operator's override of issue #9449, the RPC twin of POST /api/v1/cluster/accept-diverged/{database}:
+        lifts the quarantine (and its read floor) standing on one database of a node that is the only voter of
+        its cluster, or whose every voter holds the same database quarantined (issue #9553), accepting its copy
+        as it is WITHOUT a resync. Root only. NOT_FOUND when nothing stands on the database, FAILED_PRECONDITION
+        on a node a peer could still resync (a resync from a peer is the way out there) or without HA,
+        INVALID_ARGUMENT on a malformed database name.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AcceptStaleSnapshot(self, request, context):
+        """The operator's override of issue #9498, the RPC twin of POST /api/v1/cluster/accept-stale-snapshot: lifts the
+        node-wide stale-snapshot read floor (issue #6111) of a node that is the only voter of its cluster, accepting its
+        databases as they are WITHOUT a resync. Root only. NOT_FOUND when no floor stands, FAILED_PRECONDITION on a node a
+        peer could still resync, while a snapshot download is running, or without HA.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListSessions(self, request, context):
         """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
         session of its own - every admin RPC authenticates from the credentials on the request body - so
@@ -1759,6 +1791,16 @@ def add_ArcadeDbAdminServiceServicer_to_server(servicer, server):
                     servicer.ConnectCluster,
                     request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterRequest.FromString,
                     response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterResponse.SerializeToString,
+            ),
+            'AcceptDivergedDatabase': grpc.unary_unary_rpc_method_handler(
+                    servicer.AcceptDivergedDatabase,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptDivergedDatabaseRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptDivergedDatabaseResponse.SerializeToString,
+            ),
+            'AcceptStaleSnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.AcceptStaleSnapshot,
+                    request_deserializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptStaleSnapshotRequest.FromString,
+                    response_serializer=arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptStaleSnapshotResponse.SerializeToString,
             ),
             'ListSessions': grpc.unary_unary_rpc_method_handler(
                     servicer.ListSessions,
@@ -2910,6 +2952,60 @@ class ArcadeDbAdminService:
             '/com.arcadedb.grpc.ArcadeDbAdminService/ConnectCluster',
             arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterRequest.SerializeToString,
             arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.ConnectClusterResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AcceptDivergedDatabase(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/AcceptDivergedDatabase',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptDivergedDatabaseRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptDivergedDatabaseResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AcceptStaleSnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/com.arcadedb.grpc.ArcadeDbAdminService/AcceptStaleSnapshot',
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptStaleSnapshotRequest.SerializeToString,
+            arcadedb__driver__grpc_dot___generated_dot_arcadedb__server__pb2.AcceptStaleSnapshotResponse.FromString,
             options,
             channel_credentials,
             insecure,

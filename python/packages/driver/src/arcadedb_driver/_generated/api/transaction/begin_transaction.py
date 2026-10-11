@@ -14,11 +14,15 @@ def _get_kwargs(
     database: str,
     *,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
     if not isinstance(arcadedb_session_id, Unset):
         headers["arcadedb-session-id"] = arcadedb_session_id
+
+    if not isinstance(x_arcade_db_query_tag, Unset):
+        headers["X-ArcadeDB-Query-Tag"] = x_arcade_db_query_tag
 
     if not isinstance(x_request_id, Unset):
         headers["X-Request-Id"] = x_request_id
@@ -84,6 +88,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> Response[Any | ErrorResponse]:
     """Begin transaction
@@ -93,6 +98,7 @@ def sync_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
 
     Raises:
@@ -106,6 +112,7 @@ def sync_detailed(
     kwargs = _get_kwargs(
         database=database,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         x_request_id=x_request_id,
     )
 
@@ -121,6 +128,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> Any | ErrorResponse | None:
     """Begin transaction
@@ -130,6 +138,7 @@ def sync(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
 
     Raises:
@@ -144,6 +153,7 @@ def sync(
         database=database,
         client=client,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         x_request_id=x_request_id,
     ).parsed
 
@@ -153,6 +163,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> Response[Any | ErrorResponse]:
     """Begin transaction
@@ -162,6 +173,7 @@ async def asyncio_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
 
     Raises:
@@ -175,6 +187,7 @@ async def asyncio_detailed(
     kwargs = _get_kwargs(
         database=database,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         x_request_id=x_request_id,
     )
 
@@ -188,6 +201,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> Any | ErrorResponse | None:
     """Begin transaction
@@ -197,6 +211,7 @@ async def asyncio(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
 
     Raises:
@@ -212,6 +227,7 @@ async def asyncio(
             database=database,
             client=client,
             arcadedb_session_id=arcadedb_session_id,
+            x_arcade_db_query_tag=x_arcade_db_query_tag,
             x_request_id=x_request_id,
         )
     ).parsed

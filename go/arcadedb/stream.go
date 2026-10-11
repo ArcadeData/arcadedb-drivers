@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
+	"math"
 	"net/http"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
@@ -37,27 +38,35 @@ const defaultStreamError = "the stream reported an error"
 // The stats trailer is last in a complete stream, so a stream that ends without a Stats
 // event was cut short (a server write timeout, a dropped connection) and the rows seen
 // may be a partial answer. An in-band error, sent after the 200 status line, is yielded
-// once as an *ArcadeDBError with status 200, and iteration then stops; so does a
-// transport or decode error. Events of an unknown kind are ignored, so a newer server can
+// once as an *ArcadeDBError, and iteration then stops; so does a transport or decode
+// error. That error's Status is the status the event itself reports, the one the
+// buffered call would have answered with (503 for a retryable conflict, 409 for a
+// duplicated key, 413 for a result cut short, ...), and is 200 only when the event carries
+// none; ErrorMessage, Exception, Detail, ExceptionArgs and RetryAfter come from the event,
+// and RequestID from the response's X-Request-Id, else the event's requestId (see
+// streamError). Before contract 26.11.1 the status was always 200, so code that keyed on
+// 200 to recognise an in-band failure must key on the iteration's error instead. Events of an unknown kind are ignored, so a newer server can
 // add kinds without breaking this client. A non-2xx status is an *ArcadeDBError.
 func (d *Database) QueryStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...QueryOption) iter.Seq2[StreamEvent, error] {
+	o := queryCallOptions(opts)
 	return d.stream(func() (*http.Response, error) {
 		accept := generated.ExecuteQueryPostParamsAcceptApplicationxNdjson
 		return d.srv.raw.ExecuteQueryPost(ctx, d.name,
-			&generated.ExecuteQueryPostParams{ArcadedbSessionId: d.sessionParam(), Accept: &accept},
-			buildQueryRequest(lang, command, params, opts...))
+			&generated.ExecuteQueryPostParams{ArcadedbSessionId: d.sessionParam(), Accept: &accept, XArcadeDBQueryTag: queryTagParam(o.queryTag)},
+			buildQueryRequest(lang, command, params, o))
 	})
 }
 
 // CommandStream is QueryStream for /command. It accepts read-only statements only: the
 // server streams rows for a statement that produces them, and a statement that changes
 // data does not fit the row-per-line shape. Use Command for those. The trailer and error
-// rules are QueryStream's.
-func (d *Database) CommandStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any) iter.Seq2[StreamEvent, error] {
+// rules are QueryStream's. opts takes WithQueryTag.
+func (d *Database) CommandStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...CommandOption) iter.Seq2[StreamEvent, error] {
+	o := commandCallOptions(opts)
 	return d.stream(func() (*http.Response, error) {
 		accept := generated.ExecuteCommandParamsAcceptApplicationxNdjson
 		return d.srv.raw.ExecuteCommand(ctx, d.name,
-			&generated.ExecuteCommandParams{ArcadedbSessionId: d.sessionParam(), Accept: &accept},
+			&generated.ExecuteCommandParams{ArcadedbSessionId: d.sessionParam(), Accept: &accept, XArcadeDBQueryTag: queryTagParam(o.queryTag)},
 			buildCommandRequest(lang, command, params))
 	})
 }
@@ -107,14 +116,10 @@ type statsWire struct {
 type eventWire struct {
 	Record map[string]any `json:"record"`
 	Stats  *statsWire     `json:"stats"`
-	Error  *struct {
-		Message string `json:"message"`
-	} `json:"error"`
+	Error  map[string]any `json:"error"`
 }
 
-// decodeStreamLine reports ok=false with a nil error for an event of an unknown kind. An
-// in-band error carries requestID, the response's X-Request-Id: it arrives after the 200
-// status line, so that header is the caller's only correlation id for it.
+// decodeStreamLine reports ok=false with a nil error for an event of an unknown kind.
 func decodeStreamLine(line []byte, requestID string) (StreamEvent, bool, error) {
 	var w eventWire
 	if err := json.Unmarshal(line, &w); err != nil {
@@ -122,11 +127,7 @@ func decodeStreamLine(line []byte, requestID string) (StreamEvent, bool, error) 
 	}
 	switch {
 	case w.Error != nil:
-		msg := w.Error.Message
-		if msg == "" {
-			msg = defaultStreamError
-		}
-		return StreamEvent{}, true, &ArcadeDBError{Status: 200, ErrorMessage: msg, RequestID: requestID}
+		return StreamEvent{}, true, streamError(w.Error, requestID)
 	case w.Stats != nil:
 		s := &StreamStats{Limit: -1, Returned: w.Stats.Returned, Truncated: w.Stats.Truncated}
 		if w.Stats.Limit != nil {
@@ -137,4 +138,45 @@ func decodeStreamLine(line []byte, requestID string) (StreamEvent, bool, error) 
 		return StreamEvent{Record: w.Record}, true, nil
 	}
 	return StreamEvent{}, false, nil
+}
+
+// streamError maps an in-band {"error":{...}} event onto an *ArcadeDBError, field by field.
+//
+// Status is the event's own status, the one the buffered encoding would have answered the
+// same failure with; only an event that carries none (or 0) reads as 200, the status line
+// actually on the wire. ErrorMessage is the classified label in "error", the value the
+// buffered body carries there, falling back to the raw "message" and then to a fixed
+// text. RequestID prefers requestID, the response's X-Request-Id, over the event's own
+// requestId. RetryAfter comes from the event's retryAfter, in seconds: the header the
+// buffered encoding would send cannot be added once the stream has started. The event
+// carries no commit index. A field of the wrong JSON type is left empty.
+func streamError(fields map[string]any, requestID string) *ArcadeDBError {
+	str := func(key string) string {
+		s, _ := fields[key].(string)
+		return s
+	}
+	e := &ArcadeDBError{
+		Status:        http.StatusOK,
+		ErrorMessage:  str("error"),
+		Exception:     str("exception"),
+		Detail:        str("detail"),
+		ExceptionArgs: str("exceptionArgs"),
+		RequestID:     requestID,
+	}
+	if s, ok := jsonNonNegative(fields["status"]); ok && s > 0 && s <= math.MaxInt32 {
+		e.Status = int(s)
+	}
+	if e.ErrorMessage == "" {
+		e.ErrorMessage = str("message")
+	}
+	if e.ErrorMessage == "" {
+		e.ErrorMessage = defaultStreamError
+	}
+	if e.RequestID == "" {
+		e.RequestID = str("requestId")
+	}
+	if n, ok := jsonNonNegative(fields["retryAfter"]); ok {
+		e.RetryAfter = secondsDuration(n)
+	}
+	return e
 }

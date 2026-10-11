@@ -28,6 +28,7 @@ reintroduce the silent misclassification.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -35,7 +36,7 @@ import httpx
 
 from .._generated.client import Client
 from .._generated.types import UNSET, Unset
-from ..errors import REQUEST_ID_HEADER, ArcadeDBError
+from ..errors import ArcadeDBError, TimeSeriesWriteError
 
 #: Unit of the timestamps in a line-protocol payload. Defaults to nanoseconds server-side when omitted.
 Precision = Literal["ns", "us", "ms", "s"]
@@ -48,11 +49,26 @@ def _write_url(database: str) -> str:
 def _raise_for_status(raw: httpx.Response) -> None:
     """Raises `ArcadeDBError` unless the server answered 2xx."""
     if not 200 <= raw.status_code < 300:
-        raise ArcadeDBError(raw.status_code, raw.content, raw.headers.get(REQUEST_ID_HEADER))
+        raise ArcadeDBError.from_httpx_response(raw)
+
+
+def _is_json_object(content: bytes) -> bool:
+    try:
+        return isinstance(json.loads(content), dict)
+    except (ValueError, UnicodeDecodeError):
+        return False
 
 
 def _write_response(raw: httpx.Response) -> None:
-    """Raises `ArcadeDBError` unless the server answered 2xx. The endpoint answers 204 with no body."""
+    """Raises unless the server answered 2xx. The endpoint answers 204 with no body.
+
+    A 400 whose body is a JSON object is the contract's `TimeSeriesWriteError` - a partial or
+    total rejection with the counts written and dropped and the reasons - and raises
+    `TimeSeriesWriteError`, an `ArcadeDBError` subclass carrying them. Every other failure,
+    including a 400 with any other body, raises a plain `ArcadeDBError`.
+    """
+    if raw.status_code == 400 and _is_json_object(raw.content):
+        raise TimeSeriesWriteError.from_httpx_response(raw)
     _raise_for_status(raw)
 
 
@@ -86,6 +102,16 @@ class TimeSeriesNamespace:
 
         The endpoint takes the line-protocol text as a raw `text/plain` body, not
         JSON, which is why this is hand-written rather than generated.
+
+        A request whose samples could not all be applied answers 400, and this raises
+        `TimeSeriesWriteError` (an `ArcadeDBError`) carrying `written`, `dropped` and the
+        four reason lists - `unknown_types`, `non_time_series_types`,
+        `unavailable_types`, `undeclared_keys` (capped at 100; a server set to
+        `arcadedb.timeSeriesUndeclaredKeys=ignore` stores such samples with the
+        undeclared keys discarded instead). A write is NOT atomic: the `written`
+        samples are durable even though this raised, so retry only the dropped
+        measurements, never the whole payload. Any other failure raises a plain
+        `ArcadeDBError`.
         """
         raw = self._client.get_httpx_client().post(
             _write_url(self._database),
@@ -143,7 +169,21 @@ class AsyncTimeSeriesNamespace:
         self._database = database
 
     async def write(self, *, line_protocol: str, precision: Precision | None = None) -> None:
-        """Ingests samples in InfluxDB Line Protocol."""
+        """Ingests samples in InfluxDB Line Protocol.
+
+        The endpoint takes the line-protocol text as a raw `text/plain` body, not
+        JSON, which is why this is hand-written rather than generated.
+
+        A request whose samples could not all be applied answers 400, and this raises
+        `TimeSeriesWriteError` (an `ArcadeDBError`) carrying `written`, `dropped` and the
+        four reason lists - `unknown_types`, `non_time_series_types`,
+        `unavailable_types`, `undeclared_keys` (capped at 100; a server set to
+        `arcadedb.timeSeriesUndeclaredKeys=ignore` stores such samples with the
+        undeclared keys discarded instead). A write is NOT atomic: the `written`
+        samples are durable even though this raised, so retry only the dropped
+        measurements, never the whole payload. Any other failure raises a plain
+        `ArcadeDBError`.
+        """
         raw = await self._client.get_async_httpx_client().post(
             _write_url(self._database),
             content=line_protocol.encode("utf-8"),

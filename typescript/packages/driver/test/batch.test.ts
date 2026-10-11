@@ -35,8 +35,8 @@ function cancellableNdjsonResponse(lines: string[]): { response: Response; cance
   };
 }
 
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...extraHeaders } });
 }
 
 async function collect(iter: AsyncGenerator<NdJsonBatchEvent>): Promise<NdJsonBatchEvent[]> {
@@ -252,5 +252,91 @@ describe("ArcadeDBDatabase.batchLoadStream", () => {
       exception: "com.arcadedb.exception.DuplicatedKeyException",
       exceptionArgs: "Person[name]|[Ada]|#1:0",
     });
+  });
+});
+
+describe("retryAfter / commitIndex on a failed batch load (issue #117)", () => {
+  const BACKOFF = { "Retry-After": "6", "X-ArcadeDB-Commit-Index": "88" };
+
+  it("batchLoad's ArcadeDBError carries both, read from the response headers", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: "not ready" }, 503, BACKOFF));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(server.db("mydb").batchLoad(ROWS)).rejects.toMatchObject({ status: 503, retryAfter: 6, commitIndex: 88 });
+  });
+
+  it("batchLoadStream's pre-stream ArcadeDBError carries both, read from the response headers", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: "not ready" }, 503, BACKOFF));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(collect(server.db("mydb").batchLoadStream(ROWS))).rejects.toMatchObject({
+      status: 503,
+      retryAfter: 6,
+      commitIndex: 88,
+    });
+  });
+
+  it("batchLoadStream's in-band ArcadeDBError carries the in-band retryAfter and commitIndex", async () => {
+    const fetchMock = vi.fn(async () =>
+      ndjsonResponse([
+        JSON.stringify({ progress: { verticesCreated: 1 } }),
+        JSON.stringify({ error: { error: "conflict", status: 503, retryAfter: 1, commitIndex: 77 } }),
+      ]),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(collect(server.db("mydb").batchLoadStream(ROWS))).rejects.toMatchObject({
+      status: 503,
+      error: "conflict",
+      retryAfter: 1,
+      commitIndex: 77,
+    });
+  });
+});
+
+describe("queryTag on batchLoad/batchLoadStream (issue #117)", () => {
+  it("batchLoad sends X-ArcadeDB-Query-Tag as a header, never as a query parameter", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return jsonResponse({}, 200);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await server.db("mydb").batchLoad({ ...ROWS, queryTag: "bulk-1", options: { commitEvery: 10 } });
+
+    expect(captured?.headers.get("X-ArcadeDB-Query-Tag")).toBe("bulk-1");
+    expect(captured?.headers.get("content-type")).toBe("application/x-ndjson");
+    const url = new URL(captured!.url);
+    expect(url.searchParams.has("queryTag")).toBe(false);
+    expect(url.searchParams.get("commitEvery")).toBe("10");
+  });
+
+  it("batchLoadStream sends X-ArcadeDB-Query-Tag beside its Accept header", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return ndjsonResponse([]);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await collect(server.db("mydb").batchLoadStream({ ...ROWS, queryTag: "bulk-2" }));
+
+    expect(captured?.headers.get("X-ArcadeDB-Query-Tag")).toBe("bulk-2");
+    expect(captured?.headers.get("accept")).toBe("application/x-ndjson");
+    expect(new URL(captured!.url).searchParams.has("queryTag")).toBe(false);
+  });
+
+  it("sends no tag header when none is given", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return jsonResponse({}, 200);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await server.db("mydb").batchLoad(ROWS);
+
+    expect(captured?.headers.has("X-ArcadeDB-Query-Tag")).toBe(false);
   });
 });

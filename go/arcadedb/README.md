@@ -119,6 +119,29 @@ not take a limit, as in the other drivers. Raising the limit is not always the f
 than the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused with 413
 rather than truncated, and past that ceiling a narrower filter is the only way forward.
 
+### Labelling work: `WithQueryTag`
+
+`arcadedb.WithQueryTag("nightly-report")` sends the `X-ArcadeDB-Query-Tag` request header, an
+opaque label the server shows in `list queries` and that `terminate queries tag nightly-report`
+stops. `Query`, `QueryStream`, `Command`, `CommandStream` and `Transaction` all take it; a batch
+load takes it as `generated.ExecuteBatchParams.XArcadeDBQueryTag`, beside the load's other options,
+and sends it as the same header. An empty tag sends nothing. On `Transaction` the tag goes on the
+begin request **only**: the server labels every statement of the transaction session that carries
+no tag of its own, so the statements your callback runs inherit it without resending it, and a
+statement given its own `WithQueryTag` inside the callback is labelled with that one instead.
+
+```go
+err := db.Transaction(ctx, func(tx *arcadedb.Database) error {
+	_, err := tx.Command(ctx, arcadedb.SQL, "UPDATE Account SET flagged = true WHERE balance < 0", nil) // tagged "audit"
+	return err
+}, arcadedb.WithQueryTag("audit"))
+```
+
+The tag is not validated here: the contract allows at most 256 printable characters, but that is
+the server's rule, and a 26.11.1-SNAPSHOT server accepted a 257-character tag without complaint, so
+do not count on a refusal either. Repeating the rule client-side would only drift from the
+server's. `WithLimit` is a `QueryOption` only, so passing it to `Command` does not compile.
+
 When the server omits a field, the envelope reads `Result` as an empty, non-nil slice, `Limit` as
 `-1` (uncapped), `Returned` as `0` and `Truncated` as `false`. The contract marks `limit`,
 `returned` and `truncated` required and today's server sends all three, but this client does not
@@ -168,9 +191,23 @@ a partial answer.
 
 A failure after the 200 status line has been sent cannot be reported as an HTTP status, so the
 server sends it in band, as an `{"error": ...}` line. This client yields it as the loop's `err`, an
-`*ArcadeDBError` with `Status` 200 and the response's `X-Request-Id` as `RequestID`, exactly once,
-and the iteration then stops. Rows yielded before
-it stay delivered. Events of a kind this client does not know are skipped, so a newer server can
+`*ArcadeDBError`, exactly once, and the iteration then stops. Rows yielded before it stay
+delivered. Every field of the event reaches the error:
+
+- `Status` is the event's own `status`, the one the buffered call would have answered the same
+  failure with (503 for a retryable conflict, 409 for a duplicated key, 413 when
+  `arcadedb.server.httpQueryMaxResultRows` cut the result short, 500 for an unexpected failure).
+  Only an event that carries no status reads as 200. Key retries on it, never on the message.
+- `ErrorMessage` is the event's classified `error` label (what a buffered error body carries in
+  `error`), falling back to its raw `message`.
+- `Exception`, `Detail` and `ExceptionArgs` are the same-named event fields.
+- `RequestID` is the response's `X-Request-Id`, falling back to the event's `requestId`.
+- `RetryAfter` is the event's `retryAfter`: a header can no longer be added once the stream has
+  started, so the back-off travels in band. The event carries no commit index.
+
+**Breaking in 0.3.0:** up to 0.2.0 an in-band error always carried `Status` 200, chosen when the
+event had no status of its own. Code that recognised an in-band failure by `Status == 200` must
+recognise it by the loop's `err` instead. Events of a kind this client does not know are skipped, so a newer server can
 add kinds without breaking it.
 
 Leaving the loop early, by `break`, `return` or a panic, closes the response body. Lines are split
@@ -234,6 +271,15 @@ in-band `error` event) are both yielded as an `*ArcadeDBError`, once, and iterat
 events yielded before it stay delivered, and those progress counts are how you learn what may have
 landed. The iterator issues the request when you range over it, so ranging over it twice runs the
 load twice. Breaking out of the loop aborts the upload.
+
+The contract declares the in-band error object's `commitIndex`, `status`, `exceptionArgs` and
+`retryAfter`; the server also sends `error` and `exception`, and all six reach the error.
+`RetryAfter` and `CommitIndex` come from `retryAfter` and `commitIndex` in band, or from the
+`Retry-After` and `X-ArcadeDB-Commit-Index` headers of a non-2xx answer. `CommitIndex` on a failed
+load bookmarks the chunks committed before the failure (see "Two error models" for using it).
+
+`params.XArcadeDBQueryTag` labels the load with `X-ArcadeDB-Query-Tag` (see `WithQueryTag`); it is
+a request header, never a query parameter.
 
 `text/csv` is not exposed: both methods always send `application/x-ndjson`.
 
@@ -357,6 +403,17 @@ cancelled still gets its transaction rolled back. `panic(nil)` is re-raised as t
 `Transaction` then rolls back and returns an error rather than `nil`, which would read as
 committed.
 
+**A rollback cannot undo a partial commit.** A statement inside the callback can publish a commit
+while it runs: an explicit `BATCH n` boundary, or a statement with its own `COMMIT`. The server
+then answers it with the response header `arcadedb-session-partial-commit: true`, and that part of
+the transaction is already durable: none of the three clauses' rollbacks can take it back. Code
+that replays a transaction block on a conflict must not replay one that partially committed. This
+client does not surface the header; read it through `Raw()`.
+
+`arcadedb.WithQueryTag(label)`, passed after the callback, labels the whole session: it is sent on
+the begin only, and every statement in the callback that carries no tag of its own inherits it
+server-side.
+
 **A batch load cannot join a transaction.** `POST /api/v1/batch/{database}` takes no session id,
 so a load sent from `tx` would run outside the transaction and commit on its own, whatever the
 transaction later did. `tx.BatchLoad` therefore returns `ErrBatchInTransaction`, and
@@ -415,6 +472,27 @@ A name in `TS().Query`'s `tags`, or `Latest`'s `tag`, that is not a TAG column o
 checked server-side. A `Write` inside a `Transaction` joins the session only nominally: samples
 are committed as they are appended, and a rollback does not remove them.
 
+When `Write` drops samples the server answers 400 with a `TimeSeriesWriteError` body, and the call
+returns an `*arcadedb.TimeSeriesWriteError`. It embeds the usual `*ArcadeDBError`, so `errors.As`
+matches either type:
+
+```go
+var werr *arcadedb.TimeSeriesWriteError
+if errors.As(err, &werr) {
+	fmt.Println(werr.Written, werr.Dropped, werr.UnknownTypes, werr.UndeclaredKeys, werr.Status)
+}
+```
+
+**A write is not atomic:** `Written` samples landed even though the call failed, and re-sending the
+whole payload writes them twice. The four lists say why the rest were dropped: `UnknownTypes`
+(measurements naming a type that does not exist), `NonTimeSeriesTypes` (a type that exists but is
+not a time-series type), `UnavailableTypes` (a time-series type whose storage engine failed to
+load; the server log says why) and `UndeclaredKeys` (tag or field keys the type does not declare in
+that role, capped at 100 entries). Setting `arcadedb.timeSeriesUndeclaredKeys=ignore` on the server
+stores such samples with the undeclared keys discarded instead of dropping them. A list the body
+omits is `nil`, and an omitted `Written` or `Dropped` is 0. Only a 400 with a JSON-object body becomes a
+`*TimeSeriesWriteError`; every other failure is a plain `*ArcadeDBError`.
+
 `db.PromQL()` uses the generated typed models (`Query`, `QueryRange`, `Labels`, `Series`). The
 metric name for a time-series type is the **type name itself** (`Sensor`), not `Sensor_value`. Read
 `Data.Result` according to `Data.ResultType` (`vector`, `matrix` or `scalar`).
@@ -432,13 +510,35 @@ if errors.As(err, &aerr) {
 }
 ```
 
-It carries `Status`, `ErrorMessage`, `Exception`, `Detail`, `RequestID`, `Help` and
-`ExceptionArgs`. Every field but `Status` may be empty: parsing an error body never itself fails,
-so an absent or non-JSON body yields an error with just the status. `RequestID` is the
+It carries `Status`, `ErrorMessage`, `Exception`, `Detail`, `RequestID`, `Help`, `ExceptionArgs`,
+`RetryAfter` and `CommitIndex`. Every field but `Status` may be empty: parsing an error body never
+itself fails, so an absent or non-JSON body yields an error with just the status. `RequestID` is the
 `X-Request-Id` the server sets on every response. The body's `error` string is `ErrorMessage`, not
 `Error`, because Go forbids a field and a method with one name; `Help` has no underscore, unlike the
-Python driver's `help_`. An `*ArcadeDBError` is not always a non-2xx status: an in-band stream
-error and an unrepresentable graph-serializer result both carry `Status` 200.
+Python driver's `help_`. An `*ArcadeDBError` is not always a non-2xx status: an unrepresentable
+graph-serializer result carries `Status` 200, and so does an in-band stream error whose event
+reports no status of its own.
+
+- `RetryAfter` (a `time.Duration`) is how long the server asked you to wait before retrying: the
+  `Retry-After` header of a non-2xx response, or the `retryAfter` of an in-band stream or batch
+  error. Only a whole number of seconds is read; an HTTP-date or a malformed value leaves it 0, so
+  0 means "absent or no wait". The server sends it on a 503 when the node cannot run the request
+  yet (a snapshot install, say) and on a 409 for an identical request still in flight.
+- `CommitIndex` (an `int64`) is the last applied Raft index: the `X-ArcadeDB-Commit-Index` header
+  of a non-2xx response, or the `commitIndex` of an in-band batch error. It is 0 when absent, which
+  it always is on a standalone (non-replicated) database. It is still a valid read-after barrier on
+  an error: send it back as the `X-ArcadeDB-Read-After` request header (through `Raw()`; the facade
+  has no per-call header) and a later read sees everything committed up to it, a failed batch load's earlier
+  chunks included.
+
+**409 has two meanings.** "An identical request is still in flight" is retryable after
+`RetryAfter`, and carries `Exception` `...RequestStillInFlightException` and a `Retry-After`. "Query
+terminated", by `terminate query`, `terminate queries` or `terminate transaction`, had its writes
+rolled back and must **not** be retried. This client retries neither; retry logic of your own must
+tell them apart by `Exception` or `RetryAfter`, never by `Status` alone.
+
+`TS().Write` returns a `*TimeSeriesWriteError`, which embeds `*ArcadeDBError`, for a 400 (see the
+time-series section).
 
 A 2xx answer with an empty or `null` body, where a method needs a document to return
 (`ServerInfo`, the `Vector()`, `PromQL()`, `TS()` and `Grafana()` methods), is `ErrEmptyBody`,
@@ -481,6 +581,12 @@ only what the caller may see.
 Everything the Python driver leaves to its `.raw` this client leaves to `Raw()`: the security,
 cluster, auth, AI, MCP and metrics operations, and the two protobuf PromQL remote read/write routes
 (reachable as `...WithBody` methods taking an `io.Reader`).
+
+The cluster override endpoints are raw-only on purpose: `AcceptClusterDatabaseCopy` (`POST
+/api/v1/cluster/accept-copy/{database}`), `AcceptClusterDivergedDatabase` (`POST
+/api/v1/cluster/accept-diverged/{database}`) and `AcceptClusterStaleSnapshot` (`POST
+/api/v1/cluster/accept-stale-snapshot`) are root-only operator overrides that accept a copy of the
+data without a resync. No facade method wraps any `/cluster/*` endpoint.
 
 `POST /api/v1/server` (administrative commands, including `create database`) is not wrapped
 either, and needs care through `Raw()`: the server answers `{"result": "ok"}`, a string, where the

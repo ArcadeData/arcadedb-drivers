@@ -57,27 +57,87 @@ type QueryEnvelope struct {
 	ExplainPlan map[string]any
 }
 
-// QueryOption tunes a Query call.
-type QueryOption func(*queryOptions)
+// QueryOption tunes a Query or QueryStream call. WithLimit and WithQueryTag are QueryOptions.
+//
+// QueryOption, CommandOption and TransactionOption are sealed interfaces rather than one
+// func type so that an option goes only where it means something: WithQueryTag is all
+// three, WithLimit is a QueryOption only, and passing it to Command does not compile.
+type QueryOption interface{ applyQuery(*callOptions) }
 
-type queryOptions struct {
-	limit *int
+// CommandOption tunes a Command or CommandStream call. WithQueryTag is one.
+type CommandOption interface{ applyCommand(*callOptions) }
+
+// TransactionOption tunes a Transaction call. WithQueryTag is one.
+type TransactionOption interface{ applyTransaction(*callOptions) }
+
+type callOptions struct {
+	limit    *int
+	queryTag string
 }
+
+type limitOption int
+
+func (l limitOption) applyQuery(o *callOptions) { n := int(l); o.limit = &n }
 
 // WithLimit caps the rows the server serializes into the response; -1 means no cap. Left
 // unset, a LIMIT stated by the query is honoured and only a query stating none is capped
 // by the server default. Command does not accept it.
-func WithLimit(n int) QueryOption {
-	return func(o *queryOptions) { o.limit = &n }
+func WithLimit(n int) QueryOption { return limitOption(n) }
+
+// QueryTagOption is what WithQueryTag returns: a QueryOption, a CommandOption and a
+// TransactionOption at once.
+type QueryTagOption struct{ tag string }
+
+func (q QueryTagOption) applyQuery(o *callOptions)       { o.queryTag = q.tag }
+func (q QueryTagOption) applyCommand(o *callOptions)     { o.queryTag = q.tag }
+func (q QueryTagOption) applyTransaction(o *callOptions) { o.queryTag = q.tag }
+
+// WithQueryTag labels the work a call runs with the X-ArcadeDB-Query-Tag request header: an
+// opaque label the server lists under `list queries` and that `terminate queries tag
+// <label>` stops. It applies to Query, QueryStream, Command, CommandStream and Transaction.
+// An empty tag sends no header. (BatchLoad and BatchLoadStream take the tag through
+// generated.ExecuteBatchParams.XArcadeDBQueryTag instead, beside the endpoint's other
+// options.)
+//
+// On Transaction the tag is sent with the begin request only, never with the commit or
+// rollback and never repeated on the statements fn runs: the server labels every statement
+// of the transaction session that carries no tag of its own with it. A statement inside fn
+// passed its own WithQueryTag still sends that one, and the server uses it instead.
+//
+// The tag is not validated here. The contract allows at most 256 printable characters, but
+// that is the server's rule and it is not enforced by a refusal callers can count on (a
+// 26.11.1-SNAPSHOT server accepted 257); repeating it client-side would only drift from the
+// server's the first time it changes.
+func WithQueryTag(tag string) QueryTagOption { return QueryTagOption{tag: tag} }
+
+// queryTagParam returns the header value for a generated params struct, or nil when no
+// tag (or an empty one) was given, so no header is sent.
+func queryTagParam(tag string) *string {
+	if tag == "" {
+		return nil
+	}
+	return &tag
+}
+
+func queryCallOptions(opts []QueryOption) callOptions {
+	var o callOptions
+	for _, opt := range opts {
+		opt.applyQuery(&o)
+	}
+	return o
+}
+
+func commandCallOptions(opts []CommandOption) callOptions {
+	var o callOptions
+	for _, opt := range opts {
+		opt.applyCommand(&o)
+	}
+	return o
 }
 
 // buildQueryRequest never sets Serializer: the server then picks the record serializer,
 // which is the only one whose result QueryEnvelope can represent.
-func buildQueryRequest(lang QueryLanguage, command string, params map[string]any, opts ...QueryOption) generated.QueryRequest {
-	var o queryOptions
-	for _, opt := range opts {
-		opt(&o)
-	}
+func buildQueryRequest(lang QueryLanguage, command string, params map[string]any, o callOptions) generated.QueryRequest {
 	l := string(lang)
 	req := generated.QueryRequest{Command: command, Language: &l, Limit: o.limit}
 	if params != nil {

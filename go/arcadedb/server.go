@@ -139,7 +139,7 @@ func (s *Server) Health(ctx context.Context) error {
 		return err
 	}
 	if resp.HTTPResponse.StatusCode != http.StatusNoContent {
-		return newError(resp.HTTPResponse.StatusCode, resp.Body, resp.HTTPResponse.Header.Get(requestIDHeader))
+		return errorFromHeaders(resp.HTTPResponse.StatusCode, resp.Body, resp.HTTPResponse.Header)
 	}
 	return nil
 }

@@ -423,3 +423,120 @@ describe("the 200 response union (ArcadeData/arcadedb#7306)", () => {
     expect(envelope).toEqual({ result: [], limit: -1, returned: 0, truncated: false });
   });
 });
+
+describe("retryAfter / commitIndex on a buffered failure (issue #117)", () => {
+  const BACKOFF = { "Retry-After": "5", "X-ArcadeDB-Commit-Index": "42" };
+
+  it("query's ArcadeDBError carries both, read from the response headers", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: "not ready" }, 503, BACKOFF));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(server.db("mydb").query({ language: "sql", command: "SELECT FROM V" })).rejects.toMatchObject({
+      status: 503,
+      retryAfter: 5,
+      commitIndex: 42,
+    });
+  });
+
+  it("command's ArcadeDBError carries both", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ error: "still in flight", exception: "RequestStillInFlightException" }, 409, BACKOFF),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(server.db("mydb").command({ language: "sql", command: "CREATE VERTEX V" })).rejects.toMatchObject({
+      status: 409,
+      exception: "RequestStillInFlightException",
+      retryAfter: 5,
+      commitIndex: 42,
+    });
+  });
+
+  it("a failed transaction begin carries both", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: "not ready" }, 503, BACKOFF));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(server.db("mydb").transaction(async () => undefined)).rejects.toMatchObject({
+      status: 503,
+      retryAfter: 5,
+      commitIndex: 42,
+    });
+  });
+});
+
+describe("queryTag: the X-ArcadeDB-Query-Tag request header (issue #117)", () => {
+  function recordingClient(): { server: ReturnType<typeof createClient>; requests: Request[] } {
+    const requests: Request[] = [];
+    const fetchMock = vi.fn(async (request: Request) => {
+      requests.push(request);
+      const url = new URL(request.url).pathname;
+      if (url.startsWith("/api/v1/begin/")) return noContent(204, { "arcadedb-session-id": "sess-1" });
+      if (url.startsWith("/api/v1/commit/") || url.startsWith("/api/v1/rollback/")) return noContent();
+      return jsonResponse({ result: [], limit: -1, returned: 0, truncated: false }, 200);
+    });
+    return {
+      server: createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch }),
+      requests,
+    };
+  }
+
+  it("query sends it as a header, and never in the body", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").query({ language: "sql", command: "SELECT FROM V", queryTag: "nightly-report" });
+
+    expect(requests[0].headers.get("X-ArcadeDB-Query-Tag")).toBe("nightly-report");
+    await expect(requests[0].clone().json()).resolves.toEqual({ language: "sql", command: "SELECT FROM V" });
+  });
+
+  it("command sends it as a header", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").command({ language: "sql", command: "CREATE VERTEX V", queryTag: "import-42" });
+
+    expect(requests[0].headers.get("X-ArcadeDB-Query-Tag")).toBe("import-42");
+    await expect(requests[0].clone().json()).resolves.toEqual({ language: "sql", command: "CREATE VERTEX V" });
+  });
+
+  it("is not sent when absent or empty", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").query({ language: "sql", command: "SELECT FROM V" });
+    await server.db("mydb").query({ language: "sql", command: "SELECT FROM V", queryTag: "" });
+
+    expect(requests[0].headers.has("X-ArcadeDB-Query-Tag")).toBe(false);
+    expect(requests[1].headers.has("X-ArcadeDB-Query-Tag")).toBe(false);
+  });
+
+  it("transaction sends it on the begin request only, leaving the statements to inherit it server-side", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").transaction(
+      async (tx) => {
+        await tx.query({ language: "sql", command: "SELECT FROM V" });
+      },
+      { queryTag: "tx-label" },
+    );
+
+    const tags = requests.map((r) => [new URL(r.url).pathname, r.headers.get("X-ArcadeDB-Query-Tag")]);
+    expect(tags).toEqual([
+      ["/api/v1/begin/mydb", "tx-label"],
+      ["/api/v1/query/mydb", null],
+      ["/api/v1/commit/mydb", null],
+    ]);
+  });
+
+  it("a statement inside a transaction still sends its own tag", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").transaction(
+      async (tx) => {
+        await tx.command({ language: "sql", command: "CREATE VERTEX V", queryTag: "own-label" });
+      },
+      { queryTag: "tx-label" },
+    );
+
+    expect(requests[1].headers.get("X-ArcadeDB-Query-Tag")).toBe("own-label");
+    expect(requests[1].headers.get("arcadedb-session-id")).toBe("sess-1");
+  });
+});

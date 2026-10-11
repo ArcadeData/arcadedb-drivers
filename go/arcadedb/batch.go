@@ -65,7 +65,9 @@ const (
 // shape (verticesCreated, edgesCreated, idMapping, idMappingOmitted, idMappingSize,
 // partialCommit, ...). params carries the endpoint's tuning options and may be nil; its
 // Accept field is ignored here, because this call decodes one JSON object (use
-// BatchLoadStream for ndjson). A nil vertices or edges sequence means none.
+// BatchLoadStream for ndjson). Its XArcadeDBQueryTag labels the load with the
+// X-ArcadeDB-Query-Tag request header (a header, never a query parameter), as WithQueryTag
+// does for Query; a nil or empty tag sends none. A nil vertices or edges sequence means none.
 //
 // Every vertex is sent before any edge, whatever order the caller built them in: the
 // server resolves an edge's From/To only against ids declared earlier in the same payload.
@@ -141,7 +143,11 @@ func (d *Database) BatchLoad(ctx context.Context, vertices iter.Seq[VertexRow], 
 // it, in band, as an {"error":{...}} event, because the 200 status line is already on the
 // wire. Both are yielded as an *ArcadeDBError, once, and iteration then stops. An in-band
 // error carries its own status (500 when absent), its error message ("the batch load
-// reported an error" when absent), and exception and exceptionArgs when present. Events
+// reported an error" when absent), exception and exceptionArgs when present, and
+// RetryAfter and CommitIndex from its retryAfter and commitIndex. A non-2xx status reads
+// the same two from the Retry-After and X-ArcadeDB-Commit-Index headers. CommitIndex on a
+// failed load bookmarks the chunks committed before the failure: send it back as
+// X-ArcadeDB-Read-After to read them. Events
 // yielded before the error stay delivered: a partial commit is durable, and those progress
 // counts are how the caller learns what may have landed. The non-atomic rules, the
 // validation rules and the sequence-goroutine rules are BatchLoad's, a panicking sequence
@@ -191,11 +197,18 @@ func (d *Database) BatchLoadStream(ctx context.Context, vertices iter.Seq[Vertex
 	}
 }
 
+// copyBatchParams copies the caller's params so neither call modifies them, and drops an
+// empty XArcadeDBQueryTag, which would otherwise be sent as an empty header: as on every
+// other call, an empty tag means no tag.
 func copyBatchParams(params *generated.ExecuteBatchParams) generated.ExecuteBatchParams {
 	if params == nil {
 		return generated.ExecuteBatchParams{}
 	}
-	return *params
+	p := *params
+	if p.XArcadeDBQueryTag != nil && *p.XArcadeDBQueryTag == "" {
+		p.XArcadeDBQueryTag = nil
+	}
+	return p
 }
 
 // upload feeds the encoded rows into a pipe from its own goroutine.
@@ -313,8 +326,10 @@ func edgeSeq(s iter.Seq[EdgeRow]) iter.Seq[batchrows.Edge] {
 }
 
 // decodeBatchEvent returns the event as parsed, or an *ArcadeDBError for an in-band error
-// event. The contract's error object declares only commitIndex, status and exceptionArgs,
-// but the server also sends error and exception, so all are read off the raw map.
+// event. The contract's error object declares commitIndex, status, exceptionArgs and
+// retryAfter, but the server also sends error and exception, so all are read off the raw
+// map. retryAfter (seconds) and commitIndex reach RetryAfter and CommitIndex; a value that
+// is not a non-negative whole number is left at 0.
 func decodeBatchEvent(line []byte, requestID string) (map[string]any, error) {
 	var ev map[string]any
 	if err := json.Unmarshal(line, &ev); err != nil {
@@ -333,6 +348,12 @@ func decodeBatchEvent(line []byte, requestID string) (map[string]any, error) {
 		e.ErrorMessage = s
 	}
 	e.Exception, _ = fields["exception"].(string)
+	if n, ok := jsonNonNegative(fields["retryAfter"]); ok {
+		e.RetryAfter = secondsDuration(n)
+	}
+	if n, ok := jsonNonNegative(fields["commitIndex"]); ok {
+		e.CommitIndex = n
+	}
 	switch args := fields["exceptionArgs"].(type) {
 	case nil:
 	case string:

@@ -144,8 +144,26 @@ reported as a non-2xx status, a streamed response has committed to 200 before th
 known to exist, and that status line cannot be taken back once the stream has started. That is why
 the contract puts this failure in band, as an event, rather than as an HTTP status. This client
 raises `ArcadeDBError` for it - exactly as `query`/`command` raise `ArcadeDBError` for a non-2xx
-response, with a `status` of 200 - so both paths fail the same way; any event already yielded
-before the error stays delivered to the caller.
+response - so both paths fail the same way; any event already yielded before the error stays
+delivered to the caller.
+
+The raised error is filled from the event field by field, so it reads like the error the buffered
+call would have raised for the same failure:
+
+| `ArcadeDBError` | from the in-band `error` event |
+| --- | --- |
+| `status` | `status` - the status the buffered encoding would have answered with (503 for a retryable conflict, 409 for a duplicated key, 413 for the row cap, ...); **200 only when the event carries none** |
+| `error` | `error`, the classified label; `message` when the event has no `error` |
+| `exception`, `detail`, `exception_args` | the same-named fields |
+| `request_id` | the response's `X-Request-Id` header, else the event's `requestId` |
+| `retry_after` | `retryAfter` - a header cannot be added once the stream has started, so the back-off travels in band |
+| `commit_index` | always `None`: the event carries none |
+
+**Breaking change in 0.3.0:** earlier releases raised this error with `status` 200 whatever the
+event said, a rule chosen when the event carried no `status` at all. The contract now tells clients
+to key retries on the in-band `status`, the batch stream below already used its own, and a
+`retry_after` beside a 200 would be unreadable. Code that recognised a mid-stream failure by
+`err.status == 200` must now look at the real status instead.
 
 `query` and `command` themselves are unchanged: they still return `QueryEnvelope` and still send no
 `Accept` header. Streaming is two additional methods, not a mode either existing one can be put
@@ -280,9 +298,12 @@ A streamed `error` event's `status` is exact, not a fallback: an engine failure 
 stream had already started carries the status the standard error mapping gives it - 409 for a
 duplicated key, 503 for a retryable conflict - so branching on `status` works the same on both
 channels. The raised `ArcadeDBError` also carries `exception` and, when the failure has any,
-`exception_args`. `error` and `exception` are two more fields the server sends that no schema
-declares (the contract's streamed error object declares only `commitIndex`, `status` and
-`exceptionArgs`), read off the raw event here and
+`exception_args`, plus the event's `retryAfter` as `retry_after` and its `commitIndex` as
+`commit_index` - the in-band equivalents of the `Retry-After` and `X-ArcadeDB-Commit-Index`
+headers a failure before the stream started carries. `commit_index` is a valid read-after barrier
+even on a failed load (see "Two error models" below). `error` and `exception` are two more fields
+the server sends that no schema declares (the contract's streamed error object declares only
+`commitIndex`, `exceptionArgs`, `retryAfter` and `status`), read off the raw event here and
 reported upstream on the same issue as `idMappingStreamed`,
 [ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570).
 
@@ -461,6 +482,37 @@ The commit/rollback contract has three clauses:
   the server-side session is not left open until `arcadedb.server.httpSessionExpireTimeout` reaps
   it, and then the commit's error is re-raised.
 
+A rollback cannot always undo the whole block. A statement inside it that publishes a commit while
+it runs - an explicit `BATCH n` boundary, or a statement with its own `COMMIT` - makes part of the
+transaction durable before the block ends, and the server flags that response with
+`arcadedb-session-partial-commit: true`. This client does not surface the header (it is reachable
+through `.raw`), so a caller that replays a transaction block on conflict must know, from the
+statements it runs, whether the block can partially commit - and must not replay one that did.
+
+## Labelling statements: `query_tag`
+
+`query`, `command`, `query_stream`, `command_stream`, `batch_load`, `batch_load_stream` and
+`transaction()` (sync and async) take an optional `query_tag`, sent as the
+`X-ArcadeDB-Query-Tag` request header:
+
+```python
+db.query(language="sql", command="SELECT FROM Event", query_tag="nightly-report")
+
+with db.transaction(query_tag="etl-run-42") as tx:
+    tx.command(language="sql", command="INSERT INTO Event SET n = 1")  # labelled etl-run-42
+    tx.command(language="sql", command="DELETE FROM Staging", query_tag="etl-cleanup")  # its own label
+```
+
+The label is opaque to the server: `list queries` shows it, and `terminate queries tag <label>`
+stops every statement carrying it. On `transaction()` it is sent **only** on the begin request -
+not on the statements, the commit or the rollback - and the server applies it to every statement of
+the transaction that carries no label of its own; a statement that passes its own `query_tag`
+overrides it. On `batch_load`/`batch_load_stream` it is a header like everywhere else, never a
+query parameter beside `options`. No header is sent when the tag is `None` or empty. The client
+does not check the tag's length or characters: the contract caps it at 256 printable characters,
+but that is the server's rule, and a second copy of it here would only drift from the first. Do not
+count on a refusal either - a 26.11.1-SNAPSHOT server was observed accepting a 257-character tag.
+
 ## Vector, hybrid and full-text search: `db.vector`
 
 ```python
@@ -567,6 +619,40 @@ docstring). `openapi-typescript` does the opposite: it emits a property carrying
 a hand-written widening back to optional (`WithOptionalDefaults` in `facade/vector.ts`) that this
 client never needed.
 
+## Time series: a rejected `db.ts.write` raises `TimeSeriesWriteError`
+
+`POST /api/v1/ts/{database}/write` answers 204 when every sample landed, and 400 with the counts
+when some or all could not be applied. `db.ts.write` raises `TimeSeriesWriteError` for that 400 - a
+subclass of `ArcadeDBError`, so `except ArcadeDBError` still catches it and every usual field is
+filled - carrying the body:
+
+```python
+from arcadedb_driver import TimeSeriesWriteError
+
+try:
+    db.ts.write(line_protocol=payload)
+except TimeSeriesWriteError as err:
+    print(err.written, err.dropped)  # samples that landed, samples that did not
+    print(err.unknown_types, err.non_time_series_types, err.unavailable_types, err.undeclared_keys)
+```
+
+The four lists say why samples were dropped, and each is empty when the server sent none:
+
+- `unknown_types`: measurements naming a type that does not exist.
+- `non_time_series_types`: measurements naming a type that exists but is not a time-series type.
+- `unavailable_types`: measurements naming a time-series type whose storage engine failed to load
+  (the server log says why).
+- `undeclared_keys`: `'<measurement>.<key> (tag|field)'` entries for keys the type does not declare
+  in that role; the samples carrying them were dropped. The server caps this list at 100 entries.
+  A server started with `arcadedb.timeSeriesUndeclaredKeys=ignore` stores such samples with the
+  undeclared keys discarded instead of dropping them.
+
+**A write is not atomic.** Each measurement's batch commits as it is appended, so the `written`
+samples are durable even though the call raised - and a rollback of a surrounding transaction does
+not take them back either. Retry the dropped measurements, never the whole payload, or the written
+ones land twice. `written` and `dropped` are `None` only if a server omits them. Every other
+failure - a 401, a 413, a 400 whose body is not a JSON object - raises a plain `ArcadeDBError`.
+
 ## Time series: `db.ts.query`'s `tags` and `db.ts.latest`'s `tag` are enforced server-side
 
 A name in `db.ts.query`'s `tags` body field, or in `db.ts.latest`'s `tag` parameter, that is not
@@ -597,6 +683,29 @@ try:
 except ArcadeDBError as err:
     print(err.status, err.error, err.detail, err.request_id, err.help_)
 ```
+
+Two fields come from the response's headers rather than its body:
+
+- `err.retry_after`: seconds to wait before retrying, from `Retry-After`. The server sends it on a
+  refusal that carries a back-off - 503 when the node cannot execute the request yet (a snapshot
+  install, for instance), 409 when an identical request is still in flight. `None` when the header
+  is absent or is not a plain non-negative integer; an HTTP-date `Retry-After` is not parsed.
+- `err.commit_index`: the Raft commit index the response was produced at, from
+  `X-ArcadeDB-Commit-Index`. It is still a valid read-after barrier on an error: send it back as
+  `X-ArcadeDB-Read-After` (through `ArcadeDBServer(headers=...)` or `.raw`) to read at least the
+  state the server had committed. `None` on a standalone database, which sends no such header.
+
+A streamed call's in-band error carries the same two fields from the event instead (see the
+streaming and batch sections above), since a header cannot be added once the stream has started.
+
+**A 409 has two meanings, and `status` alone cannot tell them apart.** One is "an identical request
+is still in flight": the request was not executed again, `exception` is
+`RequestStillInFlightException` and `retry_after` is set, and retrying after that many seconds (with
+the same `X-Request-Id`) returns the result of the execution in progress. The other is "the query
+was terminated" by `terminate query`, `terminate queries` or `terminate transaction`: its writes
+were rolled back, and it is **not** retryable - someone stopped it on purpose. This client retries
+neither. Retry logic of your own must tell them apart by `exception` / `retry_after`, never by the
+status alone.
 
 `err.help_` is spelled with a trailing underscore to match the field name on the generated
 `ErrorResponse` model, which is reachable through `.raw` - `help` alone would shadow the Python
@@ -650,6 +759,14 @@ the same generator limitation - both endpoints are also in `EXPECTED_SKIPS` abov
 hand-written rather than left unwrapped: a time-series namespace that could query samples but never
 ingest any, or a client with no way to bulk-load a graph at all, would be an odd thing to ship. See
 "Batch loading" above for `batch_load`/`batch_load_stream`.
+
+**Cluster override endpoints are deliberately raw-only.** `acceptClusterDatabaseCopy`
+(`POST /api/v1/cluster/accept-copy/{database}`), `acceptClusterDivergedDatabase`
+(`POST /api/v1/cluster/accept-diverged/{database}`) and `acceptClusterStaleSnapshot`
+(`POST /api/v1/cluster/accept-stale-snapshot`) are root-only operator overrides that make a node
+accept a copy of a database without a resync - a decision about which data survives, not an
+operation for application code. No facade method wraps any `/cluster/*` endpoint; reach them through
+`.raw`'s generated operations when an operator means to.
 
 `POST /api/v1/server` (administrative commands) is likewise not wrapped by the facade, and reached
 through `.raw` returns a body that does not conform to its declared `QueryResponse` schema

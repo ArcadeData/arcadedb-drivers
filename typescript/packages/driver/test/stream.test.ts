@@ -3,14 +3,14 @@ import { ArcadeDBError, createClient } from "../src/index.js";
 import type { NdJsonQueryEvent } from "../src/index.js";
 
 /** Builds an ndjson `Response` whose body is delivered as one chunk per `lines` entry. */
-function ndjsonResponse(lines: string[], status = 200): Response {
+function ndjsonResponse(lines: string[], status = 200, extraHeaders: Record<string, string> = {}): Response {
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       for (const line of lines) controller.enqueue(new TextEncoder().encode(line + "\n"));
       controller.close();
     },
   });
-  return new Response(body, { status, headers: { "content-type": "application/x-ndjson" } });
+  return new Response(body, { status, headers: { "content-type": "application/x-ndjson", ...extraHeaders } });
 }
 
 /** Builds a `Response` whose body is delivered exactly as the given raw chunks, verbatim - no added newlines. */
@@ -47,8 +47,8 @@ function cancellableNdjsonResponse(lines: string[]): { response: Response; cance
   };
 }
 
-function jsonResponse(body: unknown, status: number): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...extraHeaders } });
 }
 
 async function collect(iter: AsyncGenerator<NdJsonQueryEvent>): Promise<NdJsonQueryEvent[]> {
@@ -227,5 +227,141 @@ describe("ArcadeDBDatabase.commandStream", () => {
     expect(new URL(capturedRequest!.url).pathname).toBe("/api/v1/command/mydb");
     expect(capturedRequest?.headers.get("accept")).toBe("application/x-ndjson");
     expect(events).toEqual([{ stats: { limit: -1, returned: 0, truncated: false } }]);
+  });
+});
+
+/** Drains `iter` and returns what it threw, failing the test if it threw nothing. */
+async function caughtFrom(iter: AsyncGenerator<NdJsonQueryEvent>): Promise<ArcadeDBError> {
+  try {
+    await collect(iter);
+  } catch (err) {
+    expect(err).toBeInstanceOf(ArcadeDBError);
+    return err as ArcadeDBError;
+  }
+  throw new Error("expected the stream to raise");
+}
+
+describe("in-band query/command stream errors: full field mapping (issue #117)", () => {
+  const FULL_ERROR = {
+    error: {
+      message: "Duplicated key [1] on index 'Person[id]'",
+      error: "Duplicated key",
+      exception: "com.arcadedb.exception.DuplicatedKeyException",
+      detail: "cause chain",
+      exceptionArgs: "Person[id]|[1]|#1:0",
+      requestId: "in-band-req",
+      retryAfter: 4,
+      status: 409,
+    },
+  };
+
+  it("queryStream raises with the in-band status, not 200, and every in-band field", async () => {
+    const fetchMock = vi.fn(async () => ndjsonResponse([JSON.stringify(FULL_ERROR)]));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const err = await caughtFrom(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(err.status).toBe(409);
+    expect(err.error).toBe("Duplicated key");
+    expect(err.exception).toBe("com.arcadedb.exception.DuplicatedKeyException");
+    expect(err.detail).toBe("cause chain");
+    expect(err.exceptionArgs).toBe("Person[id]|[1]|#1:0");
+    expect(err.requestId).toBe("in-band-req");
+    expect(err.retryAfter).toBe(4);
+    expect(err.commitIndex).toBeUndefined();
+  });
+
+  it("commandStream maps the in-band error the same way", async () => {
+    const fetchMock = vi.fn(async () => ndjsonResponse([JSON.stringify(FULL_ERROR)]));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const err = await caughtFrom(server.db("mydb").commandStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(err.status).toBe(409);
+    expect(err.error).toBe("Duplicated key");
+    expect(err.retryAfter).toBe(4);
+  });
+
+  it("falls back to status 200 only when the event carries no status", async () => {
+    const fetchMock = vi.fn(async () => ndjsonResponse([JSON.stringify({ error: { message: "boom" } })]));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const err = await caughtFrom(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(err.status).toBe(200);
+  });
+
+  it("falls back to the in-band message when the event carries no classified error label", async () => {
+    const fetchMock = vi.fn(async () => ndjsonResponse([JSON.stringify({ error: { message: "boom", status: 500 } })]));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const err = await caughtFrom(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(err.error).toBe("boom");
+    expect(err.message).toBe("boom");
+  });
+
+  it("prefers the response's X-Request-Id header over the in-band requestId", async () => {
+    const fetchMock = vi.fn(async () => ndjsonResponse([JSON.stringify(FULL_ERROR)], 200, { "X-Request-Id": "header-req" }));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const err = await caughtFrom(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(err.requestId).toBe("header-req");
+  });
+
+  it("a non-2xx response before the stream starts carries Retry-After and X-ArcadeDB-Commit-Index", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ error: "not ready" }, 503, { "Retry-After": "2", "X-ArcadeDB-Commit-Index": "17" }),
+    );
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const err = await caughtFrom(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(err.status).toBe(503);
+    expect(err.retryAfter).toBe(2);
+    expect(err.commitIndex).toBe(17);
+  });
+});
+
+describe("queryTag on queryStream/commandStream (issue #117)", () => {
+  it("queryStream sends X-ArcadeDB-Query-Tag, and not in the body", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return ndjsonResponse([]);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await collect(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V", queryTag: "stream-tag" }));
+
+    expect(captured?.headers.get("X-ArcadeDB-Query-Tag")).toBe("stream-tag");
+    await expect(captured!.clone().json()).resolves.toEqual({ language: "sql", command: "SELECT FROM V" });
+  });
+
+  it("commandStream sends X-ArcadeDB-Query-Tag", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return ndjsonResponse([]);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await collect(server.db("mydb").commandStream({ language: "sql", command: "SELECT FROM V", queryTag: "cmd-tag" }));
+
+    expect(captured?.headers.get("X-ArcadeDB-Query-Tag")).toBe("cmd-tag");
+  });
+
+  it("sends no tag header when none is given", async () => {
+    let captured: Request | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      captured = request;
+      return ndjsonResponse([]);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await collect(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(captured?.headers.has("X-ArcadeDB-Query-Tag")).toBe(false);
   });
 });

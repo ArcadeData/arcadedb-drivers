@@ -183,9 +183,13 @@ are under "The gRPC module" below.
   not parsed.
 - **Parsing an error never fails.** An absent, non-JSON or partial body yields an `*ArcadeDBError`
   carrying `Status` and whatever parsed; `RequestID` comes from the `X-Request-Id` header and falls
-  back to the body's `requestId`. The one parser is the unexported `newError` in `errors.go`;
-  `checkResponse` (buffered bodies) and `errorFromResponse` (streams and batch, which read the body
-  themselves) both call it, so every non-2xx status is parsed the same way. The errors with no
+  back to the body's `requestId`. The one parser is the unexported `newError` in `errors.go`,
+  wrapped by `errorFromHeaders`, which adds `RetryAfter` (`Retry-After`) and `CommitIndex`
+  (`X-ArcadeDB-Commit-Index`), each read only as a non-negative whole number and left 0 otherwise;
+  `checkResponse` (buffered bodies), `errorFromResponse` (streams and batch, which read the body
+  themselves), `Health` and `TS().Write` all go through it, so every non-2xx status is parsed the
+  same way. `TS().Write` wraps a 400 with a JSON-object body in `*TimeSeriesWriteError`, which
+  embeds `*ArcadeDBError` and unwraps to it, so `errors.As` matches both types. The errors with no
   error body to parse - in-band stream and batch errors, a begin with no session id, an
   unrepresentable graph-serializer result - are built directly.
 - **A 2xx body is decoded even when the generated parser skipped it.** oapi-codegen fills `JSON200`
@@ -221,11 +225,15 @@ are under "The gRPC module" below.
 - **Streams skip what they do not understand.** `QueryStream`/`CommandStream` return
   `iter.Seq2[StreamEvent, error]`; each `StreamEvent` has exactly one of `Record` or `Stats` set. An
   event of an unknown kind, and `"record": null`, are **skipped**, where the Python driver yields an
-  empty event. An in-band `{"error": ...}` event is yielded once as an `*ArcadeDBError` with status
-  200 and the response's `X-Request-Id`, and ends the iteration. A stats trailer with no `limit`
-  reads as `-1`. A non-EOF read error drops the partial line rather than decoding it, so a cancelled
-  context surfaces as an error `errors.Is(err, context.Canceled)` matches, not as a bogus decode
-  error. There is no line-length limit (`bufio.Scanner` would fail past 64 KiB).
+  empty event. An in-band `{"error": ...}` event is yielded once as an `*ArcadeDBError` and ends the
+  iteration. Its `Status` is the event's own `status`, and 200 only when the event carries none
+  (the rule was "always 200" until 0.3.0, chosen before the event had a status; issue #117
+  changed it); `ErrorMessage` is the event's `error`, else its `message`; `Exception`, `Detail`,
+  `ExceptionArgs` and `RetryAfter` are the event's; `RequestID` is the response's `X-Request-Id`,
+  else the event's `requestId`. All of it is `streamError` in `stream.go`. A stats trailer with no
+  `limit` reads as `-1`. A non-EOF read error drops the partial line rather than decoding it, so a
+  cancelled context surfaces as an error `errors.Is(err, context.Canceled)` matches, not as a bogus
+  decode error. There is no line-length limit (`bufio.Scanner` would fail past 64 KiB).
 - **A property that shadows a batch control key is refused.** `BatchLoad`/`BatchLoadStream` reject
   a row whose `Properties` contain `@type`, `@class`, `@id`, `@from` or `@to` with an error wrapping
   `ErrPropertyShadowsControlKey`. The Python and TypeScript drivers let such a property silently

@@ -21,9 +21,20 @@ Three decisions, matching `queryStream`/`commandStream` in `@arcadedb/driver`:
   `db.promql` and `facade/vector.py` make for their own generated responses.
 - **An in-band `error` raises `ArcadeDBError`.** It is a failure the server can only report after
   the 200 status line was already sent - the status line cannot be taken back once the stream has
-  started, which is why the contract carries it in band at all instead of as an HTTP status. The
-  raised error's status is 200: honest, and no different from what M4 already established for
-  `ArcadeDBError`. Raising here means the streaming and buffered paths fail exactly the same way.
+  started, which is why the contract carries it in band at all instead of as an HTTP status.
+  Raising here means the streaming and buffered paths fail exactly the same way, field for field:
+  `status` is the event's own `status` - the one the buffered encoding would have answered the same
+  failure with (503 for a retryable conflict, 409 for a duplicated key, 413 for the row cap, ...) -
+  falling back to 200 only when the event carries none; `error` is the classified label
+  (`message` when the event has no `error`); `exception`, `detail`, `exception_args` and
+  `retry_after` are copied across; and `request_id` prefers the response's `X-Request-Id` header
+  over the event's own `requestId`. `commit_index` is never set from this event, which carries
+  none. **Breaking change (issue #117):** the raised status used to be 200 unconditionally (D-M7-3),
+  a rule chosen when the event carried no `status`. The contract now says to key retries on it, the
+  batch stream already used its in-band status, and a `retry_after` beside a 200 would be
+  unreadable. The event is read from the raw JSON rather than through the generated
+  `NdJsonQueryEventError`, whose `from_dict` treats `status` and `message` as required and would
+  raise `KeyError` - not `ArcadeDBError` - on an older server's event that lacks either.
 - **`query`/`command` are untouched.** They keep returning `QueryEnvelope` and keep sending no
   `Accept` header at all; streaming is a separate pair of methods, not a mode of the existing two.
 
@@ -81,10 +92,9 @@ from urllib.parse import quote
 
 from .._generated.client import Client
 from .._generated.models.nd_json_query_event import NdJsonQueryEvent
-from .._generated.types import Unset
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
-from ..errors import ArcadeDBError
-from .data import SESSION_HEADER, QueryLanguage, build_command_request, build_query_request
+from ..errors import REQUEST_ID_HEADER, ArcadeDBError, _int_or_none, _str_or_none
+from .data import SESSION_HEADER, QueryLanguage, build_command_request, build_query_request, query_tag_headers
 
 
 def _query_url(database: str) -> str:
@@ -95,44 +105,65 @@ def _command_url(database: str) -> str:
     return f"/api/v1/command/{quote(database, safe='')}"
 
 
-def _headers(session_id: str | None) -> dict[str, str]:
-    headers = {"Accept": "application/x-ndjson"}
+def _headers(session_id: str | None, query_tag: str | None) -> dict[str, str]:
+    headers = {"Accept": "application/x-ndjson", **query_tag_headers(query_tag)}
     if session_id is not None:
         headers[SESSION_HEADER] = session_id
     return headers
 
 
-def _parse_event(line: str) -> NdJsonQueryEvent:
+def _in_band_error(error: dict[str, Any], header_request_id: str | None) -> ArcadeDBError:
+    """Maps an in-band `error` object onto `ArcadeDBError` - see the module docstring for the
+    field mapping and why `status` falls back to 200 only when the event carries none."""
+    status = error.get("status")
+    label = _str_or_none(error.get("error")) or _str_or_none(error.get("message")) or "the stream reported an error"
+    body: dict[str, Any] = {"error": label}
+    for key in ("exception", "detail", "exceptionArgs", "requestId"):
+        value = _str_or_none(error.get(key))
+        if value is not None:
+            body[key] = value
+    return ArcadeDBError(
+        status if isinstance(status, int) and not isinstance(status, bool) else 200,
+        body,
+        header_request_id,
+        retry_after=_int_or_none(error.get("retryAfter")),
+    )
+
+
+def _parse_event(line: str, header_request_id: str | None) -> NdJsonQueryEvent:
     """Parses one ndjson line, raising `ArcadeDBError` if it is an in-band `error` event rather
-    than returning it - see the module docstring for why 200 is the right status to carry."""
-    event = NdJsonQueryEvent.from_dict(json.loads(line))
-    if not isinstance(event.error, Unset):
-        message = event.error.message
-        detail = "the stream reported an error" if isinstance(message, Unset) else message
-        raise ArcadeDBError(200, {"error": detail})
-    return event
+    than returning it."""
+    raw = json.loads(line)
+    error = raw.get("error") if isinstance(raw, dict) else None
+    if isinstance(error, dict):
+        raise _in_band_error(error, header_request_id)
+    return NdJsonQueryEvent.from_dict(raw)
 
 
 def _stream_events(
-    client: Client, url: str, body: dict[str, Any], session_id: str | None
+    client: Client, url: str, body: dict[str, Any], session_id: str | None, query_tag: str | None
 ) -> Generator[NdJsonQueryEvent, None, None]:
-    with client.get_httpx_client().stream("POST", url, json=body, headers=_headers(session_id)) as response:
+    headers = _headers(session_id, query_tag)
+    with client.get_httpx_client().stream("POST", url, json=body, headers=headers) as response:
         raise_for_status(response)
+        request_id = response.headers.get(REQUEST_ID_HEADER)
         for line in iter_ndjson_lines(response.iter_text()):
             if not line.strip():
                 continue
-            yield _parse_event(line)
+            yield _parse_event(line, request_id)
 
 
 async def _astream_events(
-    client: Client, url: str, body: dict[str, Any], session_id: str | None
+    client: Client, url: str, body: dict[str, Any], session_id: str | None, query_tag: str | None
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
-    async with client.get_async_httpx_client().stream("POST", url, json=body, headers=_headers(session_id)) as response:
+    headers = _headers(session_id, query_tag)
+    async with client.get_async_httpx_client().stream("POST", url, json=body, headers=headers) as response:
         await araise_for_status(response)
+        request_id = response.headers.get(REQUEST_ID_HEADER)
         async for line in aiter_ndjson_lines(response.aiter_text()):
             if not line.strip():
                 continue
-            yield _parse_event(line)
+            yield _parse_event(line, request_id)
 
 
 def stream_query(
@@ -144,11 +175,12 @@ def stream_query(
     command: str,
     params: dict[str, Any] | None = None,
     limit: int | None = None,
+    query_tag: str | None = None,
 ) -> Generator[NdJsonQueryEvent, None, None]:
     """Streams `POST /api/v1/query/{database}` as `application/x-ndjson`, one event per line - see
     the module docstring for what an event carries and why an in-band `error` raises."""
     body = build_query_request(language=language, command=command, params=params, limit=limit).to_dict()
-    return _stream_events(client, _query_url(database), body, session_id)
+    return _stream_events(client, _query_url(database), body, session_id, query_tag)
 
 
 def stream_command(
@@ -159,13 +191,14 @@ def stream_command(
     language: QueryLanguage,
     command: str,
     params: dict[str, Any] | None = None,
+    query_tag: str | None = None,
 ) -> Generator[NdJsonQueryEvent, None, None]:
     """Streams `POST /api/v1/command/{database}` as `application/x-ndjson`, one event per line -
     see the module docstring for what an event carries and why an in-band `error` raises. Only a
     read-only statement can stream; see `ArcadeDBDatabase.command_stream`'s docstring for why a
     mutating one is refused."""
     body = build_command_request(language=language, command=command, params=params).to_dict()
-    return _stream_events(client, _command_url(database), body, session_id)
+    return _stream_events(client, _command_url(database), body, session_id, query_tag)
 
 
 def astream_query(
@@ -177,10 +210,11 @@ def astream_query(
     command: str,
     params: dict[str, Any] | None = None,
     limit: int | None = None,
+    query_tag: str | None = None,
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
     """The async twin of `stream_query`."""
     body = build_query_request(language=language, command=command, params=params, limit=limit).to_dict()
-    return _astream_events(client, _query_url(database), body, session_id)
+    return _astream_events(client, _query_url(database), body, session_id, query_tag)
 
 
 def astream_command(
@@ -191,7 +225,8 @@ def astream_command(
     language: QueryLanguage,
     command: str,
     params: dict[str, Any] | None = None,
+    query_tag: str | None = None,
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
     """The async twin of `stream_command`."""
     body = build_command_request(language=language, command=command, params=params).to_dict()
-    return _astream_events(client, _command_url(database), body, session_id)
+    return _astream_events(client, _command_url(database), body, session_id, query_tag)

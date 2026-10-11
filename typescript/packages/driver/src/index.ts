@@ -4,7 +4,7 @@ import type { components, paths } from "./generated/schema.js";
 import { ArcadeDBError } from "./errors.js";
 import { unwrap } from "./internal/unwrap.js";
 import { beginTransaction, commitTransaction, executeCommand, executeQuery, rollbackTransaction } from "./facade/data.js";
-import type { CommandOptions, QueryEnvelope, QueryOptions } from "./facade/data.js";
+import type { CommandOptions, QueryEnvelope, QueryOptions, TransactionOptions } from "./facade/data.js";
 import { commandStream, queryStream } from "./facade/stream.js";
 import type { NdJsonQueryEvent } from "./facade/stream.js";
 import { batchLoad, batchLoadStream } from "./facade/batch.js";
@@ -30,10 +30,11 @@ import type {
   VectorSearchResult,
 } from "./facade/vector.js";
 
-export { ArcadeDBError } from "./errors.js";
+export { ArcadeDBError, TimeSeriesWriteError } from "./errors.js";
+export type { ArcadeDBErrorExtras } from "./errors.js";
 export { basicAuth, bearerAuth } from "./auth.js";
 export type { Middleware } from "openapi-fetch";
-export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions } from "./facade/data.js";
+export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions, TransactionOptions } from "./facade/data.js";
 export type { NdJsonQueryEvent } from "./facade/stream.js";
 export type {
   BatchAck,
@@ -345,9 +346,18 @@ export class ArcadeDBDatabase {
    *    error is what the caller needs to see) before the commit error is
    *    re-thrown. Without this, a failed commit leaves the session open
    *    server-side until `arcadedb.server.httpSessionExpireTimeout` reaps it.
+   *
+   * `opts.queryTag` labels the transaction: it is sent on the begin request only, and the server
+   * applies it to every statement that carries no tag of its own.
+   *
+   * A rollback cannot undo a statement that published a commit while it ran - an explicit
+   * `BATCH n` boundary, or a statement with its own `COMMIT`. The server marks such a response
+   * `arcadedb-session-partial-commit: true`; this method does not surface that header (reach it
+   * through `raw`), so a caller who replays a whole `transaction` block on conflict must not do so
+   * for a body containing such statements - part of it is already durable.
    */
-  async transaction<T>(fn: (tx: ArcadeDBDatabase) => Promise<T>): Promise<T> {
-    const sessionId = await beginTransaction(this.client, this.name);
+  async transaction<T>(fn: (tx: ArcadeDBDatabase) => Promise<T>, opts: TransactionOptions = {}): Promise<T> {
+    const sessionId = await beginTransaction(this.client, this.name, opts.queryTag);
     const tx = new ArcadeDBDatabase(this.client, this.name, sessionId, this.insertContext);
     let result: T;
     try {

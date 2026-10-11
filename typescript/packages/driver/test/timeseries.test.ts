@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createClient } from "../src/index.js";
+import { ArcadeDBError, createClient, TimeSeriesWriteError } from "../src/index.js";
 
 function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -97,5 +97,77 @@ describe("db.ts.query", () => {
     expect(capturedRequest?.method).toBe("POST");
     expect(new URL(capturedRequest!.url).pathname).toBe("/api/v1/ts/mydb/query");
     expect(capturedBody).toEqual({ type: "cpu", from: 1, to: 2 });
+  });
+});
+
+describe("db.ts.write failures (issue #117)", () => {
+  const BODY = {
+    error: "2 samples dropped",
+    written: 3,
+    dropped: 2,
+    requestId: "body-req",
+    unknownTypes: ["nope"],
+    nonTimeSeriesTypes: ["Person"],
+    unavailableTypes: [],
+    undeclaredKeys: ["humidity"],
+  };
+
+  it("raises TimeSeriesWriteError on a 400, carrying written, dropped and the reason lists", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(BODY, 400, { "X-Request-Id": "header-req", "X-ArcadeDB-Commit-Index": "5" }));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    let caught: unknown;
+    try {
+      await server.db("mydb").ts.write({ lineProtocol: "nope value=1" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(TimeSeriesWriteError);
+    expect(caught).toBeInstanceOf(ArcadeDBError);
+    const err = caught as TimeSeriesWriteError;
+    expect(err.status).toBe(400);
+    expect(err.error).toBe("2 samples dropped");
+    expect(err.requestId).toBe("header-req");
+    expect(err.commitIndex).toBe(5);
+    expect(err.written).toBe(3);
+    expect(err.dropped).toBe(2);
+    expect(err.unknownTypes).toEqual(["nope"]);
+    expect(err.nonTimeSeriesTypes).toEqual(["Person"]);
+    expect(err.unavailableTypes).toEqual([]);
+    expect(err.undeclaredKeys).toEqual(["humidity"]);
+  });
+
+  it("raises a plain ArcadeDBError on any other non-2xx status, with Retry-After read", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ error: "not ready" }, 503, { "Retry-After": "9" }));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    let caught: unknown;
+    try {
+      await server.db("mydb").ts.write({ lineProtocol: "cpu value=1" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ArcadeDBError);
+    expect(caught).not.toBeInstanceOf(TimeSeriesWriteError);
+    expect((caught as ArcadeDBError).status).toBe(503);
+    expect((caught as ArcadeDBError).retryAfter).toBe(9);
+  });
+
+  it("raises a plain ArcadeDBError on a 400 whose body is not a JSON object", async () => {
+    const fetchMock = vi.fn(async () => new Response("bad line protocol", { status: 400, headers: { "content-type": "text/plain" } }));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    let caught: unknown;
+    try {
+      await server.db("mydb").ts.write({ lineProtocol: "garbage" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ArcadeDBError);
+    expect(caught).not.toBeInstanceOf(TimeSeriesWriteError);
+    expect((caught as ArcadeDBError).status).toBe(400);
   });
 });

@@ -36,14 +36,14 @@ from .._generated.models.prom_ql_labels_response import PromQLLabelsResponse
 from .._generated.models.prom_ql_series_response import PromQLSeriesResponse
 from .._generated.types import UNSET, Unset
 from .._internal.unwrap import unwrap
-from ..errors import REQUEST_ID_HEADER, ArcadeDBError
+from ..errors import ArcadeDBError
 
 
 def _json_response(raw: httpx.Response) -> dict[str, Any]:
     """Raises `ArcadeDBError` unless the server answered 2xx; otherwise returns the parsed JSON
     body unaltered. Bypasses the generated response model - see the module docstring."""
     if not 200 <= raw.status_code < 300:
-        raise ArcadeDBError(raw.status_code, raw.content, raw.headers.get(REQUEST_ID_HEADER))
+        raise ArcadeDBError.from_httpx_response(raw)
     body: dict[str, Any] = raw.json()
     return body
 

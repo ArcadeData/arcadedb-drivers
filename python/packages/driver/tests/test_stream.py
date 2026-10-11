@@ -164,7 +164,7 @@ def test_query_stream_raises_arcadedb_error_on_an_in_band_error_event_after_deli
             seen.append(event)
 
     assert [_record(e) for e in seen] == [{"a": 1}]
-    assert caught.value.status == 200
+    assert caught.value.status == 500
     assert caught.value.error == "boom"
 
 
@@ -296,7 +296,7 @@ async def test_async_query_stream_raises_arcadedb_error_on_an_in_band_error_even
                 seen.append(event)
 
     assert [_record(e) for e in seen] == [{"a": 1}]
-    assert caught.value.status == 200
+    assert caught.value.status == 500
     assert caught.value.error == "boom"
 
 

@@ -551,6 +551,7 @@ describe("TimeSeriesWriteStream, TimeSeriesQuery and TimeSeriesLatest", () => {
     expect(summary.unknownTypes).toEqual([]);
     expect(summary.nonTimeSeriesTypes).toEqual([]);
     expect(summary.unavailableTypes).toEqual([]);
+    expect(summary.undeclaredKeys).toEqual([]);
   });
 
   it("timeSeriesQuery returns the points written above, non-empty", async () => {

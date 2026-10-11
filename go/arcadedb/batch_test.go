@@ -279,7 +279,7 @@ func TestBatchStreamInBandError(t *testing.T) {
 		{"status absent", `{"error":{}}`,
 			ArcadeDBError{Status: 500, ErrorMessage: "the batch load reported an error"}},
 		{"all fields", `{"error":{"status":503,"error":"conflict","exception":"com.X","exceptionArgs":"a,b","commitIndex":3}}`,
-			ArcadeDBError{Status: 503, ErrorMessage: "conflict", Exception: "com.X", ExceptionArgs: "a,b"}},
+			ArcadeDBError{Status: 503, ErrorMessage: "conflict", Exception: "com.X", ExceptionArgs: "a,b", CommitIndex: 3}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

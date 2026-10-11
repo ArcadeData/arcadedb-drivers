@@ -14,6 +14,7 @@ EXPECTED_SURFACE = {
     "InsertSessionError",
     "QueryEnvelope",
     "QueryLanguage",
+    "TimeSeriesWriteError",
     "Transaction",
     "VertexRow",
     "__version__",

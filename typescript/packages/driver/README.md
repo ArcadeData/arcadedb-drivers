@@ -135,8 +135,9 @@ delivered to the caller.
 The error's `status` is the event's own in-band `status` - the status the buffered encoding would
 have answered the same failure with: 503 for a retryable conflict, 409 for a duplicated key, 413
 when `arcadedb.server.httpQueryMaxResultRows` cut the result short, 500 for an unexpected failure.
-Only an event carrying no `status` at all falls back to 200, the status the exchange itself
-carried. **This changed in 0.3.0, and it is a breaking change**: up to 0.2.0 an in-band error was
+Only an event carrying no usable `status` falls back to 200, the status the exchange itself
+carried; anything but a positive whole number counts as none. (A `batchLoadStream` error falls
+back to 500 by the same rule.) **This changed in 0.3.0, and it is a breaking change**: up to 0.2.0 an in-band error was
 always reported with `status` 200, a rule chosen when the event had no `status` to report. The
 contract now says to key retries on that status, `batchLoadStream` already used its own in-band
 status, and a `retryAfter` beside a 200 was a back-off nobody could act on. Code that recognised a

@@ -89,7 +89,7 @@ from typing_extensions import NotRequired, TypedDict
 from .._generated.client import Client
 from .._internal.batch_rows import EdgeRow, VertexRow, serialize_rows
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
-from ..errors import ArcadeDBError, _int_or_none
+from ..errors import ArcadeDBError, _int_or_none, _status_or
 from .data import query_tag_headers
 
 __all__ = [
@@ -154,13 +154,12 @@ def _raise_on_error_event(event: dict[str, Any]) -> dict[str, Any]:
     error = event.get("error")
     if error is None:
         return event
-    status = error.get("status")
     body: dict[str, Any] = {"error": error.get("error") or "the batch load reported an error"}
     for key in ("exception", "exceptionArgs"):
         if error.get(key) is not None:
             body[key] = error[key]
     raise ArcadeDBError(
-        status if status is not None else 500,
+        _status_or(error.get("status"), 500),
         body,
         retry_after=_int_or_none(error.get("retryAfter")),
         commit_index=_int_or_none(error.get("commitIndex")),

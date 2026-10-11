@@ -179,3 +179,32 @@ func TestBatchStreamInBandErrorCarriesRetryAfterAndCommitIndex(t *testing.T) {
 		t.Fatalf("got %+v", *ae)
 	}
 }
+
+// An in-band status that is not a positive whole number reads as absent: 200 on a query
+// stream, 500 on a batch stream, the same rule on both parsers.
+var malformedInBandStatuses = []string{`"503"`, `-1`, `0`, `503.5`, `true`, `null`, `{"code":503}`, `1e300`}
+
+func TestStreamInBandErrorMalformedStatusFallsBackTo200(t *testing.T) {
+	for _, status := range malformedInBandStatuses {
+		srv := fakeServer(t, ndjsonBody(`{"error":{"message":"m","status":`+status+`}}`+"\n"))
+		_, err := drain(t, srv)
+		if ae := asArcade(t, err); ae.Status != 200 {
+			t.Errorf("status %s: Status = %d, want 200", status, ae.Status)
+		}
+	}
+}
+
+func TestBatchStreamInBandErrorMalformedStatusFallsBackTo500(t *testing.T) {
+	for _, status := range malformedInBandStatuses {
+		srv, _ := batchServer(t, 200, "application/x-ndjson", `{"error":{"error":"boom","status":`+status+`}}`+"\n")
+		var gotErr error
+		for _, err := range srv.DB("d").BatchLoadStream(context.Background(), nil, slices.Values([]EdgeRow(nil)), nil) {
+			if err != nil {
+				gotErr = err
+			}
+		}
+		if ae := asArcade(t, gotErr); ae.Status != 500 || ae.ErrorMessage != "boom" {
+			t.Errorf("status %s: got %+v, want Status 500", status, *ae)
+		}
+	}
+}

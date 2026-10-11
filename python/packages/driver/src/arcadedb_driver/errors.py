@@ -62,6 +62,16 @@ def _int_or_none(value: object) -> int | None:
     return value if value >= 0 else None
 
 
+def _status_or(value: object, default: int) -> int:
+    """The status an in-band stream or batch error event carried, or `default` when it carried
+    none usable: anything but a positive integer (a string, a float, `0`, a negative, `true`) reads
+    as absent. Both streaming parsers use it, so a malformed status means the same thing on a query
+    stream and a batch stream - and never reaches `int()` as a value that would raise."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return default
+    return value
+
+
 def _header(headers: Mapping[str, str], name: str) -> str | None:
     """Reads one header case-insensitively from any mapping: an `httpx.Headers` already is, but
     the generated `Response.headers` is typed as a plain mapping."""

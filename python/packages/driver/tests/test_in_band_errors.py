@@ -209,3 +209,45 @@ async def test_async_in_band_batch_error_carries_retry_after_and_commit_index() 
     assert caught.value.status == 503
     assert caught.value.retry_after == 7
     assert caught.value.commit_index == 1234
+
+
+# --- an in-band status that is not a positive whole number reads as absent ---------------------
+
+MALFORMED_STATUSES: list[Any] = ["503", -1, 0, 503.5, True, None, {"code": 503}]
+
+
+@pytest.mark.parametrize("status", MALFORMED_STATUSES)
+@respx.mock
+def test_in_band_query_error_with_a_malformed_status_falls_back_to_200(status: Any) -> None:
+    respx.post(f"{BASE_URL}/api/v1/query/mydb").mock(
+        return_value=_stream_response({"message": "boom", "status": status})
+    )
+    with ArcadeDBServer(base_url=BASE_URL) as srv, pytest.raises(ArcadeDBError) as caught:
+        list(srv.db("mydb").query_stream(language="sql", command="SELECT FROM V"))
+    assert caught.value.status == 200
+
+
+@pytest.mark.parametrize("status", MALFORMED_STATUSES)
+@respx.mock
+def test_in_band_batch_error_with_a_malformed_status_falls_back_to_500(status: Any) -> None:
+    respx.post(f"{BASE_URL}/api/v1/batch/mydb").mock(
+        return_value=httpx.Response(200, content=_lines({"error": {"error": "boom", "status": status}}))
+    )
+    with ArcadeDBServer(base_url=BASE_URL) as srv, pytest.raises(ArcadeDBError) as caught:
+        list(srv.db("mydb").batch_load_stream(**ROWS))
+    assert caught.value.status == 500
+    assert caught.value.error == "boom"
+
+
+@pytest.mark.parametrize("status", MALFORMED_STATUSES)
+@respx.mock
+@pytest.mark.asyncio
+async def test_async_in_band_batch_error_with_a_malformed_status_falls_back_to_500(status: Any) -> None:
+    respx.post(f"{BASE_URL}/api/v1/batch/mydb").mock(
+        return_value=httpx.Response(200, content=_lines({"error": {"error": "boom", "status": status}}))
+    )
+    async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:
+        with pytest.raises(ArcadeDBError) as caught:
+            async for _ in srv.db("mydb").batch_load_stream(**ROWS):
+                pass
+    assert caught.value.status == 500

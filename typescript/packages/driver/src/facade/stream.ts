@@ -1,6 +1,6 @@
 import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
-import { ArcadeDBError, nonNegativeIntegerOrUndefined } from "../errors.js";
+import { ArcadeDBError, inBandStatus, nonNegativeIntegerOrUndefined } from "../errors.js";
 import { decodeNdJson } from "../internal/ndjson.js";
 import { buildCommandBody, buildQueryBody, statementHeaders } from "../internal/request-body.js";
 import type { CommandOptions, QueryOptions } from "./data.js";
@@ -22,7 +22,8 @@ export type NdJsonQueryEvent = components["schemas"]["NdJsonQueryEvent"];
  *
  * - `status` is the event's own `status` - the one the buffered encoding would have answered the
  *   same failure with (503 for a retryable conflict, 409 for a duplicated key, 413 when the row
- *   ceiling cut the result short, ...). Only an event carrying none falls back to 200, the status
+ *   ceiling cut the result short, ...). Only an event carrying none (anything but a positive whole number counts as none, as in
+ *   `inBandStatus`) falls back to 200, the status
  *   the exchange itself carried. Until issue #117 this was always 200: the rule was chosen when the
  *   event had no `status`, and once it had one, a 200 beside an in-band `retryAfter` was a status a
  *   caller could not act on. Batch's in-band error (`facade/batch.ts`) already used its own status.
@@ -44,7 +45,7 @@ async function* raiseOnErrorEvent(
       // decoded wire line, and a server that omits one must still produce an error, not a crash.
       const inBand = event.error as Partial<NonNullable<NdJsonQueryEvent["error"]>>;
       throw new ArcadeDBError(
-        typeof inBand.status === "number" ? inBand.status : 200,
+        inBandStatus(inBand.status, 200),
         {
           error: inBand.error ?? inBand.message ?? "the stream reported an error",
           exception: inBand.exception,

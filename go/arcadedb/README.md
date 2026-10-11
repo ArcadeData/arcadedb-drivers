@@ -197,7 +197,8 @@ delivered. Every field of the event reaches the error:
 - `Status` is the event's own `status`, the one the buffered call would have answered the same
   failure with (503 for a retryable conflict, 409 for a duplicated key, 413 when
   `arcadedb.server.httpQueryMaxResultRows` cut the result short, 500 for an unexpected failure).
-  Only an event that carries no status reads as 200. Key retries on it, never on the message.
+  Only an event that carries no usable status reads as 200; anything but a positive whole number
+  counts as none (a batch stream falls back to 500 by the same rule). Key retries on it, never on the message.
 - `ErrorMessage` is the event's classified `error` label (what a buffered error body carries in
   `error`), falling back to its raw `message`.
 - `Exception`, `Detail` and `ExceptionArgs` are the same-named event fields.

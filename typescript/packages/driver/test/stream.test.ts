@@ -365,3 +365,14 @@ describe("queryTag on queryStream/commandStream (issue #117)", () => {
     expect(captured?.headers.has("X-ArcadeDB-Query-Tag")).toBe(false);
   });
 });
+
+describe("an in-band status that is not a positive whole number reads as absent (PR #119 review)", () => {
+  it.each(["503", -1, 0, 503.5, true, null, { code: 503 }])("queryStream falls back to 200 for status %j", async (status) => {
+    const fetchMock = vi.fn(async () => ndjsonResponse([JSON.stringify({ error: { message: "boom", status } })]));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const err = await caughtFrom(server.db("mydb").queryStream({ language: "sql", command: "SELECT FROM V" }));
+
+    expect(err.status).toBe(200);
+  });
+});

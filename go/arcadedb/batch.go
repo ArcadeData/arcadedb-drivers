@@ -340,9 +340,10 @@ func decodeBatchEvent(line []byte, requestID string) (map[string]any, error) {
 		return ev, nil
 	}
 	fields, _ := raw.(map[string]any)
-	e := &ArcadeDBError{Status: http.StatusInternalServerError, ErrorMessage: defaultBatchError, RequestID: requestID}
-	if s, ok := fields["status"].(float64); ok {
-		e.Status = int(s)
+	e := &ArcadeDBError{
+		Status:       inBandStatus(fields["status"], http.StatusInternalServerError),
+		ErrorMessage: defaultBatchError,
+		RequestID:    requestID,
 	}
 	if s, _ := fields["error"].(string); s != "" {
 		e.ErrorMessage = s

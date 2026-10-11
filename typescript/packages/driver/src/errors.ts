@@ -59,6 +59,16 @@ export function nonNegativeIntegerOrUndefined(value: unknown): number | undefine
 }
 
 /**
+ * The status an in-band stream or batch error event carried, or `fallback` when it carried none
+ * usable: anything but a positive safe integer (a string, a fraction, `0`, a negative, `true`)
+ * reads as absent. Both streaming facades use it, so a malformed status means the same thing on a
+ * query stream and a batch stream.
+ */
+export function inBandStatus(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+/**
  * Fields of an `ArcadeDBError` that never come from the JSON error body. On a buffered response
  * they are headers, which `fromResponse` reads; on a streamed response they travel in band, and
  * the streaming facades pass them here directly.

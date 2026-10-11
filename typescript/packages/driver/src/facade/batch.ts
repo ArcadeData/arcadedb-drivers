@@ -1,6 +1,6 @@
 import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
-import { ArcadeDBError, nonNegativeIntegerOrUndefined } from "../errors.js";
+import { ArcadeDBError, inBandStatus, nonNegativeIntegerOrUndefined } from "../errors.js";
 import { decodeNdJson } from "../internal/ndjson.js";
 import { type EdgeRow, serializeRows, type VertexRow } from "../internal/batch-rows.js";
 import { queryTagHeader } from "../internal/request-body.js";
@@ -130,7 +130,7 @@ async function* raiseOnErrorEvent(events: AsyncGenerator<NdJsonBatchEvent>): Asy
     if (event.error !== undefined) {
       const { status, error: message, exception, exceptionArgs, retryAfter, commitIndex } = event.error;
       throw new ArcadeDBError(
-        status ?? 500,
+        inBandStatus(status, 500),
         {
           error: message ?? "the batch load reported an error",
           exception,

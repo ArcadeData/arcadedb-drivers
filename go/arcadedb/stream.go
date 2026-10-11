@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
-	"math"
 	"net/http"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
@@ -156,15 +155,12 @@ func streamError(fields map[string]any, requestID string) *ArcadeDBError {
 		return s
 	}
 	e := &ArcadeDBError{
-		Status:        http.StatusOK,
+		Status:        inBandStatus(fields["status"], http.StatusOK),
 		ErrorMessage:  str("error"),
 		Exception:     str("exception"),
 		Detail:        str("detail"),
 		ExceptionArgs: str("exceptionArgs"),
 		RequestID:     requestID,
-	}
-	if s, ok := jsonNonNegative(fields["status"]); ok && s > 0 && s <= math.MaxInt32 {
-		e.Status = int(s)
 	}
 	if e.ErrorMessage == "" {
 		e.ErrorMessage = str("message")

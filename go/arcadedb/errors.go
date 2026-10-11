@@ -191,6 +191,17 @@ func jsonNonNegative(v any) (int64, bool) {
 	return int64(f), true
 }
 
+// inBandStatus returns the status an in-band stream or batch error event carried, or fallback
+// when it carried none usable: anything but a positive whole number that fits an int32 (a
+// string, a fraction, 0, a negative, an out-of-range float) reads as absent. Both parsers use
+// it, so a malformed status means the same thing on a query stream and a batch stream.
+func inBandStatus(v any, fallback int) int {
+	if s, ok := jsonNonNegative(v); ok && s > 0 && s <= math.MaxInt32 {
+		return int(s)
+	}
+	return fallback
+}
+
 // secondsDuration converts seconds to a Duration, saturating rather than overflowing.
 func secondsDuration(n int64) time.Duration {
 	if n > int64(math.MaxInt64/time.Second) {

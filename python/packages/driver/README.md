@@ -152,7 +152,7 @@ call would have raised for the same failure:
 
 | `ArcadeDBError` | from the in-band `error` event |
 | --- | --- |
-| `status` | `status` - the status the buffered encoding would have answered with (503 for a retryable conflict, 409 for a duplicated key, 413 for the row cap, ...); **200 only when the event carries none** |
+| `status` | `status` - the status the buffered encoding would have answered with (503 for a retryable conflict, 409 for a duplicated key, 413 for the row cap, ...); **200 only when the event carries none** (anything but a positive integer counts as none; a batch stream falls back to 500 by the same rule) |
 | `error` | `error`, the classified label; `message` when the event has no `error` |
 | `exception`, `detail`, `exception_args` | the same-named fields |
 | `request_id` | the response's `X-Request-Id` header, else the event's `requestId` |

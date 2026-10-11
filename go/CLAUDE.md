@@ -227,8 +227,9 @@ are under "The gRPC module" below.
   event of an unknown kind, and `"record": null`, are **skipped**, where the Python driver yields an
   empty event. An in-band `{"error": ...}` event is yielded once as an `*ArcadeDBError` and ends the
   iteration. Its `Status` is the event's own `status`, and 200 only when the event carries none
-  (the rule was "always 200" until 0.3.0, chosen before the event had a status; issue #117
-  changed it); `ErrorMessage` is the event's `error`, else its `message`; `Exception`, `Detail`,
+  usable: anything but a positive whole number counts as none (`inBandStatus` in `errors.go`,
+  which the batch parser shares with a 500 fallback). The rule was "always 200" until 0.3.0,
+  chosen before the event had a status; issue #117 changed it; `ErrorMessage` is the event's `error`, else its `message`; `Exception`, `Detail`,
   `ExceptionArgs` and `RetryAfter` are the event's; `RequestID` is the response's `X-Request-Id`,
   else the event's `requestId`. All of it is `streamError` in `stream.go`. A stats trailer with no
   `limit` reads as `-1`. A non-EOF read error drops the partial line rather than decoding it, so a

@@ -340,3 +340,12 @@ describe("queryTag on batchLoad/batchLoadStream (issue #117)", () => {
     expect(captured?.headers.has("X-ArcadeDB-Query-Tag")).toBe(false);
   });
 });
+
+describe("an in-band status that is not a positive whole number reads as absent (PR #119 review)", () => {
+  it.each(["503", -1, 0, 503.5, true, null, { code: 503 }])("batchLoadStream falls back to 500 for status %j", async (status) => {
+    const fetchMock = vi.fn(async () => ndjsonResponse([JSON.stringify({ error: { error: "boom", status } })]));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await expect(collect(server.db("mydb").batchLoadStream(ROWS))).rejects.toMatchObject({ status: 500, error: "boom" });
+  });
+});

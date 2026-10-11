@@ -25,7 +25,8 @@ Three decisions, matching `queryStream`/`commandStream` in `@arcadedb/driver`:
   Raising here means the streaming and buffered paths fail exactly the same way, field for field:
   `status` is the event's own `status` - the one the buffered encoding would have answered the same
   failure with (503 for a retryable conflict, 409 for a duplicated key, 413 for the row cap, ...) -
-  falling back to 200 only when the event carries none; `error` is the classified label
+  falling back to 200 only when the event carries none (anything but a positive integer counts as
+  none, the same rule `batch_load_stream` applies with its 500 fallback); `error` is the classified label
   (`message` when the event has no `error`); `exception`, `detail`, `exception_args` and
   `retry_after` are copied across; and `request_id` prefers the response's `X-Request-Id` header
   over the event's own `requestId`. `commit_index` is never set from this event, which carries
@@ -93,7 +94,7 @@ from urllib.parse import quote
 from .._generated.client import Client
 from .._generated.models.nd_json_query_event import NdJsonQueryEvent
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
-from ..errors import REQUEST_ID_HEADER, ArcadeDBError, _int_or_none, _str_or_none
+from ..errors import REQUEST_ID_HEADER, ArcadeDBError, _int_or_none, _status_or, _str_or_none
 from .data import SESSION_HEADER, QueryLanguage, build_command_request, build_query_request, query_tag_headers
 
 
@@ -115,7 +116,6 @@ def _headers(session_id: str | None, query_tag: str | None) -> dict[str, str]:
 def _in_band_error(error: dict[str, Any], header_request_id: str | None) -> ArcadeDBError:
     """Maps an in-band `error` object onto `ArcadeDBError` - see the module docstring for the
     field mapping and why `status` falls back to 200 only when the event carries none."""
-    status = error.get("status")
     label = _str_or_none(error.get("error")) or _str_or_none(error.get("message")) or "the stream reported an error"
     body: dict[str, Any] = {"error": label}
     for key in ("exception", "detail", "exceptionArgs", "requestId"):
@@ -123,7 +123,7 @@ def _in_band_error(error: dict[str, Any], header_request_id: str | None) -> Arca
         if value is not None:
             body[key] = value
     return ArcadeDBError(
-        status if isinstance(status, int) and not isinstance(status, bool) else 200,
+        _status_or(error.get("status"), 200),
         body,
         header_request_id,
         retry_after=_int_or_none(error.get("retryAfter")),

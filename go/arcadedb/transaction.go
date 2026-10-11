@@ -81,8 +81,23 @@ func (e *TxError) Unwrap() error { return e.Err }
 // called. Calling Transaction on the handle fn received sends that handle's session id
 // with the begin, so the server refuses the nesting (409) rather than silently opening an
 // independent transaction.
-func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error) (err error) {
-	sid, err := d.beginTransaction(ctx)
+//
+// opts takes WithQueryTag, which is sent with the begin request only: the server labels
+// every statement of the session that carries no tag of its own with it, so the statements
+// fn runs inherit it without sending it, and one passed its own WithQueryTag overrides it.
+//
+// A statement inside fn can publish a commit while it runs (an explicit BATCH n boundary,
+// or a statement with its own COMMIT). The server then answers it with the response header
+// arcadedb-session-partial-commit: true, and part of the transaction is already durable: a
+// rollback, by any of the three clauses, cannot undo that part. A caller that replays a
+// transaction block on conflict must not replay one that partially committed. This client
+// does not surface the header; read it through Server.Raw().
+func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error, opts ...TransactionOption) (err error) {
+	var o callOptions
+	for _, opt := range opts {
+		opt.applyTransaction(&o)
+	}
+	sid, err := d.beginTransaction(ctx, o.queryTag)
 	if err != nil {
 		return err
 	}
@@ -125,10 +140,10 @@ func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error)
 // beginTransaction returns the new transaction's session id. The endpoint answers 204
 // with no body and carries the id in the arcadedb-session-id RESPONSE header, which the
 // generator exposes as Headers204; a non-204 2xx leaves that nil, so the raw header is
-// the fallback.
-func (d *Database) beginTransaction(ctx context.Context) (string, error) {
+// the fallback. A non-empty queryTag is sent as X-ArcadeDB-Query-Tag.
+func (d *Database) beginTransaction(ctx context.Context, queryTag string) (string, error) {
 	resp, err := d.srv.raw.BeginTransactionWithResponse(ctx, d.name,
-		&generated.BeginTransactionParams{ArcadedbSessionId: d.sessionParam()})
+		&generated.BeginTransactionParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(queryTag)})
 	if err != nil {
 		return "", err
 	}

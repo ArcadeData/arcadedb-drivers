@@ -128,10 +128,27 @@ unlike the buffered path, where a failure still in progress when the response st
 reported as a non-2xx status, a streamed response has committed to 200 before the first row is
 known to exist, and that status line cannot be taken back once the stream has started. That is why
 the contract puts this failure in band, as an event, rather than as an HTTP status. This client
-raises `ArcadeDBError` for it, with a `status` of 200 - honest, since that is the status the
-exchange actually carried - exactly as `query`/`command` throw `ArcadeDBError` for a non-2xx
+raises `ArcadeDBError` for it, exactly as `query`/`command` throw `ArcadeDBError` for a non-2xx
 response, so both paths fail the same way; any event already yielded before the error stays
 delivered to the caller.
+
+The error's `status` is the event's own in-band `status` - the status the buffered encoding would
+have answered the same failure with: 503 for a retryable conflict, 409 for a duplicated key, 413
+when `arcadedb.server.httpQueryMaxResultRows` cut the result short, 500 for an unexpected failure.
+Only an event carrying no usable `status` falls back to 200, the status the exchange itself
+carried; anything but a positive whole number counts as none. (A `batchLoadStream` error falls
+back to 500 by the same rule.) **This changed in 0.3.0, and it is a breaking change**: up to 0.2.0 an in-band error was
+always reported with `status` 200, a rule chosen when the event had no `status` to report. The
+contract now says to key retries on that status, `batchLoadStream` already used its own in-band
+status, and a `retryAfter` beside a 200 was a back-off nobody could act on. Code that recognised a
+streamed failure by `err.status === 200` must now look at the real status instead.
+
+The rest of the event maps across field by field: `error` is the event's classified `error`
+label (what a buffered error body carries in `error`), falling back to its `message` when it has
+none; `exception`, `detail` and `exceptionArgs` are copied as they are; `requestId` is the
+response's `X-Request-Id` header when there is one, the event's own `requestId` otherwise; and
+`retryAfter` is the event's `retryAfter`, because a `Retry-After` header cannot be added once the
+stream has started. The event carries no `commitIndex`, so a streamed query error has none.
 
 `query` and `command` themselves are unchanged: they still return `QueryEnvelope` and still send no
 `Accept` header. Streaming is two additional methods, not a mode either existing one can be put
@@ -259,9 +276,9 @@ too large to return, *streamed* means it was already delivered, piecemeal, in th
 buffered load never sends it; but the generator does declare the field where it belongs, on
 `NdJsonBatchEvent["summary"]`, the streaming path's own type, alongside `commitIndex` and
 `idMappingSize`. `BatchSummary` is a plain alias for `BatchResponse` and carries no widening.
-`NdJsonBatchEvent`'s error object is the one genuine gap: it declares only `commitIndex`, `status`
-and `exceptionArgs`, not the `error` message and `exception` the server actually sends with them,
-so `NdJsonBatchEvent` is widened here by exactly those two fields. That widening was established
+`NdJsonBatchEvent`'s error object is the one genuine gap: it declares only `commitIndex`,
+`exceptionArgs`, `retryAfter` and `status`, not the `error` message and `exception` the server
+actually sends with them, so `NdJsonBatchEvent` is widened here by exactly those two fields. That widening was established
 against a live 26.10.1 server, is reported upstream as
 [ArcadeData/arcadedb#7570](https://github.com/ArcadeData/arcadedb/issues/7570), and should be
 narrowed back to the generated type once the contract declares the fields.
@@ -282,6 +299,11 @@ The in-band `status` is exact, not a fallback: an engine failure raised after th
 already started carries the status the standard error mapping gives it - 409 for a duplicated
 key, 503 for a retryable conflict - so branching on `status` works the same on both channels. The
 thrown `ArcadeDBError` also carries `exception` and, when the failure has any, `exceptionArgs`.
+`retryAfter` and `commitIndex` reach it on both channels too: from the `Retry-After` and
+`X-ArcadeDB-Commit-Index` headers when the load failed before the stream started, and from the
+error event's own `retryAfter` and `commitIndex` when it failed after, since neither can be a
+header once the 200 is on the wire. A `commitIndex` on a failed load covers whatever chunks did
+commit - see "Back-off and read-after hints on an error" below.
 
 ### This is `batchLoad`, not `bulkInsert`
 
@@ -315,6 +337,43 @@ error the caller sees is always the callback's own error, never the rollback's -
 itself also fails, that failure is attached as `err.cause` rather than replacing `err`. If the
 commit itself fails, `transaction` issues a best-effort rollback (to release the server-side
 session) before re-throwing the commit's error.
+
+A rollback cannot undo everything, though. A statement inside the callback that publishes a commit
+while it runs - an explicit `BATCH n` boundary, or a statement carrying its own `COMMIT` - makes
+part of the transaction durable before `transaction` decides anything, and the server marks that
+response `arcadedb-session-partial-commit: true`. This client does not surface the header (it is
+reachable through `raw`). The consequence is for a caller that replays a whole `transaction` block
+on a conflict: a block containing such statements must not be replayed, because its first run
+already left part of its work behind, and a replay would apply that part twice.
+
+## Labelling work: `queryTag`
+
+`query`, `command`, `queryStream`, `commandStream`, `batchLoad` and `batchLoadStream` take an
+optional `queryTag`, and `transaction` takes one as its second argument:
+
+```ts
+await db.query({ language: "sql", command: "SELECT FROM Orders", queryTag: "nightly-report" });
+
+await db.transaction(
+  async (tx) => {
+    await tx.command({ language: "sql", command: "UPDATE Orders SET archived = true" });
+    await tx.command({ language: "sql", command: "DELETE FROM Cart", queryTag: "cart-cleanup" });
+  },
+  { queryTag: "archive-run" },
+);
+```
+
+The tag travels as the `X-ArcadeDB-Query-Tag` request header, never in the body or the query
+string, and only when it is non-empty. On the server, `list queries` shows each running statement
+under its tag and `terminate queries tag <label>` stops them. `transaction`'s tag is sent on the
+begin request **only**: the server applies it to every statement of the session that carries no
+tag of its own, so the first `command` above runs as `archive-run`, while the second, which passes
+its own tag, runs as `cart-cleanup`. Commit and rollback carry no tag.
+
+The contract allows at most 256 printable characters. This client does not check that - the rule
+is the server's, and a copy here would drift from it - and the contract does not say what the
+server does with a longer tag either (a 26.11.1-SNAPSHOT server accepted a 257-character one
+without complaint), so keep tags short rather than relying on a refusal.
 
 ## Duplex insert session: `db.insertSession`
 
@@ -494,6 +553,42 @@ result-limit fields are (see "Vector, hybrid and full-text search" above): this 
 as an `ArcadeDBError` thrown from the server's response, not a local `throw` before the request is
 even sent.
 
+### A failed `db.ts.write` throws `TimeSeriesWriteError`
+
+When the server refuses some samples it answers 400 with a body saying what happened to the rest,
+and `db.ts.write` throws `TimeSeriesWriteError` - a subclass of `ArcadeDBError`, so an existing
+`catch (err) { if (err instanceof ArcadeDBError) ... }` still catches it:
+
+```ts
+import { TimeSeriesWriteError } from "@arcadedb/driver";
+
+try {
+  await db.ts.write({ lineProtocol });
+} catch (err) {
+  if (err instanceof TimeSeriesWriteError) {
+    console.error(`${err.written} written, ${err.dropped} dropped`, err.unknownTypes, err.undeclaredKeys);
+  }
+}
+```
+
+**A write is not atomic.** `written` samples landed even though the call failed; only the
+`dropped` ones did not. Re-sending the whole batch writes the `written` ones a second time, so a
+failed write is something to reconcile, not to retry blindly. The four reason lists each name what
+caused a drop, and each is an empty array, never `undefined`, when the server reported nothing:
+
+- `unknownTypes` - measurements naming a type that does not exist.
+- `nonTimeSeriesTypes` - measurements naming a type that exists but is not a time-series type.
+- `unavailableTypes` - measurements naming a time-series type whose storage engine failed to load;
+  the server log says why.
+- `undeclaredKeys` - tag or field keys the measurement's type does not declare in that role. The
+  server caps this list at 100 entries, so a full list is not necessarily every key. A server
+  started with `arcadedb.timeSeriesUndeclaredKeys=ignore` stores such samples with the undeclared
+  keys discarded instead of dropping them.
+
+Only a 400 whose body is a JSON object becomes a `TimeSeriesWriteError`. Every other failure of
+`db.ts.write` - a 401, a 503, a 400 with a body that is not an object - stays a plain
+`ArcadeDBError`.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `listDatabases`, `exists`, `serverInfo`,
@@ -529,7 +624,10 @@ rejection or a silently ignored error.
 
 ### `ArcadeDBError` is not always a non-2xx status
 
-`err.status` is whatever the exchange actually carried, and there is one case where that is `200`:
+For a buffered call `err.status` is whatever the exchange actually carried. (A streamed call's
+in-band error is the exception the other way round: its exchange carried 200, and `err.status` is
+the in-band status instead - see the streaming section - falling back to `200` only when the event
+names none.) There is one buffered case where the status is `200`:
 `query` and `command` throw `new ArcadeDBError(200, ...)` when the server answers 200 with a
 streamed ndjson event rather than the buffered JSON envelope. This client never sends
 `Accept: application/x-ndjson`, so it should not happen - but if it does, the alternative is to
@@ -548,6 +646,33 @@ now has a case it cannot decide: a 200 here is a protocol mismatch, not a transi
 and retrying will not help. If that distinction matters to you, branch on `err.error` as well as
 `err.status`, or simply treat a 2xx `ArcadeDBError` as non-retryable.
 
+### Back-off and read-after hints on an error
+
+Two fields of `ArcadeDBError` come from the response rather than its body:
+
+- `retryAfter` - seconds to wait before retrying. On a buffered response it is the `Retry-After`
+  header; on a streamed one it is the in-band error's `retryAfter`, because a header cannot be added
+  once the stream has started. The server sends it on a 503 when the node cannot execute the request
+  yet (a snapshot install, for instance) and on a 409 when an identical request is still in flight.
+  `0` means "retry now", so compare against `undefined` rather than testing truthiness.
+- `commitIndex` - the last applied Raft index on the node that answered: the
+  `X-ArcadeDB-Commit-Index` header, or the in-band `commitIndex` of a streamed batch error. It is
+  still a valid read-your-writes barrier on a failure: whatever a partly-applied write did commit is
+  covered by it, so sending it back as the `X-ArcadeDB-Read-After` header on a later read makes that
+  read wait until those writes are visible. It is absent on a standalone (non-replicated) database.
+
+Either is `undefined` when the server sent none, and a header that is not a plain non-negative
+integer (an HTTP-date `Retry-After`, say) is read as absent rather than throwing.
+
+**A 409 has two meanings, and the status alone cannot tell them apart.** It is either "an
+identical request is still in flight" - the request carried an `X-Request-Id` the server is still
+executing; this one is retryable, after `retryAfter` - or "query terminated", because an operator
+ran `terminate query`, `terminate queries` or `terminate transaction` on it. A terminated statement's
+writes were rolled back, and retrying it undoes the operator's decision. This client retries
+neither. Retry logic of your own must tell them apart by `exception`
+(`RequestStillInFlightException` for the in-flight case) and `retryAfter` (which only the in-flight
+case carries), never by `status === 409`.
+
 ### Two things neither model catches
 
 Both of the above describe how a completed HTTP exchange is reported. Two failure modes happen
@@ -563,6 +688,17 @@ call, or an `error` check on `raw`, will not see an `ArcadeDBError` for these:
 
 Neither is normalized into `ArcadeDBError` today; a `catch` around a facade call may see a
 `TypeError` or `SyntaxError` instead of the `ArcadeDBError` this README otherwise promises.
+
+## What only `raw` reaches
+
+The facade wraps the data plane and a handful of server calls; everything else in the contract is
+reachable only through `server.raw`. That includes, **deliberately**, the cluster override
+endpoints `POST /api/v1/cluster/accept-diverged/{database}` (`acceptClusterDivergedDatabase`) and
+`POST /api/v1/cluster/accept-stale-snapshot` (`acceptClusterStaleSnapshot`), new in 26.11.1, beside
+the older `POST /api/v1/cluster/accept-copy/{database}`. They are root-only operator overrides
+that make a node accept a copy of its data without a resync - a decision a person takes while
+looking at a broken cluster, not something an application calls - and no facade method wraps any
+`/cluster/*` endpoint.
 
 ## `exists` cannot prove absence
 

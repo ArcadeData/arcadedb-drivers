@@ -41,6 +41,7 @@ from .facade.data import (
     QueryLanguage,
     build_command_request,
     build_query_request,
+    query_tag_kwarg,
     session_kwarg,
     to_envelope,
 )
@@ -52,9 +53,15 @@ from .facade.vector import AsyncVectorNamespace
 __all__ = ["AsyncArcadeDBDatabase", "AsyncArcadeDBServer", "AsyncTransaction"]
 
 
-async def begin_transaction(client: Client, database: str) -> str:
-    """Begins a transaction and returns its session id, read from the `arcadedb-session-id` response header."""
-    response = await begin_op.asyncio_detailed(database, client=client)
+async def begin_transaction(client: Client, database: str, query_tag: str | None = None) -> str:
+    """Begins a transaction and returns its session id, read from the `arcadedb-session-id` response header.
+
+    `query_tag`, when set, goes out as `X-ArcadeDB-Query-Tag` on this begin request only; the
+    server applies it to every statement of the session that carries no label of its own.
+    """
+    response = await begin_op.asyncio_detailed(
+        database, client=client, x_arcade_db_query_tag=query_tag_kwarg(query_tag)
+    )
     if not is_success(response):
         raise ArcadeDBError.from_response(response)
     session_id = response.headers.get(SESSION_HEADER)
@@ -85,15 +92,31 @@ class AsyncTransaction:
     - A commit that fails still issues a best-effort rollback (its own failure
       discarded) before the commit error is re-raised, so the session is not left
       open until `arcadedb.server.httpSessionExpireTimeout` reaps it.
+
+    `query_tag` is sent as `X-ArcadeDB-Query-Tag` on the begin request ONLY - never on
+    the statements, the commit or the rollback. The server labels every statement of
+    the session that carries no label of its own with it, so `list queries` shows them
+    and `terminate queries tag <label>` stops them. A statement that passes its own
+    `query_tag` through the handle sends its own header, which overrides the
+    session's label for that statement.
+
+    **Partial commits.** A statement inside the block that publishes a commit while it
+    runs - an explicit `BATCH n` boundary, or a statement with its own `COMMIT` - makes
+    part of the transaction durable before the block ends, and a rollback cannot undo
+    that part. The server flags such a response with
+    `arcadedb-session-partial-commit: true`; this class does not surface the header
+    (it is reachable through `raw`). A caller that replays a transaction block on
+    conflict must not replay one that partially committed.
     """
 
-    def __init__(self, client: Client, database: str) -> None:
+    def __init__(self, client: Client, database: str, query_tag: str | None = None) -> None:
         self._client = client
         self._database = database
+        self._query_tag = query_tag
         self._session_id: str | None = None
 
     async def __aenter__(self) -> AsyncArcadeDBDatabase:
-        self._session_id = await begin_transaction(self._client, self._database)
+        self._session_id = await begin_transaction(self._client, self._database, self._query_tag)
         return AsyncArcadeDBDatabase(self._client, self._database, self._session_id)
 
     async def __aexit__(
@@ -148,13 +171,31 @@ class AsyncArcadeDBDatabase:
         command: str,
         params: dict[str, Any] | None = None,
         limit: int | None = None,
+        query_tag: str | None = None,
     ) -> QueryEnvelope:
-        """Executes a read-or-write query and returns the whole result envelope - not just `result`."""
+        """Executes a read-or-write query and returns the whole result envelope - not just `result`.
+
+        `limit` caps the rows serialized into the response. Omitted, a `LIMIT` stated
+        by the query is honoured as written and only a query stating none is capped
+        by the server default. `-1` means no cap. No value here widens a response
+        past the server's hard ceiling: a result exceeding it is refused with 413
+        rather than truncated, so raising `limit` is not always the fix for a
+        `truncated` response.
+
+        `query_tag` labels the statement: it is sent as the `X-ArcadeDB-Query-Tag` request header,
+        `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
+        it. No header is sent when it is `None` or empty. It is not checked here: the contract's
+        cap of 256 printable characters is the server's rule, a second copy of it client-side would
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
+        tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
+        the label the transaction's begin request set.
+        """
         response = await execute_query_post.asyncio_detailed(
             self.name,
             client=self._client,
             body=build_query_request(language=language, command=command, params=params, limit=limit),
             arcadedb_session_id=session_kwarg(self._session_id),
+            x_arcade_db_query_tag=query_tag_kwarg(query_tag),
         )
         data = unwrap(response)
         assert isinstance(data, QueryResponse)
@@ -166,13 +207,24 @@ class AsyncArcadeDBDatabase:
         language: QueryLanguage,
         command: str,
         params: dict[str, Any] | None = None,
+        query_tag: str | None = None,
     ) -> QueryEnvelope:
-        """Executes a command and returns the whole result envelope - not just `result`."""
+        """Executes a command and returns the whole result envelope - not just `result`.
+
+        `query_tag` labels the statement: it is sent as the `X-ArcadeDB-Query-Tag` request header,
+        `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
+        it. No header is sent when it is `None` or empty. It is not checked here: the contract's
+        cap of 256 printable characters is the server's rule, a second copy of it client-side would
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
+        tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
+        the label the transaction's begin request set.
+        """
         response = await execute_command.asyncio_detailed(
             self.name,
             client=self._client,
             body=build_command_request(language=language, command=command, params=params),
             arcadedb_session_id=session_kwarg(self._session_id),
+            x_arcade_db_query_tag=query_tag_kwarg(query_tag),
         )
         data = unwrap(response)
         assert isinstance(data, QueryResponse)
@@ -185,6 +237,7 @@ class AsyncArcadeDBDatabase:
         command: str,
         params: dict[str, Any] | None = None,
         limit: int | None = None,
+        query_tag: str | None = None,
     ) -> AsyncGenerator[NdJsonQueryEvent, None]:
         """Streams `POST /api/v1/query/{database}` as `application/x-ndjson` instead of a single
         buffered `QueryEnvelope`, yielding one `NdJsonQueryEvent` per line.
@@ -202,6 +255,22 @@ class AsyncArcadeDBDatabase:
         fail the same way. Any event already yielded before the error stays delivered; the
         `ArcadeDBError` is raised from the iterator at the point the `error` event arrives.
 
+        The raised error's `status` is the event's own `status` - the status the buffered
+        encoding would have answered the same failure with (503 for a retryable conflict, 409
+        for a duplicated key, ...) - and is 200 only when the event carries none. This is a
+        breaking change: before issue #117 it was always 200. `error` is the event's classified
+        label (its `message` when it has none); `exception`, `detail`, `exception_args` and
+        `retry_after` are the event's own; `request_id` is the response's `X-Request-Id` header,
+        else the event's `requestId`. `commit_index` stays `None`: the event carries none.
+
+        `query_tag` labels the statement: it is sent as the `X-ArcadeDB-Query-Tag` request header,
+        `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
+        it. No header is sent when it is `None` or empty. It is not checked here: the contract's
+        cap of 256 printable characters is the server's rule, a second copy of it client-side would
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
+        tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
+        the label the transaction's begin request set.
+
         `query` itself is unaffected: it keeps returning `QueryEnvelope` and sending no `Accept`
         header. This is a separate method, not a mode.
         """
@@ -213,6 +282,7 @@ class AsyncArcadeDBDatabase:
             command=command,
             params=params,
             limit=limit,
+            query_tag=query_tag,
         )
 
     def command_stream(
@@ -221,6 +291,7 @@ class AsyncArcadeDBDatabase:
         language: QueryLanguage,
         command: str,
         params: dict[str, Any] | None = None,
+        query_tag: str | None = None,
     ) -> AsyncGenerator[NdJsonQueryEvent, None]:
         """Streams `POST /api/v1/command/{database}` as `application/x-ndjson` - the `command`
         twin of `query_stream`; see its docstring for what an event carries and why an in-band
@@ -230,9 +301,23 @@ class AsyncArcadeDBDatabase:
         `RETURN AFTER` included) is refused with an `ArcadeDBError` (HTTP 400) before it produces a
         row, because a streamed response starts sending rows before the transaction commits, and
         that commit can still roll back. Use `command` for a mutating statement.
+
+        `query_tag` labels the statement: it is sent as the `X-ArcadeDB-Query-Tag` request header,
+        `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
+        it. No header is sent when it is `None` or empty. It is not checked here: the contract's
+        cap of 256 printable characters is the server's rule, a second copy of it client-side would
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
+        tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
+        the label the transaction's begin request set.
         """
         return astream_command(
-            self._client, self.name, self._session_id, language=language, command=command, params=params
+            self._client,
+            self.name,
+            self._session_id,
+            language=language,
+            command=command,
+            params=params,
+            query_tag=query_tag,
         )
 
     async def batch_load(
@@ -241,6 +326,7 @@ class AsyncArcadeDBDatabase:
         vertices: Iterable[VertexRow] = (),
         edges: Iterable[EdgeRow] = (),
         options: BatchOptions | None = None,
+        query_tag: str | None = None,
     ) -> dict[str, Any]:
         """Bulk-loads vertices and edges via `POST /api/v1/batch/{database}`, buffering the
         whole response before returning. `serialize_rows` (via `vertices`/`edges`) always emits
@@ -253,8 +339,15 @@ class AsyncArcadeDBDatabase:
         are not keys, retrying the whole payload after such a failure duplicates whatever already
         committed rather than resuming cleanly. Use `batch_load_stream` when the caller needs to
         see how far a load got before it failed.
+
+        `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header - never as a query
+        parameter, unlike `options` - so `list queries` shows the load and
+        `terminate queries tag <label>` can stop it. No header is sent when it is `None` or
+        empty; its length and characters are not checked client-side.
         """
-        return await abatch_load(self._client, self.name, vertices=vertices, edges=edges, options=options)
+        return await abatch_load(
+            self._client, self.name, vertices=vertices, edges=edges, options=options, query_tag=query_tag
+        )
 
     def batch_load_stream(
         self,
@@ -262,6 +355,7 @@ class AsyncArcadeDBDatabase:
         vertices: Iterable[VertexRow] = (),
         edges: Iterable[EdgeRow] = (),
         options: BatchOptions | None = None,
+        query_tag: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a
         `progress` event at every vertex commit and every `options["commitEvery"]` edges, then
@@ -272,12 +366,31 @@ class AsyncArcadeDBDatabase:
         A `progress` event's `idMapping` is only the fragment that chunk resolved - it is never
         merged across events, so a caller that needs the whole mapping must concatenate it
         themselves as they receive it.
-        """
-        return abatch_load_stream(self._client, self.name, vertices=vertices, edges=edges, options=options)
 
-    def transaction(self) -> AsyncTransaction:
-        """Runs a block inside a server-side transaction; see `AsyncTransaction`."""
-        return AsyncTransaction(self._client, self.name)
+        The raised error's `status` is the event's own (500 when it carries none), and it
+        carries the event's `error`, `exception`, `exception_args`, `retry_after` and
+        `commit_index`. `commit_index` is a valid read-after barrier even here: feed it back as
+        `X-ArcadeDB-Read-After` to read at least the state the load had committed.
+
+        `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header - never as a query
+        parameter, unlike `options` - so `list queries` shows the load and
+        `terminate queries tag <label>` can stop it. No header is sent when it is `None` or
+        empty; its length and characters are not checked client-side.
+        """
+        return abatch_load_stream(
+            self._client, self.name, vertices=vertices, edges=edges, options=options, query_tag=query_tag
+        )
+
+    def transaction(self, *, query_tag: str | None = None) -> AsyncTransaction:
+        """Runs a block inside a server-side transaction; see `AsyncTransaction`.
+
+        `query_tag` is sent as `X-ArcadeDB-Query-Tag` on the begin request only, and the server
+        applies it to every statement of the transaction that carries no label of its own; a
+        statement that passes its own `query_tag` through the handle overrides it. No header is
+        sent when it is `None` or empty. The client does not check its length or characters (the
+        256-character cap is the server's rule, and not one to count on a refusal from).
+        """
+        return AsyncTransaction(self._client, self.name, query_tag=query_tag)
 
     def insert_session(
         self,

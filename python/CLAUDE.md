@@ -142,11 +142,11 @@ what makes transaction hijack, silent data loss, and leaked transactions
 `arcadedb-driver`'s second `ArcadeDBDatabase` handle (see "The transaction contract" below) keeps a
 transaction's calls separated from the outer handle's. Only four data-plane RPCs are ever
 reachable solely through `raw` with no wrapper at any level: `BulkInsert`, `InsertBidirectional`,
-`GraphBatchLoad` and `TimeSeriesWrite` (whose request has no `transaction` field to bind) - `raw_admin`'s 44 control-plane RPCs are all reachable only through a bare
+`GraphBatchLoad` and `TimeSeriesWrite` (whose request has no `transaction` field to bind) - `raw_admin`'s 46 control-plane RPCs are all reachable only through a bare
 stub call the same way, since no facade wraps any of them (see `ArcadeDBGrpcClient`'s class
 docstring in `__init__.py`).
 
-`raw_admin` also carries its own security story, independent of `raw`'s. 42 of its 44 RPCs
+`raw_admin` also carries its own security story, independent of `raw`'s. 44 of its 46 RPCs
 authenticate from a `DatabaseCredentials` field inside the request message rather than from
 channel metadata, so `bearer_auth`/`password_auth` - passed as this package's `auth` - do nothing
 for them; a caller who thinks `auth` covers the admin service is wrong, silently, unless they read

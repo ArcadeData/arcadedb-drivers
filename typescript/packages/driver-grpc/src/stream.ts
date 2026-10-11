@@ -253,7 +253,7 @@ export interface TimeSeriesWriteStreamRequest {
  * `database`-on-chunk-1-only rule) that would otherwise go unset on an all-empty stream.
  *
  * Returns the server's `TimeSeriesWriteSummary` whole (D-M6-3): `received`, `written`, `dropped`,
- * `unknownTypes`, `nonTimeSeriesTypes`, `unavailableTypes` and `executionTimeMs` all survive
+ * `unknownTypes`, `nonTimeSeriesTypes`, `unavailableTypes`, `undeclaredKeys` and `executionTimeMs` all survive
  * unchanged. A write is NOT atomic - each measurement's batch commits its own shard transaction as
  * it is appended - so a SUCCESSFUL call can still report `written < received`. A caller who checks
  * only that the returned promise resolved has not checked that its data landed; this wrapper never

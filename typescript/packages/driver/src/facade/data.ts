@@ -2,7 +2,7 @@ import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
 import { ArcadeDBError } from "../errors.js";
 import { unwrap } from "../internal/unwrap.js";
-import { SESSION_HEADER, buildCommandBody, buildQueryBody, sessionHeader } from "../internal/request-body.js";
+import { SESSION_HEADER, buildCommandBody, buildQueryBody, queryTagHeader, statementHeaders } from "../internal/request-body.js";
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
 type RawClient = Client<paths>;
@@ -15,6 +15,15 @@ export interface CommandOptions {
   language: QueryLanguage;
   command: string;
   params?: Record<string, unknown>;
+  /**
+   * Label for this statement, sent as the `X-ArcadeDB-Query-Tag` header (never in the body). The
+   * server lists it under `list queries` and stops it with `terminate queries tag <label>`. Sent
+   * only when non-empty. The contract allows at most 256 printable characters; that rule is the
+   * server's, and this client does not check it (see `queryTagHeader`). Inside `transaction()`, a
+   * statement with no tag of its own inherits the one passed to `transaction`; a tag here
+   * overrides it for this statement.
+   */
+  queryTag?: string;
 }
 
 export interface QueryOptions extends CommandOptions {
@@ -33,6 +42,17 @@ export interface QueryOptions extends CommandOptions {
    * backwards-compatible.
    */
   limit?: number;
+}
+
+/** Options for `ArcadeDBDatabase.transaction`. */
+export interface TransactionOptions {
+  /**
+   * Label for the whole transaction, sent as `X-ArcadeDB-Query-Tag` on the begin request only. The
+   * server applies it to every statement of the session that carries no tag of its own, so
+   * `terminate queries tag <label>` stops the transaction's statements; a statement passing its own
+   * `queryTag` is labelled with that one instead. See `CommandOptions.queryTag`.
+   */
+  queryTag?: string;
 }
 
 /**
@@ -150,7 +170,7 @@ export async function executeQuery<T = unknown>(
 ): Promise<QueryEnvelope<T>> {
   const data = await unwrap(
     client.POST("/api/v1/query/{database}", {
-      params: { path: { database }, header: sessionHeader(sessionId) },
+      params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
       body: buildQueryBody(opts),
     }),
   );
@@ -172,7 +192,7 @@ export async function executeCommand<T = unknown>(
 ): Promise<QueryEnvelope<T>> {
   const data = await unwrap(
     client.POST("/api/v1/command/{database}", {
-      params: { path: { database }, header: sessionHeader(sessionId) },
+      params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
       body: buildCommandBody(opts),
     }),
   );
@@ -184,10 +204,14 @@ export async function executeCommand<T = unknown>(
  * `arcadedb-session-id` response header (the endpoint answers 204, with no
  * body). Threading that id onto every subsequent call is what keeps those
  * calls inside the transaction; the actual threading happens in the caller.
+ *
+ * `queryTag`, when set, goes on this request only. The server applies it to every statement of
+ * the session that carries no tag of its own, so it is not repeated on the statements, nor sent
+ * on commit/rollback.
  */
-export async function beginTransaction(client: RawClient, database: string): Promise<string> {
+export async function beginTransaction(client: RawClient, database: string, queryTag?: string): Promise<string> {
   const { error, response } = await client.POST("/api/v1/begin/{database}", {
-    params: { path: { database } },
+    params: { path: { database }, header: queryTagHeader(queryTag) },
   });
   if (!response.ok) {
     throw ArcadeDBError.fromResponse(response, error);

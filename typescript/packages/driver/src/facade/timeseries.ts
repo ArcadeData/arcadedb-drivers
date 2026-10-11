@@ -1,5 +1,6 @@
 import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
+import { ArcadeDBError, TimeSeriesWriteError } from "../errors.js";
 import { unwrap } from "../internal/unwrap.js";
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
@@ -36,16 +37,25 @@ export interface TimeSeriesWriteOptions {
  * raw `text/plain` body, not JSON, so the default (JSON) body serializer is overridden with the
  * identity function and the content type is set explicitly. Answers 204 with no body once every
  * sample is applied.
+ *
+ * Does not go through `unwrap`, because a 400 here is the one failure with a body worth more than
+ * the standard error fields: the contract's `TimeSeriesWriteError`, saying how many samples landed
+ * and why the rest were dropped. A 400 whose body is a JSON object therefore throws
+ * `TimeSeriesWriteError`; every other non-2xx - and a 400 whose body is not an object - throws a
+ * plain `ArcadeDBError`, exactly as `unwrap` would.
  */
 export async function writeTimeSeries(client: RawClient, database: string, opts: TimeSeriesWriteOptions): Promise<void> {
-  await unwrap(
-    client.POST("/api/v1/ts/{database}/write", {
-      params: { path: { database }, query: { precision: opts.precision } },
-      headers: { "Content-Type": "text/plain" },
-      body: opts.lineProtocol,
-      bodySerializer: (body: string) => body,
-    }),
-  );
+  const { error, response } = await client.POST("/api/v1/ts/{database}/write", {
+    params: { path: { database }, query: { precision: opts.precision } },
+    headers: { "Content-Type": "text/plain" },
+    body: opts.lineProtocol,
+    bodySerializer: (body: string) => body,
+  });
+  if (response.ok) return;
+  if (response.status === 400 && error !== null && typeof error === "object" && !Array.isArray(error)) {
+    throw TimeSeriesWriteError.fromResponse(response, error);
+  }
+  throw ArcadeDBError.fromResponse(response, error);
 }
 
 /**

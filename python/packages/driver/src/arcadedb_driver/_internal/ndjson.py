@@ -17,7 +17,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import httpx
 
-from ..errors import REQUEST_ID_HEADER, ArcadeDBError
+from ..errors import ArcadeDBError
 
 
 def raise_for_status(response: httpx.Response) -> None:
@@ -28,14 +28,14 @@ def raise_for_status(response: httpx.Response) -> None:
     """
     if not response.is_success:
         response.read()
-        raise ArcadeDBError(response.status_code, response.content, response.headers.get(REQUEST_ID_HEADER))
+        raise ArcadeDBError.from_httpx_response(response)
 
 
 async def araise_for_status(response: httpx.Response) -> None:
     """The async twin of `raise_for_status`."""
     if not response.is_success:
         await response.aread()
-        raise ArcadeDBError(response.status_code, response.content, response.headers.get(REQUEST_ID_HEADER))
+        raise ArcadeDBError.from_httpx_response(response)
 
 
 def iter_ndjson_lines(chunks: Iterator[str]) -> Iterator[str]:

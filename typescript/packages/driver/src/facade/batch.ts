@@ -1,8 +1,9 @@
 import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
-import { ArcadeDBError } from "../errors.js";
+import { ArcadeDBError, inBandStatus, nonNegativeIntegerOrUndefined } from "../errors.js";
 import { decodeNdJson } from "../internal/ndjson.js";
 import { type EdgeRow, serializeRows, type VertexRow } from "../internal/batch-rows.js";
+import { queryTagHeader } from "../internal/request-body.js";
 
 type RawClient = Client<paths>;
 
@@ -10,8 +11,8 @@ type RawClient = Client<paths>;
  * The contract's `NdJsonBatchEvent.error` object, widened by one field the schema does not
  * declare.
  *
- * The generated `error` object carries only `commitIndex`, `status` and `exceptionArgs` - but the
- * server sends `error` (the message) and `exception` on it too, the same fields the BUFFERED
+ * The generated `error` object carries only `commitIndex`, `exceptionArgs`, `retryAfter` and
+ * `status` - but the server sends `error` (the message) and `exception` on it too, the same fields the BUFFERED
  * encoding declares on `BatchError`. Established against a live 26.10.1 server and
  * reported upstream as ArcadeData/arcadedb#7570. Unlike `idMappingStreamed` - which the contract
  * DOES declare, on `NdJsonBatchEvent["summary"]`, see `BatchSummary` below - this is a genuine
@@ -69,6 +70,11 @@ export interface BatchLoadArgs {
   vertices?: Iterable<VertexRow>;
   edges?: Iterable<EdgeRow>;
   options?: BatchOptions;
+  /**
+   * Label for this load, sent as the `X-ArcadeDB-Query-Tag` header - never as a query parameter
+   * beside `options`, which the endpoint would not read. See `CommandOptions.queryTag`.
+   */
+  queryTag?: string;
 }
 
 const PATH = "/api/v1/batch/{database}" as const;
@@ -83,7 +89,11 @@ const PATH = "/api/v1/batch/{database}" as const;
  */
 function requestInit(args: BatchLoadArgs, database: string, accept?: string) {
   return {
-    params: { path: { database }, query: (args.options ?? {}) as Record<string, never> },
+    params: {
+      path: { database },
+      query: (args.options ?? {}) as Record<string, never>,
+      header: queryTagHeader(args.queryTag),
+    },
     body: serializeRows(args.vertices ?? [], args.edges ?? []) as unknown as never,
     bodySerializer: (body: unknown) => body as BodyInit,
     headers: { "Content-Type": "application/x-ndjson", ...(accept ? { Accept: accept } : {}) },
@@ -109,17 +119,29 @@ export async function batchLoad(client: RawClient, database: string, args: Batch
  *
  * `status` is exact on both channels: an engine failure raised after the stream started carries
  * the status the standard error mapping gives it (409 for a duplicated key, 503 for a retryable
- * conflict, ...), not a 500 fallback. `exceptionArgs` rides along when the failure has any.
+ * conflict, ...), not a 500 fallback. `exceptionArgs` rides along when the failure has any, and so
+ * do `retryAfter` (the back-off a buffered response would have sent as `Retry-After`) and
+ * `commitIndex` (what it would have sent as `X-ArcadeDB-Commit-Index`): neither can be a header
+ * once the stream has started. The pre-stream channel reads both from those headers instead, in
+ * `ArcadeDBError.fromResponse`.
  */
 async function* raiseOnErrorEvent(events: AsyncGenerator<NdJsonBatchEvent>): AsyncGenerator<NdJsonBatchEvent> {
   for await (const event of events) {
     if (event.error !== undefined) {
-      const { status, error: message, exception, exceptionArgs } = event.error;
-      throw new ArcadeDBError(status ?? 500, {
-        error: message ?? "the batch load reported an error",
-        exception,
-        exceptionArgs,
-      });
+      const { status, error: message, exception, exceptionArgs, retryAfter, commitIndex } = event.error;
+      throw new ArcadeDBError(
+        inBandStatus(status, 500),
+        {
+          error: message ?? "the batch load reported an error",
+          exception,
+          exceptionArgs,
+        },
+        undefined,
+        {
+          retryAfter: nonNegativeIntegerOrUndefined(retryAfter),
+          commitIndex: nonNegativeIntegerOrUndefined(commitIndex),
+        },
+      );
     }
     yield event;
   }

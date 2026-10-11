@@ -378,3 +378,4 @@ async def test_async_empty_time_series_write_stream_is_accepted_with_an_all_zero
     assert list(summary.unknown_types) == []
     assert list(summary.non_time_series_types) == []
     assert list(summary.unavailable_types) == []
+    assert list(summary.undeclared_keys) == []

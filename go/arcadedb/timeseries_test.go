@@ -5,7 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"slices"
 	"testing"
+	"time"
 )
 
 func TestTSWriteSendsTextPlainAndPrecision(t *testing.T) {
@@ -167,5 +169,84 @@ func TestGrafanaQueryReturnsRawJSON(t *testing.T) {
 	vals := frame["data"].(map[string]any)["values"].([]any)
 	if vals[0].([]any)[0] != float64(1700000000000) || vals[2].([]any)[1] != 22.5 {
 		t.Fatalf("values = %#v", vals)
+	}
+}
+
+func tsWriteFailing(status int, body string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Request-Id", "req-ts")
+		w.Header().Set("Retry-After", "3")
+		w.Header().Set("X-ArcadeDB-Commit-Index", "11")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}
+}
+
+func TestTSWrite400IsTimeSeriesWriteError(t *testing.T) {
+	srv := fakeServer(t, tsWriteFailing(http.StatusBadRequest,
+		`{"error":"some samples were dropped","written":2,"dropped":3,"unknownTypes":["Nope",7],`+
+			`"nonTimeSeriesTypes":["Person"],"unavailableTypes":["Broken"],"undeclaredKeys":["color","shade"]}`))
+	err := srv.DB("d").TS().Write(context.Background(), "junk", "")
+
+	var tse *TimeSeriesWriteError
+	if !errors.As(err, &tse) {
+		t.Fatalf("err = %#v, want *TimeSeriesWriteError", err)
+	}
+	if tse.Written != 2 || tse.Dropped != 3 ||
+		!slices.Equal(tse.UnknownTypes, []string{"Nope"}) ||
+		!slices.Equal(tse.NonTimeSeriesTypes, []string{"Person"}) ||
+		!slices.Equal(tse.UnavailableTypes, []string{"Broken"}) ||
+		!slices.Equal(tse.UndeclaredKeys, []string{"color", "shade"}) {
+		t.Fatalf("got %+v", *tse)
+	}
+
+	var ae *ArcadeDBError
+	if !errors.As(err, &ae) {
+		t.Fatalf("errors.As(*ArcadeDBError) did not match %#v", err)
+	}
+	if ae.Status != 400 || ae.ErrorMessage != "some samples were dropped" || ae.RequestID != "req-ts" ||
+		ae.RetryAfter != 3*time.Second || ae.CommitIndex != 11 {
+		t.Fatalf("ArcadeDBError = %+v", *ae)
+	}
+	if err.Error() != "some samples were dropped" {
+		t.Fatalf("Error() = %q", err.Error())
+	}
+}
+
+func TestTSWrite400WithoutCountsReadsZero(t *testing.T) {
+	srv := fakeServer(t, tsWriteFailing(http.StatusBadRequest, `{"error":"bad line"}`))
+	err := srv.DB("d").TS().Write(context.Background(), "junk", "")
+	var tse *TimeSeriesWriteError
+	if !errors.As(err, &tse) || tse.Written != 0 || tse.Dropped != 0 || len(tse.UnknownTypes) != 0 || len(tse.UndeclaredKeys) != 0 {
+		t.Fatalf("err = %#v", err)
+	}
+}
+
+func TestTSWriteOtherFailuresStayPlainArcadeDBError(t *testing.T) {
+	cases := map[string]struct {
+		status int
+		body   string
+	}{
+		"500 with counts":      {500, `{"error":"boom","written":1,"dropped":1}`},
+		"400 with non-object":  {400, `["not","an","object"]`},
+		"400 with HTML":        {400, `<html>bad</html>`},
+		"400 with empty body":  {400, ``},
+		"401 unauthorized":     {401, `{"error":"no"}`},
+		"503 with Retry-After": {503, `{"error":"later"}`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := fakeServer(t, tsWriteFailing(tc.status, tc.body))
+			err := srv.DB("d").TS().Write(context.Background(), "x", "")
+			var tse *TimeSeriesWriteError
+			if errors.As(err, &tse) {
+				t.Fatalf("got *TimeSeriesWriteError for %d %s", tc.status, tc.body)
+			}
+			var ae *ArcadeDBError
+			if !errors.As(err, &ae) || ae.Status != tc.status {
+				t.Fatalf("err = %#v", err)
+			}
+		})
 	}
 }

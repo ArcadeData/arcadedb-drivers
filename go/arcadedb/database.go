@@ -29,10 +29,12 @@ func (d *Database) sessionParam() *string {
 
 // Query runs a read-oriented statement and returns the whole result envelope. Outside a
 // Transaction it sends no session header. See QueryEnvelope for why Truncated matters.
+// opts takes WithLimit and WithQueryTag.
 func (d *Database) Query(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...QueryOption) (QueryEnvelope, error) {
+	o := queryCallOptions(opts)
 	resp, err := d.srv.raw.ExecuteQueryPostWithResponse(ctx, d.name,
-		&generated.ExecuteQueryPostParams{ArcadedbSessionId: d.sessionParam()},
-		buildQueryRequest(lang, command, params, opts...))
+		&generated.ExecuteQueryPostParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(o.queryTag)},
+		buildQueryRequest(lang, command, params, o))
 	if err != nil {
 		return QueryEnvelope{}, err
 	}
@@ -43,10 +45,11 @@ func (d *Database) Query(ctx context.Context, lang QueryLanguage, command string
 }
 
 // Command runs a statement that may change data. It never sends a row limit; use Query
-// with WithLimit to cap a read.
-func (d *Database) Command(ctx context.Context, lang QueryLanguage, command string, params map[string]any) (QueryEnvelope, error) {
+// with WithLimit to cap a read. opts takes WithQueryTag.
+func (d *Database) Command(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...CommandOption) (QueryEnvelope, error) {
+	o := commandCallOptions(opts)
 	resp, err := d.srv.raw.ExecuteCommandWithResponse(ctx, d.name,
-		&generated.ExecuteCommandParams{ArcadedbSessionId: d.sessionParam()},
+		&generated.ExecuteCommandParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(o.queryTag)},
 		buildCommandRequest(lang, command, params))
 	if err != nil {
 		return QueryEnvelope{}, err

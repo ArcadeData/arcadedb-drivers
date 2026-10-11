@@ -87,7 +87,7 @@ def test_channel_auth_metadata_also_reaches_an_admin_rpc(
     fake_admin_server: tuple[str, RecordingAdminServicer],
 ) -> None:
     # Channel metadata arrives at an admin RPC same as a data-plane one - it just doesn't
-    # authenticate the RPC, since 42 of 44 admin RPCs check `DatabaseCredentials` in the
+    # authenticate the RPC, since 44 of 46 admin RPCs check `DatabaseCredentials` in the
     # request body instead. Asserts on `servicer.metadata`, not on anything in the request.
     target, servicer = fake_admin_server
     with create_client(target, auth=bearer_auth("t0ken"), insecure=True) as client:

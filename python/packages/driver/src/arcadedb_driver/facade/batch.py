@@ -34,11 +34,14 @@ Two things about the contract's declared shapes are worth knowing before reading
   exists to avoid (D5; see `test_batch_load_stream_does_not_merge_id_mapping_fragments` in
   `test_batch.py`).
 - **An in-band error's `error`/`exception` fields.** This one is a genuine gap: the contract's
-  `NdJsonBatchEvent.error` object declares only `commitIndex`, `status` and `exceptionArgs` in
-  every schema that describes it, but the server also sends `error` (the message) and `exception`
-  - the same two fields the BUFFERED encoding's `BatchError` declares. `@arcadedb/driver`'s
-  `facade/batch.ts` widens its generated type for exactly this field pair, and still does.
-  `_raise_on_error_event` reads both off the raw dict.
+  `NdJsonBatchEvent.error` object declares only `commitIndex`, `exceptionArgs`, `retryAfter` and
+  `status` in every schema that describes it, but the server also sends `error` (the message) and
+  `exception` - the same two fields the BUFFERED encoding's `BatchError` declares.
+  `@arcadedb/driver`'s `facade/batch.ts` widens its generated type for exactly this field pair,
+  and still does. `_raise_on_error_event` reads both off the raw dict, and carries the declared
+  `retryAfter` and `commitIndex` onto the raised error's `retry_after` / `commit_index` - the
+  in-band equivalents of the `Retry-After` and `X-ArcadeDB-Commit-Index` headers a failure before
+  the stream started would have carried, which a header cannot once the 200 is on the wire.
 
 **D6: the two error channels collapse into one `ArcadeDBError`.** A load that fails BEFORE the
 first line is written to the response answers with a real HTTP status and the buffered error
@@ -86,7 +89,8 @@ from typing_extensions import NotRequired, TypedDict
 from .._generated.client import Client
 from .._internal.batch_rows import EdgeRow, VertexRow, serialize_rows
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
-from ..errors import ArcadeDBError
+from ..errors import ArcadeDBError, _int_or_none, _status_or
+from .data import query_tag_headers
 
 __all__ = [
     "BatchOptions",
@@ -150,12 +154,16 @@ def _raise_on_error_event(event: dict[str, Any]) -> dict[str, Any]:
     error = event.get("error")
     if error is None:
         return event
-    status = error.get("status")
     body: dict[str, Any] = {"error": error.get("error") or "the batch load reported an error"}
     for key in ("exception", "exceptionArgs"):
         if error.get(key) is not None:
             body[key] = error[key]
-    raise ArcadeDBError(status if status is not None else 500, body)
+    raise ArcadeDBError(
+        _status_or(error.get("status"), 500),
+        body,
+        retry_after=_int_or_none(error.get("retryAfter")),
+        commit_index=_int_or_none(error.get("commitIndex")),
+    )
 
 
 def batch_load(
@@ -165,6 +173,7 @@ def batch_load(
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
     options: BatchOptions | None = None,
+    query_tag: str | None = None,
 ) -> dict[str, Any]:
     """Bulk-loads vertices and edges in one call to `POST /api/v1/batch/{database}`, buffering
     the whole response before returning.
@@ -184,11 +193,17 @@ def batch_load(
     keys, retrying the whole payload after such a failure duplicates whatever already committed
     rather than resuming cleanly. Use `batch_load_stream` when the caller needs to see how far a
     load got before it failed.
+
+    `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
+    parameter, unlike `options`), so `list queries` shows the load and
+    `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
+    and its length and characters are not checked client-side - the contract's 256-character cap
+    is the server's rule, and not one to count on a refusal from.
     """
     raw = client.get_httpx_client().post(
         _batch_url(database),
         content=serialize_rows(vertices, edges).encode("utf-8"),
-        headers={"Content-Type": "application/x-ndjson"},
+        headers={"Content-Type": "application/x-ndjson", **query_tag_headers(query_tag)},
         params=_params(options),
     )
     raise_for_status(raw)
@@ -203,6 +218,7 @@ def batch_load_stream(
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
     options: BatchOptions | None = None,
+    query_tag: str | None = None,
 ) -> Generator[dict[str, Any], None, None]:
     """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a `progress`
     event at every vertex commit and every `options["commitEvery"]` edges, then exactly one
@@ -221,12 +237,22 @@ def batch_load_stream(
     A `progress` event's `idMapping` is only the fragment that chunk resolved - it is never
     merged across events (D5), so a caller that needs the whole mapping must concatenate it
     themselves as they receive it.
+
+    `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
+    parameter, unlike `options`), so `list queries` shows the load and
+    `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
+    and its length and characters are not checked client-side - the contract's 256-character cap
+    is the server's rule, and not one to count on a refusal from.
     """
     with client.get_httpx_client().stream(
         "POST",
         _batch_url(database),
         content=serialize_rows(vertices, edges).encode("utf-8"),
-        headers={"Content-Type": "application/x-ndjson", "Accept": "application/x-ndjson"},
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Accept": "application/x-ndjson",
+            **query_tag_headers(query_tag),
+        },
         params=_params(options),
     ) as response:
         raise_for_status(response)
@@ -243,6 +269,7 @@ async def abatch_load(
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
     options: BatchOptions | None = None,
+    query_tag: str | None = None,
 ) -> dict[str, Any]:
     """Bulk-loads vertices and edges in one call to `POST /api/v1/batch/{database}`, buffering
     the whole response before returning.
@@ -262,11 +289,17 @@ async def abatch_load(
     keys, retrying the whole payload after such a failure duplicates whatever already committed
     rather than resuming cleanly. Use `batch_load_stream` when the caller needs to see how far a
     load got before it failed.
+
+    `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
+    parameter, unlike `options`), so `list queries` shows the load and
+    `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
+    and its length and characters are not checked client-side - the contract's 256-character cap
+    is the server's rule, and not one to count on a refusal from.
     """
     raw = await client.get_async_httpx_client().post(
         _batch_url(database),
         content=serialize_rows(vertices, edges).encode("utf-8"),
-        headers={"Content-Type": "application/x-ndjson"},
+        headers={"Content-Type": "application/x-ndjson", **query_tag_headers(query_tag)},
         params=_params(options),
     )
     await araise_for_status(raw)
@@ -281,6 +314,7 @@ async def abatch_load_stream(
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
     options: BatchOptions | None = None,
+    query_tag: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a `progress`
     event at every vertex commit and every `options["commitEvery"]` edges, then exactly one
@@ -299,12 +333,22 @@ async def abatch_load_stream(
     A `progress` event's `idMapping` is only the fragment that chunk resolved - it is never
     merged across events (D5), so a caller that needs the whole mapping must concatenate it
     themselves as they receive it.
+
+    `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
+    parameter, unlike `options`), so `list queries` shows the load and
+    `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
+    and its length and characters are not checked client-side - the contract's 256-character cap
+    is the server's rule, and not one to count on a refusal from.
     """
     async with client.get_async_httpx_client().stream(
         "POST",
         _batch_url(database),
         content=serialize_rows(vertices, edges).encode("utf-8"),
-        headers={"Content-Type": "application/x-ndjson", "Accept": "application/x-ndjson"},
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Accept": "application/x-ndjson",
+            **query_tag_headers(query_tag),
+        },
         params=_params(options),
     ) as response:
         await araise_for_status(response)

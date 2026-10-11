@@ -450,7 +450,7 @@ func TestGrpcEmptyTimeSeriesWriteStream(t *testing.T) {
 	}
 	if summary.GetReceived() != 0 || summary.GetWritten() != 0 || summary.GetDropped() != 0 ||
 		len(summary.GetUnknownTypes()) != 0 || len(summary.GetNonTimeSeriesTypes()) != 0 ||
-		len(summary.GetUnavailableTypes()) != 0 {
+		len(summary.GetUnavailableTypes()) != 0 || len(summary.GetUndeclaredKeys()) != 0 {
 		t.Fatalf("summary = %v", summary)
 	}
 }

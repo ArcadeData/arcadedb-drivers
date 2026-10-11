@@ -24,7 +24,7 @@ class InsecureChannelError(ValueError):
     a channel that lacks real transport credentials and no `insecure=True` opt-in was
     given (issue #5048) - the password would travel in the auth interceptor's cleartext
     metadata. `ArcadeDBGrpcClient.raw_admin` (and its async twin) raises it, independently,
-    on ACCESS when the same opt-in is missing: 42 of `ArcadeDbAdminService`'s 44 RPCs carry
+    on ACCESS when the same opt-in is missing: 44 of `ArcadeDbAdminService`'s 46 RPCs carry
     `DatabaseCredentials` INSIDE the request body, which the #5048 guard cannot see - that
     guard keys on a marker attached to the auth interceptor, not on request bodies - so
     `raw_admin` needed its own guard even with `bearer_auth`, `password_auth`, or no auth

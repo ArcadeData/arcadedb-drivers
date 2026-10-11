@@ -21,6 +21,11 @@ from ..errors import ArcadeDBError
 #: Request header carrying the session id that scopes a call to one transaction.
 SESSION_HEADER = "arcadedb-session-id"
 
+#: Request header carrying an opaque label for a statement: `list queries` shows it, and
+#: `terminate queries tag <label>` stops every statement carrying it. Sent on a transaction's
+#: begin request, it labels every statement of that session that carries no label of its own.
+QUERY_TAG_HEADER = "X-ArcadeDB-Query-Tag"
+
 #: Query/command language, as accepted by the `/query` and `/command` endpoints.
 QueryLanguage = Literal["sql", "cypher", "gremlin", "graphql", "mongo"]
 
@@ -88,7 +93,8 @@ def to_envelope(data: QueryResponse) -> QueryEnvelope:
 
     `ArcadeDBError(200, ...)`, not a builtin: "the server answered 200 in a shape this
     client cannot represent" is already an `ArcadeDBError` everywhere else here - see
-    `stream.py`'s in-band error event - and the README's "Two error models" section
+    `stream.py`'s in-band error event, which falls back to 200 when the event carries no
+    status of its own - and the README's "Two error models" section
     tells callers that `except ArcadeDBError` around `query`/`command` is enough. A
     bare `TypeError` would slip straight through that. The TypeScript sibling throws
     `ArcadeDBError` for this same guard.
@@ -169,3 +175,21 @@ def session_kwarg(session_id: str | None) -> str | Unset:
     needed.
     """
     return UNSET if session_id is None else session_id
+
+
+def query_tag_kwarg(query_tag: str | None) -> str | Unset:
+    """The `x_arcade_db_query_tag` argument value: the tag, or `UNSET` - sending no header at
+    all - when it is `None` or empty.
+
+    Deliberately NOT checked here. The contract caps a tag at 256 printable characters, but that
+    is the server's rule to enforce: repeating it client-side would be a second copy to drift from
+    the first. Nor should a caller count on the server refusing a longer one - a 26.11.1-SNAPSHOT
+    server was observed accepting a 257-character tag.
+    """
+    return query_tag if query_tag else UNSET
+
+
+def query_tag_headers(query_tag: str | None) -> dict[str, str]:
+    """The same rule as `query_tag_kwarg`, for the hand-written calls that build their own
+    headers (`query_stream`/`command_stream`, `batch_load`/`batch_load_stream`)."""
+    return {QUERY_TAG_HEADER: query_tag} if query_tag else {}

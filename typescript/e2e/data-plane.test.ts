@@ -1,7 +1,7 @@
 import { GenericContainer, Wait } from "testcontainers";
 import type { StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { basicAuth, bearerAuth, createClient } from "../packages/driver/src/index.js";
+import { ArcadeDBError, basicAuth, bearerAuth, createClient, TimeSeriesWriteError } from "../packages/driver/src/index.js";
 import type { ArcadeDBServer } from "../packages/driver/src/index.js";
 import type { NdJsonQueryEvent } from "../packages/driver/src/facade/stream.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
@@ -426,5 +426,55 @@ describe("db.vector: search, hybrid and full-text search against a real index", 
     // Not `false` - ABSENT. FullTextSearchResponse has no `truncated` field in the contract at
     // all, unlike VectorSearchResponse and HybridSearchResponse above.
     expect("truncated" in result).toBe(false);
+  });
+});
+
+describe("queryTag and TimeSeriesWriteError against a real server (issue #117)", () => {
+  it("accepts X-ArcadeDB-Query-Tag on query, command, queryStream, transaction begin and batchLoad", async () => {
+    const db = rootServer.db(DB_NAME);
+
+    const envelope = await db.query({ language: "sql", command: "SELECT 1 AS one", queryTag: "e2e-query" });
+    expect(envelope.result).toHaveLength(1);
+
+    await db.command({ language: "sql", command: "SELECT 1 AS one", queryTag: "e2e-command" });
+
+    const events: NdJsonQueryEvent[] = [];
+    for await (const event of db.queryStream({ language: "sql", command: "SELECT 1 AS one", queryTag: "e2e-stream" })) {
+      events.push(event);
+    }
+    expect(events.filter((e) => e.record !== undefined)).toHaveLength(1);
+
+    await db.transaction(
+      async (tx) => {
+        await tx.query({ language: "sql", command: "SELECT 1 AS one" });
+      },
+      { queryTag: "e2e-tx" },
+    );
+
+    const summary = await db.batchLoad({
+      vertices: [{ type: "Person", id: "tagged", properties: { name: "Tagged" } }],
+      queryTag: "e2e-batch",
+    });
+    expect(summary.verticesCreated).toBe(1);
+  });
+
+  it("ts.write raises TimeSeriesWriteError naming a measurement whose type does not exist", async () => {
+    // Needs no time-series type of its own: the point is a measurement naming none.
+    const db = rootServer.db(DB_NAME);
+
+    let caught: unknown;
+    try {
+      await db.ts.write({ lineProtocol: "NoSuchSeries,host=a value=1 1700000000000", precision: "ms" });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ArcadeDBError);
+    expect(caught).toBeInstanceOf(TimeSeriesWriteError);
+    const err = caught as TimeSeriesWriteError;
+    expect(err.status).toBe(400);
+    expect(err.unknownTypes).toContain("NoSuchSeries");
+    expect(err.dropped).toBeGreaterThan(0);
+    expect(err.written).toBe(0);
   });
 });

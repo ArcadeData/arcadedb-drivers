@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, basic_auth
+from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, TimeSeriesWriteError, basic_auth
 from arcadedb_driver._generated.models.full_text_search_response_similarity import (
     FullTextSearchResponseSimilarity,
 )
@@ -102,6 +102,32 @@ def test_a_bad_query_raises_arcadedb_error_with_a_request_id(base_url: str, data
 
     assert caught.value.status >= 400
     assert caught.value.request_id is not None
+
+
+def test_a_query_tag_is_accepted_by_a_real_server(base_url: str, database: str) -> None:
+    # Proves only that the server accepts the X-ArcadeDB-Query-Tag header on each call that sends
+    # it; seeing the label in `list queries` would need a statement still running when it is read.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        assert db.query(language="sql", command="SELECT 1 AS one", query_tag="e2e-query").result == [{"one": 1}]
+        db.command(language="sql", command="SELECT 1", query_tag="e2e-command")
+        records = list(db.query_stream(language="sql", command="SELECT 1 AS one", query_tag="e2e-stream"))
+        assert records
+        with db.transaction(query_tag="e2e-tx") as tx:
+            tx.query(language="sql", command="SELECT 1")
+
+
+def test_ts_write_naming_a_nonexistent_type_raises_time_series_write_error(base_url: str, database: str) -> None:
+    with (
+        ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv,
+        pytest.raises(TimeSeriesWriteError) as caught,
+    ):
+        srv.db(database).ts.write(line_protocol="NoSuchTsType,host=a value=1 1700000000000000000")
+
+    assert caught.value.status == 400
+    assert "NoSuchTsType" in caught.value.unknown_types
+    assert caught.value.dropped is not None and caught.value.dropped > 0
+    assert caught.value.written == 0
 
 
 @pytest.mark.asyncio

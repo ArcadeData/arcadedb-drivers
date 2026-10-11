@@ -297,3 +297,27 @@ func TestCommandStreamReadOnly(t *testing.T) {
 		t.Fatalf("records %d, stats %+v", len(records), stats)
 	}
 }
+
+// The server accepts X-ArcadeDB-Query-Tag on query, command and begin; a malformed one
+// would be a 400, so success proves the header is sent in a shape it takes.
+func TestQueryTagAccepted(t *testing.T) {
+	ctx := context.Background()
+	db := newDatabase(t)
+	mustCommand(t, db, "CREATE DOCUMENT TYPE Tagged IF NOT EXISTS")
+	if _, err := db.Command(ctx, arcadedb.SQL, "INSERT INTO Tagged SET n = 1", nil, arcadedb.WithQueryTag("go-e2e-command")); err != nil {
+		t.Fatal(err)
+	}
+	env, err := db.Query(ctx, arcadedb.SQL, "SELECT FROM Tagged", nil, arcadedb.WithQueryTag("go-e2e-query"))
+	if err != nil || len(env.Result) != 1 {
+		t.Fatalf("query = %+v, %v", env, err)
+	}
+	if err := db.Transaction(ctx, func(tx *arcadedb.Database) error {
+		_, err := tx.Command(ctx, arcadedb.SQL, "INSERT INTO Tagged SET n = 2", nil)
+		return err
+	}, arcadedb.WithQueryTag("go-e2e-tx")); err != nil {
+		t.Fatal(err)
+	}
+	if c := count(t, db, "Tagged"); c != 2 {
+		t.Fatalf("count = %v", c)
+	}
+}

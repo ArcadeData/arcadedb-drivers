@@ -111,7 +111,7 @@ func TestEveryRPCIsGenerated(t *testing.T) {
 	}
 	for svc, iface := range clients {
 		rpcs := services[svc]
-		if want := map[string]int{"ArcadeDbService": 21, "ArcadeDbAdminService": 44}[svc]; len(rpcs) != want {
+		if want := map[string]int{"ArcadeDbService": 21, "ArcadeDbAdminService": 46}[svc]; len(rpcs) != want {
 			t.Errorf("%s: parsed %d RPCs, want %d; if the contract grew, update this count deliberately", svc, len(rpcs), want)
 		}
 		if len(rpcs) == 0 {

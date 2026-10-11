@@ -462,12 +462,16 @@ count (`received`, `written`, `dropped`, and all three type lists below) at zero
 
 `TimeSeriesWriteStream` is not atomic: each measurement's batch commits its own shard transaction
 as it is appended, so a failure partway through leaves everything before it durable. The returned
-`TimeSeriesWriteSummary` always carries `received`, `written`, `dropped`, plus three separate
+`TimeSeriesWriteSummary` always carries `received`, `written`, `dropped`, plus four separate
 reasons a point can be dropped:
 
 - `unknown_types` - no type with this name exists (create it first with `CREATE TIMESERIES TYPE`)
 - `non_time_series_types` - the type exists, but is not a TIMESERIES type
 - `unavailable_types` - the type is a TIMESERIES type, but its storage engine failed to load
+- `undeclared_keys` - the point carries a tag or field key its TIMESERIES type does not declare in
+  that role, listed as `<measurement>.<key> (tag|field)` and capped at 100 entries (`dropped` still
+  counts every point); a database setting `arcadedb.timeSeriesUndeclaredKeys=ignore` does not drop
+  them
 
 **Checking only that the call returned without raising is not checking that the data landed** - a
 call can succeed and still report `dropped > 0`. Always read the summary.
@@ -587,15 +591,15 @@ called: `await client.raw_admin.GetServerInfo(...)`.
 No facade wraps any of it, and that is the design rather than an omission. `stream_query`,
 `insert_stream`, `time_series_write_stream` and `transaction` exist because the generated stub alone
 handles those RPCs badly - batches to flatten, envelope bookkeeping to get right, a
-begin/commit/rollback sequence to hold together across two facades. 41 of the admin service's 44
+begin/commit/rollback sequence to hold together across two facades. 43 of the admin service's 46
 RPCs are plain unary calls: build a request message, read one response message back. Wrapping one
 would be a renamed passthrough, which is the same bar `VectorSearch` and `TimeSeriesWrite` are held
 to above - and the bill would be paid twice here, once per facade.
 
-### The 44 RPCs
+### The 46 RPCs
 
 Every backticked name between the two markers below is one RPC of `ArcadeDbAdminService`, and a test
-asserts that this set equals the generated stub's own method set. A hand-written list of 44 names is
+asserts that this set equals the generated stub's own method set. A hand-written list of 46 names is
 exactly the kind of prose that rots on the next contract bump, and a stale list is worse than no
 list, because a reader trusts it.
 
@@ -609,7 +613,7 @@ list, because a reader trusts it.
 | Settings | `SetServerSetting`, `SetDatabaseSetting` |
 | Backup | `GetBackupConfig`, `SetBackupConfig`, `ListBackups`, `TriggerBackup`, `DeleteBackup` |
 | Profiler | `ProfilerStart`, `ProfilerStop`, `ProfilerReset`, `ProfilerResults`, `ProfilerList`, `ProfilerLoad` |
-| Server and cluster | `GetServerEvents`, `Shutdown`, `DisconnectCluster`, `ConnectCluster`, `ListSessions` |
+| Server and cluster | `GetServerEvents`, `Shutdown`, `DisconnectCluster`, `ConnectCluster`, `AcceptDivergedDatabase`, `AcceptStaleSnapshot`, `ListSessions` |
 | Restore and import (server-streaming) | `RestoreBackup`, `RestoreDatabase`, `ImportDatabase` |
 
 <!-- admin-rpcs:end -->
@@ -646,7 +650,7 @@ a facade to simplify.
 
 ### `auth` does nothing for the admin service
 
-42 of the 44 RPCs above authenticate from a `DatabaseCredentials` field **inside the request
+44 of the 46 RPCs above authenticate from a `DatabaseCredentials` field **inside the request
 message** - the `credentials=messages.DatabaseCredentials(...)` in the example at the top of this
 section, set per call - rather than from channel metadata, the way every data-plane call does. This
 is a property of the contract, not of this client, and it is the single most surprising thing about
@@ -686,7 +690,7 @@ Five things about that guard are deliberate:
   `password_auth`, and with no `auth` at all.
 - **`Health` and `Ready` are refused too**, even though they carry no credentials. The guard
   protects the stub as a whole rather than a per-RPC list, and carving those two back out would mean
-  wrapping the other 42 - the facade this package deliberately does not have. Probing health over a
+  wrapping the other 44 - the facade this package deliberately does not have. Probing health over a
   plaintext channel costs one `insecure=True`, which is the cheaper end of that trade.
 - **Constructing `ArcadeDBGrpcClient` yourself blocks `raw_admin` until you say otherwise**, even
   when the channel you hand it was built with genuine `grpc.ssl_channel_credentials()`. The class

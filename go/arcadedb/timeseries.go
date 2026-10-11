@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
 )
@@ -44,6 +46,11 @@ func (d *Database) TS() *TimeSeries { return &TimeSeries{db: d} }
 // the unit of the timestamps in the payload: "ns", "us", "ms" or "s"; "" omits the
 // parameter and the server then reads nanoseconds. The value is passed through, not
 // validated: an unknown unit is the server's 400. A successful write answers 204.
+//
+// A 400 whose body is a JSON object is a *TimeSeriesWriteError, carrying how many samples
+// were written and dropped and why; errors.As matches it as *ArcadeDBError too. A write is
+// not atomic: the samples it reports Written landed even though the call failed. Any other
+// failure is a plain *ArcadeDBError.
 func (t *TimeSeries) Write(ctx context.Context, lineProtocol string, precision string) error {
 	params := &generated.WriteTimeSeriesParams{ArcadedbSessionId: t.db.sessionParam()}
 	if precision != "" {
@@ -54,8 +61,53 @@ func (t *TimeSeries) Write(ctx context.Context, lineProtocol string, precision s
 	if err != nil {
 		return err
 	}
-	_, err = readChecked(resp)
-	return err
+	var body []byte
+	if resp.Body != nil {
+		body, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}
+	if isSuccess(resp.StatusCode) {
+		return nil
+	}
+	base := errorFromHeaders(resp.StatusCode, body, resp.Header)
+	if resp.StatusCode != http.StatusBadRequest {
+		return base
+	}
+	if tse := timeSeriesWriteError(base, body); tse != nil {
+		return tse
+	}
+	return base
+}
+
+// timeSeriesWriteError wraps base with the counts and reason lists of a 400 body, or
+// returns nil when the body is not a JSON object. Like newError it never fails: a count that
+// is not a non-negative whole number reads 0, and a list element that is not a string is
+// dropped.
+func timeSeriesWriteError(base *ArcadeDBError, body []byte) *TimeSeriesWriteError {
+	var parsed map[string]any
+	if json.Unmarshal(body, &parsed) != nil || parsed == nil {
+		return nil
+	}
+	strs := func(key string) []string {
+		items, _ := parsed[key].([]any)
+		var out []string
+		for _, it := range items {
+			if s, ok := it.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	e := &TimeSeriesWriteError{
+		ArcadeDBError:      base,
+		UnknownTypes:       strs("unknownTypes"),
+		NonTimeSeriesTypes: strs("nonTimeSeriesTypes"),
+		UnavailableTypes:   strs("unavailableTypes"),
+		UndeclaredKeys:     strs("undeclaredKeys"),
+	}
+	e.Written, _ = jsonNonNegative(parsed["written"])
+	e.Dropped, _ = jsonNonNegative(parsed["dropped"])
+	return e
 }
 
 // Query queries samples, raw or (when body carries "aggregation") bucketed, and returns the

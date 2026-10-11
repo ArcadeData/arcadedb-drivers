@@ -85,7 +85,7 @@ describe("rawAdmin", () => {
 });
 
 describe("rawAdmin's insecure-channel guard", () => {
-  // 42 of ArcadeDbAdminService's 44 RPCs carry `DatabaseCredentials` inside the request
+  // 44 of ArcadeDbAdminService's 46 RPCs carry `DatabaseCredentials` inside the request
   // message rather than authenticating from the transport's interceptor metadata - so the
   // #5048-style hazard here is a request BODY travelling in cleartext, not anything the
   // auth interceptor does. This guard is therefore unconditional on `auth`: it fires (or

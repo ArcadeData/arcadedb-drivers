@@ -1,8 +1,8 @@
 import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
-import { ArcadeDBError } from "../errors.js";
+import { ArcadeDBError, inBandStatus, nonNegativeIntegerOrUndefined } from "../errors.js";
 import { decodeNdJson } from "../internal/ndjson.js";
-import { buildCommandBody, buildQueryBody, sessionHeader } from "../internal/request-body.js";
+import { buildCommandBody, buildQueryBody, statementHeaders } from "../internal/request-body.js";
 import type { CommandOptions, QueryOptions } from "./data.js";
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
@@ -17,11 +17,45 @@ export type NdJsonQueryEvent = components["schemas"]["NdJsonQueryEvent"];
  * after the 200 status line was already sent - the status cannot be taken back once the stream has
  * started, so the contract puts it in band instead. Raising it here means the streaming and
  * buffered paths fail the same way: both end in a thrown `ArcadeDBError`, never a returned one.
+ *
+ * Every field of the event maps onto the error:
+ *
+ * - `status` is the event's own `status` - the one the buffered encoding would have answered the
+ *   same failure with (503 for a retryable conflict, 409 for a duplicated key, 413 when the row
+ *   ceiling cut the result short, ...). Only an event carrying none (anything but a positive whole number counts as none, as in
+ *   `inBandStatus`) falls back to 200, the status
+ *   the exchange itself carried. Until issue #117 this was always 200: the rule was chosen when the
+ *   event had no `status`, and once it had one, a 200 beside an in-band `retryAfter` was a status a
+ *   caller could not act on. Batch's in-band error (`facade/batch.ts`) already used its own status.
+ * - `error` is the event's classified `error` label - what the buffered body carries in `error` -
+ *   falling back to `message` when the event has no label.
+ * - `exception`, `detail` and `exceptionArgs` are copied across as they are.
+ * - `requestId` is the response's `X-Request-Id` header when present, the event's own `requestId`
+ *   otherwise - the same precedence `ArcadeDBError.fromResponse` gives the header over the body.
+ * - `retryAfter` is the event's `retryAfter`: a `Retry-After` header cannot be added once the stream
+ *   has started, so the back-off travels in band. The event carries no `commitIndex`.
  */
-async function* raiseOnErrorEvent(events: AsyncGenerator<NdJsonQueryEvent>): AsyncGenerator<NdJsonQueryEvent> {
+async function* raiseOnErrorEvent(
+  events: AsyncGenerator<NdJsonQueryEvent>,
+  response: Response,
+): AsyncGenerator<NdJsonQueryEvent> {
   for await (const event of events) {
     if (event.error !== undefined) {
-      throw new ArcadeDBError(200, { error: event.error.message ?? "the stream reported an error" });
+      // Read as a loose record: the contract marks `status` and `message` required, but this is a
+      // decoded wire line, and a server that omits one must still produce an error, not a crash.
+      const inBand = event.error as Partial<NonNullable<NdJsonQueryEvent["error"]>>;
+      throw new ArcadeDBError(
+        inBandStatus(inBand.status, 200),
+        {
+          error: inBand.error ?? inBand.message ?? "the stream reported an error",
+          exception: inBand.exception,
+          detail: inBand.detail,
+          exceptionArgs: inBand.exceptionArgs,
+          requestId: inBand.requestId,
+        },
+        response.headers.get("X-Request-Id") ?? undefined,
+        { retryAfter: nonNegativeIntegerOrUndefined(inBand.retryAfter) },
+      );
     }
     yield event;
   }
@@ -48,10 +82,11 @@ async function* streamEvents(
   path: "/api/v1/query/{database}" | "/api/v1/command/{database}",
   database: string,
   sessionId: string | undefined,
+  queryTag: string | undefined,
   body: { command: string; language: string; params?: Record<string, never>; limit?: number },
 ): AsyncGenerator<NdJsonQueryEvent> {
   const { data, error, response } = await client.POST(path, {
-    params: { path: { database }, header: sessionHeader(sessionId) },
+    params: { path: { database }, header: statementHeaders(sessionId, queryTag) },
     body,
     headers: { Accept: "application/x-ndjson" },
     parseAs: "stream",
@@ -65,7 +100,7 @@ async function* streamEvents(
   if (data === null || data === undefined) {
     return;
   }
-  yield* raiseOnErrorEvent(decodeNdJson<NdJsonQueryEvent>(data));
+  yield* raiseOnErrorEvent(decodeNdJson<NdJsonQueryEvent>(data), response);
 }
 
 /** Streams `POST /api/v1/query/{database}` as `application/x-ndjson`, yielding one event per line. */
@@ -75,7 +110,7 @@ export async function* queryStream(
   sessionId: string | undefined,
   opts: QueryOptions,
 ): AsyncGenerator<NdJsonQueryEvent> {
-  yield* streamEvents(client, "/api/v1/query/{database}", database, sessionId, buildQueryBody(opts));
+  yield* streamEvents(client, "/api/v1/query/{database}", database, sessionId, opts.queryTag, buildQueryBody(opts));
 }
 
 /**
@@ -89,5 +124,5 @@ export async function* commandStream(
   sessionId: string | undefined,
   opts: CommandOptions,
 ): AsyncGenerator<NdJsonQueryEvent> {
-  yield* streamEvents(client, "/api/v1/command/{database}", database, sessionId, buildCommandBody(opts));
+  yield* streamEvents(client, "/api/v1/command/{database}", database, sessionId, opts.queryTag, buildCommandBody(opts));
 }

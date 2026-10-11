@@ -9,7 +9,7 @@ const MARKER_END = "<!-- admin-rpcs:end -->";
 
 /**
  * Every backtick-delimited token between the two markers in the README is one RPC name of
- * `ArcadeDbAdminService` (see the README's "The 44 RPCs" section) - group labels in the table's
+ * `ArcadeDbAdminService` (see the README's "The 46 RPCs" section) - group labels in the table's
  * first column are deliberately left unbackticked so this needs no Markdown table parser, just
  * this one regex.
  */
@@ -58,16 +58,16 @@ describe("README's admin-rpcs enumeration", () => {
 
   // Not a README check - the two tests above already pin the README against the generated stub's
   // *names*, inside the marker region only. This one is blind to the README entirely and exists
-  // solely to catch the day this number moves, because roughly twenty other places state "44" or
-  // "42 of 44" as prose OUTSIDE that marker region, where nothing else here re-derives it from the
+  // solely to catch the day this number moves, because roughly twenty other places state "46" or
+  // "44 of 46" as prose OUTSIDE that marker region, where nothing else here re-derives it from the
   // contract.
-  it("the contract still declares 44 admin RPCs", () => {
+  it("the contract still declares 46 admin RPCs", () => {
     const generated = generatedAdminRpcNames();
     expect(
       generated,
-      `ArcadeDbAdminService now declares ${generated.length} RPCs, not 44. Update every '44'/'42 of 44' ` +
+      `ArcadeDbAdminService now declares ${generated.length} RPCs, not 46. Update every '46'/'44 of 46' ` +
         "statement: both READMEs, the class docstrings in __init__.py and aio.py, errors.py, " +
         "src/index.ts's docstrings and guard message, and both CLAUDE.md files.",
-    ).toHaveLength(44);
+    ).toHaveLength(46);
   });
 });

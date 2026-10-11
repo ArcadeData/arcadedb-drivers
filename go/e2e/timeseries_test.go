@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
@@ -107,5 +108,26 @@ func TestGrafanaAndPromQL(t *testing.T) {
 	}
 	if len(series.Data) != 1 || series.Data[0]["sensor"] != "a" {
 		t.Fatalf("series = %+v", series.Data)
+	}
+}
+
+// A measurement naming a type that does not exist is dropped, and the 400 says so through
+// *TimeSeriesWriteError, which errors.As also matches as *ArcadeDBError.
+func TestTimeSeriesWriteUnknownTypeIsTimeSeriesWriteError(t *testing.T) {
+	ctx := context.Background()
+	db := newDatabase(t)
+	seedTimeSeries(t, db)
+
+	err := db.TS().Write(ctx, "GoNoSuchTsType,sensor=a value=1 1000\n", "ms")
+	var tse *arcadedb.TimeSeriesWriteError
+	if !errors.As(err, &tse) {
+		t.Fatalf("err = %#v, want *TimeSeriesWriteError", err)
+	}
+	if !slices.Contains(tse.UnknownTypes, "GoNoSuchTsType") || tse.Dropped < 1 || tse.Written != 0 {
+		t.Fatalf("got %+v (base %+v)", *tse, *tse.ArcadeDBError)
+	}
+	var ae *arcadedb.ArcadeDBError
+	if !errors.As(err, &ae) || ae.Status != 400 || ae.RequestID == "" {
+		t.Fatalf("ArcadeDBError = %#v", ae)
 	}
 }

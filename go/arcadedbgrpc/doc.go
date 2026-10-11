@@ -25,8 +25,8 @@
 //   - NewClient refuses WithPasswordAuth over a connection with no stated transport
 //     credentials, because the password would cross the wire as cleartext metadata
 //     (ArcadeData/arcadedb#5048). A bearer token never trips it.
-//   - RawAdmin refuses, whatever auth is configured, on such a connection: 42 of
-//     ArcadeDbAdminService's 44 RPCs carry DatabaseCredentials inside the request body,
+//   - RawAdmin refuses, whatever auth is configured, on such a connection: 44 of
+//     ArcadeDbAdminService's 46 RPCs carry DatabaseCredentials inside the request body,
 //     which the first guard cannot see. A plaintext client keeps working for the data plane.
 //
 // Credentials passed through [WithDialOptions] are honoured but invisible to both guards,

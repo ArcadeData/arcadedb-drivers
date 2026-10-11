@@ -163,19 +163,19 @@ func (c *Client) Raw() generated.ArcadeDbServiceClient { return c.raw }
 // RawAdmin returns the generated ArcadeDbAdminService client, or ErrInsecureChannel unless
 // the client was built with WithTransportCredentials or WithInsecure.
 //
-// The guard is unconditional on auth. 42 of the 44 admin RPCs authenticate from a
+// The guard is unconditional on auth. 44 of the 46 admin RPCs authenticate from a
 // DatabaseCredentials field inside the request message, not from the connection's auth
 // interceptor, so those credentials would cross a plaintext connection whatever
 // WithPasswordAuth or WithBearerToken says, and the #5048 check in NewClient cannot see
 // them. It covers Health and Ready too, although they carry no credentials: the guard
 // protects the client as a whole, and carving out two RPCs would mean wrapping the other
-// 42. Python raises when its raw_admin property is read; Go returns an error, its idiom for
+// 44. Python raises when its raw_admin property is read; Go returns an error, its idiom for
 // a recoverable refusal. The check runs here rather than in NewClient, so a plaintext
 // client keeps working for the data plane.
 func (c *Client) RawAdmin() (generated.ArcadeDbAdminServiceClient, error) {
 	if !c.allowAdmin {
 		return nil, fmt.Errorf("%w: RawAdmin: refusing to expose ArcadeDbAdminService over a connection that may be plaintext. "+
-			"42 of its 44 RPCs (everything but Health and Ready) carry DatabaseCredentials in the request body, "+
+			"44 of its 46 RPCs (everything but Health and Ready) carry DatabaseCredentials in the request body, "+
 			"which would travel in cleartext regardless of any auth option. Pass WithTransportCredentials(creds) "+
 			"or WithInsecure() to NewClient", ErrInsecureChannel)
 	}

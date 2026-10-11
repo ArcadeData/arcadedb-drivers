@@ -166,8 +166,8 @@ type TimeSeriesWriteStreamRequest struct {
 //
 // A write is not atomic: each measurement's batch commits its own shard transaction as it
 // is appended, so a call that returns no error can still report Written < Received, with
-// the reasons in UnknownTypes, NonTimeSeriesTypes and UnavailableTypes. Returning without
-// an error does not mean every point landed; check the summary.
+// the reasons in UnknownTypes, NonTimeSeriesTypes, UnavailableTypes and UndeclaredKeys.
+// Returning without an error does not mean every point landed; check the summary.
 //
 // An empty input sends zero chunks, unlike InsertStream: there is no last flag to carry.
 // Measured against a real server, such a stream is accepted and answered with an all-zero

@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // ErrEmptyBody is returned when the server answered 2xx with an empty or null body where
@@ -19,6 +23,13 @@ var ErrEmptyBody = errors.New("arcadedb: response had an empty body")
 // requestIDHeader is set by the server on every response, generating a value when the
 // client sent none, so it is a usable correlation id unconditionally.
 const requestIDHeader = "X-Request-Id"
+
+// retryAfterHeader and commitIndexHeader are read off every non-2xx response into
+// ArcadeDBError.RetryAfter and ArcadeDBError.CommitIndex.
+const (
+	retryAfterHeader  = "Retry-After"
+	commitIndexHeader = "X-ArcadeDB-Commit-Index"
+)
 
 // ArcadeDBError is returned by every facade method when the server answers with a
 // non-2xx status, except Server.Ready, which reads a 503 as (false, nil). Callers match it
@@ -38,6 +49,30 @@ const requestIDHeader = "X-Request-Id"
 //
 // ExceptionArgs is a plain string despite its plural name; the contract types it
 // that way and it is passed through as-is, not parsed or coerced.
+//
+// RetryAfter is how long the server asked the caller to wait before retrying: the
+// Retry-After response header of a non-2xx response, or the retryAfter field of an in-band
+// stream or batch error, where a header can no longer be added. Only a non-negative whole
+// number of seconds is read; an HTTP-date, a negative or malformed value, and an absent one
+// all leave it 0, so 0 means "absent or no wait", never "retry now is safe". The server sends
+// it on a 503 when the node cannot execute the request yet (a snapshot install, for one) and
+// on a 409 when an identical request is still in flight.
+//
+// CommitIndex is the last applied Raft index the server reported: the
+// X-ArcadeDB-Commit-Index response header of a non-2xx response, or the commitIndex field of
+// an in-band batch error (the in-band query and command stream error carries none). It is 0
+// when absent, which is always the case on a standalone (non-replicated) database; the
+// server never sends 0, it omits the header instead. It stays a valid read-after barrier
+// on an error: a failed batch load's index bookmarks the chunks committed before the
+// failure, and sending it back as the X-ArcadeDB-Read-After request header makes a later
+// read see them.
+//
+// 409 has two meanings, and neither this client nor any of its siblings retries on it. An
+// identical request still in flight is retryable after RetryAfter, and carries
+// Exception "...RequestStillInFlightException" with a Retry-After. A query terminated by
+// `terminate query`, `terminate queries` or `terminate transaction` had its writes rolled
+// back and must not be retried. Retry logic must tell them apart by Exception or
+// RetryAfter, never by Status alone.
 type ArcadeDBError struct {
 	Status        int
 	ErrorMessage  string
@@ -46,7 +81,42 @@ type ArcadeDBError struct {
 	RequestID     string
 	Help          string
 	ExceptionArgs string
+	RetryAfter    time.Duration
+	CommitIndex   int64
 }
+
+// TimeSeriesWriteError is the error TimeSeries.Write returns when the server answers 400
+// with a JSON object body, the contract's TimeSeriesWriteError: some or all samples were
+// dropped. It embeds the *ArcadeDBError built from the same response the usual way (Status,
+// ErrorMessage, RequestID, RetryAfter, CommitIndex, ...), so errors.As matches both
+// *TimeSeriesWriteError and *ArcadeDBError, and Error() is ArcadeDBError's.
+//
+// A write is NOT atomic: Written samples landed even though the call failed, and retrying
+// the whole payload writes them twice. Written and Dropped are 0 when the body omits them.
+//
+// The four lists say why samples were dropped, each nil when absent (elements that are not
+// strings are dropped): UnknownTypes names measurements whose type does not exist,
+// NonTimeSeriesTypes ones whose type exists but is not a time-series type,
+// UnavailableTypes time-series types whose storage engine failed to load (the server log
+// says why), and UndeclaredKeys tag or field keys the measurement's type does not declare
+// in that role. UndeclaredKeys is capped at 100 entries by the server; setting
+// arcadedb.timeSeriesUndeclaredKeys=ignore on the server stores such samples with the
+// undeclared keys discarded instead of dropping them.
+//
+// Any other failure of Write, a 400 whose body is not a JSON object included, is a plain
+// *ArcadeDBError.
+type TimeSeriesWriteError struct {
+	*ArcadeDBError
+	Written            int64
+	Dropped            int64
+	UnknownTypes       []string
+	NonTimeSeriesTypes []string
+	UnavailableTypes   []string
+	UndeclaredKeys     []string
+}
+
+// Unwrap returns the embedded *ArcadeDBError, which is what lets errors.As find it.
+func (e *TimeSeriesWriteError) Unwrap() error { return e.ArcadeDBError }
 
 // Error returns ErrorMessage, else Detail, else a generic message naming the status.
 func (e *ArcadeDBError) Error() string {
@@ -85,6 +155,61 @@ func newError(status int, body []byte, requestID string) *ArcadeDBError {
 	}
 }
 
+// errorFromHeaders is newError plus what the response headers contribute: RequestID from
+// X-Request-Id, RetryAfter and CommitIndex. Every non-2xx response goes through it.
+func errorFromHeaders(status int, body []byte, h http.Header) *ArcadeDBError {
+	e := newError(status, body, h.Get(requestIDHeader))
+	if n, ok := parseNonNegative(h.Get(retryAfterHeader)); ok {
+		e.RetryAfter = secondsDuration(n)
+	}
+	if n, ok := parseNonNegative(h.Get(commitIndexHeader)); ok {
+		e.CommitIndex = n
+	}
+	return e
+}
+
+// parseNonNegative reads s, trimmed, as a non-negative base-10 integer of digits only (no
+// sign). Anything else, an HTTP-date Retry-After included, reports false; it never fails.
+func parseNonNegative(s string) (int64, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.TrimLeft(s, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// jsonNonNegative reads an in-band JSON number as a non-negative whole number.
+func jsonNonNegative(v any) (int64, bool) {
+	f, ok := v.(float64)
+	if !ok || f < 0 || f != math.Trunc(f) || f > math.MaxInt64 {
+		return 0, false
+	}
+	return int64(f), true
+}
+
+// inBandStatus returns the status an in-band stream or batch error event carried, or fallback
+// when it carried none usable: anything but a positive whole number that fits an int32 (a
+// string, a fraction, 0, a negative, an out-of-range float) reads as absent. Both parsers use
+// it, so a malformed status means the same thing on a query stream and a batch stream.
+func inBandStatus(v any, fallback int) int {
+	if s, ok := jsonNonNegative(v); ok && s > 0 && s <= math.MaxInt32 {
+		return int(s)
+	}
+	return fallback
+}
+
+// secondsDuration converts seconds to a Duration, saturating rather than overflowing.
+func secondsDuration(n int64) time.Duration {
+	if n > int64(math.MaxInt64/time.Second) {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(n) * time.Second
+}
+
 // isSuccess reports whether status is 2xx: the one definition of success every facade
 // method shares, buffered (checkResponse) and streamed (streams, BatchLoad) alike.
 func isSuccess(status int) bool { return status >= 200 && status < 300 }
@@ -97,7 +222,7 @@ func errorFromResponse(resp *http.Response) *ArcadeDBError {
 		body, _ = io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 	}
-	return newError(resp.StatusCode, body, resp.Header.Get(requestIDHeader))
+	return errorFromHeaders(resp.StatusCode, body, resp.Header)
 }
 
 // checkResponse returns nil for any 2xx status, otherwise an *ArcadeDBError built from
@@ -106,7 +231,7 @@ func checkResponse(resp *http.Response, body []byte) error {
 	if isSuccess(resp.StatusCode) {
 		return nil
 	}
-	return newError(resp.StatusCode, body, resp.Header.Get(requestIDHeader))
+	return errorFromHeaders(resp.StatusCode, body, resp.Header)
 }
 
 // decodeBody returns typed when the generated parser filled it. The parser only does so

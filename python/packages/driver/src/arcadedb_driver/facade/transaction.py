@@ -12,21 +12,25 @@ from .._generated.api.transaction import rollback_transaction as rollback_op
 from .._generated.client import Client
 from .._internal.unwrap import is_success, unwrap
 from ..errors import ArcadeDBError
-from .data import SESSION_HEADER
+from .data import SESSION_HEADER, query_tag_kwarg
 
 if TYPE_CHECKING:
     from .. import ArcadeDBDatabase
 
 
-def begin_transaction(client: Client, database: str) -> str:
+def begin_transaction(client: Client, database: str, query_tag: str | None = None) -> str:
     """Begins a transaction and returns its session id.
 
     The endpoint answers 204 with no body and carries the id in the
     `arcadedb-session-id` RESPONSE header, so this reads `headers` rather than
     `parsed`. Threading that id onto every subsequent call is what keeps those calls
     inside the transaction.
+
+    `query_tag`, when set, goes out as `X-ArcadeDB-Query-Tag` on this begin request
+    only; the server applies it to every statement of the session that carries no
+    label of its own.
     """
-    response = begin_op.sync_detailed(database, client=client)
+    response = begin_op.sync_detailed(database, client=client, x_arcade_db_query_tag=query_tag_kwarg(query_tag))
     if not is_success(response):
         raise ArcadeDBError.from_response(response)
     session_id = response.headers.get(SESSION_HEADER)
@@ -70,17 +74,33 @@ class Transaction:
       to see) before the commit error is re-raised. Without this a failed commit
       leaves the session open server-side until `arcadedb.server.httpSessionExpireTimeout`
       reaps it.
+
+    `query_tag` is sent as `X-ArcadeDB-Query-Tag` on the begin request ONLY - never on
+    the statements, the commit or the rollback. The server labels every statement of
+    the session that carries no label of its own with it, so `list queries` shows them
+    and `terminate queries tag <label>` stops them. A statement that passes its own
+    `query_tag` through the handle sends its own header, which overrides the
+    session's label for that statement.
+
+    **Partial commits.** A statement inside the block that publishes a commit while it
+    runs - an explicit `BATCH n` boundary, or a statement with its own `COMMIT` - makes
+    part of the transaction durable before the block ends, and a rollback cannot undo
+    that part. The server flags such a response with
+    `arcadedb-session-partial-commit: true`; this class does not surface the header
+    (it is reachable through `raw`). A caller that replays a transaction block on
+    conflict must not replay one that partially committed.
     """
 
-    def __init__(self, client: Client, database: str) -> None:
+    def __init__(self, client: Client, database: str, query_tag: str | None = None) -> None:
         self._client = client
         self._database = database
+        self._query_tag = query_tag
         self._session_id: str | None = None
 
     def __enter__(self) -> ArcadeDBDatabase:
         from .. import ArcadeDBDatabase
 
-        self._session_id = begin_transaction(self._client, self._database)
+        self._session_id = begin_transaction(self._client, self._database, self._query_tag)
         return ArcadeDBDatabase(self._client, self._database, self._session_id)
 
     def __exit__(

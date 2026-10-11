@@ -187,7 +187,7 @@ class RecordingAdminServicer(pb2_grpc.ArcadeDbAdminServiceServicer):
     base classes, so nothing could inherit from both and dispatch correctly to
     `add_..._to_server` for each. `Ping` is the only RPC implemented here - the fixtures
     below exist to prove the data plane's auth interceptors and shared channel also reach
-    the admin service, not to re-test every one of its 44 RPCs (that is the bare stub's
+    the admin service, not to re-test every one of its 46 RPCs (that is the bare stub's
     job, not this fixture's).
     """
 

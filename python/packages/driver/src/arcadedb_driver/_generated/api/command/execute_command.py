@@ -18,12 +18,16 @@ def _get_kwargs(
     *,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
     if not isinstance(arcadedb_session_id, Unset):
         headers["arcadedb-session-id"] = arcadedb_session_id
+
+    if not isinstance(x_arcade_db_query_tag, Unset):
+        headers["X-ArcadeDB-Query-Tag"] = x_arcade_db_query_tag
 
     if not isinstance(accept, Unset):
         headers["Accept"] = str(accept)
@@ -107,6 +111,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
@@ -131,6 +136,7 @@ def sync_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteCommandAccept | Unset):
         x_request_id (str | Unset):
         body (CommandRequest): Command request object
@@ -147,6 +153,7 @@ def sync_detailed(
         database=database,
         body=body,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         accept=accept,
         x_request_id=x_request_id,
     )
@@ -164,6 +171,7 @@ def sync(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
@@ -188,6 +196,7 @@ def sync(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteCommandAccept | Unset):
         x_request_id (str | Unset):
         body (CommandRequest): Command request object
@@ -205,6 +214,7 @@ def sync(
         client=client,
         body=body,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         accept=accept,
         x_request_id=x_request_id,
     ).parsed
@@ -216,6 +226,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
@@ -240,6 +251,7 @@ async def asyncio_detailed(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteCommandAccept | Unset):
         x_request_id (str | Unset):
         body (CommandRequest): Command request object
@@ -256,6 +268,7 @@ async def asyncio_detailed(
         database=database,
         body=body,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         accept=accept,
         x_request_id=x_request_id,
     )
@@ -271,6 +284,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteCommandAccept | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
@@ -295,6 +309,7 @@ async def asyncio(
     Args:
         database (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteCommandAccept | Unset):
         x_request_id (str | Unset):
         body (CommandRequest): Command request object
@@ -313,6 +328,7 @@ async def asyncio(
             client=client,
             body=body,
             arcadedb_session_id=arcadedb_session_id,
+            x_arcade_db_query_tag=x_arcade_db_query_tag,
             accept=accept,
             x_request_id=x_request_id,
         )

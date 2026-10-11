@@ -106,22 +106,33 @@ def sync_detailed(
 ) -> Response[ErrorResponse | QueryResponse]:
     """Execute server command
 
-     Executes administrative commands on the server (root user only). Available commands: create
-    database, drop database, open database, close database, restore database <name> <url>, import
-    database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
-    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
-    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
-    server is not running an HA implementation that supports runtime membership, and 503 when the server
-    joined but one of the three security documents could not be seeded to it - the same answer POST
-    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
-    itself stands in that case; re-running the command is idempotent on the membership change and
-    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
-    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
-    running server join a cluster it is not configured for, issue this same command on a server that is
-    already a member of that cluster, or declare arcadedb.ha.serverList and restart
+     Executes administrative commands on the server (root user only, except 'list databases' and the
+    commands on running work below). Available commands: create database, drop database, open database,
+    close database, restore database <name> <url>, import database <name> <url>, create user, drop user,
+    shutdown, set server setting, get server events, align database, connect cluster <address>,
+    disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-
+    stream header. connect cluster <address> adds the server at <address> to this server's cluster - the
+    operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList
+    ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a
+    blank or malformed address, 500 when this server is not running an HA implementation that supports
+    runtime membership, and 503 when the server joined but one of the three security documents could not
+    be seeded to it - the same answer POST /api/v1/cluster/peer gives that condition, with the failing
+    documents in 'failedSeeds'. The join itself stands in that case; re-running the command is
+    idempotent on the membership change and reissues the seed. Note the direction: it never makes THIS
+    server join another cluster, and an address that resolves to this server is answered 400 rather than
+    accepted as a no-op. To make a running server join a cluster it is not configured for, issue this
+    same command on a server that is already a member of that cluster, or declare arcadedb.ha.serverList
+    and restart. Running work (any authenticated user; root sees and stops every statement, another user
+    only their own, and someone else's is answered 'not found'): 'list queries [database <name>] [tag
+    <label>]' lists the statements this server is running, with the label a client gave them in the
+    X-ArcadeDB-Query-Tag request header; 'terminate query <id>' and 'terminate queries tag <label>' stop
+    them and wait for them to end, up to the payload's 'wait' in milliseconds (default 5000, at most
+    10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
+    'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
+    yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
+    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
+    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
+    forwarded to the leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):
@@ -155,22 +166,33 @@ def sync(
 ) -> ErrorResponse | QueryResponse | None:
     """Execute server command
 
-     Executes administrative commands on the server (root user only). Available commands: create
-    database, drop database, open database, close database, restore database <name> <url>, import
-    database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
-    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
-    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
-    server is not running an HA implementation that supports runtime membership, and 503 when the server
-    joined but one of the three security documents could not be seeded to it - the same answer POST
-    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
-    itself stands in that case; re-running the command is idempotent on the membership change and
-    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
-    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
-    running server join a cluster it is not configured for, issue this same command on a server that is
-    already a member of that cluster, or declare arcadedb.ha.serverList and restart
+     Executes administrative commands on the server (root user only, except 'list databases' and the
+    commands on running work below). Available commands: create database, drop database, open database,
+    close database, restore database <name> <url>, import database <name> <url>, create user, drop user,
+    shutdown, set server setting, get server events, align database, connect cluster <address>,
+    disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-
+    stream header. connect cluster <address> adds the server at <address> to this server's cluster - the
+    operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList
+    ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a
+    blank or malformed address, 500 when this server is not running an HA implementation that supports
+    runtime membership, and 503 when the server joined but one of the three security documents could not
+    be seeded to it - the same answer POST /api/v1/cluster/peer gives that condition, with the failing
+    documents in 'failedSeeds'. The join itself stands in that case; re-running the command is
+    idempotent on the membership change and reissues the seed. Note the direction: it never makes THIS
+    server join another cluster, and an address that resolves to this server is answered 400 rather than
+    accepted as a no-op. To make a running server join a cluster it is not configured for, issue this
+    same command on a server that is already a member of that cluster, or declare arcadedb.ha.serverList
+    and restart. Running work (any authenticated user; root sees and stops every statement, another user
+    only their own, and someone else's is answered 'not found'): 'list queries [database <name>] [tag
+    <label>]' lists the statements this server is running, with the label a client gave them in the
+    X-ArcadeDB-Query-Tag request header; 'terminate query <id>' and 'terminate queries tag <label>' stop
+    them and wait for them to end, up to the payload's 'wait' in milliseconds (default 5000, at most
+    10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
+    'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
+    yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
+    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
+    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
+    forwarded to the leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):
@@ -199,22 +221,33 @@ async def asyncio_detailed(
 ) -> Response[ErrorResponse | QueryResponse]:
     """Execute server command
 
-     Executes administrative commands on the server (root user only). Available commands: create
-    database, drop database, open database, close database, restore database <name> <url>, import
-    database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
-    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
-    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
-    server is not running an HA implementation that supports runtime membership, and 503 when the server
-    joined but one of the three security documents could not be seeded to it - the same answer POST
-    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
-    itself stands in that case; re-running the command is idempotent on the membership change and
-    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
-    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
-    running server join a cluster it is not configured for, issue this same command on a server that is
-    already a member of that cluster, or declare arcadedb.ha.serverList and restart
+     Executes administrative commands on the server (root user only, except 'list databases' and the
+    commands on running work below). Available commands: create database, drop database, open database,
+    close database, restore database <name> <url>, import database <name> <url>, create user, drop user,
+    shutdown, set server setting, get server events, align database, connect cluster <address>,
+    disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-
+    stream header. connect cluster <address> adds the server at <address> to this server's cluster - the
+    operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList
+    ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a
+    blank or malformed address, 500 when this server is not running an HA implementation that supports
+    runtime membership, and 503 when the server joined but one of the three security documents could not
+    be seeded to it - the same answer POST /api/v1/cluster/peer gives that condition, with the failing
+    documents in 'failedSeeds'. The join itself stands in that case; re-running the command is
+    idempotent on the membership change and reissues the seed. Note the direction: it never makes THIS
+    server join another cluster, and an address that resolves to this server is answered 400 rather than
+    accepted as a no-op. To make a running server join a cluster it is not configured for, issue this
+    same command on a server that is already a member of that cluster, or declare arcadedb.ha.serverList
+    and restart. Running work (any authenticated user; root sees and stops every statement, another user
+    only their own, and someone else's is answered 'not found'): 'list queries [database <name>] [tag
+    <label>]' lists the statements this server is running, with the label a client gave them in the
+    X-ArcadeDB-Query-Tag request header; 'terminate query <id>' and 'terminate queries tag <label>' stop
+    them and wait for them to end, up to the payload's 'wait' in milliseconds (default 5000, at most
+    10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
+    'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
+    yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
+    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
+    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
+    forwarded to the leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):
@@ -246,22 +279,33 @@ async def asyncio(
 ) -> ErrorResponse | QueryResponse | None:
     """Execute server command
 
-     Executes administrative commands on the server (root user only). Available commands: create
-    database, drop database, open database, close database, restore database <name> <url>, import
-    database <name> <url>, create user, drop user, shutdown, set server setting, get server events,
-    align database, connect cluster <address>, disconnect cluster. Both restore and import support SSE
-    progress streaming via Accept: text/event-stream header. connect cluster <address> adds the server
-    at <address> to this server's cluster - the operator alias of POST /api/v1/cluster/peer - where
-    <address> is one entry of arcadedb.ha.serverList ([name@]host[:raftPort[:httpPort]] or the
-    host:{raft:..,http:..} object form). It answers 400 for a blank or malformed address, 500 when this
-    server is not running an HA implementation that supports runtime membership, and 503 when the server
-    joined but one of the three security documents could not be seeded to it - the same answer POST
-    /api/v1/cluster/peer gives that condition, with the failing documents in 'failedSeeds'. The join
-    itself stands in that case; re-running the command is idempotent on the membership change and
-    reissues the seed. Note the direction: it never makes THIS server join another cluster, and an
-    address that resolves to this server is answered 400 rather than accepted as a no-op. To make a
-    running server join a cluster it is not configured for, issue this same command on a server that is
-    already a member of that cluster, or declare arcadedb.ha.serverList and restart
+     Executes administrative commands on the server (root user only, except 'list databases' and the
+    commands on running work below). Available commands: create database, drop database, open database,
+    close database, restore database <name> <url>, import database <name> <url>, create user, drop user,
+    shutdown, set server setting, get server events, align database, connect cluster <address>,
+    disconnect cluster. Both restore and import support SSE progress streaming via Accept: text/event-
+    stream header. connect cluster <address> adds the server at <address> to this server's cluster - the
+    operator alias of POST /api/v1/cluster/peer - where <address> is one entry of arcadedb.ha.serverList
+    ([name@]host[:raftPort[:httpPort]] or the host:{raft:..,http:..} object form). It answers 400 for a
+    blank or malformed address, 500 when this server is not running an HA implementation that supports
+    runtime membership, and 503 when the server joined but one of the three security documents could not
+    be seeded to it - the same answer POST /api/v1/cluster/peer gives that condition, with the failing
+    documents in 'failedSeeds'. The join itself stands in that case; re-running the command is
+    idempotent on the membership change and reissues the seed. Note the direction: it never makes THIS
+    server join another cluster, and an address that resolves to this server is answered 400 rather than
+    accepted as a no-op. To make a running server join a cluster it is not configured for, issue this
+    same command on a server that is already a member of that cluster, or declare arcadedb.ha.serverList
+    and restart. Running work (any authenticated user; root sees and stops every statement, another user
+    only their own, and someone else's is answered 'not found'): 'list queries [database <name>] [tag
+    <label>]' lists the statements this server is running, with the label a client gave them in the
+    X-ArcadeDB-Query-Tag request header; 'terminate query <id>' and 'terminate queries tag <label>' stop
+    them and wait for them to end, up to the payload's 'wait' in milliseconds (default 5000, at most
+    10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
+    'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
+    yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
+    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
+    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
+    forwarded to the leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):

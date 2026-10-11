@@ -19,11 +19,15 @@ def _get_kwargs(
     command: str,
     *,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
     if not isinstance(arcadedb_session_id, Unset):
         headers["arcadedb-session-id"] = arcadedb_session_id
+
+    if not isinstance(x_arcade_db_query_tag, Unset):
+        headers["X-ArcadeDB-Query-Tag"] = x_arcade_db_query_tag
 
     if not isinstance(accept, Unset):
         headers["Accept"] = str(accept)
@@ -64,6 +68,11 @@ def _parse_response(
 
         return response_404
 
+    if response.status_code == 409:
+        response_409 = ErrorResponse.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 413:
         response_413 = ErrorResponse.from_dict(response.json())
 
@@ -98,6 +107,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
     r"""Execute query via GET
@@ -121,6 +131,7 @@ def sync_detailed(
         language (ExecuteQueryGetLanguage):
         command (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteQueryGetAccept | Unset):
 
     Raises:
@@ -136,6 +147,7 @@ def sync_detailed(
         language=language,
         command=command,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         accept=accept,
     )
 
@@ -153,6 +165,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
     r"""Execute query via GET
@@ -176,6 +189,7 @@ def sync(
         language (ExecuteQueryGetLanguage):
         command (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteQueryGetAccept | Unset):
 
     Raises:
@@ -192,6 +206,7 @@ def sync(
         command=command,
         client=client,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         accept=accept,
     ).parsed
 
@@ -203,6 +218,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> Response[ErrorResponse | QueryResponse]:
     r"""Execute query via GET
@@ -226,6 +242,7 @@ async def asyncio_detailed(
         language (ExecuteQueryGetLanguage):
         command (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteQueryGetAccept | Unset):
 
     Raises:
@@ -241,6 +258,7 @@ async def asyncio_detailed(
         language=language,
         command=command,
         arcadedb_session_id=arcadedb_session_id,
+        x_arcade_db_query_tag=x_arcade_db_query_tag,
         accept=accept,
     )
 
@@ -256,6 +274,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     arcadedb_session_id: str | Unset = UNSET,
+    x_arcade_db_query_tag: str | Unset = UNSET,
     accept: ExecuteQueryGetAccept | Unset = UNSET,
 ) -> ErrorResponse | QueryResponse | None:
     r"""Execute query via GET
@@ -279,6 +298,7 @@ async def asyncio(
         language (ExecuteQueryGetLanguage):
         command (str):
         arcadedb_session_id (str | Unset):
+        x_arcade_db_query_tag (str | Unset):
         accept (ExecuteQueryGetAccept | Unset):
 
     Raises:
@@ -296,6 +316,7 @@ async def asyncio(
             command=command,
             client=client,
             arcadedb_session_id=arcadedb_session_id,
+            x_arcade_db_query_tag=x_arcade_db_query_tag,
             accept=accept,
         )
     ).parsed

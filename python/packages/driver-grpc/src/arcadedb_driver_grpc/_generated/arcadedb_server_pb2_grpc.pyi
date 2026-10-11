@@ -416,6 +416,20 @@ class ArcadeDbAdminServiceStub:
     the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
     membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
     """
+    AcceptDivergedDatabase: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.AcceptDivergedDatabaseRequest, _arcadedb_server_pb2.AcceptDivergedDatabaseResponse]
+    """The operator's override of issue #9449, the RPC twin of POST /api/v1/cluster/accept-diverged/{database}:
+    lifts the quarantine (and its read floor) standing on one database of a node that is the only voter of
+    its cluster, or whose every voter holds the same database quarantined (issue #9553), accepting its copy
+    as it is WITHOUT a resync. Root only. NOT_FOUND when nothing stands on the database, FAILED_PRECONDITION
+    on a node a peer could still resync (a resync from a peer is the way out there) or without HA,
+    INVALID_ARGUMENT on a malformed database name.
+    """
+    AcceptStaleSnapshot: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.AcceptStaleSnapshotRequest, _arcadedb_server_pb2.AcceptStaleSnapshotResponse]
+    """The operator's override of issue #9498, the RPC twin of POST /api/v1/cluster/accept-stale-snapshot: lifts the
+    node-wide stale-snapshot read floor (issue #6111) of a node that is the only voter of its cluster, accepting its
+    databases as they are WITHOUT a resync. Root only. NOT_FOUND when no floor stands, FAILED_PRECONDITION on a node a
+    peer could still resync, while a snapshot download is running, or without HA.
+    """
     ListSessions: _grpc.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListSessionsRequest, _arcadedb_server_pb2.ListSessionsResponse]
     """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
     session of its own - every admin RPC authenticates from the credentials on the request body - so
@@ -512,6 +526,20 @@ class ArcadeDbAdminServiceAsyncStub(ArcadeDbAdminServiceStub):
     cannot answer the verb differently. Issue #7401 made that shared method join the named server to
     the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
     membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
+    """
+    AcceptDivergedDatabase: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.AcceptDivergedDatabaseRequest, _arcadedb_server_pb2.AcceptDivergedDatabaseResponse]  # type: ignore[assignment]
+    """The operator's override of issue #9449, the RPC twin of POST /api/v1/cluster/accept-diverged/{database}:
+    lifts the quarantine (and its read floor) standing on one database of a node that is the only voter of
+    its cluster, or whose every voter holds the same database quarantined (issue #9553), accepting its copy
+    as it is WITHOUT a resync. Root only. NOT_FOUND when nothing stands on the database, FAILED_PRECONDITION
+    on a node a peer could still resync (a resync from a peer is the way out there) or without HA,
+    INVALID_ARGUMENT on a malformed database name.
+    """
+    AcceptStaleSnapshot: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.AcceptStaleSnapshotRequest, _arcadedb_server_pb2.AcceptStaleSnapshotResponse]  # type: ignore[assignment]
+    """The operator's override of issue #9498, the RPC twin of POST /api/v1/cluster/accept-stale-snapshot: lifts the
+    node-wide stale-snapshot read floor (issue #6111) of a node that is the only voter of its cluster, accepting its
+    databases as they are WITHOUT a resync. Root only. NOT_FOUND when no floor stands, FAILED_PRECONDITION on a node a
+    peer could still resync, while a snapshot download is running, or without HA.
     """
     ListSessions: _aio.UnaryUnaryMultiCallable[_arcadedb_server_pb2.ListSessionsRequest, _arcadedb_server_pb2.ListSessionsResponse]  # type: ignore[assignment]
     """Read-only administrative view of the server's open HTTP authentication sessions. gRPC has no
@@ -852,6 +880,32 @@ class ArcadeDbAdminServiceServicer(metaclass=_abc_1.ABCMeta):
         cannot answer the verb differently. Issue #7401 made that shared method join the named server to
         the cluster instead of refusing unconditionally; a server whose HA implementation cannot change
         membership at runtime, or that is not running HA at all, still answers FAILED_PRECONDITION.
+        """
+
+    @_abc_1.abstractmethod
+    def AcceptDivergedDatabase(
+        self,
+        request: _arcadedb_server_pb2.AcceptDivergedDatabaseRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.AcceptDivergedDatabaseResponse, _abc.Awaitable[_arcadedb_server_pb2.AcceptDivergedDatabaseResponse]]:
+        """The operator's override of issue #9449, the RPC twin of POST /api/v1/cluster/accept-diverged/{database}:
+        lifts the quarantine (and its read floor) standing on one database of a node that is the only voter of
+        its cluster, or whose every voter holds the same database quarantined (issue #9553), accepting its copy
+        as it is WITHOUT a resync. Root only. NOT_FOUND when nothing stands on the database, FAILED_PRECONDITION
+        on a node a peer could still resync (a resync from a peer is the way out there) or without HA,
+        INVALID_ARGUMENT on a malformed database name.
+        """
+
+    @_abc_1.abstractmethod
+    def AcceptStaleSnapshot(
+        self,
+        request: _arcadedb_server_pb2.AcceptStaleSnapshotRequest,
+        context: _ServicerContext,
+    ) -> _typing.Union[_arcadedb_server_pb2.AcceptStaleSnapshotResponse, _abc.Awaitable[_arcadedb_server_pb2.AcceptStaleSnapshotResponse]]:
+        """The operator's override of issue #9498, the RPC twin of POST /api/v1/cluster/accept-stale-snapshot: lifts the
+        node-wide stale-snapshot read floor (issue #6111) of a node that is the only voter of its cluster, accepting its
+        databases as they are WITHOUT a resync. Root only. NOT_FOUND when no floor stands, FAILED_PRECONDITION on a node a
+        peer could still resync, while a snapshot download is running, or without HA.
         """
 
     @_abc_1.abstractmethod

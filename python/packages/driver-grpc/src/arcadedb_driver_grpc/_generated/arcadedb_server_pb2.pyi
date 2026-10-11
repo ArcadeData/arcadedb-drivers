@@ -2852,6 +2852,7 @@ class TimeSeriesWriteSummary(_message.Message):
     NON_TIME_SERIES_TYPES_FIELD_NUMBER: _builtins.int
     UNAVAILABLE_TYPES_FIELD_NUMBER: _builtins.int
     EXECUTION_TIME_MS_FIELD_NUMBER: _builtins.int
+    UNDECLARED_KEYS_FIELD_NUMBER: _builtins.int
     received: _builtins.int
     written: _builtins.int
     dropped: _builtins.int
@@ -2868,6 +2869,13 @@ class TimeSeriesWriteSummary(_message.Message):
     def unavailable_types(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
         """The type IS a TIMESERIES type; its storage engine failed to load (see the server log for why)."""
 
+    @_builtins.property
+    def undeclared_keys(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Tag or field keys a measurement's TIMESERIES type does not declare in that role, as
+        '<measurement>.<key> (tag|field)'. The points carrying them were dropped (issue #8646) unless the database sets
+        arcadedb.timeSeriesUndeclaredKeys=ignore. Capped at 100 entries; 'dropped' still counts every point.
+        """
+
     def __init__(
         self,
         *,
@@ -2878,10 +2886,11 @@ class TimeSeriesWriteSummary(_message.Message):
         non_time_series_types: _abc.Iterable[_builtins.str] | None = ...,
         unavailable_types: _abc.Iterable[_builtins.str] | None = ...,
         execution_time_ms: _builtins.int = ...,
+        undeclared_keys: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["dropped", b"dropped", "execution_time_ms", b"execution_time_ms", "non_time_series_types", b"non_time_series_types", "received", b"received", "unavailable_types", b"unavailable_types", "unknown_types", b"unknown_types", "written", b"written"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["dropped", b"dropped", "execution_time_ms", b"execution_time_ms", "non_time_series_types", b"non_time_series_types", "received", b"received", "unavailable_types", b"unavailable_types", "undeclared_keys", b"undeclared_keys", "unknown_types", b"unknown_types", "written", b"written"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -5487,6 +5496,116 @@ class ConnectClusterResponse(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___ConnectClusterResponse: _TypeAlias = ConnectClusterResponse  # noqa: Y015
+
+@_typing.final
+class AcceptDivergedDatabaseRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    DATABASE_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+        database: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials", "database", b"database"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___AcceptDivergedDatabaseRequest: _TypeAlias = AcceptDivergedDatabaseRequest  # noqa: Y015
+
+@_typing.final
+class AcceptDivergedDatabaseResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    DATABASE_FIELD_NUMBER: _builtins.int
+    LOCAL_SERVER_FIELD_NUMBER: _builtins.int
+    APPLIED_INDEX_FIELD_NUMBER: _builtins.int
+    DIVERGENCE_CAUSE_FIELD_NUMBER: _builtins.int
+    READ_FLOOR_FIELD_NUMBER: _builtins.int
+    database: _builtins.str
+    local_server: _builtins.str
+    """The server that lifted the quarantine."""
+    applied_index: _builtins.int
+    """Last Raft index applied to the accepted copy, or -1 when none is recorded."""
+    divergence_cause: _builtins.str
+    """Why the lifted quarantine had been raised (a DivergenceCause name), empty when only a read floor stood."""
+    read_floor: _builtins.int
+    """The read floor lifted with the quarantine, or -1 when none stood."""
+    def __init__(
+        self,
+        *,
+        database: _builtins.str = ...,
+        local_server: _builtins.str = ...,
+        applied_index: _builtins.int = ...,
+        divergence_cause: _builtins.str = ...,
+        read_floor: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["applied_index", b"applied_index", "database", b"database", "divergence_cause", b"divergence_cause", "local_server", b"local_server", "read_floor", b"read_floor"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___AcceptDivergedDatabaseResponse: _TypeAlias = AcceptDivergedDatabaseResponse  # noqa: Y015
+
+@_typing.final
+class AcceptStaleSnapshotRequest(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    CREDENTIALS_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def credentials(self) -> Global___DatabaseCredentials: ...
+    def __init__(
+        self,
+        *,
+        credentials: Global___DatabaseCredentials | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["credentials", b"credentials"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___AcceptStaleSnapshotRequest: _TypeAlias = AcceptStaleSnapshotRequest  # noqa: Y015
+
+@_typing.final
+class AcceptStaleSnapshotResponse(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    LOCAL_SERVER_FIELD_NUMBER: _builtins.int
+    READ_FLOOR_FIELD_NUMBER: _builtins.int
+    SNAPSHOT_INDEX_FIELD_NUMBER: _builtins.int
+    APPLIED_INDEX_FIELD_NUMBER: _builtins.int
+    local_server: _builtins.str
+    """The server that lifted the read floor."""
+    read_floor: _builtins.int
+    """The node-wide read floor that was lifted: the last Raft index the databases were known to hold."""
+    snapshot_index: _builtins.int
+    """The snapshot marker index the floor was short of, or -1 when no marker was on disk."""
+    applied_index: _builtins.int
+    """The applied position now recorded for the node."""
+    def __init__(
+        self,
+        *,
+        local_server: _builtins.str = ...,
+        read_floor: _builtins.int = ...,
+        snapshot_index: _builtins.int = ...,
+        applied_index: _builtins.int = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["applied_index", b"applied_index", "local_server", b"local_server", "read_floor", b"read_floor", "snapshot_index", b"snapshot_index"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___AcceptStaleSnapshotResponse: _TypeAlias = AcceptStaleSnapshotResponse  # noqa: Y015
 
 @_typing.final
 class OperationProgressInfo(_message.Message):

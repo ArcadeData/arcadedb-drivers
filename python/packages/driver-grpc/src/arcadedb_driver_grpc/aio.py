@@ -668,11 +668,11 @@ class AsyncArcadeDBGrpcClient:
     `raw_admin` is the generated stub for `com.arcadedb.grpc.ArcadeDbAdminService` - the
     control plane (database lifecycle, users, groups, API tokens, settings, backups, the
     profiler, server shutdown/cluster operations, `Health`/`Ready`). No facade wraps any
-    of its 44 RPCs: each is a one-line stub call, exactly like the data-plane RPCs `raw`
+    of its 46 RPCs: each is a one-line stub call, exactly like the data-plane RPCs `raw`
     reaches without a wrapper.
 
     `raw_admin` is built from the SAME `channel` as `raw`, so it shares this client's TLS
-    policy - but NOT its authentication. 42 of the 44 admin RPCs (everything but `Health`
+    policy - but NOT its authentication. 44 of the 46 admin RPCs (everything but `Health`
     and `Ready`) authenticate from a `DatabaseCredentials` field INSIDE the request
     message, not from the channel's auth interceptor, so `bearer_auth`/`password_auth` do
     nothing for them. Reading `raw_admin` raises `InsecureChannelError` unless
@@ -721,7 +721,7 @@ class AsyncArcadeDBGrpcClient:
         if not self._allow_admin:
             raise InsecureChannelError(
                 "raw_admin: refusing to expose ArcadeDbAdminService over a channel that may be "
-                "insecure. 42 of its 44 RPCs (everything but Health and Ready) carry "
+                "insecure. 44 of its 46 RPCs (everything but Health and Ready) carry "
                 "DatabaseCredentials in the request body, which would travel in cleartext "
                 "regardless of any auth interceptor. Pass credentials=grpc.ssl_channel_credentials() "
                 "or insecure=True to create_client, or allow_admin=True to this class's "
@@ -865,8 +865,8 @@ class AsyncArcadeDBGrpcClient:
         wrapper still invents nothing; it hands back whatever summary the server sent.
 
         Returns the server's `TimeSeriesWriteSummary` WHOLE (D-M6-3): `received`,
-        `written`, `dropped`, `unknown_types`, `non_time_series_types`, `unavailable_types`
-        and `execution_time_ms` all survive unchanged. A write is NOT atomic - each
+        `written`, `dropped`, `unknown_types`, `non_time_series_types`, `unavailable_types`,
+        `undeclared_keys` and `execution_time_ms` all survive unchanged. A write is NOT atomic - each
         measurement's batch commits its own shard transaction as it is appended - so a
         SUCCESSFUL call can still report `written < received`. A caller who checks only
         that the awaited call did not raise has not checked that its data landed; this

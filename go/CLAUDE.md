@@ -345,7 +345,7 @@ type is the **type name itself** (`GoTsPoint`), not `<type>_value`.
 A port of the Python gRPC driver (`arcadedb-driver-grpc`), at parity with it: client construction
 with auth and two security guards, the four streaming RPCs the generated stub handles badly
 (`StreamQuery`, `TimeSeriesQuery`, `InsertStream`, `TimeSeriesWriteStream`), and `Transaction`
-with a handle that binds the transaction onto every request. Everything else, all 44
+with a handle that binds the transaction onto every request. Everything else, all 46
 `ArcadeDbAdminService` RPCs included, is reached through `Raw()` and `RawAdmin()`, the generated
 clients. The design is `docs/superpowers/specs/2026-10-01-m10b-go-grpc-driver-design.md`.
 
@@ -398,7 +398,7 @@ commented-out RPC or a stray brace cannot count, and asserts by reflection that 
 `ArcadeDbServiceClient` and `ArcadeDbAdminServiceClient` interfaces have a method for each. It is
 cheap, it is symmetrical with the HTTP module's `TestEveryOperationIsGenerated`, and it guards
 against something real even without a silent skip: an RPC vanishing through a plugin or
-managed-mode change. It also pins the counts, 21 data-plane and 44 admin RPCs, so a contract that
+managed-mode change. It also pins the counts, 21 data-plane and 46 admin RPCs, so a contract that
 grows an RPC fails it until someone updates the count on purpose and decides whether the new RPC
 needs facade support. Like its HTTP sibling it skips when it cannot find `contracts/`, and
 `check-drift.sh` reads a skip as a failure. `TestServerVersionMatchesProto` holds `ServerVersion`
@@ -433,9 +433,9 @@ to the `.proto` filename.
   the wire as cleartext metadata. A bearer token over plaintext is allowed.
 - **Guard two, `RawAdmin`.** `RawAdmin() (generated.ArcadeDbAdminServiceClient, error)` returns
   `ErrInsecureChannel` unless the client has `WithTransportCredentials` or `WithInsecure`, whatever
-  auth is configured. 42 of the 44 admin RPCs authenticate from a `DatabaseCredentials` field in
+  auth is configured. 44 of the 46 admin RPCs authenticate from a `DatabaseCredentials` field in
   the request **body**, which guard one cannot see; the guard covers `Health` and `Ready` too,
-  because carving out two RPCs would mean wrapping the other 42. It returns an error rather than
+  because carving out two RPCs would mean wrapping the other 44. It returns an error rather than
   panicking, or refusing in `NewClient`, because a refusal is recoverable and a plaintext client
   must keep working for the data plane. (Python raises when its `raw_admin` property is read.)
   `WithInsecure` is the single explicit opt-in that satisfies both guards.

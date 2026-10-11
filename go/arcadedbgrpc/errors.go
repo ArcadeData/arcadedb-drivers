@@ -17,7 +17,7 @@ import "errors"
 // would travel in cleartext metadata.
 //
 // RawAdmin returns it, independently and whatever auth is configured, when the client has
-// neither transport credentials nor WithInsecure: 42 of ArcadeDbAdminService's 44 RPCs
+// neither transport credentials nor WithInsecure: 44 of ArcadeDbAdminService's 46 RPCs
 // carry DatabaseCredentials inside the request body, which the #5048 check cannot see.
 var ErrInsecureChannel = errors.New("arcadedbgrpc: refusing to send credentials over a connection without transport credentials")
 

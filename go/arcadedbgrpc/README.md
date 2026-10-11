@@ -285,9 +285,12 @@ with an all-zero summary, which is returned as is.
 
 **A write that returns no error can still have dropped points.** The write is not atomic: each
 measurement's batch commits its own shard transaction as it is appended. The summary carries
-`Received`, `Written`, `Dropped`, and three separate reasons: `UnknownTypes` (no such type; create
+`Received`, `Written`, `Dropped`, and four separate reasons: `UnknownTypes` (no such type; create
 it with `CREATE TIMESERIES TYPE`), `NonTimeSeriesTypes` (the type exists but is not a time-series
-type) and `UnavailableTypes` (its storage engine failed to load). Read the summary.
+type), `UnavailableTypes` (its storage engine failed to load) and `UndeclaredKeys` (a tag or field
+key the type does not declare in that role, as `<measurement>.<key> (tag|field)`, capped at 100
+entries; a database setting `arcadedb.timeSeriesUndeclaredKeys=ignore` does not drop them). Read
+the summary.
 
 ## Streaming inserts: `InsertStream`
 
@@ -461,7 +464,7 @@ out-of-range value comes back as a status error.
 
 ## The control plane: `RawAdmin`
 
-The contract's second service, `ArcadeDbAdminService`, is ArcadeDB's control plane: 44 RPCs for
+The contract's second service, `ArcadeDbAdminService`, is ArcadeDB's control plane: 46 RPCs for
 database lifecycle, users, groups, API tokens, server and database settings, backups, the profiler,
 cluster and shutdown operations, and the `Health` and `Ready` probes. `RawAdmin()` returns its
 generated client, built on the same connection as `Raw()`:
@@ -483,14 +486,14 @@ info, err := admin.GetServerInfo(ctx, &generated.GetServerInfoRequest{
 })
 ```
 
-No facade method wraps any of it, by design: 41 of the 44 are plain unary calls, and a wrapper would
+No facade method wraps any of it, by design: 43 of the 46 are plain unary calls, and a wrapper would
 be a renamed passthrough. `RestoreBackup`, `RestoreDatabase` and `ImportDatabase` are
 server-streaming (progress messages), and you drive them through the generated stream client
 yourself. `TestEveryRPCIsGenerated` holds the generated client to every RPC in the contract.
 
 ### Your auth option does not authenticate admin calls
 
-42 of the 44 RPCs authenticate from a `DatabaseCredentials` field **inside the request message**,
+44 of the 46 RPCs authenticate from a `DatabaseCredentials` field **inside the request message**,
 set per call as in the example above, not from connection metadata. That is a property of the
 contract, not of this client: `WithPasswordAuth` and `WithBearerToken` authenticate the **data
 plane** only. Their metadata is still attached to admin calls, and the server ignores it there.
@@ -518,7 +521,7 @@ Four things about it are deliberate:
 - **It is unconditional on auth.** The credentials at risk are in the request body, so the refusal
   is the same with a password, a token, or no auth option at all.
 - **`Health` and `Ready` are refused too**, although they carry no credentials. The guard protects
-  the client as a whole; carving two RPCs back out would mean wrapping the other 42. Probing health
+  the client as a whole; carving two RPCs back out would mean wrapping the other 44. Probing health
   over plaintext costs one `WithInsecure()`.
 - **It returns an error rather than refusing in `NewClient`**, so a plaintext client keeps working
   for the data plane; only asking for the admin client fails. (The Python client raises when its

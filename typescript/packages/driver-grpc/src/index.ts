@@ -44,7 +44,7 @@ export interface CreateClientOptions {
    * 1. Lets `createClient` pair an `http://` `baseUrl` with a plaintext-password auth
    *    interceptor ({@link passwordAuth}) instead of throwing (issue #5048).
    * 2. Lets `rawAdmin` be read at all over an `http://` `baseUrl` - see its doc comment. This
-   *    guard is unconditional on `auth`: 42 of `ArcadeDbAdminService`'s 44 RPCs carry
+   *    guard is unconditional on `auth`: 44 of `ArcadeDbAdminService`'s 46 RPCs carry
    *    `DatabaseCredentials` INSIDE the request body, which no auth interceptor protects, so it
    *    fires the same way with {@link bearerAuth}, with {@link passwordAuth}, or with no `auth`
    *    at all - and even for `Health`/`Ready`, which carry no credentials but share the guarded
@@ -66,11 +66,11 @@ export interface ArcadeDBGrpcClient {
   /**
    * The generated Connect client for `ArcadeDbAdminService` - the control plane (database
    * lifecycle, users, groups, API tokens, settings, backups, the profiler, server
-   * shutdown/cluster operations, `Health`/`Ready`). No facade: every one of its 44 RPCs is
+   * shutdown/cluster operations, `Health`/`Ready`). No facade: every one of its 46 RPCs is
    * reached exactly as `raw` reaches the data plane's, one stub call at a time.
    *
    * `rawAdmin` is built from the SAME transport `raw` is, so it shares this client's TLS
-   * policy - but NOT its authentication. 42 of the 44 admin RPCs (everything but `Health` and
+   * policy - but NOT its authentication. 44 of the 46 admin RPCs (everything but `Health` and
    * `Ready`) authenticate from a `DatabaseCredentials` field INSIDE the request message, not
    * from the transport's auth interceptor, so `bearerAuth`/`passwordAuth` do nothing for them.
    * Accessing this property throws if `createClient`'s `baseUrl` is non-TLS and `insecure: true`
@@ -160,7 +160,7 @@ export function createClient(opts: CreateClientOptions): ArcadeDBGrpcClient {
       if (rawAdminBlockedByInsecureChannel) {
         throw new Error(
           `rawAdmin: refusing to expose ArcadeDbAdminService over insecure baseUrl "${baseUrl}". ` +
-            "42 of its 44 RPCs (everything but Health and Ready) carry DatabaseCredentials in the " +
+            "44 of its 46 RPCs (everything but Health and Ready) carry DatabaseCredentials in the " +
             "request body, which would travel in cleartext regardless of any auth interceptor. Use " +
             "an https:// baseUrl, or pass insecure: true to opt in explicitly.",
         );

@@ -411,8 +411,8 @@ def time_series_write_stream(
     wrapper still invents nothing; it hands back whatever summary the server sent.
 
     Returns the server's `TimeSeriesWriteSummary` WHOLE (D-M6-3): `received`, `written`,
-    `dropped`, `unknown_types`, `non_time_series_types`, `unavailable_types` and
-    `execution_time_ms` all survive unchanged. A write is NOT atomic - each measurement's
+    `dropped`, `unknown_types`, `non_time_series_types`, `unavailable_types`,
+    `undeclared_keys` and `execution_time_ms` all survive unchanged. A write is NOT atomic - each measurement's
     batch commits its own shard transaction as it is appended - so a SUCCESSFUL call can
     still report `written < received`. A caller who checks only that this returned without
     raising has not checked that its data landed; this wrapper never reduces the summary to

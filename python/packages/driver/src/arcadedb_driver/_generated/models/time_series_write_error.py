@@ -27,6 +27,9 @@ class TimeSeriesWriteError:
             that role; the samples carrying them were dropped. Capped at 100 entries. Set
             arcadedb.timeSeriesUndeclaredKeys=ignore to store such samples with the undeclared keys discarded instead
         unknown_types (list[str] | Unset): Measurements naming a type that does not exist
+        unreadable_values (list[str] | Unset): Values the column of the time-series type cannot store, such as a
+            datetime that is not a date or text in a numeric column; the samples carrying them were dropped, the reason
+            names the column and its type. Capped at 100 entries
     """
 
     dropped: int
@@ -37,6 +40,7 @@ class TimeSeriesWriteError:
     unavailable_types: list[str] | Unset = UNSET
     undeclared_keys: list[str] | Unset = UNSET
     unknown_types: list[str] | Unset = UNSET
+    unreadable_values: list[str] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,6 +68,10 @@ class TimeSeriesWriteError:
         if not isinstance(self.unknown_types, Unset):
             unknown_types = self.unknown_types
 
+        unreadable_values: list[str] | Unset = UNSET
+        if not isinstance(self.unreadable_values, Unset):
+            unreadable_values = self.unreadable_values
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -83,6 +91,8 @@ class TimeSeriesWriteError:
             field_dict["undeclaredKeys"] = undeclared_keys
         if unknown_types is not UNSET:
             field_dict["unknownTypes"] = unknown_types
+        if unreadable_values is not UNSET:
+            field_dict["unreadableValues"] = unreadable_values
 
         return field_dict
 
@@ -105,6 +115,8 @@ class TimeSeriesWriteError:
 
         unknown_types = cast(list[str], d.pop("unknownTypes", UNSET))
 
+        unreadable_values = cast(list[str], d.pop("unreadableValues", UNSET))
+
         time_series_write_error = cls(
             dropped=dropped,
             error=error,
@@ -114,6 +126,7 @@ class TimeSeriesWriteError:
             unavailable_types=unavailable_types,
             undeclared_keys=undeclared_keys,
             unknown_types=unknown_types,
+            unreadable_values=unreadable_values,
         )
 
         time_series_write_error.additional_properties = d

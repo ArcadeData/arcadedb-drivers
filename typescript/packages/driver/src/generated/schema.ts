@@ -3426,6 +3426,8 @@ export interface components {
             undeclaredKeys?: string[];
             /** @description Measurements naming a type that does not exist */
             unknownTypes?: string[];
+            /** @description Values the column of the time-series type cannot store, such as a datetime that is not a date or text in a numeric column; the samples carrying them were dropped, the reason names the column and its type. Capped at 100 entries */
+            unreadableValues?: string[];
             /** @description Samples successfully ingested */
             written: number;
         };

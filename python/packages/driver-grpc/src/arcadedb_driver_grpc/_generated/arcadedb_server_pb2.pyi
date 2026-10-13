@@ -1430,7 +1430,7 @@ class ExecuteCommandRequest(_message.Message):
     return_rows: _builtins.bool
     """include rows in response"""
     max_rows: _builtins.int
-    """cap returned rows (server may still count all)"""
+    """cap returned rows; <= 0 = server default; never above arcadedb.server.grpcQueryMaxResultRows. A larger result fails with RESOURCE_EXHAUSTED"""
     @_builtins.property
     def parameters(self) -> _containers.MessageMap[_builtins.str, Global___GrpcValue]: ...
     @_builtins.property
@@ -2853,6 +2853,7 @@ class TimeSeriesWriteSummary(_message.Message):
     UNAVAILABLE_TYPES_FIELD_NUMBER: _builtins.int
     EXECUTION_TIME_MS_FIELD_NUMBER: _builtins.int
     UNDECLARED_KEYS_FIELD_NUMBER: _builtins.int
+    UNREADABLE_VALUES_FIELD_NUMBER: _builtins.int
     received: _builtins.int
     written: _builtins.int
     dropped: _builtins.int
@@ -2876,6 +2877,13 @@ class TimeSeriesWriteSummary(_message.Message):
         arcadedb.timeSeriesUndeclaredKeys=ignore. Capped at 100 entries; 'dropped' still counts every point.
         """
 
+    @_builtins.property
+    def unreadable_values(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Values a column of the measurement's TIMESERIES type cannot store (a datetime that is not a date, text in a numeric column), as
+        '<measurement>.<column> (tag|field): <reason>', the reason naming the column and its type. The points carrying them were
+        dropped (issue #9809). Capped at 100 entries; 'dropped' still counts every point.
+        """
+
     def __init__(
         self,
         *,
@@ -2887,10 +2895,11 @@ class TimeSeriesWriteSummary(_message.Message):
         unavailable_types: _abc.Iterable[_builtins.str] | None = ...,
         execution_time_ms: _builtins.int = ...,
         undeclared_keys: _abc.Iterable[_builtins.str] | None = ...,
+        unreadable_values: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["dropped", b"dropped", "execution_time_ms", b"execution_time_ms", "non_time_series_types", b"non_time_series_types", "received", b"received", "unavailable_types", b"unavailable_types", "undeclared_keys", b"undeclared_keys", "unknown_types", b"unknown_types", "written", b"written"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["dropped", b"dropped", "execution_time_ms", b"execution_time_ms", "non_time_series_types", b"non_time_series_types", "received", b"received", "unavailable_types", b"unavailable_types", "undeclared_keys", b"undeclared_keys", "unknown_types", b"unknown_types", "unreadable_values", b"unreadable_values", "written", b"written"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

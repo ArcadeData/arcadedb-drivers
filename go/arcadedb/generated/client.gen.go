@@ -2933,6 +2933,9 @@ type TimeSeriesWriteError struct {
 	// UnknownTypes Measurements naming a type that does not exist
 	UnknownTypes *[]string `json:"unknownTypes,omitempty"`
 
+	// UnreadableValues Values the column of the time-series type cannot store, such as a datetime that is not a date or text in a numeric column; the samples carrying them were dropped, the reason names the column and its type. Capped at 100 entries
+	UnreadableValues *[]string `json:"unreadableValues,omitempty"`
+
 	// Written Samples successfully ingested
 	Written int `json:"written"`
 }

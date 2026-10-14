@@ -2821,7 +2821,7 @@ type ExecuteCommandRequest struct {
 	Transaction        *TransactionContext    `protobuf:"bytes,5,opt,name=transaction,proto3" json:"transaction,omitempty"`
 	Language           string                 `protobuf:"bytes,6,opt,name=language,proto3" json:"language,omitempty"`                        // "sql" if empty
 	ReturnRows         bool                   `protobuf:"varint,7,opt,name=return_rows,json=returnRows,proto3" json:"return_rows,omitempty"` // include rows in response
-	MaxRows            int32                  `protobuf:"varint,8,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`          // cap returned rows (server may still count all)
+	MaxRows            int32                  `protobuf:"varint,8,opt,name=max_rows,json=maxRows,proto3" json:"max_rows,omitempty"`          // cap returned rows; <= 0 = server default; never above arcadedb.server.grpcQueryMaxResultRows. A larger result fails with RESOURCE_EXHAUSTED
 	ProjectionSettings *ProjectionSettings    `protobuf:"bytes,9,opt,name=projectionSettings,proto3" json:"projectionSettings,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
@@ -5416,8 +5416,12 @@ type TimeSeriesWriteSummary struct {
 	// '<measurement>.<key> (tag|field)'. The points carrying them were dropped (issue #8646) unless the database sets
 	// arcadedb.timeSeriesUndeclaredKeys=ignore. Capped at 100 entries; 'dropped' still counts every point.
 	UndeclaredKeys []string `protobuf:"bytes,8,rep,name=undeclared_keys,json=undeclaredKeys,proto3" json:"undeclared_keys,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Values a column of the measurement's TIMESERIES type cannot store (a datetime that is not a date, text in a numeric column), as
+	// '<measurement>.<column> (tag|field): <reason>', the reason naming the column and its type. The points carrying them were
+	// dropped (issue #9809). Capped at 100 entries; 'dropped' still counts every point.
+	UnreadableValues []string `protobuf:"bytes,9,rep,name=unreadable_values,json=unreadableValues,proto3" json:"unreadable_values,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *TimeSeriesWriteSummary) Reset() {
@@ -5502,6 +5506,13 @@ func (x *TimeSeriesWriteSummary) GetExecutionTimeMs() int64 {
 func (x *TimeSeriesWriteSummary) GetUndeclaredKeys() []string {
 	if x != nil {
 		return x.UndeclaredKeys
+	}
+	return nil
+}
+
+func (x *TimeSeriesWriteSummary) GetUnreadableValues() []string {
+	if x != nil {
+		return x.UnreadableValues
 	}
 	return nil
 }
@@ -11987,7 +11998,7 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\vcredentials\x18\x02 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12D\n" +
 	"\tprecision\x18\x04 \x01(\x0e2&.com.arcadedb.grpc.TimeSeriesPrecisionR\tprecision\x12:\n" +
-	"\x06points\x18\x05 \x03(\v2\".com.arcadedb.grpc.TimeSeriesPointR\x06points\"\xc2\x02\n" +
+	"\x06points\x18\x05 \x03(\v2\".com.arcadedb.grpc.TimeSeriesPointR\x06points\"\xef\x02\n" +
 	"\x16TimeSeriesWriteSummary\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\x03R\breceived\x12\x18\n" +
 	"\awritten\x18\x02 \x01(\x03R\awritten\x12\x18\n" +
@@ -11996,7 +12007,8 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x15non_time_series_types\x18\x05 \x03(\tR\x12nonTimeSeriesTypes\x12+\n" +
 	"\x11unavailable_types\x18\x06 \x03(\tR\x10unavailableTypes\x12*\n" +
 	"\x11execution_time_ms\x18\a \x01(\x03R\x0fexecutionTimeMs\x12'\n" +
-	"\x0fundeclared_keys\x18\b \x03(\tR\x0eundeclaredKeys\"\xba\x01\n" +
+	"\x0fundeclared_keys\x18\b \x03(\tR\x0eundeclaredKeys\x12+\n" +
+	"\x11unreadable_values\x18\t \x03(\tR\x10unreadableValues\"\xba\x01\n" +
 	"\x13TimeSeriesTagFilter\x12J\n" +
 	"\x06equals\x18\x01 \x03(\v22.com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntryR\x06equals\x1aW\n" +
 	"\vEqualsEntry\x12\x10\n" +

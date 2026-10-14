@@ -4230,6 +4230,14 @@
             },
             "type": "array"
           },
+          "unreadableValues": {
+            "description": "Values the column of the time-series type cannot store, such as a datetime that is not a date or text in a numeric column; the samples carrying them were dropped, the reason names the column and its type. Capped at 100 entries",
+            "items": {
+              "description": "'<measurement>.<column> (tag|field): <reason>'",
+              "type": "string"
+            },
+            "type": "array"
+          },
           "written": {
             "description": "Samples successfully ingested",
             "type": "integer"

@@ -14,6 +14,15 @@ from ._generated.api.command import execute_command
 from ._generated.api.database import check_database_exists, list_databases
 from ._generated.api.health import check_health, check_ready
 from ._generated.api.query import execute_query_post
+from ._generated.api.security import (
+    create_or_update_group,
+    create_user,
+    delete_group,
+    delete_user,
+    list_groups,
+    list_users,
+    update_user,
+)
 from ._generated.api.server import get_server_info
 from ._generated.client import Client
 from ._generated.models.nd_json_query_event import NdJsonQueryEvent
@@ -25,6 +34,17 @@ from ._internal.unwrap import is_success, unwrap
 from .aio import AsyncArcadeDBDatabase, AsyncArcadeDBServer, AsyncTransaction
 from .auth import basic_auth, bearer_auth
 from .errors import ArcadeDBError, InsertSessionError, TimeSeriesWriteError
+from .facade.admin import (
+    SERVER_COMMAND_URL,
+    check_database_name,
+    create_user_request,
+    groups_from,
+    save_group_request,
+    server_command_payload,
+    server_command_response,
+    update_user_request,
+    users_from,
+)
 from .facade.batch import BatchOptions, batch_load, batch_load_stream
 from .facade.dashboards import GrafanaNamespace, PromQLNamespace
 from .facade.data import (
@@ -481,6 +501,132 @@ class ArcadeDBServer:
         if not is_success(response):
             raise ArcadeDBError.from_response(response)
         return True
+
+    def server_command(self, command: str) -> dict[str, Any]:
+        """Runs one command through `POST /api/v1/server` and returns the whole JSON body.
+
+        Most server commands are root-only; the contract's `executeServerCommand` lists them
+        and says which ones any user may run. The body is returned unaltered because its
+        shape depends on the command: `{"result": "ok"}` for an administrative command, a
+        list for `list databases`, other shapes for others. It is decoded here rather than by
+        the generated model, which declares an array `result` and raises `ValueError` on
+        `"ok"` - see `facade/admin.py`. Raises `ArcadeDBError` on a non-2xx status.
+
+        The command is sent as given. Prefer `create_database` / `drop_database`, which refuse
+        a name the server would silently trim, and the user and group methods, which use the
+        dedicated endpoints with a structured body instead of a command string.
+        """
+        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=server_command_payload(command))
+        return server_command_response(raw)
+
+    def create_database(self, name: str) -> None:
+        """Creates the named database (root only).
+
+        There is no dedicated endpoint, so this sends `create database <name>` through
+        `server_command`. A name that is empty or has leading or trailing white space raises
+        `ValueError` before anything is sent: the server trims the name it reads out of the
+        command, so it would create a database other than the one named. Anything else is sent
+        as given, embedded spaces included, and the server takes the rest of the command as the
+        name: one request runs one command, so a name cannot smuggle in a second one, but a
+        name built from untrusted input should still be validated by the caller.
+
+        A name that already exists raises `ArcadeDBError` with status **400**, not 409: the
+        server reports it as an invalid argument (`error` "Cannot execute command", `detail`
+        "Database '<name>' already exists"), so only the `detail` text tells it apart from
+        other 400s, and this client does not match on it. To create a database only when it is
+        missing, call `exists` first: as root it sees every database, so its `False` is
+        reliable, although another client can still create the database between the two calls.
+        """
+        check_database_name(name)
+        self.server_command(f"create database {name}")
+
+    def drop_database(self, name: str) -> None:
+        """Drops the named database and deletes its files (root only).
+
+        There is no dedicated endpoint, so this sends `drop database <name>` through
+        `server_command`. A name that is empty or has leading or trailing white space raises
+        `ValueError` before anything is sent, as for `create_database`. A database that does
+        not exist raises `ArcadeDBError` with status 400.
+        """
+        check_database_name(name)
+        self.server_command(f"drop database {name}")
+
+    def create_user(self, name: str, password: str, *, databases: Mapping[str, Sequence[str]] | None = None) -> None:
+        """Creates a server user (root only) through `POST /api/v1/server/users`.
+
+        `databases` maps a database name, or `"*"` for every database, to the groups the user
+        holds there; omitting it sends no assignment. The server refuses a blank name, a name
+        starting with `apitoken:`, and a password shorter than 8 or longer than 256
+        characters, each with a 400 `ArcadeDBError`.
+
+        A name that already exists raises `ArcadeDBError` with status **409** (`error` "User
+        already exists"), so a caller can treat 409 as "already there" to create a user only
+        when it is missing. A server built before ArcadeData/arcadedb#10076 answers 403
+        "Security error" instead, which is also what a non-root caller gets; against such a
+        server, look for the user in `list_users` first rather than reading a 403 as "already
+        exists".
+        """
+        unwrap(create_user.sync_detailed(client=self.raw, body=create_user_request(name, password, databases)))
+
+    def update_user(
+        self,
+        name: str,
+        *,
+        password: str | None = None,
+        databases: Mapping[str, Sequence[str]] | None = None,
+    ) -> None:
+        """Changes an existing user's password, database assignments, or both (root only),
+        through `PUT /api/v1/server/users`.
+
+        An argument left as `None` is not sent, and the server keeps that value. An empty
+        `databases` mapping IS sent, and removes every assignment. A user that does not exist
+        raises `ArcadeDBError` with status 404.
+        """
+        unwrap(update_user.sync_detailed(client=self.raw, name=name, body=update_user_request(password, databases)))
+
+    def drop_user(self, name: str) -> None:
+        """Deletes a server user (root only) through `DELETE /api/v1/server/users`.
+
+        A user that does not exist raises `ArcadeDBError` with status 404; root cannot be
+        deleted (400).
+        """
+        unwrap(delete_user.sync_detailed(client=self.raw, name=name))
+
+    def list_users(self) -> list[dict[str, Any]]:
+        """Lists every server user (root only), each as `{"name": ..., "databases": {...}}`.
+
+        `databases` maps a database name, or `"*"`, to the user's groups there. The password
+        hash is never returned.
+        """
+        return users_from(unwrap(list_users.sync_detailed(client=self.raw)))
+
+    def save_group(
+        self,
+        database: str,
+        name: str,
+        *,
+        access: Sequence[str] | None = None,
+        read_timeout: int | None = None,
+        result_set_limit: int | None = None,
+        types: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Creates the named group on `database` (`"*"` for every database), or replaces it if
+        it exists (root only), through `POST /api/v1/server/groups`. An argument left as
+        `None` is not sent."""
+        body = save_group_request(database, name, access, read_timeout, result_set_limit, types)
+        unwrap(create_or_update_group.sync_detailed(client=self.raw, body=body))
+
+    def delete_group(self, database: str, name: str) -> None:
+        """Deletes one group of one database (root only) through
+        `DELETE /api/v1/server/groups`. A group that does not exist raises `ArcadeDBError`
+        with status 404."""
+        unwrap(delete_group.sync_detailed(client=self.raw, database=database, name=name))
+
+    def list_groups(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """Lists every security group (root only) as plain dicts, keyed by database name
+        (`"*"` covers every database) and then by group name. The group document's schema
+        version is not returned."""
+        return groups_from(unwrap(list_groups.sync_detailed(client=self.raw)))
 
     def close(self) -> None:
         """Closes the underlying httpx client and its connection pool."""

@@ -26,8 +26,9 @@ SESSION_HEADER = "arcadedb-session-id"
 #: begin request, it labels every statement of that session that carries no label of its own.
 QUERY_TAG_HEADER = "X-ArcadeDB-Query-Tag"
 
-#: Query/command language, as accepted by the `/query` and `/command` endpoints.
-QueryLanguage = Literal["sql", "cypher", "gremlin", "graphql", "mongo"]
+#: Query/command language, as accepted by the `/query` and `/command` endpoints. `"sqlscript"`
+#: runs several SQL statements, separated by `;`, as one script.
+QueryLanguage = Literal["sql", "sqlscript", "cypher", "gremlin", "graphql", "mongo"]
 
 T = TypeVar("T")
 

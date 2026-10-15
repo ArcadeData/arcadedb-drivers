@@ -161,8 +161,8 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
 
 - **The facade raises; `.raw` does not, for a non-2xx status.** Every facade method (`query`,
   `command`, `transaction`, `list_databases`, `exists`, `server_info`, `health`, `ready`, the
-  `ts`/`grafana`/`promql` namespaces, ...) raises `ArcadeDBError` on a non-2xx response.
-  `ArcadeDBServer.raw` - the generated `Client` - never raises for a non-2xx status; every one of
+  administration methods, the `ts`/`grafana`/`promql` namespaces, ...) raises `ArcadeDBError` on a
+  non-2xx response. `ArcadeDBServer.raw` - the generated `Client` - never raises for a non-2xx status; every one of
   its operations returns a `Response` whose `status_code` and `parsed` the caller inspects
   directly. That guarantee does not extend to a malformed *2xx* body: the generated model's
   `from_dict` can still raise out of the parser on a 200 response that does not match its declared
@@ -302,10 +302,20 @@ disagree.
    **`QueryResponse` with `result` typed as an array.** A real admin command (e.g. `create
    database`) answers with a bare string result, not the array shape the contract promises for
    this endpoint's 200 response, so the generated model's `from_dict` iterates that string
-   character by character as if it were a list of row objects and raises `ValueError`. No facade
-   method wraps `POST /api/v1/server` at all, so only `.raw` and `e2e/conftest.py`'s `database`
-   fixture are affected. The fixture creates its test database through the pooled httpx client
-   directly (`srv.raw.get_httpx_client().post(...)`), for exactly this reason - see its docstring.
+   character by character as if it were a list of row objects and raises `ValueError`.
+   `server_command` (issue #122; the request and response helpers are in `facade/admin.py`)
+   therefore posts through the pooled httpx client directly and returns the parsed body, and
+   `create_database`/`drop_database` go through it; do not route them back through the generated
+   `execute_server_command`. `e2e/conftest.py`'s `database` fixture still creates its test
+   database the same way by hand (`srv.raw.get_httpx_client().post(...)`), which predates the
+   facade method - see its docstring.
+
+   Two statuses on the administration path are worth knowing, both measured live and pinned by `e2e/test_admin.py`: a database that already exists is a 400 ("Cannot execute
+   command", the reason in `detail`), and a user that already exists is a **409**. The 409 is
+   recent: until ArcadeData/arcadedb#10076 (fixing #10073, 2026-10-15) the server threw
+   `ServerSecurityException`, which its HTTP layer maps to 403 "Security error", the status a
+   non-root caller also gets. The facade classifies neither; the docstrings tell a caller that a
+   409 from `create_user` means "already there".
 
 Both defects are upstream contract inaccuracies. Both would be fixed by correcting the OpenAPI
 contract's response schemas (element types in the first case, `POST /api/v1/server`'s `result`

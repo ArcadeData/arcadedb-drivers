@@ -46,6 +46,9 @@ const { result } = await db.query({
 });
 ```
 
+`language` is a `QueryLanguage`: `"sql"`, `"sqlscript"` (several `;`-separated SQL statements run as
+one script, usually through `command`), `"cypher"`, `"gremlin"`, `"graphql"` or `"mongo"`.
+
 A bearer token (for example, a session token returned by `/api/v1/login`) works the same way:
 
 ```ts
@@ -688,6 +691,51 @@ call, or an `error` check on `raw`, will not see an `ArcadeDBError` for these:
 
 Neither is normalized into `ArcadeDBError` today; a `catch` around a facade call may see a
 `TypeError` or `SyntaxError` instead of the `ArcadeDBError` this README otherwise promises.
+
+## Administration: databases, users and groups
+
+```ts
+await server.createDatabase("tenant_a");
+await server.createUser("alice", "a-long-password", { databases: { tenant_a: ["admin"] } }); // "*" = every database
+const users = await server.listUsers(); // [{ name: "alice", databases: { tenant_a: ["admin"] } }, ...]
+await server.updateUser("alice", { password: "another-password" });
+await server.dropUser("alice");
+await server.dropDatabase("tenant_a");
+```
+
+All of these are root-only, and every failure throws `ArcadeDBError`, as for any facade method.
+Users and groups have dedicated endpoints with a structured body (`/api/v1/server/users`,
+`/api/v1/server/groups`): `createUser`, `updateUser`, `dropUser`, `listUsers`, `saveGroup`,
+`deleteGroup`, `listGroups`. Databases have none, so `createDatabase` and `dropDatabase` send
+`create database <name>` and `drop database <name>` through `POST /api/v1/server`. They reject an
+empty name, or one with leading or trailing white space, with a `RangeError` before sending
+anything, because the server trims the name it reads out of the command and would act on a
+different database than the one you named. Anything else in the name is sent as given, embedded
+spaces included: one request runs one command, so a name cannot smuggle in a second command, but
+validate a name built from untrusted input yourself.
+
+**"Already exists" differs between users and databases.** Both statuses were measured against a
+real server; they are what the e2e suite pins.
+
+- A user that already exists is a **409** (`error` "User already exists"), so a 409 from
+  `createUser` means "already there" and create-if-absent can catch it. Servers built before
+  ArcadeData/arcadedb#10076 answer **403** "Security error" instead, which is also what a non-root
+  caller gets; against those, do not read 403 as "already exists".
+- A database that already exists is a **400** (`error` "Cannot execute command", `detail`
+  "Database '<name>' already exists"), the status every invalid server command gets. Only the
+  `detail` text tells it apart, and this client does not match on message text: to create a
+  database only when it is missing, call `exists` first (as root it sees every database, so its
+  `false` is reliable there). Another client can still create it between the two calls; the second
+  create then fails as above.
+
+`updateUser` and `saveGroup` send only the fields you pass: one left out keeps the server's current
+value. `updateUser(name, { databases: {} })` sends the empty object, which removes every assignment.
+
+`server.serverCommand(command)` runs any other server command and returns the whole parsed body as a
+`Record<string, unknown>`. The contract types that body as `QueryResponse`, with an array `result`,
+but administrative commands answer `{"result": "ok"}` and other commands answer shapes of their
+own; `openapi-fetch` does not validate, so through `raw` the same body arrives typed as something
+it is not. The command string is sent as given.
 
 ## What only `raw` reaches
 

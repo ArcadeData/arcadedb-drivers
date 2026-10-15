@@ -297,7 +297,11 @@ class GrpcValue(_message.Message):
     bytes_value: _builtins.bytes
     """binary"""
     logical_type: _builtins.str
-    """Optional semantic hint (non-breaking): "date", "datetime", "rid", "decimal(38,9)", etc."""
+    """Optional semantic hint (non-breaking): "date", "datetime", "rid", "decimal(38,9)", etc.
+    A value that holds more than an instant travels as ISO text in string_value: "zoned_datetime"
+    (ISO_ZONED_DATE_TIME, zone id kept), "offset_time" (ISO_OFFSET_TIME), "local_time" (ISO_LOCAL_TIME), "duration" (ISO 8601
+    duration: months, days, seconds and nanoseconds kept apart).
+    """
     @_builtins.property
     def timestamp_value(self) -> _timestamp_pb2.Timestamp:
         """date/datetime"""
@@ -1893,12 +1897,17 @@ class InsertError(_message.Message):
     ROW_INDEX_FIELD_NUMBER: _builtins.int
     CODE_FIELD_NUMBER: _builtins.int
     FIELD_FIELD_NUMBER: _builtins.int
+    LEADER_ADDRESS_FIELD_NUMBER: _builtins.int
     message: _builtins.str
     row_index: _builtins.int
     """index within the chunk (or -1 if not applicable)"""
     code: _builtins.str
     """optional machine-usable code"""
     field: _builtins.str
+    leader_address: _builtins.str
+    """Set only when code is "NOT_LEADER": the server refused the write because it is not the cluster leader, and this is
+    the address of the leader to send the load to (the one the gRPC trailers carry for the same refusal)
+    """
     def __init__(
         self,
         *,
@@ -1906,10 +1915,11 @@ class InsertError(_message.Message):
         row_index: _builtins.int = ...,
         code: _builtins.str = ...,
         field: _builtins.str = ...,
+        leader_address: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["code", b"code", "field", b"field", "message", b"message", "row_index", b"row_index"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["code", b"code", "field", b"field", "leader_address", b"leader_address", "message", b"message", "row_index", b"row_index"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

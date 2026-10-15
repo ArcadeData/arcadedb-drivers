@@ -130,9 +130,12 @@ def sync_detailed(
     10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
     'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
     yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
-    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
-    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
-    forwarded to the leader: each server lists and stops its own work
+    transaction <session id>' rolls one back and ends it. A command terminated inside a session ends the
+    session too, rolling it back, while a terminated read leaves the session to its client: the answer
+    for a statement that ran in a session carries its 'sessionId' and 'sessionOpen' (for a 'terminating'
+    statement only the state at the time of the answer: a command ends its session as it stops). A
+    terminated request is answered 409 'Query terminated'. These commands are never forwarded to the
+    leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):
@@ -190,9 +193,12 @@ def sync(
     10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
     'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
     yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
-    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
-    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
-    forwarded to the leader: each server lists and stops its own work
+    transaction <session id>' rolls one back and ends it. A command terminated inside a session ends the
+    session too, rolling it back, while a terminated read leaves the session to its client: the answer
+    for a statement that ran in a session carries its 'sessionId' and 'sessionOpen' (for a 'terminating'
+    statement only the state at the time of the answer: a command ends its session as it stops). A
+    terminated request is answered 409 'Query terminated'. These commands are never forwarded to the
+    leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):
@@ -245,9 +251,12 @@ async def asyncio_detailed(
     10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
     'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
     yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
-    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
-    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
-    forwarded to the leader: each server lists and stops its own work
+    transaction <session id>' rolls one back and ends it. A command terminated inside a session ends the
+    session too, rolling it back, while a terminated read leaves the session to its client: the answer
+    for a statement that ran in a session carries its 'sessionId' and 'sessionOpen' (for a 'terminating'
+    statement only the state at the time of the answer: a command ends its session as it stops). A
+    terminated request is answered 409 'Query terminated'. These commands are never forwarded to the
+    leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):
@@ -303,9 +312,12 @@ async def asyncio(
     10000), answering each with a status: 'terminated' (it stopped and what it wrote was rolled back),
     'completed' (it ended on its own before it noticed: what it did stands), 'terminating' (not stopped
     yet) or 'not found'; 'list transactions' lists the open transaction sessions and 'terminate
-    transaction <session id>' rolls one back and ends it. A statement terminated inside a session ends
-    the session too. A terminated request is answered 409 'Query terminated'. These commands are never
-    forwarded to the leader: each server lists and stops its own work
+    transaction <session id>' rolls one back and ends it. A command terminated inside a session ends the
+    session too, rolling it back, while a terminated read leaves the session to its client: the answer
+    for a statement that ran in a session carries its 'sessionId' and 'sessionOpen' (for a 'terminating'
+    statement only the state at the time of the answer: a command ends its session as it stops). A
+    terminated request is answered 409 'Query terminated'. These commands are never forwarded to the
+    leader: each server lists and stops its own work
 
     Args:
         x_request_id (str | Unset):

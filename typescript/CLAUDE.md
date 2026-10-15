@@ -91,9 +91,9 @@ guarantee — and the test.
 
 `src/facade/admin.ts` (issue #122) holds the server-administration calls behind
 `ArcadeDBServer`'s `serverCommand`, `createDatabase`/`dropDatabase` and the user and group
-methods. It is imported **statically**, like `listDatabases` and the rest of the server surface:
-it is not one of the four tree-shaken namespaces, and `test/treeshake.test.ts` does not look for
-it. `POST /api/v1/server` goes through `raw.POST` like any other call; no bypass is needed here
+methods. Since #123 it is loaded with a dynamic `import()`, like `facade/session.ts`, to keep the
+eager chunk under `test/treeshake.test.ts`'s ceiling; the test has no marker for it, only the size
+check. `POST /api/v1/server` goes through `raw.POST` like any other call; no bypass is needed here
 because `openapi-fetch` does not validate, but the 200 body is typed `QueryResponse` while an
 administrative command answers `{"result": "ok"}`, so `serverCommand` returns it as
 `Record<string, unknown>` instead. A duplicate user is 409 (403 before ArcadeData/arcadedb#10076)
@@ -101,19 +101,21 @@ and so is a duplicate database (400 before ArcadeData/arcadedb#10079); `e2e/admi
 both.
 
 `src/facade/session.ts` (issue #123) holds `login`, `logout`, `listSessions` and the API-token
-calls, the Go client's design carried over. Unlike `admin.ts` it is loaded with a **dynamic
-`import()`**: the static admin surface had already grown the eager chunk from ~11KB to ~18KB, and
-importing this one statically took it past `test/treeshake.test.ts`'s 20,000-byte ceiling. Even
-lazy, the method stubs leave the chunk at ~19.9KB, so the next static addition to
-`ArcadeDBServer` will trip the ceiling; moving `admin.ts` behind `import()` too is the cheap fix,
-not raising it. `NotSessionTokenError` lives in `errors.ts` so exporting it does not pull the
-module in. Three calls refuse locally, unsent: `logout` unless the `auth` middleware presents
+calls, the Go client's design carried over. It is loaded with a **dynamic `import()`**, and so,
+since then, is `admin.ts`, because `test/treeshake.test.ts`'s 20,000-byte ceiling is close. The
+eager chunk measured 18,346 bytes before #123, 21,415 with `session.ts` imported statically,
+19,907 with it lazy and 19,126 with `admin.ts` lazy too; the "~11KB today" in that test's comment
+is stale, and the growth since then is not one module that a lazy import could take back. About
+870 bytes of headroom remain, so the next addition to `ArcadeDBServer` should be lazy as well;
+raising the ceiling instead weakens what the test guards. `NotSessionTokenError` lives in
+`errors.ts` so exporting it does not pull the module in. Three calls refuse locally, unsent: `logout` unless the `auth` middleware presents
 `Bearer AU-...` (read with `internal/authorization.ts`, the probe the insert session uses;
 the server answers 204 to a Basic or API-token logout and invalidates nothing), `deleteAPIToken`
 for anything but 64 lowercase hex characters (the error never repeats the argument), and
 `createAPIToken` for an `expiresAt` at or before the epoch, which the server would read as
 "never". `loginAs` and `withToken` build a **new** client through `createClient` from the options
-`ArcadeDBServer` now keeps (a third constructor argument): a per-call `Authorization` would lose
+`ArcadeDBServer` now keeps (a third constructor argument, which `db()` also uses as the insert
+session's context, so `createClient` no longer passes that separately): a per-call `Authorization` would lose
 to the `auth` middleware, which sets the header after the call's own are applied. The statuses
 pinned by `e2e/session.test.ts` are Go's: wrong Basic credentials 403, a duplicate API-token
 name 409, an unknown hash 404.

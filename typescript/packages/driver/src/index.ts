@@ -9,7 +9,6 @@ import { commandStream, queryStream } from "./facade/stream.js";
 import type { NdJsonQueryEvent } from "./facade/stream.js";
 import { batchLoad, batchLoadStream } from "./facade/batch.js";
 import { basicAuth, bearerAuth } from "./auth.js";
-import * as admin from "./facade/admin.js";
 import type { APIToken, CreateAPITokenOptions, CreatedAPIToken, LoginResult, Session } from "./facade/session.js";
 import type {
   CreateUserOptions,
@@ -429,6 +428,11 @@ export class ArcadeDBServer {
    */
   readonly raw: RawClient;
 
+  /**
+   * `createClient` passes only `options`, which also serves as the insert session's context.
+   * `insertContext` is kept for servers constructed by hand, and wins over `options` when both
+   * are given.
+   */
   constructor(
     client: RawClient,
     private readonly insertContext?: InsertSessionContext,
@@ -630,7 +634,8 @@ export class ArcadeDBServer {
    * endpoints with a structured body instead of a command string.
    */
   async serverCommand(command: string): Promise<Record<string, unknown>> {
-    return admin.serverCommand(this.raw, command);
+    const { serverCommand } = await import("./facade/admin.js");
+    return serverCommand(this.raw, command);
   }
 
   /**
@@ -652,7 +657,8 @@ export class ArcadeDBServer {
    * is reliable, although another client can still create the database between the two calls.
    */
   async createDatabase(name: string): Promise<void> {
-    return admin.databaseCommand(this.raw, "create", name);
+    const { databaseCommand } = await import("./facade/admin.js");
+    return databaseCommand(this.raw, "create", name);
   }
 
   /**
@@ -664,7 +670,8 @@ export class ArcadeDBServer {
    * `ArcadeDBError` with status 400.
    */
   async dropDatabase(name: string): Promise<void> {
-    return admin.databaseCommand(this.raw, "drop", name);
+    const { databaseCommand } = await import("./facade/admin.js");
+    return databaseCommand(this.raw, "drop", name);
   }
 
   /**
@@ -682,7 +689,8 @@ export class ArcadeDBServer {
    * in `listUsers` first rather than reading a 403 as "already exists".
    */
   async createUser(name: string, password: string, opts: CreateUserOptions = {}): Promise<void> {
-    return admin.createUser(this.raw, name, password, opts);
+    const { createUser } = await import("./facade/admin.js");
+    return createUser(this.raw, name, password, opts);
   }
 
   /**
@@ -692,7 +700,8 @@ export class ArcadeDBServer {
    * exist throws `ArcadeDBError` with status 404.
    */
   async updateUser(name: string, opts: UpdateUserOptions = {}): Promise<void> {
-    return admin.updateUser(this.raw, name, opts);
+    const { updateUser } = await import("./facade/admin.js");
+    return updateUser(this.raw, name, opts);
   }
 
   /**
@@ -700,7 +709,8 @@ export class ArcadeDBServer {
    * exist throws `ArcadeDBError` with status 404; root cannot be deleted (400).
    */
   async dropUser(name: string): Promise<void> {
-    return admin.dropUser(this.raw, name);
+    const { dropUser } = await import("./facade/admin.js");
+    return dropUser(this.raw, name);
   }
 
   /**
@@ -708,7 +718,8 @@ export class ArcadeDBServer {
    * every database). The password hash is never returned.
    */
   async listUsers(): Promise<ServerUser[]> {
-    return admin.listUsers(this.raw);
+    const { listUsers } = await import("./facade/admin.js");
+    return listUsers(this.raw);
   }
 
   /**
@@ -716,7 +727,8 @@ export class ArcadeDBServer {
    * (root only), through `POST /api/v1/server/groups`. A field left out of `opts` is not sent.
    */
   async saveGroup(database: string, name: string, opts: SaveGroupOptions = {}): Promise<void> {
-    return admin.saveGroup(this.raw, database, name, opts);
+    const { saveGroup } = await import("./facade/admin.js");
+    return saveGroup(this.raw, database, name, opts);
   }
 
   /**
@@ -724,7 +736,8 @@ export class ArcadeDBServer {
    * that does not exist throws `ArcadeDBError` with status 404.
    */
   async deleteGroup(database: string, name: string): Promise<void> {
-    return admin.deleteGroup(this.raw, database, name);
+    const { deleteGroup } = await import("./facade/admin.js");
+    return deleteGroup(this.raw, database, name);
   }
 
   /**
@@ -732,12 +745,13 @@ export class ArcadeDBServer {
    * and then by group name. The group document's schema version is not returned.
    */
   async listGroups(): Promise<Record<string, Record<string, GroupDefinition>>> {
-    return admin.listGroups(this.raw);
+    const { listGroups } = await import("./facade/admin.js");
+    return listGroups(this.raw);
   }
 
   /** Scopes subsequent calls to one database, reached through this server. */
   db(name: string): ArcadeDBDatabase {
-    return new ArcadeDBDatabase(this.raw, name, undefined, this.insertContext);
+    return new ArcadeDBDatabase(this.raw, name, undefined, this.insertContext ?? this.options);
   }
 }
 
@@ -764,5 +778,6 @@ export function createClient(opts: CreateClientOptions): ArcadeDBServer {
   if (opts.auth) {
     client.use(opts.auth);
   }
-  return new ArcadeDBServer(client, { baseUrl: opts.baseUrl, auth: opts.auth, WebSocket: opts.WebSocket }, opts);
+  // `opts` doubles as the insert session's context (`baseUrl`, `auth`, `WebSocket`); see `db()`.
+  return new ArcadeDBServer(client, undefined, opts);
 }

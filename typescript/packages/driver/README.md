@@ -869,8 +869,8 @@ supported.
 ## Bundling and tree-shaking
 
 `db.ts`, `db.grafana`, `db.promql`, `db.vector`, and `db.insertSession` each load their implementation with a dynamic
-`import()` rather than a static one, and so do the server's login, session and API-token
-methods. On a bundler that supports code splitting - Vite, webpack,
+`import()` rather than a static one, and so do the server's administration, login, session and
+API-token methods. On a bundler that supports code splitting - Vite, webpack,
 Rollup, or esbuild run with `--splitting` - code that only calls `query`, `command`, and
 `transaction` gets a chunk that excludes the time-series, Grafana, PromQL, and vector-search
 modules and the insert session; they load only if and when `db.ts`, `db.grafana`, `db.promql`,

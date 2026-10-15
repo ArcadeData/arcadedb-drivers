@@ -47,13 +47,14 @@ afterAll(async () => {
 });
 
 describe("server administration", () => {
-  it("creates and drops a database; an existing name is a 400, not a 409", async () => {
+  // 409 since ArcadeData/arcadedb#10079; earlier servers answered 400 "Cannot execute command".
+  it("creates and drops a database; an existing name is a 409", async () => {
     const name = unique("tsadmin");
     await root.createDatabase(name);
     expect(await root.exists(name)).toBe(true);
 
     const dup = await rejected(root.createDatabase(name));
-    expect(dup.status).toBe(400);
+    expect(dup.status).toBe(409);
     expect(dup.detail).toContain("already exists");
 
     await root.dropDatabase(name);

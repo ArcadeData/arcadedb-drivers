@@ -765,19 +765,18 @@ the command and would act on a different database than the one you named. Anythi
 name is sent as given, embedded spaces included: one request runs one command, so a name cannot
 smuggle in a second command, but validate a name built from untrusted input yourself.
 
-**"Already exists" differs between users and databases.** Both statuses were measured against a
+**"Already exists" is a 409 for users and databases alike.** Both statuses were measured against a
 real server; they are what the e2e suite pins.
 
 - A user that already exists is a **409** (`error` "User already exists"), so a 409 from
   `create_user` means "already there" and create-if-absent can catch it. Servers built before
   ArcadeData/arcadedb#10076 answer **403** "Security error" instead, which is also what a
   non-root caller gets; against those, do not read 403 as "already exists".
-- A database that already exists is a **400** (`error` "Cannot execute command", `detail`
-  "Database '<name>' already exists"), the status every invalid server command gets. Only the
-  `detail` text tells it apart, and this client does not match on message text: to create a
-  database only when it is missing, call `exists` first (as root it sees every database, so its
-  `False` is reliable there). Another client can still create it between the two calls; the
-  second create then fails as above.
+- A database that already exists is a **409** too (`error` "Database already exists", the
+  name in `detail`). Servers built before ArcadeData/arcadedb#10079 answer **400** "Cannot
+  execute command" instead, the status every invalid server command gets; against those,
+  call `exists` first to create a database only when it is missing (as root it sees every database,
+  so its `False` is reliable there), knowing another client can still create it in between.
 
 `update_user` and `save_group` send only the arguments you pass: one left as `None` keeps the
 server's current value. `update_user(name, databases={})` sends the empty mapping, which removes

@@ -27,10 +27,10 @@ def test_create_and_drop_database(base_url: str) -> None:
         srv.create_database(name)
         assert srv.exists(name)
 
-        # An existing name is a 400, not a 409.
+        # 409 since ArcadeData/arcadedb#10079; earlier servers answered 400.
         with pytest.raises(ArcadeDBError) as info:
             srv.create_database(name)
-        assert info.value.status == 400
+        assert info.value.status == 409
         assert "already exists" in (info.value.detail or "")
 
         srv.drop_database(name)

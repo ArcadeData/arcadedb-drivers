@@ -97,7 +97,8 @@ it. `POST /api/v1/server` goes through `raw.POST` like any other call; no bypass
 because `openapi-fetch` does not validate, but the 200 body is typed `QueryResponse` while an
 administrative command answers `{"result": "ok"}`, so `serverCommand` returns it as
 `Record<string, unknown>` instead. A duplicate user is 409 (403 before ArcadeData/arcadedb#10076)
-and a duplicate database is 400; `e2e/admin.test.ts` pins both.
+and so is a duplicate database (400 before ArcadeData/arcadedb#10079); `e2e/admin.test.ts` pins
+both.
 
 `src/facade/insert-session.ts` is the `/ws` duplex insert session. It has **no WebSocket
 dependency**: it uses the global `WebSocket` (Node 22+) or a class injected through

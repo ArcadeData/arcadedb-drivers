@@ -118,3 +118,14 @@ def test_the_namespaces_are_cached_per_database_handle() -> None:
         assert db.ts is db.ts
         assert db.grafana is db.grafana
         assert db.promql is db.promql
+def test_label_values(client, test_db):
+    res = client.dashboards(test_db).promql.label_values("__name__")
+    assert res.status == "success"
+    assert isinstance(res.data, list)
+
+
+@pytest.mark.asyncio
+async def test_async_label_values(async_client, test_db):
+    res = await async_client.dashboards(test_db).promql.label_values("__name__")
+    assert res.status == "success"
+    assert isinstance(res.data, list)

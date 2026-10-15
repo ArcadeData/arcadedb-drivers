@@ -518,12 +518,12 @@ export class ArcadeDBServer {
    * request runs one command, so a name cannot smuggle in a second one, but a name built from
    * untrusted input should still be validated by the caller.
    *
-   * A name that already exists throws `ArcadeDBError` with status **400**, not 409: the server
-   * reports it as an invalid argument (`error` "Cannot execute command", `detail` "Database
-   * '<name>' already exists"), so only the `detail` text tells it apart from other 400s, and this
-   * client does not match on it. To create a database only when it is missing, call `exists`
-   * first: as root it sees every database, so its `false` is reliable, although another client
-   * can still create the database between the two calls.
+   * A name that already exists throws `ArcadeDBError` with status **409** (`error` "Database
+   * already exists"), so a caller can treat 409 as "already there" to create a database only when
+   * it is missing. A server built before ArcadeData/arcadedb#10079 answers 400 "Cannot execute
+   * command" instead, with the reason only in `detail`, which this client does not match on;
+   * against such a server, call `exists` first: as root it sees every database, so its `false`
+   * is reliable, although another client can still create the database between the two calls.
    */
   async createDatabase(name: string): Promise<void> {
     return admin.databaseCommand(this.raw, "create", name);

@@ -33,10 +33,10 @@ func TestCreateAndDropDatabase(t *testing.T) {
 		t.Fatalf("exists after create: %v %v", ok, err)
 	}
 
-	// An existing name is a 400, not a 409: CreateDatabase's doc comment and the README
-	// rely on this.
+	// 409 since ArcadeData/arcadedb#10079; earlier servers answered 400 "Cannot execute
+	// command". CreateDatabase's doc comment and the README rely on it.
 	ae := asArcadeDBError(t, srv.CreateDatabase(ctx, name))
-	if ae.Status != 400 || !strings.Contains(ae.Detail, "already exists") {
+	if ae.Status != 409 || !strings.Contains(ae.Detail, "already exists") {
 		t.Fatalf("create twice: %#v", ae)
 	}
 

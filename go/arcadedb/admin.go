@@ -61,12 +61,12 @@ func (s *Server) ServerCommand(ctx context.Context, command string) (map[string]
 
 // CreateDatabase creates the named database (root only). There is no dedicated endpoint, so
 // it sends "create database <name>" through ServerCommand. A name that already exists is
-// refused with a 400 *ArcadeDBError, not a 409: the server reports it as an invalid argument
-// (ErrorMessage "Cannot execute command", Detail "Database '<name>' already exists"), so only
-// the Detail text tells it apart from other 400s, and this client does not match on it. To
-// create a database only when it is missing, ask Exists first: as root, Exists sees every
-// database, so its false is reliable, although another client can still create the database
-// between the two calls.
+// refused with a 409 *ArcadeDBError (ErrorMessage "Database already exists"), so a caller can
+// treat a 409 as "already there" to create a database only when it is missing. A server built
+// before ArcadeData/arcadedb#10079 answers 400 "Cannot execute command" instead, with the
+// reason only in Detail, which this client does not match on; against such a server, ask
+// Exists first: as root, Exists sees every database, so its false is reliable, although
+// another client can still create the database between the two calls.
 //
 // Beyond that check the name is sent as given, embedded spaces included, and the server takes
 // the rest of the command as the name: one request runs one command, so a name cannot smuggle

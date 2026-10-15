@@ -126,7 +126,8 @@ def test_create_user_without_databases_sends_none() -> None:
     ("status", "body"),
     [
         (400, {"error": "User password must be at least 8 characters"}),
-        (403, {"error": "Security error", "detail": "User 'alice' already exists"}),
+        (403, {"error": "Security error"}),
+        (409, {"error": "User already exists"}),
     ],
 )
 def test_create_user_raises_arcadedb_error(status: int, body: dict[str, str]) -> None:
@@ -296,3 +297,27 @@ async def test_async_users_and_groups() -> None:
     assert dropped.calls.last.request.url.params["name"] == "alice"
     assert sent_json(saved) == {"database": "t", "name": "reader", "access": ["readRecord"]}
     assert deleted.calls.last.request.url.params["database"] == "t"
+
+
+@respx.mock
+def test_update_user_with_nothing_to_change_sends_an_empty_body() -> None:
+    route = respx.put(USERS, params={"name": "alice"}).mock(return_value=httpx.Response(200, json={"result": "ok"}))
+    with ArcadeDBServer(base_url=BASE_URL) as srv:
+        srv.update_user("alice")
+    assert sent_json(route) == {}
+
+
+@respx.mock
+def test_save_group_with_only_the_required_arguments() -> None:
+    route = respx.post(GROUPS).mock(return_value=httpx.Response(200, json={"result": "ok"}))
+    with ArcadeDBServer(base_url=BASE_URL) as srv:
+        srv.save_group("tenant_a", "reader")
+    assert sent_json(route) == {"database": "tenant_a", "name": "reader"}
+
+
+@respx.mock
+def test_a_database_name_with_embedded_space_is_sent_as_given() -> None:
+    route = respx.post(SERVER).mock(return_value=httpx.Response(200, json={"result": "ok"}))
+    with ArcadeDBServer(base_url=BASE_URL) as srv:
+        srv.create_database("a b")
+    assert sent_json(route)["command"] == "create database a b"

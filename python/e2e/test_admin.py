@@ -56,11 +56,11 @@ def test_per_user_isolation(base_url: str, database: str) -> None:
                 listed = {u["name"]: u for u in srv.list_users()}
                 assert listed[user]["databases"] == {tenant: ["admin"]}
 
-                # The contract declares 409; the server raises a security exception, mapped to 403.
+                # 409 since ArcadeData/arcadedb#10076; earlier servers answered 403 "Security error".
                 with pytest.raises(ArcadeDBError) as info:
                     srv.create_user(user, "first-password")
-                assert info.value.status == 403
-                assert "already exists" in (info.value.detail or "")
+                assert info.value.status == 409
+                assert "already exists" in str(info.value)
 
                 with ArcadeDBServer(base_url=base_url, auth=basic_auth(user, "first-password")) as as_user:
                     visible = as_user.list_databases()
@@ -113,7 +113,7 @@ async def test_async_admin_round_trip(base_url: str) -> None:
             assert user in {u["name"] for u in await srv.list_users()}
             with pytest.raises(ArcadeDBError) as info:
                 await srv.create_user(user, "first-password")
-            assert info.value.status == 403
+            assert info.value.status == 409
             await srv.update_user(user, databases={})
             assert {u["name"]: u for u in await srv.list_users()}[user]["databases"] == {}
             await srv.drop_user(user)

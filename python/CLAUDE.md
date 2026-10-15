@@ -310,12 +310,12 @@ disagree.
    database the same way by hand (`srv.raw.get_httpx_client().post(...)`), which predates the
    facade method - see its docstring.
 
-   Two statuses on the administration path look like client bugs and are not, both measured live
-   and pinned by `e2e/test_admin.py`: a database that already exists is a 400 ("Cannot execute
-   command", the reason in `detail`), and a user that already exists is a **403** "Security
-   error", although the contract declares 409 for `createUser` (the server throws
-   `ServerSecurityException`, which its HTTP layer maps to 403; ArcadeData/arcadedb#10073). The
-   facade classifies neither.
+   Two statuses on the administration path are worth knowing, both measured live and pinned by `e2e/test_admin.py`: a database that already exists is a 400 ("Cannot execute
+   command", the reason in `detail`), and a user that already exists is a **409**. The 409 is
+   recent: until ArcadeData/arcadedb#10076 (fixing #10073, 2026-10-15) the server threw
+   `ServerSecurityException`, which its HTTP layer maps to 403 "Security error", the status a
+   non-root caller also gets. The facade classifies neither; the docstrings tell a caller that a
+   409 from `create_user` means "already there".
 
 Both defects are upstream contract inaccuracies. Both would be fixed by correcting the OpenAPI
 contract's response schemas (element types in the first case, `POST /api/v1/server`'s `result`

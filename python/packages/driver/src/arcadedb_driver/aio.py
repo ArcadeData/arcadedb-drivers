@@ -587,7 +587,10 @@ class AsyncArcadeDBServer:
         There is no dedicated endpoint, so this sends `create database <name>` through
         `server_command`. A name that is empty or has leading or trailing white space raises
         `ValueError` before anything is sent: the server trims the name it reads out of the
-        command, so it would create a database other than the one named.
+        command, so it would create a database other than the one named. Anything else is sent
+        as given, embedded spaces included, and the server takes the rest of the command as the
+        name: one request runs one command, so a name cannot smuggle in a second one, but a
+        name built from untrusted input should still be validated by the caller.
 
         A name that already exists raises `ArcadeDBError` with status **400**, not 409: the
         server reports it as an invalid argument (`error` "Cannot execute command", `detail`
@@ -620,11 +623,12 @@ class AsyncArcadeDBServer:
         starting with `apitoken:`, and a password shorter than 8 or longer than 256
         characters, each with a 400 `ArcadeDBError`.
 
-        A name that already exists raises `ArcadeDBError` with status **403** (`error`
-        "Security error", `detail` "User '<name>' already exists"), not the 409 the contract
-        declares: the server raises it as a security exception, and 403 is also what a
-        non-root caller gets. To create a user only when it is missing, look for it in
-        `list_users` first rather than reading a 403 as "already exists".
+        A name that already exists raises `ArcadeDBError` with status **409** (`error` "User
+        already exists"), so a caller can treat 409 as "already there" to create a user only
+        when it is missing. A server built before ArcadeData/arcadedb#10076 answers 403
+        "Security error" instead, which is also what a non-root caller gets; against such a
+        server, look for the user in `list_users` first rather than reading a 403 as "already
+        exists".
         """
         unwrap(await create_user.asyncio_detailed(client=self.raw, body=create_user_request(name, password, databases)))
 

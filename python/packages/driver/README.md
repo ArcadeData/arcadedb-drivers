@@ -69,6 +69,9 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+`language` is a `QueryLanguage`: `"sql"`, `"sqlscript"` (several `;`-separated SQL statements run
+as one script, usually through `command`), `"cypher"`, `"gremlin"`, `"graphql"` or `"mongo"`.
+
 ## The result envelope, and why `truncated` matters
 
 `query` and `command` do not return bare rows. They return the whole response envelope:
@@ -739,6 +742,52 @@ the authenticated caller is not authorized to see it - the server's response doe
 the two cases, so this client cannot either. Do not treat `False` as proof that a database is
 absent; it only means "not visible to this caller right now."
 
+## Administration: databases, users and groups
+
+```python
+with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")) as srv:
+    srv.create_database("tenant_a")
+    srv.create_user("alice", "a-long-password", databases={"tenant_a": ["admin"]})  # "*" = every database
+    users = srv.list_users()  # [{"name": "alice", "databases": {"tenant_a": ["admin"]}}, ...]
+    srv.update_user("alice", password="another-password")
+    srv.drop_user("alice")
+    srv.drop_database("tenant_a")
+```
+
+`AsyncArcadeDBServer` has the same methods, awaited. All of them are root-only, and every failure
+raises `ArcadeDBError`, as for any facade method. Users and groups have dedicated endpoints with a
+structured body (`/api/v1/server/users`, `/api/v1/server/groups`): `create_user`, `update_user`,
+`drop_user`, `list_users`, `save_group`, `delete_group`, `list_groups`. Databases have none, so
+`create_database` and `drop_database` send `create database <name>` and `drop database <name>`
+through `POST /api/v1/server`. They raise `ValueError` for an empty name, or one with leading or
+trailing white space, before sending anything, because the server trims the name it reads out of
+the command and would act on a different database than the one you named.
+
+**"Already exists" is not a 409, and the two cases differ.** Both statuses were measured against a
+real server; they are what the e2e suite pins.
+
+- A database that already exists is a **400** (`error` "Cannot execute command", `detail`
+  "Database '<name>' already exists"), the status every invalid server command gets.
+- A user that already exists is a **403** (`error` "Security error", `detail` "User '<name>'
+  already exists"), although the contract declares 409: the server raises it as a security
+  exception (ArcadeData/arcadedb#10073). A 403 is also what a non-root caller gets, so do not
+  read 403 as "already exists".
+
+Neither is classified by this client, which does not match on message text. To create something
+only when it is missing, look first: `exists` (as root it sees every database, so its `False` is
+reliable there) or `list_users`. Another client can still create it between the two calls; the
+second create then fails as above.
+
+`update_user` and `save_group` send only the arguments you pass: one left as `None` keeps the
+server's current value. `update_user(name, databases={})` sends the empty mapping, which removes
+every assignment. `list_users` and `list_groups` return plain dicts, not generated models.
+
+`srv.server_command(command)` runs any other server command and returns the whole JSON body as a
+`dict`. It decodes the body itself rather than through the generated model, because the contract
+declares an array `result` where administrative commands answer `{"result": "ok"}`, which makes
+the generated `from_dict` raise; other commands answer shapes of their own. The command string is
+sent as given.
+
 ## Endpoints this client does not wrap
 
 Two distinct things are true about parts of the contract, and they should not be confused with
@@ -768,10 +817,10 @@ accept a copy of a database without a resync - a decision about which data survi
 operation for application code. No facade method wraps any `/cluster/*` endpoint; reach them through
 `.raw`'s generated operations when an operator means to.
 
-`POST /api/v1/server` (administrative commands) is likewise not wrapped by the facade, and reached
-through `.raw` returns a body that does not conform to its declared `QueryResponse` schema
-(`{"result": "ok"}` where an array is declared), so the generated model raises on an otherwise
-successful call.
+`POST /api/v1/server` reached through `.raw` returns a body that does not conform to its declared
+`QueryResponse` schema (`{"result": "ok"}` where an array is declared), so the generated model
+raises on an otherwise successful call. Use `srv.server_command` (see "Administration" above)
+instead.
 
 **Wrapped, but returning `dict[str, Any]` instead of a generated model.** Unlike `batch`,
 `prom/read`, and `prom/write` above, these three routes describe a JSON body the generator *can*

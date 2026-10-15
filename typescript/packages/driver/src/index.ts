@@ -8,6 +8,14 @@ import type { CommandOptions, QueryEnvelope, QueryOptions, TransactionOptions } 
 import { commandStream, queryStream } from "./facade/stream.js";
 import type { NdJsonQueryEvent } from "./facade/stream.js";
 import { batchLoad, batchLoadStream } from "./facade/batch.js";
+import * as admin from "./facade/admin.js";
+import type {
+  CreateUserOptions,
+  GroupDefinition,
+  SaveGroupOptions,
+  ServerUser,
+  UpdateUserOptions,
+} from "./facade/admin.js";
 import type { BatchLoadArgs, BatchSummary, NdJsonBatchEvent } from "./facade/batch.js";
 import type {
   GrafanaQueryOptions,
@@ -36,6 +44,14 @@ export { basicAuth, bearerAuth } from "./auth.js";
 export type { Middleware } from "openapi-fetch";
 export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions, TransactionOptions } from "./facade/data.js";
 export type { NdJsonQueryEvent } from "./facade/stream.js";
+export type {
+  CreateUserOptions,
+  GroupDefinition,
+  SaveGroupOptions,
+  ServerUser,
+  UpdateUserOptions,
+  UserDatabases,
+} from "./facade/admin.js";
 export type {
   BatchAck,
   CommittedFrame,
@@ -470,6 +486,127 @@ export class ArcadeDBServer {
       throw ArcadeDBError.fromResponse(response, error);
     }
     return true;
+  }
+
+  /**
+   * Runs one command through `POST /api/v1/server` and returns the whole parsed body.
+   *
+   * Most server commands are root-only; the contract's `executeServerCommand` lists them and
+   * says which ones any user may run. The body is returned as `Record<string, unknown>` because
+   * its shape depends on the command: `{"result": "ok"}` for an administrative command, a list
+   * for `list databases`, other shapes for others. The contract types it as `QueryResponse`, with
+   * an array `result`, which an administrative command's answer does not match; openapi-fetch
+   * does not validate, so `raw` would hand back the same body under the wrong type. Throws
+   * `ArcadeDBError` on a non-2xx status.
+   *
+   * The command is sent as given. Prefer `createDatabase` / `dropDatabase`, which refuse a name
+   * the server would silently trim, and the user and group methods, which use the dedicated
+   * endpoints with a structured body instead of a command string.
+   */
+  async serverCommand(command: string): Promise<Record<string, unknown>> {
+    return admin.serverCommand(this.raw, command);
+  }
+
+  /**
+   * Creates the named database (root only).
+   *
+   * There is no dedicated endpoint, so this sends `create database <name>` through
+   * `serverCommand`. A name that is empty or has leading or trailing white space rejects with a
+   * `RangeError` before anything is sent: the server trims the name it reads out of the command,
+   * so it would create a database other than the one named. Anything else is sent as given,
+   * embedded spaces included, and the server takes the rest of the command as the name: one
+   * request runs one command, so a name cannot smuggle in a second one, but a name built from
+   * untrusted input should still be validated by the caller.
+   *
+   * A name that already exists throws `ArcadeDBError` with status **400**, not 409: the server
+   * reports it as an invalid argument (`error` "Cannot execute command", `detail` "Database
+   * '<name>' already exists"), so only the `detail` text tells it apart from other 400s, and this
+   * client does not match on it. To create a database only when it is missing, call `exists`
+   * first: as root it sees every database, so its `false` is reliable, although another client
+   * can still create the database between the two calls.
+   */
+  async createDatabase(name: string): Promise<void> {
+    return admin.databaseCommand(this.raw, "create", name);
+  }
+
+  /**
+   * Drops the named database and deletes its files (root only).
+   *
+   * There is no dedicated endpoint, so this sends `drop database <name>` through `serverCommand`.
+   * A name that is empty or has leading or trailing white space rejects with a `RangeError` before
+   * anything is sent, as for `createDatabase`. A database that does not exist throws
+   * `ArcadeDBError` with status 400.
+   */
+  async dropDatabase(name: string): Promise<void> {
+    return admin.databaseCommand(this.raw, "drop", name);
+  }
+
+  /**
+   * Creates a server user (root only) through `POST /api/v1/server/users`.
+   *
+   * `opts.databases` maps a database name, or `"*"` for every database, to the groups the user
+   * holds there; omitted, no assignment is sent. The server refuses a blank name, a name starting
+   * with `apitoken:`, and a password shorter than 8 or longer than 256 characters, each with a
+   * 400 `ArcadeDBError`.
+   *
+   * A name that already exists throws `ArcadeDBError` with status **409** (`error` "User already
+   * exists"), so a caller can treat 409 as "already there" to create a user only when it is
+   * missing. A server built before ArcadeData/arcadedb#10076 answers 403 "Security error"
+   * instead, which is also what a non-root caller gets; against such a server, look for the user
+   * in `listUsers` first rather than reading a 403 as "already exists".
+   */
+  async createUser(name: string, password: string, opts: CreateUserOptions = {}): Promise<void> {
+    return admin.createUser(this.raw, name, password, opts);
+  }
+
+  /**
+   * Changes an existing user's password, database assignments, or both (root only), through
+   * `PUT /api/v1/server/users`. A field left out of `opts` is not sent, and the server keeps that
+   * value; an empty `databases` object IS sent, and removes every assignment. A user that does not
+   * exist throws `ArcadeDBError` with status 404.
+   */
+  async updateUser(name: string, opts: UpdateUserOptions = {}): Promise<void> {
+    return admin.updateUser(this.raw, name, opts);
+  }
+
+  /**
+   * Deletes a server user (root only) through `DELETE /api/v1/server/users`. A user that does not
+   * exist throws `ArcadeDBError` with status 404; root cannot be deleted (400).
+   */
+  async dropUser(name: string): Promise<void> {
+    return admin.dropUser(this.raw, name);
+  }
+
+  /**
+   * Lists every server user (root only), each with the groups it holds per database (`"*"` for
+   * every database). The password hash is never returned.
+   */
+  async listUsers(): Promise<ServerUser[]> {
+    return admin.listUsers(this.raw);
+  }
+
+  /**
+   * Creates the named group on `database` (`"*"` for every database), or replaces it if it exists
+   * (root only), through `POST /api/v1/server/groups`. A field left out of `opts` is not sent.
+   */
+  async saveGroup(database: string, name: string, opts: SaveGroupOptions = {}): Promise<void> {
+    return admin.saveGroup(this.raw, database, name, opts);
+  }
+
+  /**
+   * Deletes one group of one database (root only) through `DELETE /api/v1/server/groups`. A group
+   * that does not exist throws `ArcadeDBError` with status 404.
+   */
+  async deleteGroup(database: string, name: string): Promise<void> {
+    return admin.deleteGroup(this.raw, database, name);
+  }
+
+  /**
+   * Lists every security group (root only), keyed by database name (`"*"` covers every database)
+   * and then by group name. The group document's schema version is not returned.
+   */
+  async listGroups(): Promise<Record<string, Record<string, GroupDefinition>>> {
+    return admin.listGroups(this.raw);
   }
 
   /** Scopes subsequent calls to one database, reached through this server. */

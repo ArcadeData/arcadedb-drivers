@@ -7,8 +7,11 @@ import { SESSION_HEADER, buildCommandBody, buildQueryBody, queryTagHeader, state
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
 type RawClient = Client<paths>;
 
-/** Query/command language, as accepted by the `/query` and `/command` endpoints. */
-export type QueryLanguage = "sql" | "cypher" | "gremlin" | "graphql" | "mongo";
+/**
+ * Query/command language, as accepted by the `/query` and `/command` endpoints. `"sqlscript"` runs
+ * several SQL statements, separated by `;`, as one script.
+ */
+export type QueryLanguage = "sql" | "sqlscript" | "cypher" | "gremlin" | "graphql" | "mongo";
 
 /** Options shared by `/command`. `QueryOptions` below adds `limit`, which `/command`'s contract does not have. */
 export interface CommandOptions {

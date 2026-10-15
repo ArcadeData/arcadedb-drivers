@@ -89,6 +89,16 @@ a data-plane-only entry with esbuild `splitting` and asserts all four route mark
 Grafana, PromQL and vector-search - and the insert session's `batchAck` marker are absent. Converting one of those to a static import silently breaks that
 guarantee — and the test.
 
+`src/facade/admin.ts` (issue #122) holds the server-administration calls behind
+`ArcadeDBServer`'s `serverCommand`, `createDatabase`/`dropDatabase` and the user and group
+methods. It is imported **statically**, like `listDatabases` and the rest of the server surface:
+it is not one of the four tree-shaken namespaces, and `test/treeshake.test.ts` does not look for
+it. `POST /api/v1/server` goes through `raw.POST` like any other call; no bypass is needed here
+because `openapi-fetch` does not validate, but the 200 body is typed `QueryResponse` while an
+administrative command answers `{"result": "ok"}`, so `serverCommand` returns it as
+`Record<string, unknown>` instead. A duplicate user is 409 (403 before ArcadeData/arcadedb#10076)
+and a duplicate database is 400; `e2e/admin.test.ts` pins both.
+
 `src/facade/insert-session.ts` is the `/ws` duplex insert session. It has **no WebSocket
 dependency**: it uses the global `WebSocket` (Node 22+) or a class injected through
 `createClient({ WebSocket })` / `insertSession({ WebSocket })` (the `ws` package on Node 20), and

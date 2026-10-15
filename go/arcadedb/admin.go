@@ -67,6 +67,10 @@ func (s *Server) ServerCommand(ctx context.Context, command string) (map[string]
 // create a database only when it is missing, ask Exists first: as root, Exists sees every
 // database, so its false is reliable, although another client can still create the database
 // between the two calls.
+//
+// Beyond that check the name is sent as given, embedded spaces included, and the server takes
+// the rest of the command as the name: one request runs one command, so a name cannot smuggle
+// in a second one, but validate a name built from untrusted input yourself.
 func (s *Server) CreateDatabase(ctx context.Context, name string) error {
 	return s.databaseCommand(ctx, "create database", name)
 }
@@ -91,11 +95,11 @@ func (s *Server) databaseCommand(ctx context.Context, verb, name string) error {
 // sends no assignment. The server refuses a blank name, a name starting with "apitoken:" and
 // a password shorter than 8 or longer than 256 characters, each with a 400 *ArcadeDBError.
 //
-// A name that already exists is refused with a 403 *ArcadeDBError (ErrorMessage "Security
-// error", Detail "User '<name>' already exists"), not the 409 the contract declares: the
-// server raises it as a security exception, which its HTTP layer maps to 403, the same status
-// a caller without root gets. To create a user only when it is missing, look for it in
-// ListUsers first rather than reading a 403 as "already exists".
+// A name that already exists is refused with a 409 *ArcadeDBError (ErrorMessage "User already
+// exists"), so a caller can treat a 409 as "already there" to create a user only when it is
+// missing. A server built before ArcadeData/arcadedb#10076 answers 403 "Security error"
+// instead, the same status a caller without root gets; against such a server, look for the
+// user in ListUsers first rather than reading a 403 as "already exists".
 func (s *Server) CreateUser(ctx context.Context, name, password string, databases map[string][]string) error {
 	body := generated.CreateUserRequest{Name: name, Password: password}
 	if databases != nil {

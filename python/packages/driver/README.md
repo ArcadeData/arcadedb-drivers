@@ -42,7 +42,8 @@ with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "p
     print(envelope.result)
 ```
 
-A bearer token (for example, a session token returned by `/api/v1/login`) works the same way:
+A bearer token (for example, a session token from `srv.login()`; see "Sessions and API tokens")
+works the same way:
 
 ```python
 from arcadedb_driver import ArcadeDBServer, bearer_auth
@@ -787,6 +788,90 @@ every assignment. `list_users` and `list_groups` return plain dicts, not generat
 declares an array `result` where administrative commands answer `{"result": "ok"}`, which makes
 the generated `from_dict` raise; other commands answer shapes of their own. The command string is
 sent as given.
+
+## Sessions and API tokens
+
+```python
+with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")) as srv:
+    # Per-user isolation: log in as the user once, then keep a client holding only the token.
+    login = srv.login_as("alice", "a-long-password")  # or srv.login(): the client's own credentials
+    with srv.with_token(login.token) as alice:  # srv itself is unchanged
+        dbs = alice.list_databases()  # only what alice may see
+        alice.logout()  # the token is now refused everywhere
+
+    # A long-lived machine credential (root only).
+    created = srv.create_api_token("ci", database="tenant_a")
+    store(created.token)  # the only time the plaintext exists
+    tokens = srv.list_api_tokens()  # metadata only, never the token
+    srv.delete_api_token(created.token_hash)  # by hash, never by token
+```
+
+`AsyncArcadeDBServer` has the same methods, awaited, except `with_token`, which sends nothing and
+so is a plain call returning an `AsyncArcadeDBServer`.
+
+`login` and `login_as` return a `LoginResult` carrying the session token (prefixed `AU-`) and
+leave the client alone: `login_as` sends the user's credentials on that one request only.
+`with_token` returns a **new** server presenting the token as a bearer token, with the original's
+base URL, extra headers, timeout and TLS verification. It has its own connection pool, so close it
+or use it in a `with` block; closing one server does not close the other. A token is a credential:
+whoever holds it acts as that user until it is logged out or the server drops it, which is why
+`LoginResult`, `Session` and `CreatedAPIToken` leave their tokens out of `repr()`. Keeping the
+token rather than the password is the point.
+
+The server drops a session on its own in three cases, after which the token gets a 401 like a
+logged-out one:
+
+- after 30 minutes without a request (`arcadedb.server.httpAuthSessionExpireTimeout`; each request
+  restarts the clock), and, only if `arcadedb.server.httpAuthSessionAbsoluteTimeout` is set, that
+  long after login whatever the activity;
+- **when the same user logs in a 101st time**: each user holds at most 100 sessions
+  (`arcadedb.server.httpAuthSessionMaxPerUser`), and a further login silently evicts that user's
+  oldest. Log in once per user and reuse the token, not once per request;
+- never by a count across users: past 10,000 sessions in all (`arcadedb.server.httpAuthSessionMax`)
+  a new login is refused with a **503** instead, and existing sessions are kept.
+
+What each failure looks like, measured against a real server and pinned by the e2e suite:
+
+- **Wrong Basic credentials are a 403** "Security error", not a 401. The server answers every
+  failed password check that way, on every endpoint, so a `login_as` 403 cannot be told apart from
+  a forbidden user (ArcadeData/arcadedb#10109 asks for 401). **401** is what an invalid, expired or
+  logged-out bearer token gets.
+- **`logout` only ends a session token.** The server answers 204 to a logout carrying Basic
+  credentials or an API token and invalidates nothing, so `logout` on a client that does not
+  present an `AU-` token raises `NotSessionTokenError` without sending anything. Logging out a
+  token that is no longer valid is a 401.
+- **`list_sessions` is root-only** (403 otherwise) and lists every user's live session token. Treat
+  its result as you would the users' passwords. These are login sessions, not the transaction
+  sessions `transaction()` opens. Times are timezone-aware UTC `datetime`s, `elapsed` a
+  `timedelta`, and a field the server does not know (`source_ip`, `user_agent`, `country`, `city`,
+  `issuer`) is `None`.
+
+API tokens:
+
+- **The plaintext is returned exactly once**, in `CreatedAPIToken.token`. The server stores only
+  its SHA-256 hash, so a lost token cannot be recovered, only deleted and reissued. This client
+  never logs or keeps it.
+- **`delete_api_token` takes the hash** (`token_hash`, from `list_api_tokens` or
+  `create_api_token`). Anything but 64 lowercase hexadecimal characters raises `ValueError` before
+  a request is sent, because the argument travels in the query string, where proxies and access
+  logs record it, and the likeliest mistake is the plaintext token. The error does not repeat the
+  argument. A hash no token has is a **404**, a status the contract does not list
+  (ArcadeData/arcadedb#10110).
+- **A taken name is a 409.** The contract describes its 409 only as a replayed `X-Request-Id`;
+  the server also uses it for a duplicate name.
+- **412 means the transport is not confidential.** With
+  `arcadedb.server.apiTokenRequireSecureTransport` on, the server refuses to send a token back over
+  cleartext HTTP to a non-loopback client, unless a proxy listed in
+  `arcadedb.server.apiTokenTrustedProxies` terminated TLS. The setting is off by default until
+  ArcadeDB 27.1.1, which turns it on; until then such a mint succeeds and the server logs a warning.
+- `expires_at` is `None` for a token that never expires. Passed to `create_api_token`, it must be
+  timezone-aware and after the Unix epoch, or `ValueError` is raised before sending: a naive time
+  would be read in whatever timezone the client runs in, and the server reads an expiry of 0 as
+  "never", so an epoch expiry would issue a token that never expires. An expired token
+  authenticates nobody, and stays in `list_api_tokens` (with `expired` set) until the next token
+  change retires it. `permissions` takes the shape a group's `types` map takes.
+- `logout` on a client holding an API token raises `NotSessionTokenError`: an API token is revoked
+  with `delete_api_token`, not logged out.
 
 ## Endpoints this client does not wrap
 

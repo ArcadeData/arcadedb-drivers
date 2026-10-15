@@ -1,6 +1,7 @@
 import arcadedb_driver
 
 EXPECTED_SURFACE = {
+    "APIToken",
     "ArcadeDBDatabase",
     "ArcadeDBError",
     "ArcadeDBServer",
@@ -9,11 +10,15 @@ EXPECTED_SURFACE = {
     "AsyncInsertSession",
     "AsyncTransaction",
     "BatchOptions",
+    "CreatedAPIToken",
     "EdgeRow",
     "InsertSession",
     "InsertSessionError",
+    "LoginResult",
+    "NotSessionTokenError",
     "QueryEnvelope",
     "QueryLanguage",
+    "Session",
     "TimeSeriesWriteError",
     "Transaction",
     "VertexRow",

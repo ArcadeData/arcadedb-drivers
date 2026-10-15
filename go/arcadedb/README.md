@@ -627,11 +627,83 @@ because the contract declares an array `result` where administrative commands an
 `{"result": "ok"}` and other commands answer shapes of their own. The command string is sent as
 given.
 
+## Sessions and API tokens
+
+```go
+// Per-user isolation: log in as the user once, then keep a client holding only the token.
+login, err := srv.LoginAs(ctx, "alice", "a-long-password") // or srv.Login(ctx): the client's own credentials
+alice := srv.WithToken(login.Token)                      // srv itself is unchanged
+dbs, err := alice.ListDatabases(ctx)                     // only what alice may see
+err = alice.Logout(ctx)                                  // the token is now refused everywhere
+
+// A long-lived machine credential (root only).
+created, err := srv.CreateAPIToken(ctx, arcadedb.APITokenRequest{Name: "ci", Database: "tenant_a"})
+store(created.Token)                                     // the only time the plaintext exists
+tokens, err := srv.ListAPITokens(ctx)                    // metadata only, never the token
+err = srv.DeleteAPIToken(ctx, created.TokenHash)         // by hash, never by token
+```
+
+`Login` and `LoginAs` return the session token (prefixed `AU-`) and leave the client alone;
+`WithToken` returns a **new** `Server` presenting it as a bearer token, sharing the original's base
+URL, extra headers and `http.Client`. Nothing mutates a shared client's headers, so one root
+client can hand out a token client per user from many goroutines. A token is a credential: whoever
+holds it acts as that user until it is logged out or the server drops it. Keeping the token rather
+than the password is the point.
+
+The server drops a session on its own in three cases, after which the token gets a 401 like a
+logged-out one:
+
+- after 30 minutes without a request (`arcadedb.server.httpAuthSessionExpireTimeout`; each request
+  restarts the clock), and, only if `arcadedb.server.httpAuthSessionAbsoluteTimeout` is set, that
+  long after login whatever the activity;
+- **when the same user logs in a 101st time**: each user holds at most 100 sessions
+  (`arcadedb.server.httpAuthSessionMaxPerUser`), and a further login silently evicts that user's
+  oldest. Log in once per user and reuse the token, not once per request;
+- never by a count across users: past 10,000 sessions in all (`arcadedb.server.httpAuthSessionMax`)
+  a new login is refused with a **503** instead, and existing sessions are kept.
+
+What each failure looks like, measured against a real server and pinned by the e2e suite:
+
+- **Wrong Basic credentials are a 403** "Security error", not a 401. The server answers every
+  failed password check that way, on every endpoint, so a `LoginAs` 403 cannot be told apart from
+  a forbidden user (ArcadeData/arcadedb#10109 asks for 401). **401** is what an invalid, expired or
+  logged-out bearer token gets.
+- **`Logout` only ends a session token.** The server answers 204 to a logout carrying Basic
+  credentials or an API token and invalidates nothing, so `Logout` on a client that does not
+  present an `AU-` token returns `ErrNotSessionToken` without sending anything. Logging out a
+  token that is no longer valid is a 401.
+- **`ListSessions` is root-only** (403 otherwise) and lists every user's live session token. Treat
+  its result as you would the users' passwords. These are login sessions, not the transaction
+  sessions `Transaction` opens.
+
+API tokens:
+
+- **The plaintext is returned exactly once**, in `CreatedAPIToken.Token`. The server stores only
+  its SHA-256 hash, so a lost token cannot be recovered, only deleted and reissued. This client
+  never logs or keeps it.
+- **`DeleteAPIToken` takes the hash** (`TokenHash`, from `ListAPITokens` or `CreateAPIToken`).
+  Anything but 64 lowercase hexadecimal characters is refused with `ErrInvalidTokenHash` before a
+  request is sent, because the argument travels in the query string, where proxies and access logs
+  record it, and the likeliest mistake is the plaintext token. The error does not repeat the
+  argument. A hash no token has is a **404**, a status the contract does not list (ArcadeData/arcadedb#10110).
+- **A taken name is a 409.** The contract describes its 409 only as a replayed `X-Request-Id`;
+  the server also uses it for a duplicate name.
+- **412 means the transport is not confidential.** With
+  `arcadedb.server.apiTokenRequireSecureTransport` on, the server refuses to send a token back over
+  cleartext HTTP to a non-loopback client, unless a proxy listed in
+  `arcadedb.server.apiTokenTrustedProxies` terminated TLS. The setting is off by default until
+  ArcadeDB 27.1.1, which turns it on; until then such a mint succeeds and the server logs a warning.
+- `ExpiresAt` is the zero `time.Time` for a token that never expires. An expired token
+  authenticates nobody, and stays in `ListAPITokens` (with `Expired` set) until the next token
+  change retires it. `Permissions` takes the shape a group's `types` map takes.
+- `Logout` on a client holding an API token returns `ErrNotSessionToken`: an API token is revoked
+  with `DeleteAPIToken`, not logged out.
+
 ## Endpoints this client does not wrap
 
-Everything the Python driver leaves to its `.raw` this client leaves to `Raw()`: the API-token,
-cluster, auth, AI, MCP and metrics operations, and the two protobuf PromQL remote read/write routes
-(reachable as `...WithBody` methods taking an `io.Reader`).
+Everything the Python driver leaves to its `.raw` this client leaves to `Raw()`: the cluster, AI,
+MCP and metrics operations, and the two protobuf PromQL remote read/write routes (reachable as
+`...WithBody` methods taking an `io.Reader`).
 
 The cluster override endpoints are raw-only on purpose: `AcceptClusterDatabaseCopy` (`POST
 /api/v1/cluster/accept-copy/{database}`), `AcceptClusterDivergedDatabase` (`POST

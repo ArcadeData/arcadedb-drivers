@@ -259,6 +259,17 @@ are under "The gRPC module" below.
   never unwrapped to `Results`, to keep `Truncated`, `Count` and `Scoring` attached to their hits.
   `Truncated` is a plain `bool` in the generated model, so a response that omitted it would read
   `false`; `vector.go`'s doc comment says why that is only as good as the server's promise.
+- **Sessions and API tokens refuse two calls locally** (`session.go`, issue #123). `Logout` on a
+  client whose `Authorization` is not `Bearer AU-...` returns `ErrNotSessionToken` unsent, because
+  the server answers 204 to a logout carrying Basic credentials or an API token and invalidates
+  nothing. `DeleteAPIToken` refuses anything but 64 lowercase hex characters with
+  `ErrInvalidTokenHash` unsent, and the error never repeats the argument: it travels in the query
+  string, and the likely mistake is the plaintext token. `WithToken` derives a new `Server` (cloned
+  headers, shared `http.Client`) rather than mutating one, so handing out per-user token clients is
+  race-free. Three statuses measured live and pinned by `e2e/session_test.go`: wrong Basic
+  credentials are **403** "Security error" on login as everywhere (401 is for a bad bearer token),
+  a duplicate API-token name is 409, and deleting an unknown hash is 404, which the contract does
+  not list.
 - **No golangci-lint.** It is the de-facto Go meta-linter and it is **GPL-3.0**, which the
   allow-list in the root `CLAUDE.md` forbids for development tools as well as runtime
   dependencies. `gofmt`, `go vet` and `staticcheck` (MIT, and the analyser golangci-lint most often

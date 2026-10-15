@@ -751,6 +751,9 @@ type GrpcValue struct {
 	//	*GrpcValue_DecimalValue
 	Kind isGrpcValue_Kind `protobuf_oneof:"kind"`
 	// Optional semantic hint (non-breaking): "date", "datetime", "rid", "decimal(38,9)", etc.
+	// A value that holds more than an instant travels as ISO text in string_value: "zoned_datetime"
+	// (ISO_ZONED_DATE_TIME, zone id kept), "offset_time" (ISO_OFFSET_TIME), "local_time" (ISO_LOCAL_TIME), "duration" (ISO 8601
+	// duration: months, days, seconds and nanoseconds kept apart).
 	LogicalType   string `protobuf:"bytes,14,opt,name=logical_type,json=logicalType,proto3" json:"logical_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3756,11 +3759,14 @@ func (x *LookupByRidResponse) GetRecord() *GrpcRecord {
 }
 
 type InsertError struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Message       string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	RowIndex      int64                  `protobuf:"varint,2,opt,name=row_index,json=rowIndex,proto3" json:"row_index,omitempty"` // index within the chunk (or -1 if not applicable)
-	Code          string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`                          // optional machine-usable code
-	Field         string                 `protobuf:"bytes,4,opt,name=field,proto3" json:"field,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Message  string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	RowIndex int64                  `protobuf:"varint,2,opt,name=row_index,json=rowIndex,proto3" json:"row_index,omitempty"` // index within the chunk (or -1 if not applicable)
+	Code     string                 `protobuf:"bytes,3,opt,name=code,proto3" json:"code,omitempty"`                          // optional machine-usable code
+	Field    string                 `protobuf:"bytes,4,opt,name=field,proto3" json:"field,omitempty"`
+	// Set only when code is "NOT_LEADER": the server refused the write because it is not the cluster leader, and this is
+	// the address of the leader to send the load to (the one the gRPC trailers carry for the same refusal)
+	LeaderAddress string `protobuf:"bytes,5,opt,name=leader_address,json=leaderAddress,proto3" json:"leader_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3819,6 +3825,13 @@ func (x *InsertError) GetCode() string {
 func (x *InsertError) GetField() string {
 	if x != nil {
 		return x.Field
+	}
+	return ""
+}
+
+func (x *InsertError) GetLeaderAddress() string {
+	if x != nil {
+		return x.LeaderAddress
 	}
 	return ""
 }
@@ -11825,12 +11838,13 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\vtransaction\x18\x04 \x01(\v2%.com.arcadedb.grpc.TransactionContextR\vtransaction\"b\n" +
 	"\x13LookupByRidResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x125\n" +
-	"\x06record\x18\x02 \x01(\v2\x1d.com.arcadedb.grpc.GrpcRecordR\x06record\"n\n" +
+	"\x06record\x18\x02 \x01(\v2\x1d.com.arcadedb.grpc.GrpcRecordR\x06record\"\x95\x01\n" +
 	"\vInsertError\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x1b\n" +
 	"\trow_index\x18\x02 \x01(\x03R\browIndex\x12\x12\n" +
 	"\x04code\x18\x03 \x01(\tR\x04code\x12\x14\n" +
-	"\x05field\x18\x04 \x01(\tR\x05field\"\xef\x02\n" +
+	"\x05field\x18\x04 \x01(\tR\x05field\x12%\n" +
+	"\x0eleader_address\x18\x05 \x01(\tR\rleaderAddress\"\xef\x02\n" +
 	"\rInsertSummary\x12\x1a\n" +
 	"\breceived\x18\x01 \x01(\x03R\breceived\x12\x1a\n" +
 	"\binserted\x18\x02 \x01(\x03R\binserted\x12\x18\n" +

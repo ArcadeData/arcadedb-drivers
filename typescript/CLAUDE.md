@@ -100,6 +100,24 @@ administrative command answers `{"result": "ok"}`, so `serverCommand` returns it
 and so is a duplicate database (400 before ArcadeData/arcadedb#10079); `e2e/admin.test.ts` pins
 both.
 
+`src/facade/session.ts` (issue #123) holds `login`, `logout`, `listSessions` and the API-token
+calls, the Go client's design carried over. Unlike `admin.ts` it is loaded with a **dynamic
+`import()`**: the static admin surface had already grown the eager chunk from ~11KB to ~18KB, and
+importing this one statically took it past `test/treeshake.test.ts`'s 20,000-byte ceiling. Even
+lazy, the method stubs leave the chunk at ~19.9KB, so the next static addition to
+`ArcadeDBServer` will trip the ceiling; moving `admin.ts` behind `import()` too is the cheap fix,
+not raising it. `NotSessionTokenError` lives in `errors.ts` so exporting it does not pull the
+module in. Three calls refuse locally, unsent: `logout` unless the `auth` middleware presents
+`Bearer AU-...` (read with `internal/authorization.ts`, the probe the insert session uses;
+the server answers 204 to a Basic or API-token logout and invalidates nothing), `deleteAPIToken`
+for anything but 64 lowercase hex characters (the error never repeats the argument), and
+`createAPIToken` for an `expiresAt` at or before the epoch, which the server would read as
+"never". `loginAs` and `withToken` build a **new** client through `createClient` from the options
+`ArcadeDBServer` now keeps (a third constructor argument): a per-call `Authorization` would lose
+to the `auth` middleware, which sets the header after the call's own are applied. The statuses
+pinned by `e2e/session.test.ts` are Go's: wrong Basic credentials 403, a duplicate API-token
+name 409, an unknown hash 404.
+
 `src/facade/insert-session.ts` is the `/ws` duplex insert session. It has **no WebSocket
 dependency**: it uses the global `WebSocket` (Node 22+) or a class injected through
 `createClient({ WebSocket })` / `insertSession({ WebSocket })` (the `ws` package on Node 20), and

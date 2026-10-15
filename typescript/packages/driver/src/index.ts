@@ -8,7 +8,9 @@ import type { CommandOptions, QueryEnvelope, QueryOptions, TransactionOptions } 
 import { commandStream, queryStream } from "./facade/stream.js";
 import type { NdJsonQueryEvent } from "./facade/stream.js";
 import { batchLoad, batchLoadStream } from "./facade/batch.js";
+import { basicAuth, bearerAuth } from "./auth.js";
 import * as admin from "./facade/admin.js";
+import type { APIToken, CreateAPITokenOptions, CreatedAPIToken, LoginResult, Session } from "./facade/session.js";
 import type {
   CreateUserOptions,
   GroupDefinition,
@@ -38,9 +40,10 @@ import type {
   VectorSearchResult,
 } from "./facade/vector.js";
 
-export { ArcadeDBError, TimeSeriesWriteError } from "./errors.js";
+export { ArcadeDBError, NotSessionTokenError, TimeSeriesWriteError } from "./errors.js";
 export type { ArcadeDBErrorExtras } from "./errors.js";
 export { basicAuth, bearerAuth } from "./auth.js";
+export type { APIToken, CreateAPITokenOptions, CreatedAPIToken, LoginResult, Session } from "./facade/session.js";
 export type { Middleware } from "openapi-fetch";
 export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions, TransactionOptions } from "./facade/data.js";
 export type { NdJsonQueryEvent } from "./facade/stream.js";
@@ -429,8 +432,131 @@ export class ArcadeDBServer {
   constructor(
     client: RawClient,
     private readonly insertContext?: InsertSessionContext,
+    private readonly options?: CreateClientOptions,
   ) {
     this.raw = client;
+  }
+
+  /**
+   * The options this server was built with. `loginAs` and `withToken` build a client from them, so
+   * they need a server from `createClient`; one constructed by hand has none.
+   */
+  private builtWith(method: string): CreateClientOptions {
+    if (!this.options) {
+      throw new Error(`${method} needs a server built by createClient()`);
+    }
+    return this.options;
+  }
+
+  /**
+   * Opens a session with the client's own credentials through `POST /api/v1/login` and resolves
+   * to its token. The client itself is unchanged: present the token with `withToken`.
+   *
+   * Wrong Basic credentials throw `ArcadeDBError` with status **403** ("Security error"), not
+   * 401: the server answers a failed password check with 403 on every endpoint, so on `login` it
+   * cannot be told apart from a forbidden user (ArcadeData/arcadedb#10109). 401 is what an invalid
+   * or expired bearer token gets. A server that has reached its limit of concurrent sessions
+   * answers 503.
+   *
+   * Each login opens a new session, and a user holds at most 100 by default
+   * (`arcadedb.server.httpAuthSessionMaxPerUser`): the next login silently evicts that user's
+   * oldest session, whose token then gets a 401. Log in once and reuse the token.
+   */
+  async login(): Promise<LoginResult> {
+    const { login } = await import("./facade/session.js");
+    return login(this.raw);
+  }
+
+  /**
+   * Opens a session as `user`, whatever credentials the client is configured with, and resolves to
+   * its token, as `login` does and with the same failures. It is the way to act as one user from a
+   * client built for another: for per-user isolation, log in as the user once and keep
+   * `withToken(result.token)` rather than the user's password.
+   *
+   * The request goes through a separate client carrying only `basicAuth(user, password)`, built
+   * from this server's `baseUrl` and `fetch`: a per-call header would lose to this client's own
+   * auth middleware, which sets `Authorization` after the call's headers are applied. This client
+   * is unchanged. Requires a server built by `createClient`.
+   */
+  async loginAs(user: string, password: string): Promise<LoginResult> {
+    const { baseUrl, fetch } = this.builtWith("loginAs");
+    return createClient({ baseUrl, fetch, auth: basicAuth(user, password) }).login();
+  }
+
+  /**
+   * Returns a new `ArcadeDBServer` that authenticates every request with `token` as a bearer token,
+   * and is otherwise built like this one: the same `baseUrl`, `fetch` and `WebSocket`. This server
+   * is unchanged, and nothing is sent. `token` is a session token from `login` or `loginAs`, or an
+   * API token from `createAPIToken`.
+   *
+   * Middleware added to this server's `raw` with `raw.use()` after `createClient` is not carried
+   * over. Requires a server built by `createClient`.
+   */
+  withToken(token: string): ArcadeDBServer {
+    const { baseUrl, fetch, WebSocket } = this.builtWith("withToken");
+    return createClient({ baseUrl, fetch, WebSocket, auth: bearerAuth(token) });
+  }
+
+  /**
+   * Invalidates the session token this client presents, through `POST /api/v1/logout`.
+   *
+   * A client that does not present a session token from `login` (Basic credentials, or an API
+   * token) rejects with `NotSessionTokenError` without a request: the server answers 204 to such a
+   * logout and invalidates nothing. The token is read from the `auth` middleware given to
+   * `createClient`, by running it on a throwaway request as the insert session does. A token that
+   * is no longer valid, because it was already logged out or has expired, throws `ArcadeDBError`
+   * with status 401. Once this resolves, every request with the token, from any client, is a 401.
+   */
+  async logout(): Promise<void> {
+    const { logout } = await import("./facade/session.js");
+    return logout(this.raw, this.options?.auth, this.options?.baseUrl ?? "http://localhost");
+  }
+
+  /**
+   * Lists every authentication session the server holds (root only; any other user gets a 403
+   * `ArcadeDBError`). Each carries its live token, so the result is as sensitive as the users'
+   * passwords.
+   */
+  async listSessions(): Promise<Session[]> {
+    const { listSessions } = await import("./facade/session.js");
+    return listSessions(this.raw);
+  }
+
+  /**
+   * Issues an API token (root only) through `POST /api/v1/server/api-tokens`. The plaintext token
+   * is in the result's `token` and nowhere else, ever: see `CreatedAPIToken`.
+   *
+   * An `opts.expiresAt` that is not a valid date after the Unix epoch throws `RangeError` before
+   * anything is sent: the server reads an expiry of 0 as "never". A name already in use throws
+   * `ArcadeDBError` with status 409, and a blank name a 400. The server refuses to send the token
+   * in the clear: unless the request arrives over HTTPS, from a loopback address, or through a
+   * trusted proxy that terminated TLS, it answers 412 and issues nothing when
+   * `arcadedb.server.apiTokenRequireSecureTransport` is on (the default from ArcadeDB 27.1.1).
+   */
+  async createAPIToken(name: string, opts: CreateAPITokenOptions = {}): Promise<CreatedAPIToken> {
+    const { createAPIToken } = await import("./facade/session.js");
+    return createAPIToken(this.raw, name, opts);
+  }
+
+  /** Lists every issued API token as metadata (root only); never the token itself. */
+  async listAPITokens(): Promise<APIToken[]> {
+    const { listAPITokens } = await import("./facade/session.js");
+    return listAPITokens(this.raw);
+  }
+
+  /**
+   * Revokes the API token whose hash is `tokenHash` (root only), through
+   * `DELETE /api/v1/server/api-tokens`.
+   *
+   * It takes the `tokenHash` that `listAPITokens` and `createAPIToken` report, never the token:
+   * anything but 64 lowercase hexadecimal characters throws `RangeError` before it is sent,
+   * because the argument travels in the query string, which proxies and access logs record. The
+   * error does not repeat the argument. A hash no token has throws `ArcadeDBError` with status
+   * 404, a status the contract does not list (ArcadeData/arcadedb#10110).
+   */
+  async deleteAPIToken(tokenHash: string): Promise<void> {
+    const { deleteAPIToken } = await import("./facade/session.js");
+    return deleteAPIToken(this.raw, tokenHash);
   }
 
   /** Lists the names of every database visible to the authenticated caller. */
@@ -638,5 +764,5 @@ export function createClient(opts: CreateClientOptions): ArcadeDBServer {
   if (opts.auth) {
     client.use(opts.auth);
   }
-  return new ArcadeDBServer(client, { baseUrl: opts.baseUrl, auth: opts.auth, WebSocket: opts.WebSocket });
+  return new ArcadeDBServer(client, { baseUrl: opts.baseUrl, auth: opts.auth, WebSocket: opts.WebSocket }, opts);
 }

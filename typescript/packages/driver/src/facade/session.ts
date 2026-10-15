@@ -108,9 +108,15 @@ export async function login(client: RawClient): Promise<LoginResult> {
   return { token: data.token, user: data.user };
 }
 
-/** Throws `NotSessionTokenError`, unsent, unless `auth` presents a session token from `login`. */
-export async function logout(client: RawClient, auth: Middleware | undefined, baseUrl: string): Promise<void> {
-  const authorization = await resolveAuthorization(auth, baseUrl, "/api/v1/logout", "logout");
+/**
+ * Throws `NotSessionTokenError`, unsent, unless `built.auth` presents a session token from `login`.
+ * A server constructed by hand has no `built`, so its credentials are unknown and it is refused.
+ */
+export async function logout(
+  client: RawClient,
+  built: { auth?: Middleware; baseUrl: string } | undefined,
+): Promise<void> {
+  const authorization = built && (await resolveAuthorization(built.auth, built.baseUrl, "/api/v1/logout", "logout"));
   if (!authorization?.startsWith(`Bearer ${SESSION_TOKEN_PREFIX}`)) {
     throw new NotSessionTokenError();
   }

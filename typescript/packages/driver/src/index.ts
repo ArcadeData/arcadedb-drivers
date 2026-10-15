@@ -509,7 +509,7 @@ export class ArcadeDBServer {
    */
   async logout(): Promise<void> {
     const { logout } = await import("./facade/session.js");
-    return logout(this.raw, this.options?.auth, this.options?.baseUrl ?? "http://localhost");
+    return logout(this.raw, this.options);
   }
 
   /**

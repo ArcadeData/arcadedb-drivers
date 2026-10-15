@@ -54,17 +54,21 @@ func NewServer(baseURL string, opts ...Option) (*Server, error) {
 	if cfg.client == nil {
 		cfg.client = &http.Client{}
 	}
+	return newServer(baseURL, cfg.client, cfg.headers)
+}
+
+func newServer(baseURL string, client *http.Client, headers map[string]string) (*Server, error) {
 	raw, err := generated.NewClientWithResponses(baseURL,
-		generated.WithHTTPClient(cfg.client),
+		generated.WithHTTPClient(client),
 		generated.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
-			applyHeaders(req.Header, cfg.headers)
+			applyHeaders(req.Header, headers)
 			return nil
 		}),
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Server{raw: raw, client: cfg.client, baseURL: baseURL, headers: cfg.headers}, nil
+	return &Server{raw: raw, client: client, baseURL: baseURL, headers: headers}, nil
 }
 
 // DB returns a handle on the named database. It performs no request.

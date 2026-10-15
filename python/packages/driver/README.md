@@ -795,15 +795,15 @@ sent as given.
 with ArcadeDBServer(base_url="http://localhost:2480", auth=basic_auth("root", "playwithdata")) as srv:
     # Per-user isolation: log in as the user once, then keep a client holding only the token.
     login = srv.login_as("alice", "a-long-password")  # or srv.login(): the client's own credentials
-    with srv.with_token(login.token) as alice:        # srv itself is unchanged
-        dbs = alice.list_databases()                  # only what alice may see
-        alice.logout()                                # the token is now refused everywhere
+    with srv.with_token(login.token) as alice:  # srv itself is unchanged
+        dbs = alice.list_databases()  # only what alice may see
+        alice.logout()  # the token is now refused everywhere
 
     # A long-lived machine credential (root only).
     created = srv.create_api_token("ci", database="tenant_a")
-    store(created.token)                              # the only time the plaintext exists
-    tokens = srv.list_api_tokens()                    # metadata only, never the token
-    srv.delete_api_token(created.token_hash)          # by hash, never by token
+    store(created.token)  # the only time the plaintext exists
+    tokens = srv.list_api_tokens()  # metadata only, never the token
+    srv.delete_api_token(created.token_hash)  # by hash, never by token
 ```
 
 `AsyncArcadeDBServer` has the same methods, awaited, except `with_token`, which sends nothing and

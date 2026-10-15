@@ -79,6 +79,11 @@ client you passed in with `WithHTTPClient`, which may be shared.
 Every call takes a `context.Context` first. There is no async variant of anything: run calls in
 goroutines when you want them concurrent.
 
+The language is a `QueryLanguage`: `SQL`, `SQLScript` (several `;`-separated SQL statements run as
+one script, usually through `Command`), `Cypher`, `Gremlin`, `GraphQL` and `Mongo`. It is a plain
+string type, so any other language the server has enabled can be passed as `QueryLanguage("...")`;
+a language the server does not have is refused by the server, not by this client.
+
 ## No timeout by default
 
 A `Server` built without `WithHTTPClient` uses a bare `http.Client`, which has **no timeout**: a
@@ -577,9 +582,53 @@ only what the caller may see.
 
 `Health` succeeds only on 204; `Ready` returns `false` with no error on 503 (up, but not ready).
 
+## Administration: databases, users and groups
+
+```go
+if err := srv.CreateDatabase(ctx, "tenant_a"); err != nil { ... }
+err := srv.CreateUser(ctx, "alice", "a-long-password",
+	map[string][]string{"tenant_a": {"admin"}}) // database ("*" = every database) -> groups
+users, err := srv.ListUsers(ctx)
+err = srv.UpdateUser(ctx, "alice", arcadedb.UserUpdate{Password: "another-password"})
+err = srv.DropUser(ctx, "alice")
+err = srv.DropDatabase(ctx, "tenant_a")
+```
+
+All of these are root-only, and every failure is an `*ArcadeDBError`, as for any facade method.
+Users and groups have dedicated endpoints with a structured body (`/api/v1/server/users`,
+`/api/v1/server/groups`): `CreateUser`, `UpdateUser`, `DropUser`, `ListUsers`, `SaveGroup`,
+`DeleteGroup`, `ListGroups`. Databases have none, so `CreateDatabase` and `DropDatabase` send
+`create database <name>` and `drop database <name>` through `POST /api/v1/server`. They refuse an
+empty name, or one with leading or trailing white space, with `ErrInvalidName` before sending
+anything, because the server trims the name it reads out of the command and would act on a
+different database than the one you named.
+
+**"Already exists" is not a 409, and the two cases differ.** Both statuses were measured against a
+real server; they are what the e2e suite pins.
+
+- A database that already exists is a **400** (`ErrorMessage` "Cannot execute command", `Detail`
+  "Database '<name>' already exists"), the status every invalid server command gets.
+- A user that already exists is a **403** (`ErrorMessage` "Security error", `Detail` "User '<name>'
+  already exists"), although the contract declares 409: the server raises it as a security
+  exception. A 403 is also what a non-root caller gets, so do not read 403 as "already exists".
+
+Neither is classified by this client, which does not match on message text. To create something
+only when it is missing, look first: `Exists` (as root it sees every database, so its `false` is
+reliable there) or `ListUsers`. Another client can still create it between the two calls; the
+second create then fails as above.
+
+`UpdateUser` leaves a zero field alone: an empty `Password` keeps the current one, and a nil
+`Databases` keeps the current assignments, while a non-nil empty map removes them all.
+
+`srv.ServerCommand(ctx, command)` runs any other server command and returns the whole JSON body as
+a `map[string]any`. It decodes the body itself rather than through the generated typed parser,
+because the contract declares an array `result` where administrative commands answer
+`{"result": "ok"}` and other commands answer shapes of their own. The command string is sent as
+given.
+
 ## Endpoints this client does not wrap
 
-Everything the Python driver leaves to its `.raw` this client leaves to `Raw()`: the security,
+Everything the Python driver leaves to its `.raw` this client leaves to `Raw()`: the API-token,
 cluster, auth, AI, MCP and metrics operations, and the two protobuf PromQL remote read/write routes
 (reachable as `...WithBody` methods taking an `io.Reader`).
 
@@ -589,11 +638,10 @@ The cluster override endpoints are raw-only on purpose: `AcceptClusterDatabaseCo
 /api/v1/cluster/accept-stale-snapshot`) are root-only operator overrides that accept a copy of the
 data without a resync. No facade method wraps any `/cluster/*` endpoint.
 
-`POST /api/v1/server` (administrative commands, including `create database`) is not wrapped
-either, and needs care through `Raw()`: the server answers `{"result": "ok"}`, a string, where the
-contract declares an array, and the typed `ExecuteServerCommandWithResponse` reports `Limit`,
-`Returned` and `Truncated` as zero values the wire never carried. Call the plain
-`ExecuteServerCommandWithBody`, check the status, and read the body yourself.
+Through `Raw()`, `POST /api/v1/server` needs care: the server answers `{"result": "ok"}`, a
+string, where the contract declares an array, and the typed `ExecuteServerCommandWithResponse`
+reports `Limit`, `Returned` and `Truncated` as zero values the wire never carried. Use
+`srv.ServerCommand` (above) instead.
 
 ## Contract version and compatibility
 

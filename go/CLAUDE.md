@@ -333,9 +333,17 @@ written, and each looks like a bug in this client until you know the cause is up
    `QueryResponse` with an array `result`. The typed `ExecuteServerCommandWithResponse` does not
    crash on it, which is worse: it reports `Limit`, `Returned` and `Truncated` as zero values the
    wire never carried (the contract marks them required, so they are plain fields), beside a
-   `Result` union holding a string that neither of its row shapes describes. No facade method
-   wraps the endpoint. `e2e/main_test.go` creates its databases through the plain
-   `ExecuteServerCommandWithBody` and checks the status itself, for exactly this reason.
+   `Result` union holding a string that neither of its row shapes describes. `Server.ServerCommand`
+   (`admin.go`, issue #122) therefore calls the plain `ExecuteServerCommandWithBody` and decodes
+   the body into `map[string]any` itself, and `CreateDatabase`/`DropDatabase` go through it;
+   do not route them back through the typed method. `e2e/main_test.go`'s `newDatabase` still
+   creates its databases the same way by hand, which predates the facade method.
+
+   Two statuses on the administration path look like client bugs and are not, both measured live
+   and pinned by `e2e/admin_test.go`: a database that already exists is a 400 ("Cannot execute
+   command", the reason in `Detail`), and a user that already exists is a **403** "Security
+   error", although the contract declares 409 for `createUser` (the server throws
+   `ServerSecurityException`, which its HTTP layer maps to 403). The facade classifies neither.
 3. **A property named `"/unreadableFiles"`** in the 200 body of `GET
    /api/v1/ha/snapshot/{database}/checksums`. This one is not an inaccuracy: the server really sends
    that key, and the slash is deliberate upstream (the body is a flat map keyed by file name, and a

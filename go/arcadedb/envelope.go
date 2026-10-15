@@ -16,11 +16,13 @@ type QueryLanguage string
 // server, not by this client. QueryLanguage is a plain string type, so any other value the
 // server understands can be passed as QueryLanguage("...").
 const (
-	SQL     QueryLanguage = "sql"
-	Cypher  QueryLanguage = "cypher"
-	Gremlin QueryLanguage = "gremlin"
-	GraphQL QueryLanguage = "graphql"
-	Mongo   QueryLanguage = "mongo"
+	SQL QueryLanguage = "sql"
+	// SQLScript runs several SQL statements, separated by ";", as one script.
+	SQLScript QueryLanguage = "sqlscript"
+	Cypher    QueryLanguage = "cypher"
+	Gremlin   QueryLanguage = "gremlin"
+	GraphQL   QueryLanguage = "graphql"
+	Mongo     QueryLanguage = "mongo"
 )
 
 // QueryEnvelope is the whole result envelope Query and Command return, not just the rows.

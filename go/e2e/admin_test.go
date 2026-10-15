@@ -90,10 +90,9 @@ func TestPerUserIsolation(t *testing.T) {
 		t.Fatalf("user %s not listed with its assignment: %#v", user, users)
 	}
 
-	// The status a duplicate name is refused with is pinned here because the contract and
-	// the server disagree: the contract declares 409, and ServerSecurity throws a
-	// ServerSecurityException, which the HTTP layer maps to 403 "Security error".
-	if ae := asArcadeDBError(t, srv.CreateUser(ctx, user, "first-password", nil)); ae.Status != 403 || !strings.Contains(ae.Detail, "already exists") {
+	// 409 since ArcadeData/arcadedb#10076; earlier servers answered 403 "Security error", the
+	// status a non-root caller also gets. CreateUser's doc comment and the README rely on it.
+	if ae := asArcadeDBError(t, srv.CreateUser(ctx, user, "first-password", nil)); ae.Status != 409 || !strings.Contains(ae.Error(), "already exists") {
 		t.Fatalf("create user twice: %#v", ae)
 	}
 

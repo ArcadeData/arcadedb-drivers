@@ -601,21 +601,23 @@ Users and groups have dedicated endpoints with a structured body (`/api/v1/serve
 `create database <name>` and `drop database <name>` through `POST /api/v1/server`. They refuse an
 empty name, or one with leading or trailing white space, with `ErrInvalidName` before sending
 anything, because the server trims the name it reads out of the command and would act on a
-different database than the one you named.
+different database than the one you named. Anything else in the name is sent as given, embedded
+spaces included: one request runs one command, so a name cannot smuggle in a second command, but
+validate a name built from untrusted input yourself.
 
-**"Already exists" is not a 409, and the two cases differ.** Both statuses were measured against a
+**"Already exists" differs between users and databases.** Both statuses were measured against a
 real server; they are what the e2e suite pins.
 
+- A user that already exists is a **409** (`ErrorMessage` "User already exists"), so a 409 from
+  `CreateUser` means "already there" and create-if-absent can check for it. Servers built before
+  ArcadeData/arcadedb#10076 answer **403** "Security error" instead, which is also what a
+  non-root caller gets; against those, do not read 403 as "already exists".
 - A database that already exists is a **400** (`ErrorMessage` "Cannot execute command", `Detail`
-  "Database '<name>' already exists"), the status every invalid server command gets.
-- A user that already exists is a **403** (`ErrorMessage` "Security error", `Detail` "User '<name>'
-  already exists"), although the contract declares 409: the server raises it as a security
-  exception. A 403 is also what a non-root caller gets, so do not read 403 as "already exists".
-
-Neither is classified by this client, which does not match on message text. To create something
-only when it is missing, look first: `Exists` (as root it sees every database, so its `false` is
-reliable there) or `ListUsers`. Another client can still create it between the two calls; the
-second create then fails as above.
+  "Database '<name>' already exists"), the status every invalid server command gets. Only the
+  `Detail` text tells it apart, and this client does not match on message text: to create a
+  database only when it is missing, ask `Exists` first (as root it sees every database, so its
+  `false` is reliable there). Another client can still create it between the two calls; the second
+  create then fails as above.
 
 `UpdateUser` leaves a zero field alone: an empty `Password` keeps the current one, and a nil
 `Databases` keeps the current assignments, while a non-nil empty map removes them all.

@@ -339,11 +339,13 @@ written, and each looks like a bug in this client until you know the cause is up
    do not route them back through the typed method. `e2e/main_test.go`'s `newDatabase` still
    creates its databases the same way by hand, which predates the facade method.
 
-   Two statuses on the administration path look like client bugs and are not, both measured live
-   and pinned by `e2e/admin_test.go`: a database that already exists is a 400 ("Cannot execute
-   command", the reason in `Detail`), and a user that already exists is a **403** "Security
-   error", although the contract declares 409 for `createUser` (the server throws
-   `ServerSecurityException`, which its HTTP layer maps to 403). The facade classifies neither.
+   Two statuses on the administration path are worth knowing, both measured live and pinned by
+   `e2e/admin_test.go`: a database that already exists is a 400 ("Cannot execute command", the
+   reason in `Detail`), and a user that already exists is a **409**. The 409 is recent: until
+   ArcadeData/arcadedb#10076 (fixing #10073, 2026-10-15) the server threw
+   `ServerSecurityException`, which its HTTP layer maps to 403 "Security error", the status a
+   non-root caller also gets. The facade classifies neither; `CreateUser`'s doc comment tells a
+   caller that a 409 means "already there".
 3. **A property named `"/unreadableFiles"`** in the 200 body of `GET
    /api/v1/ha/snapshot/{database}/checksums`. This one is not an inaccuracy: the server really sends
    that key, and the slash is deliberate upstream (the body is a flat map keyed by file name, and a

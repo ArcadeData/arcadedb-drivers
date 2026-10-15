@@ -49,7 +49,8 @@ const { result } = await db.query({
 `language` is a `QueryLanguage`: `"sql"`, `"sqlscript"` (several `;`-separated SQL statements run as
 one script, usually through `command`), `"cypher"`, `"gremlin"`, `"graphql"` or `"mongo"`.
 
-A bearer token (for example, a session token returned by `/api/v1/login`) works the same way:
+A bearer token (for example, a session token from `server.login()`; see "Sessions and API
+tokens") works the same way:
 
 ```ts
 import { createClient, bearerAuth } from "@arcadedb/driver";
@@ -736,6 +737,90 @@ but administrative commands answer `{"result": "ok"}` and other commands answer 
 own; `openapi-fetch` does not validate, so through `raw` the same body arrives typed as something
 it is not. The command string is sent as given.
 
+## Sessions and API tokens
+
+```ts
+const root = createClient({ baseUrl: "http://localhost:2480", auth: basicAuth("root", "playwithdata") });
+
+// Per-user isolation: log in as the user once, then keep a client holding only the token.
+const login = await root.loginAs("alice", "a-long-password"); // or root.login(): the client's own credentials
+const alice = root.withToken(login.token); // root itself is unchanged
+const dbs = await alice.listDatabases(); // only what alice may see
+await alice.logout(); // the token is now refused everywhere
+
+// A long-lived machine credential (root only).
+const created = await root.createAPIToken("ci", { database: "tenant_a" });
+store(created.token); // the only time the plaintext exists
+const tokens = await root.listAPITokens(); // metadata only, never the token
+await root.deleteAPIToken(created.tokenHash); // by hash, never by token
+```
+
+`login` and `loginAs` resolve to a `LoginResult` carrying the session token (prefixed `AU-`) and
+leave the client alone. `loginAs` sends the user's credentials through a separate client built
+from the same `baseUrl` and `fetch`, because a per-call header would lose to the client's own
+`auth` middleware. `withToken` returns a **new** `ArcadeDBServer` presenting the token through
+`bearerAuth`, with the original's `baseUrl`, `fetch` and `WebSocket`; middleware added later with
+`raw.use()` is not carried over. Both need a server built by `createClient`. A token is a
+credential: whoever holds it acts as that user until it is logged out or the server drops it.
+Keeping the token rather than the password is the point.
+
+The server drops a session on its own in three cases, after which the token gets a 401 like a
+logged-out one:
+
+- after 30 minutes without a request (`arcadedb.server.httpAuthSessionExpireTimeout`; each request
+  restarts the clock), and, only if `arcadedb.server.httpAuthSessionAbsoluteTimeout` is set, that
+  long after login whatever the activity;
+- **when the same user logs in a 101st time**: each user holds at most 100 sessions
+  (`arcadedb.server.httpAuthSessionMaxPerUser`), and a further login silently evicts that user's
+  oldest. Log in once per user and reuse the token, not once per request;
+- never by a count across users: past 10,000 sessions in all (`arcadedb.server.httpAuthSessionMax`)
+  a new login is refused with a **503** instead, and existing sessions are kept.
+
+What each failure looks like, measured against a real server and pinned by the e2e suite:
+
+- **Wrong Basic credentials are a 403** "Security error", not a 401. The server answers every
+  failed password check that way, on every endpoint, so a `loginAs` 403 cannot be told apart from
+  a forbidden user (ArcadeData/arcadedb#10109 asks for 401). **401** is what an invalid, expired or
+  logged-out bearer token gets.
+- **`logout` only ends a session token.** The server answers 204 to a logout carrying Basic
+  credentials or an API token and invalidates nothing, so `logout` on a client whose `auth` does
+  not present an `AU-` token rejects with `NotSessionTokenError` without sending anything. The
+  token is read by running the `auth` middleware on a throwaway request, as the insert session
+  does. Logging out a token that is no longer valid is a 401.
+- **`listSessions` is root-only** (403 otherwise) and lists every user's live session token. Treat
+  its result as you would the users' passwords. These are login sessions, not the transaction
+  sessions `transaction()` opens. `createdAt` and `lastUpdate` are `Date`s, `elapsedMs` a number,
+  `issuer` `undefined` for a session this node issued, and `sourceIp`, `userAgent`, `country` and
+  `city` `null` when the server does not know them.
+
+API tokens:
+
+- **The plaintext is returned exactly once**, in `CreatedAPIToken.token`. The server stores only
+  its SHA-256 hash, so a lost token cannot be recovered, only deleted and reissued. This client
+  never logs or keeps it.
+- **`deleteAPIToken` takes the hash** (`tokenHash`, from `listAPITokens` or `createAPIToken`).
+  Anything but 64 lowercase hexadecimal characters throws `RangeError` before a request is sent,
+  because the argument travels in the query string, where proxies and access logs record it, and
+  the likeliest mistake is the plaintext token. The error does not repeat the argument. A hash no
+  token has is a **404**, a status the contract does not list (ArcadeData/arcadedb#10110).
+- **A taken name is a 409.** The contract describes its 409 only as a replayed `X-Request-Id`;
+  the server also uses it for a duplicate name.
+- **412 means the transport is not confidential.** With
+  `arcadedb.server.apiTokenRequireSecureTransport` on, the server refuses to send a token back over
+  cleartext HTTP to a non-loopback client, unless a proxy listed in
+  `arcadedb.server.apiTokenTrustedProxies` terminated TLS. The setting is off by default until
+  ArcadeDB 27.1.1, which turns it on; until then such a mint succeeds and the server logs a warning.
+- `expiresAt` is `null` for a token that never expires. Passed to `createAPIToken`, it must be a
+  valid `Date` after the Unix epoch, or `RangeError` is thrown before sending: the server reads an
+  expiry of 0 as "never", so an epoch expiry would issue a token that never expires. An expired
+  token authenticates nobody, and stays in `listAPITokens` (with `expired` set) until the next
+  token change retires it. `permissions` takes the shape a group's `types` map takes.
+- `logout` on a client holding an API token rejects with `NotSessionTokenError`: an API token is
+  revoked with `deleteAPIToken`, not logged out.
+
+The implementation is loaded with a dynamic `import()` on first use, like the `db.*` namespaces, so
+a bundle that never logs in does not carry it (see "Bundling and tree-shaking").
+
 ## What only `raw` reaches
 
 The facade wraps the data plane and a handful of server calls; everything else in the contract is
@@ -784,7 +869,8 @@ supported.
 ## Bundling and tree-shaking
 
 `db.ts`, `db.grafana`, `db.promql`, `db.vector`, and `db.insertSession` each load their implementation with a dynamic
-`import()` rather than a static one. On a bundler that supports code splitting - Vite, webpack,
+`import()` rather than a static one, and so do the server's administration, login, session and
+API-token methods. On a bundler that supports code splitting - Vite, webpack,
 Rollup, or esbuild run with `--splitting` - code that only calls `query`, `command`, and
 `transaction` gets a chunk that excludes the time-series, Grafana, PromQL, and vector-search
 modules and the insert session; they load only if and when `db.ts`, `db.grafana`, `db.promql`,

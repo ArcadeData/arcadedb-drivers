@@ -255,3 +255,16 @@ export class TimeSeriesWriteError extends ArcadeDBError {
     );
   }
 }
+
+/**
+ * Thrown by `logout` when the client does not present a session token from `login`. The server
+ * answers 204 to a logout that carries Basic credentials or an API token and invalidates nothing,
+ * so without this check such a `logout` would report a success that never happened. Nothing is
+ * sent.
+ */
+export class NotSessionTokenError extends Error {
+  constructor() {
+    super("the client does not present a session token from login()");
+    this.name = "NotSessionTokenError";
+  }
+}

@@ -100,6 +100,10 @@ func TestPromQLErrorAndEmptyBody(t *testing.T) {
 			return err
 		},
 		"Labels": func() error { _, err := empty.DB("d").PromQL().Labels(context.Background()); return err },
+		"LabelValues": func() error {
+			_, err := empty.DB("d").PromQL().LabelValues(context.Background(), "job", generated.PromQLLabelValuesParams{})
+			return err
+		},
 		"Series": func() error {
 			_, err := empty.DB("d").PromQL().Series(context.Background(), generated.PromQLSeriesParams{})
 			return err
@@ -112,24 +116,38 @@ func TestPromQLErrorAndEmptyBody(t *testing.T) {
 		}
 	}
 }
-func TestPromQLLabelValues(t *testing.T) {
-	ctx := context.Background()
-	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path != "/api/v1/ts/d/prom/api/v1/label/__name__/values" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		_, _ = w.Write([]byte(`{"status":"success","data":["cpu","memory"]}`))
-	})
 
-	res, err := srv.DB("d").PromQL().LabelValues(ctx, "__name__", generated.PromQLLabelValuesParams{})
+func TestPromQLLabelValues(t *testing.T) {
+	var path string
+	var q map[string][]string
+	var session string
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		path, q, session = r.URL.EscapedPath(), r.URL.Query(), r.Header.Get("arcadedb-session-id")
+		writeJSON(w, `{"status":"success","data":["cpu","memory"]}`)
+	})
+	db := srv.DB("d")
+	db.sessionID = "S1"
+	start := "1700000000"
+	out, err := db.PromQL().LabelValues(context.Background(), "__name__",
+		generated.PromQLLabelValuesParams{Start: &start})
 	if err != nil {
-		t.Fatalf("LabelValues failed: %v", err)
+		t.Fatal(err)
 	}
-	if res.Status == nil || *res.Status != "success" {
-		t.Fatalf("expected status 'success', got %v", res.Status)
+	if path != "/api/v1/ts/d/prom/api/v1/label/__name__/values" {
+		t.Fatalf("path = %q", path)
 	}
-	if len(res.Data) != 2 || res.Data[0] != "cpu" || res.Data[1] != "memory" {
-		t.Fatalf("unexpected data: %+v", res.Data)
+	if q["start"][0] != "1700000000" || q["end"] != nil || session != "S1" {
+		t.Fatalf("query=%v session=%q", q, session)
+	}
+	if len(out.Data) != 2 || out.Data[0] != "cpu" || out.Data[1] != "memory" {
+		t.Fatalf("out = %+v", out)
+	}
+
+	// The generated client escapes the name once; the facade must not escape it again.
+	if _, err := db.PromQL().LabelValues(context.Background(), "a/b c", generated.PromQLLabelValuesParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/api/v1/ts/d/prom/api/v1/label/a%2Fb%20c/values" {
+		t.Fatalf("path = %q, want the name escaped exactly once", path)
 	}
 }

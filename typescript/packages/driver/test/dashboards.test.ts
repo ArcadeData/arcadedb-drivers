@@ -144,8 +144,30 @@ describe("db.promql.series", () => {
     expect(response.data).toEqual([{ __name__: "up", host: "a" }]);
   });
 });
-test("labelValuesPromQL lists values for a label name", async () => {
-  const res = await labelValuesPromQL(client, database, "__name__");
-  expect(res.status).toBe("success");
-  expect(Array.isArray(res.data)).toBe(true);
+
+describe("db.promql.labelValues", () => {
+  it("GETs /api/v1/ts/{database}/prom/api/v1/label/{name}/values with the range", async () => {
+    let capturedUrl: URL | undefined;
+    const fetchMock = vi.fn(async (request: Request) => {
+      capturedUrl = new URL(request.url);
+      return jsonResponse({ status: "success", data: ["cpu", "memory"] }, 200);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    const response = await server.db("mydb").promql.labelValues("__name__", { start: "1700000000" });
+
+    expect(capturedUrl?.pathname).toBe("/api/v1/ts/mydb/prom/api/v1/label/__name__/values");
+    expect(capturedUrl?.searchParams.get("start")).toBe("1700000000");
+    expect(capturedUrl?.searchParams.has("end")).toBe(false);
+    expect(response.data).toEqual(["cpu", "memory"]);
+  });
+
+  it("percent-encodes the label name exactly once", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ status: "success", data: [] }, 200));
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await server.db("mydb").promql.labelValues("a/b c");
+
+    expect(new URL(fetchMock.mock.calls[0][0].url).pathname).toBe("/api/v1/ts/mydb/prom/api/v1/label/a%2Fb%20c/values");
+  });
 });

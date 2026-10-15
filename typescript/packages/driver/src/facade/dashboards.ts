@@ -194,10 +194,11 @@ export async function seriesPromQL(client: RawClient, database: string, opts: Pr
     }),
   );
 }
+
 /**
- * Executes `GET /api/v1/ts/{database}/prom/api/v1/label/{name}/values`:
- * lists the values of one label name over the requested time range.
- * Querying '__name__' returns time-series type names.
+ * Executes `GET /api/v1/ts/{database}/prom/api/v1/label/{name}/values`: lists the values of one
+ * label over an optional `start`/`end` range; `"__name__"` lists the time-series type names.
+ * `name` is passed unescaped because openapi-fetch already percent-encodes path parameters.
  */
 export async function labelValuesPromQL(
   client: RawClient,
@@ -207,10 +208,7 @@ export async function labelValuesPromQL(
 ): Promise<PromQLLabelsResponse> {
   return unwrap(
     client.GET("/api/v1/ts/{database}/prom/api/v1/label/{name}/values", {
-      params: {
-        path: { database, name: encodeURIComponent(name) },
-        query: opts,
-      },
+      params: { path: { database, name }, query: opts },
     }),
   );
 }

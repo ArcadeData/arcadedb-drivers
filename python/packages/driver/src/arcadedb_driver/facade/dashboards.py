@@ -110,6 +110,7 @@ class PromQLNamespace:
         data = unwrap(prom_ql_labels.sync_detailed(self._database, client=self._client))
         assert isinstance(data, PromQLLabelsResponse)
         return data
+
     def label_values(
         self,
         name: str,
@@ -117,7 +118,11 @@ class PromQLNamespace:
         start: str | Unset = UNSET,
         end: str | Unset = UNSET,
     ) -> PromQLLabelsResponse:
-        """Lists the values of one label name over the requested time range. Querying '__name__' returns time-series type names."""
+        """Lists the values of label `name` over an optional `start`/`end` range (Unix seconds).
+
+        `"__name__"` lists the time-series type names. Pass `name` unescaped: the generated
+        operation percent-encodes path parameters itself.
+        """
         data = unwrap(
             prom_ql_label_values.sync_detailed(
                 self._database,
@@ -129,6 +134,7 @@ class PromQLNamespace:
         )
         assert isinstance(data, PromQLLabelsResponse)
         return data
+
     def series(self, *, match: list[str], start: str | Unset = UNSET, end: str | Unset = UNSET) -> PromQLSeriesResponse:
         """Returns the label sets of the series matching the given `match[]` selectors."""
         data = unwrap(
@@ -136,7 +142,7 @@ class PromQLNamespace:
         )
         assert isinstance(data, PromQLSeriesResponse)
         return data
-    
+
 
 class AsyncGrafanaNamespace:
     """The async twin of `GrafanaNamespace`."""
@@ -195,6 +201,7 @@ class AsyncPromQLNamespace:
         data = unwrap(await prom_ql_labels.asyncio_detailed(self._database, client=self._client))
         assert isinstance(data, PromQLLabelsResponse)
         return data
+
     async def label_values(
         self,
         name: str,
@@ -202,7 +209,11 @@ class AsyncPromQLNamespace:
         start: str | Unset = UNSET,
         end: str | Unset = UNSET,
     ) -> PromQLLabelsResponse:
-        """Lists the values of one label name over the requested time range. Querying '__name__' returns time-series type names."""
+        """Lists the values of label `name` over an optional `start`/`end` range (Unix seconds).
+
+        `"__name__"` lists the time-series type names. Pass `name` unescaped: the generated
+        operation percent-encodes path parameters itself.
+        """
         data = unwrap(
             await prom_ql_label_values.asyncio_detailed(
                 self._database,
@@ -214,6 +225,7 @@ class AsyncPromQLNamespace:
         )
         assert isinstance(data, PromQLLabelsResponse)
         return data
+
     async def series(
         self, *, match: list[str], start: str | Unset = UNSET, end: str | Unset = UNSET
     ) -> PromQLSeriesResponse:

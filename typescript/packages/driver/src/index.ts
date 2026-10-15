@@ -22,6 +22,7 @@ import type {
   GrafanaQueryOptions,
   GrafanaQueryResponse,
   PromQLDataResponse,
+  PromQLLabelValuesOptions,
   PromQLLabelsResponse,
   PromQLQueryOptions,
   PromQLQueryRangeOptions,
@@ -75,6 +76,7 @@ export type {
   GrafanaQueryOptions,
   GrafanaQueryResponse,
   PromQLDataResponse,
+  PromQLLabelValuesOptions,
   PromQLLabelsResponse,
   PromQLMatrixSeries,
   PromQLQueryOptions,
@@ -171,6 +173,12 @@ class PromQLNamespace {
   async labels(): Promise<PromQLLabelsResponse> {
     const { labelsPromQL } = await import("./facade/dashboards.js");
     return labelsPromQL(this.client, this.database);
+  }
+
+  /** Lists the values of one label over an optional time range; `"__name__"` lists the time-series type names. */
+  async labelValues(name: string, opts?: PromQLLabelValuesOptions): Promise<PromQLLabelsResponse> {
+    const { labelValuesPromQL } = await import("./facade/dashboards.js");
+    return labelValuesPromQL(this.client, this.database, name, opts);
   }
 
   /** Returns the label sets of the series matching the given `match[]` selectors. */

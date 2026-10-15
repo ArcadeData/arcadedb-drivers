@@ -202,6 +202,22 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   namespaces here (`cached_property` on `ArcadeDBDatabase`) import and construct eagerly-on-first-
   access with no lazy-import wrapper. Do not add one; it would be cargo-culting a TypeScript
   concern into a runtime where it has no meaning.
+- **Sessions and API tokens refuse three calls locally** (`facade/session.py`, issue #123, the
+  Go client's design carried over). `logout` on a client whose `Authorization` is not
+  `Bearer AU-...` raises `NotSessionTokenError` unsent, because the server answers 204 to a logout
+  carrying Basic credentials or an API token and invalidates nothing. `delete_api_token` refuses
+  anything but 64 lowercase hex characters with `ValueError` unsent, and the error never repeats
+  the argument: it travels in the query string, and the likely mistake is the plaintext token.
+  `create_api_token` refuses a naive `expires_at`, or one at or before the epoch, which the server
+  would read as "never expires" (Go only documents that edge). `login_as` posts through the
+  pooled httpx client with a per-request `Authorization` rather than the generated `login`
+  operation: the generated `Client.with_headers` updates the **shared** httpx client's headers in
+  place, which would change the credentials of every later call. Do not route it back.
+  `with_token` builds a new server from the stored constructor arguments; unlike Go's, it does not
+  share the connection pool (an httpx client's headers belong to the pool), so the caller closes
+  each. The token-carrying dataclasses leave the token out of `repr()`. The statuses measured live
+  and pinned by `e2e/test_session.py` are Go's: wrong Basic credentials **403** on login as
+  everywhere (401 is for a bad bearer token), a duplicate API-token name 409, an unknown hash 404.
 
 ## The transaction contract
 

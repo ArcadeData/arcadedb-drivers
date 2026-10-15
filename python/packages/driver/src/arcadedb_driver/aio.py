@@ -11,21 +11,26 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
+from datetime import datetime
 from functools import cached_property
 from types import TracebackType
 from typing import Any, Literal
 
 import httpx
 
+from ._generated.api.auth import list_sessions, login, logout
 from ._generated.api.command import execute_command
 from ._generated.api.database import check_database_exists, list_databases
 from ._generated.api.health import check_health, check_ready
 from ._generated.api.query import execute_query_post
 from ._generated.api.security import (
+    create_api_token,
     create_or_update_group,
     create_user,
+    delete_api_token,
     delete_group,
     delete_user,
+    list_api_tokens,
     list_groups,
     list_users,
     update_user,
@@ -41,6 +46,7 @@ from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
 from ._internal.batch_rows import EdgeRow, VertexRow
 from ._internal.unwrap import is_success, unwrap
+from .auth import basic_auth, bearer_auth
 from .errors import ArcadeDBError, InsertSessionError
 from .facade.admin import (
     SERVER_COMMAND_URL,
@@ -66,6 +72,22 @@ from .facade.data import (
     to_envelope,
 )
 from .facade.insert_session import AsyncInsertSession
+from .facade.session import (
+    LOGIN_URL,
+    APIToken,
+    CreatedAPIToken,
+    LoginResult,
+    Session,
+    api_tokens_from,
+    check_session_token,
+    check_token_hash,
+    create_api_token_request,
+    created_api_token_from,
+    login_as_response,
+    login_result,
+    sessions_from,
+    with_authorization,
+)
 from .facade.stream import astream_command, astream_query
 from .facade.timeseries import AsyncTimeSeriesNamespace
 from .facade.vector import AsyncVectorNamespace
@@ -521,6 +543,11 @@ class AsyncArcadeDBServer:
         verify_ssl: bool = True,
     ) -> None:
         merged: dict[str, str] = {**(auth or {}), **(headers or {})}
+        # Kept for `with_token` and `logout`; `raw`'s own copies are private to the generator.
+        self._base_url = base_url
+        self._headers = merged
+        self._timeout = timeout
+        self._verify_ssl = verify_ssl
         #: The generated client. Returns a `Response` and does NOT raise, unlike
         #: every method here.
         self.raw = Client(base_url=base_url, headers=merged, timeout=timeout, verify_ssl=verify_ssl)
@@ -696,6 +723,113 @@ class AsyncArcadeDBServer:
         (`"*"` covers every database) and then by group name. The group document's schema
         version is not returned."""
         return groups_from(unwrap(await list_groups.asyncio_detailed(client=self.raw)))
+
+    async def login(self) -> LoginResult:
+        """Opens a session with the client's own credentials through `POST /api/v1/login` and
+        returns its token. The client itself is unchanged: present the token with `with_token`.
+
+        Wrong Basic credentials raise `ArcadeDBError` with status **403** ("Security error"),
+        not 401: the server answers a failed password check with 403 on every endpoint, so on
+        `login` it cannot be told apart from a forbidden user (ArcadeData/arcadedb#10109). 401
+        is what an invalid or expired bearer token gets. A server that has reached its limit of
+        concurrent sessions answers 503.
+
+        Each login opens a new session, and a user holds at most 100 by default
+        (`arcadedb.server.httpAuthSessionMaxPerUser`): the next login silently evicts that
+        user's oldest session, whose token then gets a 401. Log in once and reuse the token.
+        """
+        return login_result(unwrap(await login.asyncio_detailed(client=self.raw)))
+
+    async def login_as(self, user: str, password: str) -> LoginResult:
+        """Opens a session as `user`, whatever credentials the client is configured with, and
+        returns its token, as `login` does and with the same failures. It is the way to act as
+        one user from a client built for another: for per-user isolation, log in as the user
+        once and keep `with_token(result.token)` rather than the user's password.
+
+        The credentials go on this one request only; the client's own are unchanged, for this
+        call and every other.
+        """
+        raw = await self.raw.get_async_httpx_client().post(LOGIN_URL, headers=basic_auth(user, password))
+        return login_as_response(raw)
+
+    def with_token(self, token: str) -> AsyncArcadeDBServer:
+        """Returns a new `AsyncArcadeDBServer` that authenticates every request with `token` as a
+        bearer token, and is otherwise configured like this one: the same base URL, extra
+        headers, timeout and TLS verification. This server is unchanged. It performs no request.
+
+        `token` is a session token from `login` or `login_as`, or an API token from
+        `create_api_token`. The new server has its own connection pool, so close it (`aclose`, or
+        an `async with` block) like any other; closing one does not close the other.
+        """
+        return AsyncArcadeDBServer(
+            base_url=self._base_url,
+            headers=with_authorization(self._headers, bearer_auth(token)["Authorization"]),
+            timeout=self._timeout,
+            verify_ssl=self._verify_ssl,
+        )
+
+    async def logout(self) -> None:
+        """Invalidates the session token this client presents, through `POST /api/v1/logout`.
+
+        A client that does not present a session token from `login` (Basic credentials, or an
+        API token) raises `NotSessionTokenError` without a request: the server answers 204 to
+        such a logout and invalidates nothing. A token that is no longer valid, because it was
+        already logged out or has expired, raises `ArcadeDBError` with status 401. Once this
+        returns, every request with the token, from any client, is a 401.
+        """
+        check_session_token(self._headers)
+        unwrap(await logout.asyncio_detailed(client=self.raw))
+
+    async def list_sessions(self) -> list[Session]:
+        """Lists every authentication session the server holds (root only; any other user gets
+        a 403 `ArcadeDBError`). Each carries its live token, so the result is as sensitive as
+        the users' passwords."""
+        return sessions_from(unwrap(await list_sessions.asyncio_detailed(client=self.raw)))
+
+    async def create_api_token(
+        self,
+        name: str,
+        *,
+        database: str | None = None,
+        expires_at: datetime | None = None,
+        permissions: Mapping[str, Any] | None = None,
+    ) -> CreatedAPIToken:
+        """Issues an API token (root only) through `POST /api/v1/server/api-tokens`. The
+        plaintext token is in the result's `token` and nowhere else, ever: see
+        `CreatedAPIToken`.
+
+        `database` scopes the token to one database; `None` means `"*"`, every database.
+        `expires_at` is when the token stops authenticating, and `None` means never; it must be
+        timezone-aware and after the Unix epoch, or `ValueError` is raised before anything is
+        sent (the server reads an expiry of 0 as "never"). `permissions` takes the shape a
+        group's `types` map takes (see `save_group`); `None` grants none.
+
+        A name already in use raises `ArcadeDBError` with status 409, and a blank name a 400.
+        The server refuses to send the token in the clear: unless the request arrives over
+        HTTPS, from a loopback address, or through a trusted proxy that terminated TLS, it
+        answers 412 and issues nothing when `arcadedb.server.apiTokenRequireSecureTransport` is
+        on (the default from ArcadeDB 27.1.1).
+        """
+        body = create_api_token_request(name, database, expires_at, permissions)
+        return created_api_token_from(unwrap(await create_api_token.asyncio_detailed(client=self.raw, body=body)))
+
+    async def list_api_tokens(self) -> list[APIToken]:
+        """Lists every issued API token as metadata (root only); never the token itself."""
+        return api_tokens_from(unwrap(await list_api_tokens.asyncio_detailed(client=self.raw)))
+
+    async def delete_api_token(self, token_hash: str) -> None:
+        """Revokes the API token whose hash is `token_hash` (root only), through
+        `DELETE /api/v1/server/api-tokens`.
+
+        It takes the `token_hash` that `list_api_tokens` and `create_api_token` report, never
+        the token: anything but 64 lowercase hexadecimal characters raises `ValueError` before
+        it is sent, because the argument travels in the query string, which proxies and access
+        logs record. The error does not repeat the argument. A hash no token has raises
+        `ArcadeDBError` with status 404, a status the contract does not list
+        (ArcadeData/arcadedb#10110).
+        """
+        check_token_hash(token_hash)
+        unwrap(await delete_api_token.asyncio_detailed(client=self.raw, token=token_hash))
 
     async def aclose(self) -> None:
         """Closes the underlying httpx client and its connection pool."""

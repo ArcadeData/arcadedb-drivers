@@ -25,6 +25,7 @@ from urllib.parse import quote
 import httpx
 
 from .._generated.api.prom_ql import (
+    prom_ql_label_values,
     prom_ql_labels,
     prom_ql_query,
     prom_ql_query_range,
@@ -109,7 +110,25 @@ class PromQLNamespace:
         data = unwrap(prom_ql_labels.sync_detailed(self._database, client=self._client))
         assert isinstance(data, PromQLLabelsResponse)
         return data
-
+    def label_values(
+        self,
+        name: str,
+        *,
+        start: str | Unset = UNSET,
+        end: str | Unset = UNSET,
+    ) -> PromQLLabelsResponse:
+        """Lists the values of one label name over the requested time range. Querying '__name__' returns time-series type names."""
+        data = unwrap(
+            prom_ql_label_values.sync_detailed(
+                self._database,
+                name,
+                client=self._client,
+                start=start,
+                end=end,
+            )
+        )
+        assert isinstance(data, PromQLLabelsResponse)
+        return data
     def series(self, *, match: list[str], start: str | Unset = UNSET, end: str | Unset = UNSET) -> PromQLSeriesResponse:
         """Returns the label sets of the series matching the given `match[]` selectors."""
         data = unwrap(
@@ -117,7 +136,7 @@ class PromQLNamespace:
         )
         assert isinstance(data, PromQLSeriesResponse)
         return data
-
+    
 
 class AsyncGrafanaNamespace:
     """The async twin of `GrafanaNamespace`."""
@@ -176,7 +195,25 @@ class AsyncPromQLNamespace:
         data = unwrap(await prom_ql_labels.asyncio_detailed(self._database, client=self._client))
         assert isinstance(data, PromQLLabelsResponse)
         return data
-
+    async def label_values(
+        self,
+        name: str,
+        *,
+        start: str | Unset = UNSET,
+        end: str | Unset = UNSET,
+    ) -> PromQLLabelsResponse:
+        """Lists the values of one label name over the requested time range. Querying '__name__' returns time-series type names."""
+        data = unwrap(
+            await prom_ql_label_values.asyncio_detailed(
+                self._database,
+                name,
+                client=self._client,
+                start=start,
+                end=end,
+            )
+        )
+        assert isinstance(data, PromQLLabelsResponse)
+        return data
     async def series(
         self, *, match: list[str], start: str | Unset = UNSET, end: str | Unset = UNSET
     ) -> PromQLSeriesResponse:

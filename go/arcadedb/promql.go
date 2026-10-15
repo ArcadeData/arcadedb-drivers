@@ -2,7 +2,7 @@ package arcadedb
 
 import (
 	"context"
-
+    "net/url"
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
 )
 
@@ -70,7 +70,19 @@ func (p *PromQL) Labels(ctx context.Context) (*generated.PromQLLabelsResponse, e
 	}
 	return nonEmpty(decodeBody(resp.JSON200, resp.Body))
 }
-
+// LabelValues lists the values of one label name over the requested time range.
+// Querying "__name__" returns the time-series type names instead of scanning a tag column.
+func (p *PromQL) LabelValues(ctx context.Context, name string, params generated.PromQLLabelValuesParams) (*generated.PromQLLabelsResponse, error) {
+	params.ArcadedbSessionId = p.session(params.ArcadedbSessionId)
+	resp, err := p.db.srv.raw.PromQLLabelValuesWithResponse(ctx, p.db.name, url.PathEscape(name), &params)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp.HTTPResponse, resp.Body); err != nil {
+		return nil, err
+	}
+	return nonEmpty(decodeBody(resp.JSON200, resp.Body))
+}
 // Series lists the series matching every selector in params.Match, which is sent as the
 // repeated "match[]" parameter; the results are unioned.
 func (p *PromQL) Series(ctx context.Context, params generated.PromQLSeriesParams) (*generated.PromQLSeriesResponse, error) {

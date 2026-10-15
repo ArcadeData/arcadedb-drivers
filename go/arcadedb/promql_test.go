@@ -112,3 +112,24 @@ func TestPromQLErrorAndEmptyBody(t *testing.T) {
 		}
 	}
 }
+func TestPromQLLabelValues(t *testing.T) {
+	ctx := context.Background()
+	srv := fakeServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path != "/api/v1/ts/d/prom/api/v1/label/__name__/values" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":["cpu","memory"]}`))
+	})
+
+	res, err := srv.DB("d").PromQL().LabelValues(ctx, "__name__", generated.PromQLLabelValuesParams{})
+	if err != nil {
+		t.Fatalf("LabelValues failed: %v", err)
+	}
+	if res.Status == nil || *res.Status != "success" {
+		t.Fatalf("expected status 'success', got %v", res.Status)
+	}
+	if len(res.Data) != 2 || res.Data[0] != "cpu" || res.Data[1] != "memory" {
+		t.Fatalf("unexpected data: %+v", res.Data)
+	}
+}

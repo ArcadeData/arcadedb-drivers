@@ -144,3 +144,8 @@ describe("db.promql.series", () => {
     expect(response.data).toEqual([{ __name__: "up", host: "a" }]);
   });
 });
+test("labelValuesPromQL lists values for a label name", async () => {
+  const res = await labelValuesPromQL(client, database, "__name__");
+  expect(res.status).toBe("success");
+  expect(Array.isArray(res.data)).toBe(true);
+});

@@ -1,6 +1,6 @@
 {
   "name": "@arcadedb/driver",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "TypeScript/JavaScript HTTP client for ArcadeDB, generated from ArcadeDB's OpenAPI contract.",
   "type": "module",
   "sideEffects": false,

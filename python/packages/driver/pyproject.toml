@@ -1,6 +1,6 @@
 [project]
 name = "arcadedb-driver"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python HTTP client for ArcadeDB, generated from ArcadeDB's OpenAPI contract."
 readme = "README.md"
 license = "Apache-2.0"

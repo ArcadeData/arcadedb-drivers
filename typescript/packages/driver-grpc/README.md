@@ -626,7 +626,7 @@ This package was generated from `contracts/arcadedb-server-26.10.2.proto`, recor
 | --- | --- |
 | 0.1.0 | 26.9.1 |
 | 0.2.0 | 26.10.1 |
-| 0.3.0 (unreleased) | 26.10.2 |
+| 0.3.0 | 26.10.2 |
 
 Pointing it at a server on a materially different release may work for the RPCs both versions
 share, but is not tested or supported.

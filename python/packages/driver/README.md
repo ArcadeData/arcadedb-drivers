@@ -508,8 +508,8 @@ with db.transaction(query_tag="etl-run-42") as tx:
 ```
 
 The label is opaque to the server: `list queries` shows it, and `terminate queries tag <label>`
-stops every statement carrying it; `srv.list_queries` and `srv.terminate_queries_by_tag` send both
-(see "Running work" below). On `transaction()` it is sent **only** on the begin request -
+stops every statement carrying it. `srv.list_queries` and `srv.terminate_queries_by_tag` issue those
+two commands for you (see "Running work" below). On `transaction()` it is sent **only** on the begin request -
 not on the statements, the commit or the rollback - and the server applies it to every statement of
 the transaction that carries no label of its own; a statement that passes its own `query_tag`
 overrides it. On `batch_load`/`batch_load_stream` it is a header like everywhere else, never a

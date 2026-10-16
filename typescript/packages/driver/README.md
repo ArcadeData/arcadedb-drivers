@@ -369,8 +369,8 @@ await db.transaction(
 
 The tag travels as the `X-ArcadeDB-Query-Tag` request header, never in the body or the query
 string, and only when it is non-empty. On the server, `list queries` shows each running statement
-under its tag and `terminate queries tag <label>` stops them; `server.listQueries` and
-`server.terminateQueriesByTag` send both (see "Running work" below). `transaction`'s tag is sent on the
+under its tag and `terminate queries tag <label>` stops them. `server.listQueries` and
+`server.terminateQueriesByTag` issue those two commands for you (see "Running work" below). `transaction`'s tag is sent on the
 begin request **only**: the server applies it to every statement of the session that carries no
 tag of its own, so the first `command` above runs as `archive-run`, while the second, which passes
 its own tag, runs as `cart-cleanup`. Commit and rollback carry no tag.

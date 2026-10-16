@@ -128,7 +128,8 @@ rather than truncated, and past that ceiling a narrower filter is the only way f
 
 `arcadedb.WithQueryTag("nightly-report")` sends the `X-ArcadeDB-Query-Tag` request header, an
 opaque label the server shows in `list queries` and that `terminate queries tag nightly-report`
-stops; `srv.ListQueries` and `srv.TerminateQueriesByTag` send both (see "Running work" below). `Query`, `QueryStream`, `Command`, `CommandStream` and `Transaction` all take it; a batch
+stops. `srv.ListQueries` and `srv.TerminateQueriesByTag` issue those two commands for you (see
+"Running work" below). `Query`, `QueryStream`, `Command`, `CommandStream` and `Transaction` all take it; a batch
 load takes it as `generated.ExecuteBatchParams.XArcadeDBQueryTag`, beside the load's other options,
 and sends it as the same header. An empty tag sends nothing. On `Transaction` the tag goes on the
 begin request **only**: the server labels every statement of the transaction session that carries

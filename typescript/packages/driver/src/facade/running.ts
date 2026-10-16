@@ -86,14 +86,16 @@ export type ProgressResponse = components["schemas"]["ProgressResponse"];
  * `trim()`, which would refuse a no-break space the server keeps. The Go and Python clients use the
  * same rule.
  */
-const SPACE_OR_CONTROL = /[\u0000-\u0020]/;
+function spaceOrControl(c: string): boolean {
+  return c.charCodeAt(0) <= 0x20;
+}
 
 /**
  * Throws `RangeError` for a value the server would split: it reads a database name, a query id and
  * a session id as one word.
  */
 function checkWord(what: string, value: string): void {
-  if (value === "" || SPACE_OR_CONTROL.test(value)) {
+  if (value === "" || Array.from(value).some(spaceOrControl)) {
     throw new RangeError(`${what} ${JSON.stringify(value)} is empty or contains a space or control character`);
   }
 }
@@ -103,7 +105,7 @@ function checkWord(what: string, value: string): void {
  * as the tag, trimmed, so " a" would match "a" rather than the tag named.
  */
 function checkTag(tag: string): void {
-  if (tag !== "" && (SPACE_OR_CONTROL.test(tag[0]!) || SPACE_OR_CONTROL.test(tag[tag.length - 1]!))) {
+  if (tag !== "" && (spaceOrControl(tag) || spaceOrControl(tag.slice(-1)))) {
     throw new RangeError(`tag ${JSON.stringify(tag)} starts or ends with a space or control character`);
   }
 }

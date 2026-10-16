@@ -105,10 +105,15 @@ calls, the Go client's design carried over. It is loaded with a **dynamic `impor
 since then, is `admin.ts`, because `test/treeshake.test.ts`'s 20,000-byte ceiling is close. The
 eager chunk measured 18,346 bytes before #123, 21,415 with `session.ts` imported statically, 19,907
 with it lazy and 19,126 with `admin.ts` lazy too; the "~11KB today" in that test's comment is stale,
-and the growth since then is not one module that a lazy import could take back. About 870 bytes of
-headroom remain, so the next addition to `ArcadeDBServer` should be lazy as well; raising the
-ceiling instead weakens what the test guards. `NotSessionTokenError` lives in `errors.ts` so
-exporting it does not pull the module in. Three calls refuse locally, unsent: `logout` unless the
+and the growth since then is not one module that a lazy import could take back. `facade/running.ts`
+(issue #124: `listQueries`, `terminateQuery`, `terminateQueriesByTag`, `listTransactions`,
+`terminateTransaction` and `db.progress`) is lazy too, and its six methods share one module-level
+`loadRunning` loader rather than an `import()` each, which saved 175 of the 670 bytes they cost: the
+eager chunk measured 19,255 bytes before #124 and 19,750 after. About 250 bytes of headroom remain,
+so the next addition to `ArcadeDBServer` will need room made first (the same shared-loader change
+applied to the admin and session methods is the obvious source); raising the ceiling instead
+weakens what the test guards. `NotSessionTokenError` and `isQueryTerminated` live in `errors.ts`
+so exporting them does not pull `session.ts` or `running.ts` in. Three calls refuse locally, unsent: `logout` unless the
 `auth` middleware presents `Bearer AU-...` (read with `internal/authorization.ts`, the probe the
 insert session uses; the server answers 204 to a Basic or API-token logout and invalidates nothing),
 `deleteAPIToken` for anything but 64 lowercase hex characters (the error never repeats the

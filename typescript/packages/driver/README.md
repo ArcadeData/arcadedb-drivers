@@ -369,7 +369,8 @@ await db.transaction(
 
 The tag travels as the `X-ArcadeDB-Query-Tag` request header, never in the body or the query
 string, and only when it is non-empty. On the server, `list queries` shows each running statement
-under its tag and `terminate queries tag <label>` stops them. `transaction`'s tag is sent on the
+under its tag and `terminate queries tag <label>` stops them. `server.listQueries` and
+`server.terminateQueriesByTag` issue those two commands for you (see "Running work" below). `transaction`'s tag is sent on the
 begin request **only**: the server applies it to every statement of the session that carries no
 tag of its own, so the first `command` above runs as `archive-run`, while the second, which passes
 its own tag, runs as `cart-cleanup`. Commit and rollback carry no tag.
@@ -755,6 +756,69 @@ but administrative commands answer `{"result": "ok"}` and other commands answer 
 own; `openapi-fetch` does not validate, so through `raw` the same body arrives typed as something
 it is not. The command string is sent as given.
 
+## Running work: list and terminate queries and transactions, and `db.progress`
+
+```ts
+import { isQueryTerminated } from "@arcadedb/driver";
+
+const running = await server.listQueries({ tag: "nightly-report" }); // or { database }, or neither
+const results = await server.terminateQueriesByTag("nightly-report", { waitMs: 3000 });
+const result = await server.terminateQuery(running[0].id);
+const open = await server.listTransactions();
+await server.terminateTransaction(open[0].id);
+const progress = await server.db("tenant_a").progress(); // long-running maintenance operations, step by step
+```
+
+Unlike the administration methods above, these are open to **any authenticated user**: root sees
+and stops every statement, another user only their own, and someone else's statement is answered
+`"not found"`, never "forbidden". They go through `POST /api/v1/server`, and `progress` through
+`GET /api/v1/progress/{database}`. Results are passed through as the server sends them, typed as
+`RunningQuery`, `TerminateResult` and `OpenTransaction`; times are epoch milliseconds.
+
+**Each server sees only its own work.** None of these is forwarded to the cluster leader. Behind a
+load balancer, the server this client reaches may not be the one running the statement, and then
+`listQueries` does not show it and terminating it answers `"not found"`.
+
+Each of the three terminate methods waits for the statements to stop, up to `waitMs` (omitted or zero leaves the server's
+default of 5000, and the server caps it at 10000), then answers each with a `status`, typed as
+`QueryStatus`. **Which one you get decides whether you have anything to undo:**
+
+| `status` | meaning |
+|---|---|
+| `"terminated"` | it stopped, and what it wrote was rolled back |
+| `"completed"` | it finished on its own before it noticed, so **what it did stands** |
+| `"terminating"` | not stopped yet when the wait ended; some statements (SQL `SLEEP`, for one) notice only when they end, so the request's own outcome is the answer |
+| `"not found"` | no such statement on this server, or another user's |
+
+Terminating a **command** inside a transaction ends the transaction too, rolling it back, while
+terminating a read leaves it open; `TerminateResult.sessionId` and `sessionOpen` say which, and
+`sessionOpen` is only the state at the time of the answer for a `"terminating"` statement. A script
+counts as a command.
+
+**The stopped request throws a 409, and `isQueryTerminated(err)` recognises it.** The server answers
+it 409 "Query terminated", but a 409 is also what a request still in flight under the same
+`X-Request-Id` gets, so the status alone cannot tell "someone stopped me" from a conflict.
+`isQueryTerminated` matches the error's `exception`, `com.arcadedb.exception.QueryTerminatedException`,
+which the server sends as a structured field, not the message text. It is not retryable: somebody
+stopped this work on purpose.
+
+**`terminateTransaction` does not reach the client that owned the transaction at commit.** It rolls
+the transaction back, and a statement sent on it afterwards throws a 404, but a commit naming the
+vanished session is answered 204, exactly like a real commit: a `transaction()` callback that ran no
+statement after the terminate resolves for work that is gone. Measured against 26.11.1-SNAPSHOT and
+pinned by the e2e suite.
+
+Ids, session ids and the `database` filter must not be empty (where required) or contain a space
+or control character (anything at or below U+0020), because the server reads each as one word; a
+tag must not start or end with one, because the server trims it. A no-break space is not one, as
+the server sees it. Each rejects with a `RangeError` before anything is sent. A tag
+is otherwise sent as given, spaces and quotes included: the server takes the rest of the command as
+the tag.
+
+`db.progress()` returns the contract's `ProgressResponse`, whose `result` is empty when nothing is
+running. The server reads a lock-free snapshot, so polling it at any rate cannot slow down the
+operation being watched.
+
 ## Sessions and API tokens
 
 ```ts
@@ -887,8 +951,8 @@ supported.
 ## Bundling and tree-shaking
 
 `db.ts`, `db.grafana`, `db.promql`, `db.vector`, and `db.insertSession` each load their implementation with a dynamic
-`import()` rather than a static one, and so do the server's administration, login, session and
-API-token methods. On a bundler that supports code splitting - Vite, webpack,
+`import()` rather than a static one, and so do the server's administration, login, session,
+API-token and running-work methods and `db.progress`. On a bundler that supports code splitting - Vite, webpack,
 Rollup, or esbuild run with `--splitting` - code that only calls `query`, `command`, and
 `transaction` gets a chunk that excludes the time-series, Grafana, PromQL, and vector-search
 modules and the insert session; they load only if and when `db.ts`, `db.grafana`, `db.promql`,

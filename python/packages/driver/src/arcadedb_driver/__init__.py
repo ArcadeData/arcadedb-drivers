@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import cached_property
 from types import TracebackType
 from typing import Any
@@ -28,9 +28,10 @@ from ._generated.api.security import (
     list_users,
     update_user,
 )
-from ._generated.api.server import get_server_info
+from ._generated.api.server import get_operation_progress, get_server_info
 from ._generated.client import Client
 from ._generated.models.nd_json_query_event import NdJsonQueryEvent
+from ._generated.models.progress_response import ProgressResponse
 from ._generated.models.query_response import QueryResponse
 from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
@@ -62,6 +63,22 @@ from .facade.data import (
     to_envelope,
 )
 from .facade.insert_session import AsyncInsertSession, InsertSession
+from .facade.running import (
+    OpenTransaction,
+    QueryStatus,
+    RunningQuery,
+    TerminateResult,
+    is_query_terminated,
+    list_queries_command,
+    open_transaction_from,
+    running_payload,
+    running_query_from,
+    running_result,
+    terminate_by_tag_command,
+    terminate_query_command,
+    terminate_result_from,
+    terminate_transaction_command,
+)
 from .facade.session import (
     LOGIN_URL,
     APIToken,
@@ -106,15 +123,20 @@ __all__ = [
     "InsertSessionError",
     "LoginResult",
     "NotSessionTokenError",
+    "OpenTransaction",
     "QueryEnvelope",
     "QueryLanguage",
+    "QueryStatus",
+    "RunningQuery",
     "Session",
+    "TerminateResult",
     "TimeSeriesWriteError",
     "Transaction",
     "VertexRow",
     "__version__",
     "basic_auth",
     "bearer_auth",
+    "is_query_terminated",
 ]
 
 
@@ -441,6 +463,18 @@ class ArcadeDBDatabase:
         """kNN vector search, fused hybrid search, and full-text search."""
         return VectorNamespace(self._client, self.name)
 
+    def progress(self) -> ProgressResponse:
+        """Lists the long-running maintenance operations running on this server for this
+        database, with their step-by-step progress; `result` is empty when none is.
+
+        The server reads a lock-free snapshot, so polling at any rate cannot interfere with the
+        operation being watched. Never forwarded to the cluster leader. Raises `ArcadeDBError` on
+        a non-2xx status.
+        """
+        data = unwrap(get_operation_progress.sync_detailed(self.name, client=self._client))
+        assert isinstance(data, ProgressResponse)
+        return data
+
 
 class ArcadeDBServer:
     """A connection to one ArcadeDB server.
@@ -583,6 +617,84 @@ class ArcadeDBServer:
         """
         check_database_name(name)
         self.server_command(f"drop database {name}")
+
+    def list_queries(self, *, database: str | None = None, tag: str | None = None) -> list[RunningQuery]:
+        """Lists the statements running on this server, with the tag each was sent with.
+
+        Open to any authenticated user: root sees every statement, another user only their own.
+        `database` and `tag` narrow the list; omitted or empty, they are no filter. Sends
+        `list queries [database <name>] [tag <label>]` through `POST /api/v1/server`, which is
+        never forwarded to the cluster leader: behind a load balancer this sees only the server
+        the client happened to reach.
+
+        A `database` containing a space or control character (anything at or below U+0020), or
+        a `tag` starting or ending with one, raises `ValueError` before anything is sent: the
+        server reads the database as one word and trims the tag. Raises `ArcadeDBError` on a non-2xx status.
+        """
+        command = list_queries_command(database, tag)
+        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload(command))
+        return [running_query_from(row) for row in running_result(raw)]
+
+    def terminate_query(self, query_id: str, *, wait: timedelta | None = None) -> TerminateResult:
+        """Stops the statement with the given id (`RunningQuery.id`) and waits for it to end.
+
+        `wait` bounds the wait; omitted or zero, the server's default of 5 seconds applies, and
+        the server caps it at 10. The answer's `status` decides whether the caller has anything
+        to undo: `"terminated"` means it stopped and what it wrote was rolled back,
+        `"completed"` that it finished first and what it did stands, `"terminating"` that it has
+        not stopped yet, and `"not found"` that no such statement runs here or it is another
+        user's (never "forbidden"). The stopped request itself raises the 409 that
+        `is_query_terminated` recognises. Terminating a command inside a transaction ends the
+        transaction too (`session_open` False); a terminated read leaves it open.
+
+        An id that is empty or contains a space or control character raises `ValueError` before
+        anything is sent. Raises `ArcadeDBError` on a non-2xx status.
+        """
+        command = terminate_query_command(query_id)
+        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload(command, wait))
+        return terminate_result_from(running_result(raw))
+
+    def terminate_queries_by_tag(self, tag: str, *, wait: timedelta | None = None) -> list[TerminateResult]:
+        """Stops every statement sent with the given `query_tag` and waits for them to end.
+
+        Answers each statement with its own `TerminateResult`; see `terminate_query` for `wait` and
+        for what each status means. No statement with that tag is an empty list, not an error. The
+        tag is sent as given, spaces and quotes included: the server takes the rest of the command
+        as the tag. A tag that is empty or has a leading or trailing space or control character
+        raises `ValueError` before anything is sent. Raises `ArcadeDBError` on a non-2xx status.
+        """
+        command = terminate_by_tag_command(tag)
+        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload(command, wait))
+        return [terminate_result_from(row) for row in running_result(raw)]
+
+    def list_transactions(self) -> list[OpenTransaction]:
+        """Lists the open transaction sessions on this server.
+
+        Open to any authenticated user: root sees every session, another user only their own.
+        Never forwarded to the cluster leader. Raises `ArcadeDBError` on a non-2xx status.
+        """
+        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload("list transactions"))
+        return [open_transaction_from(row) for row in running_result(raw)]
+
+    def terminate_transaction(self, session_id: str, *, wait: timedelta | None = None) -> TerminateResult:
+        """Rolls back and ends the transaction session with the given id (`OpenTransaction.id`).
+
+        `wait` bounds how long the server waits for a statement running in it to stop, as for
+        `terminate_query`; the answer is `"terminating"` when it has not.
+
+        A statement running in it is stopped, and its request raises the 409 that
+        `is_query_terminated` recognises; a statement sent on the session afterwards gets a 404.
+        **A commit does not notice:** the server answers a commit naming the vanished session
+        with 204, like a real commit, so the owner's `with db.transaction()` block can exit
+        cleanly although what it wrote is gone. An unknown session, or another user's, is
+        answered `"not found"`.
+
+        A session id that is empty or contains a space or control character raises `ValueError`
+        before anything is sent. Raises `ArcadeDBError` on a non-2xx status.
+        """
+        command = terminate_transaction_command(session_id)
+        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload(command, wait))
+        return terminate_result_from(running_result(raw))
 
     def create_user(self, name: str, password: str, *, databases: Mapping[str, Sequence[str]] | None = None) -> None:
         """Creates a server user (root only) through `POST /api/v1/server/users`.

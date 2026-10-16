@@ -218,6 +218,19 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   each. The token-carrying dataclasses leave the token out of `repr()`. The statuses measured live
   and pinned by `e2e/test_session.py` are Go's: wrong Basic credentials **403** on login as
   everywhere (401 is for a bad bearer token), a duplicate API-token name 409, an unknown hash 404.
+- **Running work is typed, and classified on a structured field** (`facade/running.py`, issue #124).
+  `list_queries`, `terminate_query`, `terminate_queries_by_tag`, `list_transactions` and
+  `terminate_transaction` send command strings through `POST /api/v1/server` but bypass
+  `server_command`, for two reasons: the contract's `CommandRequest` has no `wait`, which the server
+  reads on all three terminate commands (`terminate transaction` included, measured live), and their answers (which the contract does not describe) become frozen dataclasses.
+  `is_query_terminated` matches the 409's `exception` (`com.arcadedb.exception.QueryTerminatedException`),
+  never the status alone, which a request still in flight under the same `X-Request-Id` shares.
+  Ids, session ids and the database filter are refused with `ValueError` if empty or containing
+  white space, a tag if padded, because the server splits and trims them. Measured live and pinned
+  by `e2e/test_running.py`: SQL `SLEEP` is not interruptible (it answers `terminating`, so the e2e
+  suite uses a `sqlscript` `WHILE` loop), a terminated script inside a transaction ends the
+  transaction, and a commit naming a session `terminate_transaction` removed is answered **204**, so
+  the owner's `with db.transaction()` block exits cleanly for work that was rolled back.
 
 ## The transaction contract
 

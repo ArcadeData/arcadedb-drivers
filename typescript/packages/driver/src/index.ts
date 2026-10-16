@@ -29,6 +29,14 @@ import type {
   PromQLSeriesOptions,
   PromQLSeriesResponse,
 } from "./facade/dashboards.js";
+import type {
+  ListQueriesOptions,
+  OpenTransaction,
+  ProgressResponse,
+  RunningQuery,
+  TerminateOptions,
+  TerminateResult,
+} from "./facade/running.js";
 import type { InsertSession, InsertSessionContext, InsertSessionOptions, WebSocketConstructor } from "./facade/insert-session.js";
 import type { TimeSeriesQueryOptions, TimeSeriesQueryResult, TimeSeriesWriteOptions } from "./facade/timeseries.js";
 import type {
@@ -40,7 +48,16 @@ import type {
   VectorSearchResult,
 } from "./facade/vector.js";
 
-export { ArcadeDBError, NotSessionTokenError, TimeSeriesWriteError } from "./errors.js";
+export { ArcadeDBError, NotSessionTokenError, TimeSeriesWriteError, isQueryTerminated } from "./errors.js";
+export type {
+  ListQueriesOptions,
+  OpenTransaction,
+  ProgressResponse,
+  QueryStatus,
+  RunningQuery,
+  TerminateOptions,
+  TerminateResult,
+} from "./facade/running.js";
 export type { ArcadeDBErrorExtras } from "./errors.js";
 export { basicAuth, bearerAuth } from "./auth.js";
 export type { APIToken, CreateAPITokenOptions, CreatedAPIToken, LoginResult, Session } from "./facade/session.js";
@@ -238,6 +255,13 @@ class VectorNamespace {
  * `arcadedb-session-id` header, which is what keeps those calls inside the
  * transaction rather than auto-committing individually.
  */
+/**
+ * Loads `facade/running.js` on first use. One loader shared by the six methods that need it, rather
+ * than an `import()` in each, because every byte of `ArcadeDBServer` lands in the eager chunk
+ * `test/treeshake.test.ts` caps.
+ */
+const loadRunning = () => import("./facade/running.js");
+
 export class ArcadeDBDatabase {
   private _ts: TimeSeriesNamespace | undefined;
   private _grafana: GrafanaNamespace | undefined;
@@ -269,6 +293,16 @@ export class ArcadeDBDatabase {
   /** Vector, hybrid and full-text retrieval. Loaded on first use; see `VectorNamespace`. */
   get vector(): VectorNamespace {
     return (this._vector ??= new VectorNamespace(this.client, this.name));
+  }
+
+  /**
+   * Lists the long-running maintenance operations running on this server for this database, with
+   * their step-by-step progress; `result` is empty when none is. The server reads a lock-free
+   * snapshot, so polling at any rate cannot interfere with the operation being watched. Never
+   * forwarded to the cluster leader. Throws `ArcadeDBError` on a non-2xx status.
+   */
+  async progress(): Promise<ProgressResponse> {
+    return (await loadRunning()).progress(this.client, this.name);
   }
 
   /** Executes a read-or-write query and returns the whole result envelope - not just `result`. */
@@ -680,6 +714,82 @@ export class ArcadeDBServer {
   async dropDatabase(name: string): Promise<void> {
     const { databaseCommand } = await import("./facade/admin.js");
     return databaseCommand(this.raw, "drop", name);
+  }
+
+  /**
+   * Lists the statements running on this server, with the tag each was sent with.
+   *
+   * Open to any authenticated user: root sees every statement, another user only their own.
+   * `opts.database` and `opts.tag` narrow the list; omitted or empty, they are no filter. Sends
+   * `list queries [database <name>] [tag <label>]` through `POST /api/v1/server`, which is never
+   * forwarded to the cluster leader: behind a load balancer this sees only the server the client
+   * happened to reach.
+   *
+   * A `database` containing a space or control character, or a `tag` with a leading or trailing
+   * space or control character, rejects with a `RangeError` before anything is sent: the server
+   * reads the database as one word and trims the tag. Throws `ArcadeDBError` on a non-2xx status.
+   */
+  async listQueries(opts: ListQueriesOptions = {}): Promise<RunningQuery[]> {
+    return (await loadRunning()).listQueries(this.raw, opts);
+  }
+
+  /**
+   * Stops the statement with the given id (`RunningQuery.id`) and waits for it to end.
+   *
+   * `opts.waitMs` bounds the wait; omitted or zero, the server's default of 5000 applies, and the
+   * server caps it at 10000. The answer's `status` decides whether the caller has anything to
+   * undo: `"terminated"` means it stopped and what it wrote was rolled back, `"completed"` that it
+   * finished first and what it did stands, `"terminating"` that it has not stopped yet, and
+   * `"not found"` that no such statement runs here or it is another user's (never "forbidden").
+   * The stopped request itself throws the 409 that `isQueryTerminated` recognises. Terminating a
+   * command inside a transaction ends the transaction too (`sessionOpen` false); a terminated read
+   * leaves it open.
+   *
+   * An id that is empty or contains a space or control character rejects with a `RangeError` before
+   * anything is sent. Throws `ArcadeDBError` on a non-2xx status.
+   */
+  async terminateQuery(id: string, opts: TerminateOptions = {}): Promise<TerminateResult> {
+    return (await loadRunning()).terminateQuery(this.raw, id, opts);
+  }
+
+  /**
+   * Stops every statement sent with the given `queryTag` and waits for them to end, answering each
+   * with its own `TerminateResult`; see `terminateQuery` for `waitMs` and for what each status
+   * means. No statement with that tag is an empty array, not an error. The tag is sent as given,
+   * spaces and quotes included: the server takes the rest of the command as the tag. A tag that is
+   * empty, or starts or ends with a space or control character, rejects with a `RangeError` before
+   * anything is sent. Throws `ArcadeDBError` on a non-2xx status.
+   */
+  async terminateQueriesByTag(tag: string, opts: TerminateOptions = {}): Promise<TerminateResult[]> {
+    return (await loadRunning()).terminateQueriesByTag(this.raw, tag, opts);
+  }
+
+  /**
+   * Lists the open transaction sessions on this server. Open to any authenticated user: root sees
+   * every session, another user only their own. Never forwarded to the cluster leader. Throws
+   * `ArcadeDBError` on a non-2xx status.
+   */
+  async listTransactions(): Promise<OpenTransaction[]> {
+    return (await loadRunning()).listTransactions(this.raw);
+  }
+
+  /**
+   * Rolls back and ends the transaction session with the given id (`OpenTransaction.id`).
+   *
+   * `opts.waitMs` bounds how long the server waits for a statement running in it to stop, as for
+   * `terminateQuery`; the answer is `"terminating"` when it has not.
+   *
+   * A statement running in it is stopped, and its request throws the 409 that `isQueryTerminated`
+   * recognises; a statement sent on the session afterwards gets a 404. **A commit does not
+   * notice:** the server answers a commit naming the vanished session with 204, like a real
+   * commit, so the owner's `transaction()` callback can resolve although what it wrote is gone. An
+   * unknown session, or another user's, is answered `"not found"`.
+   *
+   * A session id that is empty or contains a space or control character rejects with a `RangeError`
+   * before anything is sent. Throws `ArcadeDBError` on a non-2xx status.
+   */
+  async terminateTransaction(sessionId: string, opts: TerminateOptions = {}): Promise<TerminateResult> {
+    return (await loadRunning()).terminateTransaction(this.raw, sessionId, opts);
   }
 
   /**

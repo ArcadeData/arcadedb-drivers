@@ -49,10 +49,12 @@ async function withDatabase(fn: (name: string) => Promise<void>): Promise<void> 
   }
 }
 
+// Waits for the statement itself, not just its request: the server lists a request as soon as it is
+// admitted, with the request line as its text and no language, and fills both in a moment later.
 async function waitForQuery(opts: ListQueriesOptions): Promise<RunningQuery> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    const found = await root.listQueries(opts);
+    const found = (await root.listQueries(opts)).filter((q) => q.language);
     if (found.length > 0) return found[0]!;
     await new Promise((r) => setTimeout(r, 100));
   }

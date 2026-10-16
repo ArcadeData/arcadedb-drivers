@@ -48,9 +48,12 @@ def fresh_db(srv: ArcadeDBServer) -> Iterator[str]:
 
 
 def wait_for_query(srv: ArcadeDBServer, **filters: str) -> RunningQuery:
+    # Waits for the statement itself, not just its request: the server lists a request as soon as
+    # it is admitted, with the request line as its text and no language, and fills both in a moment
+    # later.
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        found = srv.list_queries(**filters)
+        found = [q for q in srv.list_queries(**filters) if q.language]
         if found:
             return found[0]
         time.sleep(0.1)

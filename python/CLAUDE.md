@@ -222,7 +222,7 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   `list_queries`, `terminate_query`, `terminate_queries_by_tag`, `list_transactions` and
   `terminate_transaction` send command strings through `POST /api/v1/server` but bypass
   `server_command`, for two reasons: the contract's `CommandRequest` has no `wait`, which the server
-  reads, and their answers (which the contract does not describe) become frozen dataclasses.
+  reads on all three terminate commands (`terminate transaction` included, measured live), and their answers (which the contract does not describe) become frozen dataclasses.
   `is_query_terminated` matches the 409's `exception` (`com.arcadedb.exception.QueryTerminatedException`),
   never the status alone, which a request still in flight under the same `X-Request-Id` shares.
   Ids, session ids and the database filter are refused with `ValueError` if empty or containing

@@ -776,6 +776,9 @@ export class ArcadeDBServer {
   /**
    * Rolls back and ends the transaction session with the given id (`OpenTransaction.id`).
    *
+   * `opts.waitMs` bounds how long the server waits for a statement running in it to stop, as for
+   * `terminateQuery`; the answer is `"terminating"` when it has not.
+   *
    * A statement running in it is stopped, and its request throws the 409 that `isQueryTerminated`
    * recognises; a statement sent on the session afterwards gets a 404. **A commit does not
    * notice:** the server answers a commit naming the vanished session with 204, like a real
@@ -785,8 +788,8 @@ export class ArcadeDBServer {
    * A session id that is empty or contains a space or control character rejects with a `RangeError`
    * before anything is sent. Throws `ArcadeDBError` on a non-2xx status.
    */
-  async terminateTransaction(sessionId: string): Promise<TerminateResult> {
-    return (await loadRunning()).terminateTransaction(this.raw, sessionId);
+  async terminateTransaction(sessionId: string, opts: TerminateOptions = {}): Promise<TerminateResult> {
+    return (await loadRunning()).terminateTransaction(this.raw, sessionId, opts);
   }
 
   /**

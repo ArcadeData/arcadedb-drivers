@@ -676,8 +676,11 @@ class ArcadeDBServer:
         raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload("list transactions"))
         return [open_transaction_from(row) for row in running_result(raw)]
 
-    def terminate_transaction(self, session_id: str) -> TerminateResult:
+    def terminate_transaction(self, session_id: str, *, wait: timedelta | None = None) -> TerminateResult:
         """Rolls back and ends the transaction session with the given id (`OpenTransaction.id`).
+
+        `wait` bounds how long the server waits for a statement running in it to stop, as for
+        `terminate_query`; the answer is `"terminating"` when it has not.
 
         A statement running in it is stopped, and its request raises the 409 that
         `is_query_terminated` recognises; a statement sent on the session afterwards gets a 404.
@@ -690,7 +693,7 @@ class ArcadeDBServer:
         before anything is sent. Raises `ArcadeDBError` on a non-2xx status.
         """
         command = terminate_transaction_command(session_id)
-        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload(command))
+        raw = self.raw.get_httpx_client().post(SERVER_COMMAND_URL, json=running_payload(command, wait))
         return terminate_result_from(running_result(raw))
 
     def create_user(self, name: str, password: str, *, databases: Mapping[str, Sequence[str]] | None = None) -> None:

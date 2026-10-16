@@ -833,7 +833,7 @@ every statement, another user only their own, and someone else's statement is an
 load balancer, the server this client reaches may not be the one running the statement, and then
 `list_queries` does not show it and terminating it answers `"not found"`.
 
-A terminate waits for the statements to stop, up to `wait` (omitted or zero leaves the server's
+Each of the three terminate methods waits for the statements to stop, up to `wait` (omitted or zero leaves the server's
 default of 5 seconds, and the server caps it at 10), then answers each with a `status`, typed as
 `QueryStatus`. **Which one you get decides whether you have anything to undo:**
 

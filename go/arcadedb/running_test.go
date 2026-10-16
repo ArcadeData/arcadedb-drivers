@@ -151,11 +151,11 @@ func TestListAndTerminateTransactions(t *testing.T) {
 	}
 
 	srv = recordingServer(t, 200, `{"result":{"id":"AS-4c9d","status":"terminated"}}`, &rec)
-	r, err := srv.TerminateTransaction(ctx, "AS-4c9d")
+	r, err := srv.TerminateTransaction(ctx, "AS-4c9d", TerminateOptions{Wait: 2 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.body["command"] != "terminate transaction AS-4c9d" || r.Status != QueryTerminated {
+	if rec.body["command"] != "terminate transaction AS-4c9d" || rec.body["wait"] != float64(2000) || r.Status != QueryTerminated {
 		t.Fatalf("sent %v, got %+v", rec.body, r)
 	}
 }
@@ -173,8 +173,8 @@ func TestRunningCommandsRefuseBadArguments(t *testing.T) {
 		"padded tag":         func() error { _, err := srv.TerminateQueriesByTag(ctx, " t", TerminateOptions{}); return err },
 		"padded list tag":    func() error { _, err := srv.ListQueries(ctx, ListQueriesOptions{Tag: "t\n"}); return err },
 		"database with tab":  func() error { _, err := srv.ListQueries(ctx, ListQueriesOptions{Database: "a\tb"}); return err },
-		"empty session":      func() error { _, err := srv.TerminateTransaction(ctx, ""); return err },
-		"session with space": func() error { _, err := srv.TerminateTransaction(ctx, "AS-1 x"); return err },
+		"empty session":      func() error { _, err := srv.TerminateTransaction(ctx, "", TerminateOptions{}); return err },
+		"session with space": func() error { _, err := srv.TerminateTransaction(ctx, "AS-1 x", TerminateOptions{}); return err },
 		"id with a control":  func() error { _, err := srv.TerminateQuery(ctx, "q1\x01", TerminateOptions{}); return err },
 		"tag ending in NUL":  func() error { _, err := srv.TerminateQueriesByTag(ctx, "t\x00", TerminateOptions{}); return err },
 	} {

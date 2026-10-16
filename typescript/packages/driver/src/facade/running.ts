@@ -105,7 +105,7 @@ function checkWord(what: string, value: string): void {
  * as the tag, trimmed, so " a" would match "a" rather than the tag named.
  */
 function checkTag(tag: string): void {
-  if (tag !== "" && (spaceOrControl(tag) || spaceOrControl(tag.slice(-1)))) {
+  if (tag !== "" && (spaceOrControl(tag.charAt(0)) || spaceOrControl(tag.charAt(tag.length - 1)))) {
     throw new RangeError(`tag ${JSON.stringify(tag)} starts or ends with a space or control character`);
   }
 }
@@ -165,9 +165,13 @@ export async function listTransactions(client: RawClient): Promise<OpenTransacti
   return running<OpenTransaction[]>(client, "list transactions");
 }
 
-export async function terminateTransaction(client: RawClient, sessionId: string): Promise<TerminateResult> {
+export async function terminateTransaction(
+  client: RawClient,
+  sessionId: string,
+  opts: TerminateOptions,
+): Promise<TerminateResult> {
   checkWord("session id", sessionId);
-  return running<TerminateResult>(client, `terminate transaction ${sessionId}`);
+  return running<TerminateResult>(client, `terminate transaction ${sessionId}`, opts.waitMs);
 }
 
 export async function progress(client: RawClient, database: string): Promise<ProgressResponse> {

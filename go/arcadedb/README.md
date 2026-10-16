@@ -641,7 +641,7 @@ qs, err := srv.ListQueries(ctx, arcadedb.ListQueriesOptions{Tag: "nightly-report
 rs, err := srv.TerminateQueriesByTag(ctx, "nightly-report", arcadedb.TerminateOptions{Wait: 3 * time.Second})
 r, err := srv.TerminateQuery(ctx, qs[0].ID, arcadedb.TerminateOptions{})
 txs, err := srv.ListTransactions(ctx)
-r, err = srv.TerminateTransaction(ctx, txs[0].ID)
+r, err = srv.TerminateTransaction(ctx, txs[0].ID, arcadedb.TerminateOptions{})
 p, err := srv.DB("tenant_a").Progress(ctx) // long-running maintenance operations, step by step
 ```
 
@@ -654,7 +654,7 @@ and stops every statement, another user only their own, and someone else's state
 a load balancer, the server this client reaches may not be the one running the statement, and
 then `ListQueries` does not show it and terminating it answers `QueryNotFound`.
 
-A terminate waits for the statements to stop, up to `TerminateOptions.Wait` (zero leaves the
+Each of the three terminate methods waits for the statements to stop, up to `TerminateOptions.Wait` (zero leaves the
 server's default of 5 seconds, and the server caps it at 10), then answers each with a
 `QueryStatus`. **Which one you get decides whether you have anything to undo:**
 

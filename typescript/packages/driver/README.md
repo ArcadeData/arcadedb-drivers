@@ -779,7 +779,7 @@ and stops every statement, another user only their own, and someone else's state
 load balancer, the server this client reaches may not be the one running the statement, and then
 `listQueries` does not show it and terminating it answers `"not found"`.
 
-A terminate waits for the statements to stop, up to `waitMs` (omitted or zero leaves the server's
+Each of the three terminate methods waits for the statements to stop, up to `waitMs` (omitted or zero leaves the server's
 default of 5000, and the server caps it at 10000), then answers each with a `status`, typed as
 `QueryStatus`. **Which one you get decides whether you have anything to undo:**
 

@@ -274,7 +274,7 @@ are under "The gRPC module" below.
   `ListQueries`, `TerminateQuery`, `TerminateQueriesByTag`, `ListTransactions` and
   `TerminateTransaction` send command strings through `POST /api/v1/server` but bypass
   `ServerCommand`, for two reasons: the contract's `CommandRequest` has no `wait`, which the server
-  reads, and their answers (which the contract does not describe) decode into typed structs.
+  reads on all three terminate commands (`terminate transaction` included, measured live), and their answers (which the contract does not describe) decode into typed structs.
   `IsQueryTerminated` matches the 409's `Exception` (`com.arcadedb.exception.QueryTerminatedException`),
   never the status alone, which a request still in flight under the same `X-Request-Id` shares.
   Ids, session ids and the database filter are refused with `ErrInvalidName` if empty or containing

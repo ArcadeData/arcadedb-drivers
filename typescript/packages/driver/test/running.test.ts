@@ -126,8 +126,8 @@ describe("transactions", () => {
     expect(last().body).toEqual({ command: "list transactions", language: "sql" });
 
     answer(200, { result: { id: "AS-4c9d", status: "terminated" } });
-    expect(await server.terminateTransaction("AS-4c9d")).toEqual({ id: "AS-4c9d", status: "terminated" });
-    expect(last().body).toEqual({ command: "terminate transaction AS-4c9d", language: "sql" });
+    expect(await server.terminateTransaction("AS-4c9d", { waitMs: 2000 })).toEqual({ id: "AS-4c9d", status: "terminated" });
+    expect(last().body).toEqual({ command: "terminate transaction AS-4c9d", language: "sql", wait: 2000 });
   });
 });
 

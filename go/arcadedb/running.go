@@ -173,17 +173,18 @@ func (s *Server) ListTransactions(ctx context.Context) ([]OpenTransaction, error
 }
 
 // TerminateTransaction rolls back and ends the transaction session with the given id
-// (OpenTransaction.ID, the arcadedb-session-id a begin returned). A statement running in it
-// is stopped, and its request receives a 409 that IsQueryTerminated matches. An unknown
-// session, or another user's, is answered QueryNotFound. A session id that is empty or
-// contains a space or control character is refused with an error wrapping ErrInvalidName
-// before anything is sent.
-func (s *Server) TerminateTransaction(ctx context.Context, sessionID string) (TerminateResult, error) {
+// (OpenTransaction.ID, the arcadedb-session-id a begin returned), waiting up to opts.Wait for
+// a statement running in it to stop, as TerminateQuery does: the answer is QueryTerminating
+// when it has not. A statement running in it is stopped, and its request receives a 409 that
+// IsQueryTerminated matches. An unknown session, or another user's, is answered QueryNotFound.
+// A session id that is empty or contains a space or control character is refused with an error
+// wrapping ErrInvalidName before anything is sent.
+func (s *Server) TerminateTransaction(ctx context.Context, sessionID string, opts TerminateOptions) (TerminateResult, error) {
 	if err := checkWord("session id", sessionID); err != nil {
 		return TerminateResult{}, err
 	}
 	var out TerminateResult
-	err := s.runningCommand(ctx, "terminate transaction "+sessionID, 0, &out)
+	err := s.runningCommand(ctx, "terminate transaction "+sessionID, opts.Wait, &out)
 	return out, err
 }
 

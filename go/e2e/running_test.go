@@ -145,7 +145,7 @@ func TestTerminateTransaction(t *testing.T) {
 			t.Fatalf("no open transaction on %s in %+v", db.Name(), txs)
 		}
 		session = txs[i].ID
-		r, err := srv.TerminateTransaction(ctx, session)
+		r, err := srv.TerminateTransaction(ctx, session, arcadedb.TerminateOptions{})
 		if err != nil {
 			return err
 		}
@@ -168,7 +168,7 @@ func TestTerminateTransaction(t *testing.T) {
 	if n := env.Result[0]["n"]; n != float64(0) {
 		t.Fatalf("count = %v, want the terminated transaction's insert rolled back", n)
 	}
-	r, err := srv.TerminateTransaction(ctx, session)
+	r, err := srv.TerminateTransaction(ctx, session, arcadedb.TerminateOptions{})
 	if err != nil || r.Status != arcadedb.QueryNotFound {
 		t.Fatalf("terminate again = %+v %v", r, err)
 	}

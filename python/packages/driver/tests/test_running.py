@@ -169,8 +169,10 @@ def test_list_and_terminate_transactions() -> None:
             )
         ]
         route.mock(return_value=httpx.Response(200, json={"result": {"id": "AS-4c9d", "status": "terminated"}}))
-        assert srv.terminate_transaction("AS-4c9d") == TerminateResult(id="AS-4c9d", status="terminated")
-        assert sent(route) == {"command": "terminate transaction AS-4c9d", "language": "sql"}
+        assert srv.terminate_transaction("AS-4c9d", wait=timedelta(seconds=2)) == TerminateResult(
+            id="AS-4c9d", status="terminated"
+        )
+        assert sent(route) == {"command": "terminate transaction AS-4c9d", "language": "sql", "wait": 2000}
 
 
 @respx.mock

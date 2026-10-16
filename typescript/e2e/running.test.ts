@@ -9,7 +9,7 @@ import type { ArcadeDBServer, ListQueriesOptions, RunningQuery } from "../packag
 // these answers at all.
 
 // Same image pin as data-plane.test.ts, for the same reason: see that file's comment.
-const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.10.2";
+const DEFAULT_ARCADEDB_IMAGE = "arcadedata/arcadedb:26.11.1-SNAPSHOT";
 const ARCADEDB_IMAGE = process.env.ARCADEDB_DOCKER_IMAGE ?? DEFAULT_ARCADEDB_IMAGE;
 
 const ROOT_PASSWORD = "playwithdata";

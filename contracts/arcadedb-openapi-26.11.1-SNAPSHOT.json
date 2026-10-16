@@ -4705,7 +4705,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "ArcadeDB HTTP API",
-    "version": "26.10.2"
+    "version": "26.11.1-SNAPSHOT"
   },
   "openapi": "3.0.3",
   "paths": {

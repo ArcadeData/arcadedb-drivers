@@ -794,12 +794,12 @@ object does not already implement.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.10.2.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.11.1-SNAPSHOT.proto`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.10.2"
+server-version = "26.11.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver-grpc` | ArcadeDB server |

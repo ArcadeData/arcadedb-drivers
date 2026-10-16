@@ -270,6 +270,19 @@ are under "The gRPC module" below.
   credentials are **403** "Security error" on login as everywhere (401 is for a bad bearer token),
   a duplicate API-token name is 409, and deleting an unknown hash is 404, which the contract does
   not list.
+- **Running work is typed, and classified on a structured field** (`running.go`, issue #124).
+  `ListQueries`, `TerminateQuery`, `TerminateQueriesByTag`, `ListTransactions` and
+  `TerminateTransaction` send command strings through `POST /api/v1/server` but bypass
+  `ServerCommand`, for two reasons: the contract's `CommandRequest` has no `wait`, which the server
+  reads, and their answers (which the contract does not describe) decode into typed structs.
+  `IsQueryTerminated` matches the 409's `Exception` (`com.arcadedb.exception.QueryTerminatedException`),
+  never the status alone, which a request still in flight under the same `X-Request-Id` shares.
+  Ids, session ids and the database filter are refused with `ErrInvalidName` if empty or containing
+  white space, a tag if padded, because the server splits and trims them. Measured live and pinned
+  by `e2e/running_test.go`: SQL `SLEEP` is not interruptible (it answers `terminating`, so the e2e
+  suite uses a `sqlscript` `WHILE` loop), a terminated script inside a transaction ends the
+  transaction, and a commit naming a session `TerminateTransaction` removed is answered **204**, so
+  the owner's `Transaction` returns nil for work that was rolled back.
 - **No golangci-lint.** It is the de-facto Go meta-linter and it is **GPL-3.0**, which the
   allow-list in the root `CLAUDE.md` forbids for development tools as well as runtime
   dependencies. `gofmt`, `go vet` and `staticcheck` (MIT, and the analyser golangci-lint most often

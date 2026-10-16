@@ -128,7 +128,7 @@ rather than truncated, and past that ceiling a narrower filter is the only way f
 
 `arcadedb.WithQueryTag("nightly-report")` sends the `X-ArcadeDB-Query-Tag` request header, an
 opaque label the server shows in `list queries` and that `terminate queries tag nightly-report`
-stops. `Query`, `QueryStream`, `Command`, `CommandStream` and `Transaction` all take it; a batch
+stops; `srv.ListQueries` and `srv.TerminateQueriesByTag` send both (see "Running work" below). `Query`, `QueryStream`, `Command`, `CommandStream` and `Transaction` all take it; a batch
 load takes it as `generated.ExecuteBatchParams.XArcadeDBQueryTag`, beside the load's other options,
 and sends it as the same header. An empty tag sends nothing. On `Transaction` the tag goes on the
 begin request **only**: the server labels every statement of the transaction session that carries
@@ -632,6 +632,66 @@ a `map[string]any`. It decodes the body itself rather than through the generated
 because the contract declares an array `result` where administrative commands answer
 `{"result": "ok"}` and other commands answer shapes of their own. The command string is sent as
 given.
+
+## Running work: list and terminate queries and transactions, and `Progress`
+
+```go
+qs, err := srv.ListQueries(ctx, arcadedb.ListQueriesOptions{Tag: "nightly-report"}) // or Database, or neither
+rs, err := srv.TerminateQueriesByTag(ctx, "nightly-report", arcadedb.TerminateOptions{Wait: 3 * time.Second})
+r, err := srv.TerminateQuery(ctx, qs[0].ID, arcadedb.TerminateOptions{})
+txs, err := srv.ListTransactions(ctx)
+r, err = srv.TerminateTransaction(ctx, txs[0].ID)
+p, err := srv.DB("tenant_a").Progress(ctx) // long-running maintenance operations, step by step
+```
+
+Unlike the administration methods above, these are open to **any authenticated user**: root sees
+and stops every statement, another user only their own, and someone else's statement is answered
+`QueryNotFound`, never "forbidden". They go through `POST /api/v1/server`, and `Progress` through
+`GET /api/v1/progress/{database}`.
+
+**Each server sees only its own work.** None of these is forwarded to the cluster leader. Behind
+a load balancer, the server this client reaches may not be the one running the statement, and
+then `ListQueries` does not show it and terminating it answers `QueryNotFound`.
+
+A terminate waits for the statements to stop, up to `TerminateOptions.Wait` (zero leaves the
+server's default of 5 seconds, and the server caps it at 10), then answers each with a
+`QueryStatus`. **Which one you get decides whether you have anything to undo:**
+
+| status | meaning |
+|---|---|
+| `QueryTerminated` | it stopped, and what it wrote was rolled back |
+| `QueryCompleted` | it finished on its own before it noticed, so **what it did stands** |
+| `QueryTerminating` | not stopped yet when the wait ended; some statements (SQL `SLEEP`, for one) notice only when they end, so the request's own outcome is the answer |
+| `QueryNotFound` | no such statement on this server, or another user's |
+
+Terminating a **command** inside a transaction ends the transaction too, rolling it back, while
+terminating a read leaves it open; `TerminateResult.SessionID` and `SessionOpen` say which, and
+`SessionOpen` is only the state at the time of the answer for a `QueryTerminating` statement. A
+script counts as a command.
+
+**The stopped request gets a 409, and `arcadedb.IsQueryTerminated(err)` recognises it.** The server
+answers it 409 "Query terminated", but a 409 is also what a request still in flight under the same
+`X-Request-Id` gets, so the status alone cannot tell "someone stopped me" from a conflict.
+`IsQueryTerminated` matches the error's `Exception`, `com.arcadedb.exception.QueryTerminatedException`,
+which the server sends as a structured field, not the message text. It is not retryable: somebody
+stopped this work on purpose.
+
+**`TerminateTransaction` does not reach the client that owned the transaction at commit.** It rolls
+the transaction back, and a statement sent on it afterwards gets a 404, but a commit naming the
+vanished session is answered 204, exactly like a real commit: a `Transaction` whose callback ran no
+statement after the terminate returns nil for work that is gone. Measured against
+26.11.1-SNAPSHOT and pinned by the e2e suite.
+
+Ids, session ids and the `Database` filter must not be empty (where required) or contain a space
+or control character (anything at or below U+0020), because the server reads each as one word; a
+tag must not start or end with one, because the server trims it. A no-break space is not one, as
+the server sees it. Each is refused with `ErrInvalidName` before anything is sent.
+A tag is otherwise sent as given, spaces and quotes included: the server takes the rest of the
+command as the tag.
+
+`Progress` returns the generated `*generated.ProgressResponse`, whose `Result` is empty when
+nothing is running. The server reads a lock-free snapshot, so polling it at any rate cannot slow
+down the operation being watched.
 
 ## Sessions and API tokens
 

@@ -257,6 +257,24 @@ export class TimeSeriesWriteError extends ArcadeDBError {
 }
 
 /**
+ * Whether `err` is the answer to a request that `terminateQuery`, `terminateQueriesByTag` or
+ * `terminateTransaction` stopped: an `ArcadeDBError` with status 409 whose `exception` is
+ * `com.arcadedb.exception.QueryTerminatedException`, a structured field the server sends. The 409
+ * alone is not enough: a request still in flight under the same `X-Request-Id` gets one too. Not
+ * retryable: somebody stopped this work on purpose, and what it wrote was rolled back.
+ *
+ * It lives here rather than in `facade/running.ts` so importing it does not pull that module into
+ * the eager bundle.
+ */
+export function isQueryTerminated(err: unknown): boolean {
+  return (
+    err instanceof ArcadeDBError &&
+    err.status === 409 &&
+    err.exception === "com.arcadedb.exception.QueryTerminatedException"
+  );
+}
+
+/**
  * Thrown by `logout` when the client does not present a session token from `login`. The server
  * answers 204 to a logout that carries Basic credentials or an API token and invalidates nothing,
  * so without this check such a `logout` would report a success that never happened. Nothing is

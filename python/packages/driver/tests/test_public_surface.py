@@ -16,15 +16,20 @@ EXPECTED_SURFACE = {
     "InsertSessionError",
     "LoginResult",
     "NotSessionTokenError",
+    "OpenTransaction",
     "QueryEnvelope",
     "QueryLanguage",
+    "QueryStatus",
+    "RunningQuery",
     "Session",
+    "TerminateResult",
     "TimeSeriesWriteError",
     "Transaction",
     "VertexRow",
     "__version__",
     "basic_auth",
     "bearer_auth",
+    "is_query_terminated",
 }
 
 

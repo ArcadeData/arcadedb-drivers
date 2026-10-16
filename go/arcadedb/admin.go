@@ -11,11 +11,13 @@ import (
 	"github.com/ArcadeData/arcadedb-drivers/go/arcadedb/generated"
 )
 
-// ErrInvalidName is returned, wrapped, by CreateDatabase and DropDatabase for a name they
-// refuse before sending anything: an empty name, or one with leading or trailing white
-// space. The server trims the name it reads out of the command string, so " db" would
-// silently create or drop "db" rather than the database the caller named. Match it with
-// errors.Is.
+// ErrInvalidName is returned, wrapped, for a value a method refuses before sending anything
+// because the server would read it differently out of the command string: by CreateDatabase
+// and DropDatabase for an empty name or one with leading or trailing white space (the server
+// trims it, so " db" would silently create or drop "db"), and by the running-work methods in
+// running.go for a query id, session id or database filter that is empty or contains a space
+// or control character (the server reads each as one word) and for a tag that starts or ends
+// with one. Match it with errors.Is.
 var ErrInvalidName = errors.New("arcadedb: invalid name")
 
 // User is one server user as ListUsers returns it. The password hash is never returned.

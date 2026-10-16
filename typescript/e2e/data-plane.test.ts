@@ -478,3 +478,26 @@ describe("queryTag and TimeSeriesWriteError against a real server (issue #117)",
     expect(err.written).toBe(0);
   });
 });
+
+describe("db.promql.labelValues against a real server (issue #125)", () => {
+  it("narrows by range, lists type names for __name__, and routes an escaped name", async () => {
+    // DB_NAME is shared by the whole suite, so `__name__` lists every time-series type in it:
+    // assert inclusion there, not equality.
+    const db = rootServer.db(DB_NAME);
+    await db.command({
+      language: "sql",
+      command: "CREATE TIMESERIES TYPE TsLabelValues TIMESTAMP ts TAGS (sensor STRING) FIELDS (value DOUBLE)",
+    });
+    await db.ts.write({
+      lineProtocol: "TsLabelValues,sensor=a value=1 1000\nTsLabelValues,sensor=a value=2 2000\nTsLabelValues,sensor=b value=9 9000\n",
+      precision: "ms",
+    });
+
+    expect((await db.promql.labelValues("sensor")).data?.slice().sort()).toEqual(["a", "b"]);
+    expect((await db.promql.labelValues("sensor", { start: "0", end: "4" })).data).toEqual(["a"]);
+    expect((await db.promql.labelValues("sensor", { start: "8", end: "10" })).data).toEqual(["b"]);
+    expect((await db.promql.labelValues("__name__")).data).toContain("TsLabelValues");
+    // A name that needs escaping still reaches the route (a mis-escaped one would 404).
+    expect((await db.promql.labelValues("no/such label")).data).toEqual([]);
+  });
+});

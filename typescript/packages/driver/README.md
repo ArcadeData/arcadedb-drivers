@@ -593,6 +593,24 @@ Only a 400 whose body is a JSON object becomes a `TimeSeriesWriteError`. Every o
 `db.ts.write` - a 401, a 503, a 400 with a body that is not an object - stays a plain
 `ArcadeDBError`.
 
+## PromQL: `db.promql`
+
+`db.promql` is the Prometheus-compatible query surface, returning the generated models: `query`,
+`queryRange`, `labels`, `labelValues` and `series`. The metric name for a time-series type is the
+**type name itself** (`Sensor`), not `Sensor_value`.
+
+```ts
+await db.promql.labelValues("sensor"); // every value of the `sensor` tag
+await db.promql.labelValues("sensor", { start: "1700000000", end: "1700003600" }); // only values in that range
+await db.promql.labelValues("__name__"); // the time-series type names
+```
+
+`labelValues` lists the values one label carries, restricted to `start`/`end` (Unix seconds, both
+optional; omit both for the whole series). The name `"__name__"` is special: it lists the
+time-series **type names** rather than a tag's values, since a type name is the metric name. The
+server answers an empty success, not an error, for a label no series carries, so an empty
+list does not mean the name was misspelled. Pass the name unescaped; the client percent-encodes it.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `listDatabases`, `exists`, `serverInfo`,

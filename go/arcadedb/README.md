@@ -503,6 +503,12 @@ omits is `nil`, and an omitted `Written` or `Dropped` is 0. Only a 400 with a JS
 `Series`). The metric name for a time-series type is the **type name itself** (`Sensor`), not
 `Sensor_value`. Read `Data.Result` according to `Data.ResultType` (`vector`, `matrix` or `scalar`).
 
+`LabelValues(ctx, name, params)` lists the values one label carries, restricted to the
+`params.Start`/`params.End` range (Unix seconds, both optional; omit both for the whole series).
+The name `"__name__"` is special: it lists the time-series **type names** rather than a tag's
+values, since a type name is the metric name. The server answers an empty success, not an error, for a label no series carries, so an empty
+list does not mean the name was misspelled. Pass the name unescaped; the client percent-encodes it.
+
 ## Two error models
 
 Every facade method returns an `*ArcadeDBError` for a non-2xx response, except `Ready`, which

@@ -131,3 +131,37 @@ func TestTimeSeriesWriteUnknownTypeIsTimeSeriesWriteError(t *testing.T) {
 		t.Fatalf("ArcadeDBError = %#v", ae)
 	}
 }
+
+// LabelValues against a real server: a range narrows the values to those carried inside it,
+// "__name__" lists the type names, and a name that needs escaping still reaches the route (a
+// mis-escaped one would 404) and, naming no tag, answers an empty success.
+func TestPromQLLabelValues(t *testing.T) {
+	ctx := context.Background()
+	db := newDatabase(t)
+	seedTimeSeries(t, db) // sensor=a at 1s, 2s and 3s
+	if err := db.TS().Write(ctx, tsType+",sensor=b value=9 9000\n", "ms"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name       string
+		start, end *string
+		want       []string
+	}{
+		{"sensor", nil, nil, []string{"a", "b"}},
+		{"sensor", ptr("0"), ptr("4"), []string{"a"}},
+		{"sensor", ptr("8"), ptr("10"), []string{"b"}},
+		{"__name__", nil, nil, []string{tsType}},
+		{"no/such label", nil, nil, []string{}},
+	} {
+		got, err := db.PromQL().LabelValues(ctx, c.name, generated.PromQLLabelValuesParams{Start: c.start, End: c.end})
+		if err != nil {
+			t.Fatalf("%q: %v", c.name, err)
+		}
+		values := slices.Clone(got.Data)
+		slices.Sort(values)
+		if got.Status != "success" || !slices.Equal(values, c.want) {
+			t.Fatalf("%q [%v, %v] = %+v, want %v", c.name, c.start, c.end, got, c.want)
+		}
+	}
+}

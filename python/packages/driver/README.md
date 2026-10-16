@@ -833,6 +833,11 @@ every statement, another user only their own, and someone else's statement is an
 load balancer, the server this client reaches may not be the one running the statement, and then
 `list_queries` does not show it and terminating it answers `"not found"`.
 
+**A statement shows up before its text does.** The server lists a request the moment it is
+admitted, and for a brief window that entry's `language` is `None` and its `text` is the request
+line (`POST /api/v1/command/<database>`); both are filled in once the statement starts. To read the
+statement itself, poll until `language` is set.
+
 Each of the three terminate methods waits for the statements to stop, up to `wait` (omitted or zero leaves the server's
 default of 5 seconds, and the server caps it at 10), then answers each with a `status`, typed as
 `QueryStatus`. **Which one you get decides whether you have anything to undo:**
@@ -1021,19 +1026,19 @@ this today because its response schemas do not have this shape.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.11.1-SNAPSHOT.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.10.2.json`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.11.1-SNAPSHOT"
+server-version = "26.10.2"
 ```
 
 | `arcadedb-driver` | ArcadeDB server |
 | --- | --- |
 | 0.1.0 | 26.9.1 |
 | 0.2.0 | 26.10.1 |
-| 0.3.0 (unreleased) | 26.11.1-SNAPSHOT |
+| 0.3.0 (unreleased) | 26.10.2 |
 
 This table is a historical record tied to a package version, not something derived automatically:
 `scripts/adopt-contract-version.sh` deliberately does not touch it when it retires an old contract

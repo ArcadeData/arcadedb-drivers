@@ -654,6 +654,11 @@ and stops every statement, another user only their own, and someone else's state
 a load balancer, the server this client reaches may not be the one running the statement, and
 then `ListQueries` does not show it and terminating it answers `QueryNotFound`.
 
+**A statement shows up before its text does.** The server lists a request the moment it is
+admitted, and for a brief window that entry's `Language` is empty (the server sends `null`) and its
+`Text` is the request line (`POST /api/v1/command/<database>`); both are filled in once the
+statement starts. To read the statement itself, poll until `Language` is set.
+
 Each of the three terminate methods waits for the statements to stop, up to `TerminateOptions.Wait` (zero leaves the
 server's default of 5 seconds, and the server caps it at 10), then answers each with a
 `QueryStatus`. **Which one you get decides whether you have anything to undo:**
@@ -785,17 +790,17 @@ reports `Limit`, `Returned` and `Truncated` as zero values the wire never carrie
 
 ## Contract version and compatibility
 
-This module was generated from `contracts/arcadedb-openapi-26.11.1-SNAPSHOT.json`, recorded in
+This module was generated from `contracts/arcadedb-openapi-26.10.2.json`, recorded in
 `version.go` as `ServerVersion`:
 
 ```go
-const ServerVersion = "26.11.1-SNAPSHOT"
+const ServerVersion = "26.10.2"
 ```
 
 | `github.com/ArcadeData/arcadedb-drivers/go/arcadedb` | ArcadeDB server |
 | --- | --- |
 | 0.2.0 | 26.10.1 |
-| 0.3.0 (unreleased) | 26.11.1-SNAPSHOT |
+| 0.3.0 (unreleased) | 26.10.2 |
 
 The Go module had no 0.1.0 release: it joined the lockstep at 0.2.0, its first published
 version. This table is a historical record tied to a module version, not something derived

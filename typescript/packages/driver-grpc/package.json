@@ -25,7 +25,7 @@
     "node": ">=20"
   },
   "arcadedb": {
-    "serverVersion": "26.11.1-SNAPSHOT"
+    "serverVersion": "26.10.2"
   },
   "exports": {
     ".": {

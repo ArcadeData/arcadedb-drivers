@@ -75,7 +75,7 @@ the full reasoning - read that before touching the script:
 
 1. **The contract is staged under a normalised filename.** `protoc` treats `.` in a proto's
    filename as a directory separator, not a literal dot, so handing it
-   `contracts/arcadedb-server-26.11.1-SNAPSHOT.proto` directly produces an unimportable tree (an import line
+   `contracts/arcadedb-server-26.10.2.proto` directly produces an unimportable tree (an import line
    that is a `SyntaxError`). The script copies the contract to a fixed `arcadedb_server.proto`
    first. The happy side effect: the generated module carries no version stamp, unlike the
    TypeScript gRPC client's `arcadedb-server-<version>_pb.ts` - nothing to retire and no imports to
@@ -231,6 +231,9 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   suite uses a `sqlscript` `WHILE` loop), a terminated script inside a transaction ends the
   transaction, and a commit naming a session `terminate_transaction` removed is answered **204**, so
   the owner's `with db.transaction()` block exits cleanly for work that was rolled back.
+  `list_queries` also lists a request the moment it is admitted, with `language` `None` and the
+  request line as its `text`, before the statement starts; the e2e helper `wait_for_query` waits
+  for `language`, and CI caught it once on #138 when it did not.
 
 ## The transaction contract
 

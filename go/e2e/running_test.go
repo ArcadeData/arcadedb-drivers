@@ -14,7 +14,9 @@ import (
 // when it ends, so it is answered "terminating" rather than "terminated".
 const longLoop = "LET i = 0; WHILE ($i < 1000000000) { LET i = $i + 1; } RETURN $i"
 
-// waitForQuery polls ListQueries until a statement with the tag is running.
+// waitForQuery polls ListQueries until a statement with the tag is running. It waits for the
+// statement itself, not just its request: the server lists a request as soon as it is admitted,
+// with the request line as its text and no language, and fills both in a moment later.
 func waitForQuery(t *testing.T, srv *arcadedb.Server, opts arcadedb.ListQueriesOptions) arcadedb.RunningQuery {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
@@ -23,8 +25,10 @@ func waitForQuery(t *testing.T, srv *arcadedb.Server, opts arcadedb.ListQueriesO
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(qs) > 0 {
-			return qs[0]
+		for _, q := range qs {
+			if q.Language != "" {
+				return q
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

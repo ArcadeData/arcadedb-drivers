@@ -790,11 +790,11 @@ reports `Limit`, `Returned` and `Truncated` as zero values the wire never carrie
 
 ## Contract version and compatibility
 
-This module was generated from `contracts/arcadedb-openapi-26.10.2.json`, recorded in
+This module was generated from `contracts/arcadedb-openapi-26.11.1-SNAPSHOT.json`, recorded in
 `version.go` as `ServerVersion`:
 
 ```go
-const ServerVersion = "26.10.2"
+const ServerVersion = "26.11.1-SNAPSHOT"
 ```
 
 | `github.com/ArcadeData/arcadedb-drivers/go/arcadedb` | ArcadeDB server |

@@ -6,4 +6,4 @@ const Version = "0.3.0"
 
 // ServerVersion is the ArcadeDB server version of the .proto contract this client was
 // generated from. It is written by scripts/adopt-contract-version.sh; do not edit it by hand.
-const ServerVersion = "26.10.2"
+const ServerVersion = "26.11.1-SNAPSHOT"

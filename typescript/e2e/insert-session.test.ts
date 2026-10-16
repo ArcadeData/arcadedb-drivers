@@ -11,7 +11,7 @@ import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 // why this suite needs Node >= 22 (it already needs >= 22.22 for testcontainers).
 //
 // Image pin and override: see `data-plane.test.ts`.
-const ARCADEDB_IMAGE = process.env.ARCADEDB_DOCKER_IMAGE ?? "arcadedata/arcadedb:26.10.2";
+const ARCADEDB_IMAGE = process.env.ARCADEDB_DOCKER_IMAGE ?? "arcadedata/arcadedb:26.11.1-SNAPSHOT";
 const ROOT_PASSWORD = "playwithdata";
 const DB_NAME = "wsinsert";
 const MAX_ROWS = 4;

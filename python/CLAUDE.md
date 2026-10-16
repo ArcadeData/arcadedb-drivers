@@ -231,6 +231,9 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   suite uses a `sqlscript` `WHILE` loop), a terminated script inside a transaction ends the
   transaction, and a commit naming a session `terminate_transaction` removed is answered **204**, so
   the owner's `with db.transaction()` block exits cleanly for work that was rolled back.
+  `list_queries` also lists a request the moment it is admitted, with `language` `None` and the
+  request line as its `text`, before the statement starts; the e2e helper `wait_for_query` waits
+  for `language`, and CI caught it once on #138 when it did not.
 
 ## The transaction contract
 

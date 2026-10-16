@@ -283,6 +283,9 @@ are under "The gRPC module" below.
   suite uses a `sqlscript` `WHILE` loop), a terminated script inside a transaction ends the
   transaction, and a commit naming a session `TerminateTransaction` removed is answered **204**, so
   the owner's `Transaction` returns nil for work that was rolled back.
+  `ListQueries` also lists a request the moment it is admitted, with an empty `Language` (`null`
+  on the wire) and the request line as its `Text`, before the statement starts; the e2e helper
+  `waitForQuery` waits for `Language`, and CI caught it once on #138 when it did not.
 - **No golangci-lint.** It is the de-facto Go meta-linter and it is **GPL-3.0**, which the
   allow-list in the root `CLAUDE.md` forbids for development tools as well as runtime
   dependencies. `gofmt`, `go vet` and `staticcheck` (MIT, and the analyser golangci-lint most often

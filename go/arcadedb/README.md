@@ -654,6 +654,11 @@ and stops every statement, another user only their own, and someone else's state
 a load balancer, the server this client reaches may not be the one running the statement, and
 then `ListQueries` does not show it and terminating it answers `QueryNotFound`.
 
+**A statement shows up before its text does.** The server lists a request the moment it is
+admitted, and for a brief window that entry's `Language` is empty (the server sends `null`) and its
+`Text` is the request line (`POST /api/v1/command/<database>`); both are filled in once the
+statement starts. To read the statement itself, poll until `Language` is set.
+
 Each of the three terminate methods waits for the statements to stop, up to `TerminateOptions.Wait` (zero leaves the
 server's default of 5 seconds, and the server caps it at 10), then answers each with a
 `QueryStatus`. **Which one you get decides whether you have anything to undo:**

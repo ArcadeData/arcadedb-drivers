@@ -29,6 +29,7 @@ export async function queryGrafana(client: RawClient, database: string, opts: Gr
 export type PromQLQueryOptions = operations["promQLQuery"]["parameters"]["query"];
 export type PromQLQueryRangeOptions = operations["promQLQueryRange"]["parameters"]["query"];
 export type PromQLSeriesOptions = operations["promQLSeries"]["parameters"]["query"];
+export type PromQLLabelValuesOptions = operations["promQLLabelValues"]["parameters"]["query"];
 export type PromQLLabelsResponse = components["schemas"]["PromQLLabelsResponse"];
 export type PromQLSeriesResponse = components["schemas"]["PromQLSeriesResponse"];
 
@@ -190,6 +191,24 @@ export async function seriesPromQL(client: RawClient, database: string, opts: Pr
   return unwrap(
     client.GET("/api/v1/ts/{database}/prom/api/v1/series", {
       params: { path: { database }, query: opts },
+    }),
+  );
+}
+
+/**
+ * Executes `GET /api/v1/ts/{database}/prom/api/v1/label/{name}/values`: lists the values of one
+ * label over an optional `start`/`end` range; `"__name__"` lists the time-series type names.
+ * `name` is passed unescaped because openapi-fetch already percent-encodes path parameters.
+ */
+export async function labelValuesPromQL(
+  client: RawClient,
+  database: string,
+  name: string,
+  opts?: PromQLLabelValuesOptions,
+): Promise<PromQLLabelsResponse> {
+  return unwrap(
+    client.GET("/api/v1/ts/{database}/prom/api/v1/label/{name}/values", {
+      params: { path: { database, name }, query: opts },
     }),
   );
 }

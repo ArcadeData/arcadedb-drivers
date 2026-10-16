@@ -499,9 +499,9 @@ stores such samples with the undeclared keys discarded instead of dropping them.
 omits is `nil`, and an omitted `Written` or `Dropped` is 0. Only a 400 with a JSON-object body becomes a
 `*TimeSeriesWriteError`; every other failure is a plain `*ArcadeDBError`.
 
-`db.PromQL()` uses the generated typed models (`Query`, `QueryRange`, `Labels`, `Series`). The
-metric name for a time-series type is the **type name itself** (`Sensor`), not `Sensor_value`. Read
-`Data.Result` according to `Data.ResultType` (`vector`, `matrix` or `scalar`).
+`db.PromQL()` uses the generated typed models (`Query`, `QueryRange`, `Labels`, `LabelValues`,
+`Series`). The metric name for a time-series type is the **type name itself** (`Sensor`), not
+`Sensor_value`. Read `Data.Result` according to `Data.ResultType` (`vector`, `matrix` or `scalar`).
 
 ## Two error models
 

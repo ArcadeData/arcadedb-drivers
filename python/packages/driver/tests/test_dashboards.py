@@ -118,3 +118,38 @@ def test_the_namespaces_are_cached_per_database_handle() -> None:
         assert db.ts is db.ts
         assert db.grafana is db.grafana
         assert db.promql is db.promql
+
+
+@respx.mock
+def test_promql_label_values_sends_the_name_and_range() -> None:
+    route = respx.get(f"{BASE_URL}/api/v1/ts/mydb/prom/api/v1/label/__name__/values").mock(
+        return_value=httpx.Response(200, json={"status": "success", "data": ["cpu", "memory"]})
+    )
+    with ArcadeDBServer(base_url=BASE_URL) as srv:
+        result = srv.db("mydb").promql.label_values("__name__", start="1700000000")
+
+    assert result.data == ["cpu", "memory"]
+    assert dict(route.calls.last.request.url.params) == {"start": "1700000000"}
+
+
+@respx.mock
+def test_promql_label_values_escapes_the_name_exactly_once() -> None:
+    route = respx.get(url__regex=r".*/prom/api/v1/label/.*/values").mock(
+        return_value=httpx.Response(200, json={"status": "success", "data": []})
+    )
+    with ArcadeDBServer(base_url=BASE_URL) as srv:
+        srv.db("mydb").promql.label_values("a/b c")
+
+    assert route.calls.last.request.url.raw_path == b"/api/v1/ts/mydb/prom/api/v1/label/a%2Fb%20c/values"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_async_promql_label_values_returns_the_generated_model() -> None:
+    respx.get(f"{BASE_URL}/api/v1/ts/mydb/prom/api/v1/label/job/values").mock(
+        return_value=httpx.Response(200, json={"status": "success", "data": ["api"]})
+    )
+    async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:
+        result = await srv.db("mydb").promql.label_values("job")
+
+    assert result.data == ["api"]

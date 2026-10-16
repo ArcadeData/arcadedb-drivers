@@ -71,6 +71,22 @@ func (p *PromQL) Labels(ctx context.Context) (*generated.PromQLLabelsResponse, e
 	return nonEmpty(decodeBody(resp.JSON200, resp.Body))
 }
 
+// LabelValues lists the values of the label name over the time range in params (Start and
+// End are Unix seconds as strings, both optional). The name "__name__" lists the
+// time-series type names. Pass name unescaped: the generated client escapes path
+// parameters itself, and escaping it here as well would send "%252F" for a "/".
+func (p *PromQL) LabelValues(ctx context.Context, name string, params generated.PromQLLabelValuesParams) (*generated.PromQLLabelsResponse, error) {
+	params.ArcadedbSessionId = p.session(params.ArcadedbSessionId)
+	resp, err := p.db.srv.raw.PromQLLabelValuesWithResponse(ctx, p.db.name, name, &params)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp.HTTPResponse, resp.Body); err != nil {
+		return nil, err
+	}
+	return nonEmpty(decodeBody(resp.JSON200, resp.Body))
+}
+
 // Series lists the series matching every selector in params.Match, which is sent as the
 // repeated "match[]" parameter; the results are unioned.
 func (p *PromQL) Series(ctx context.Context, params generated.PromQLSeriesParams) (*generated.PromQLSeriesResponse, error) {

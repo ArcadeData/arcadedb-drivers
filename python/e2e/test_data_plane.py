@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from arcadedb_driver import ArcadeDBError, ArcadeDBServer, AsyncArcadeDBServer, TimeSeriesWriteError, basic_auth
+from arcadedb_driver import (
+    ArcadeDBDatabase,
+    ArcadeDBError,
+    ArcadeDBServer,
+    AsyncArcadeDBServer,
+    TimeSeriesWriteError,
+    basic_auth,
+)
 from arcadedb_driver._generated.models.full_text_search_response_similarity import (
     FullTextSearchResponseSimilarity,
 )
@@ -481,3 +488,43 @@ def test_stream_query_reassembles_a_single_record_whose_line_spans_multiple_real
     stats = _stats(events[-1])
     assert stats.returned == 1
     assert stats.truncated is False
+
+
+def _seed_label_values(db: ArcadeDBDatabase, ts_type: str) -> None:
+    # sensor=a at 1s and 2s, sensor=b at 9s.
+    db.command(
+        language="sql",
+        command=f"CREATE TIMESERIES TYPE {ts_type} TIMESTAMP ts TAGS (sensor STRING) FIELDS (value DOUBLE)",
+    )
+    db.ts.write(
+        line_protocol="".join(
+            f"{ts_type},sensor={sensor} value=1 {ms}\n" for sensor, ms in [("a", 1000), ("a", 2000), ("b", 9000)]
+        ),
+        precision="ms",
+    )
+
+
+def test_promql_label_values_against_a_real_server(base_url: str, database: str) -> None:
+    # The database is shared across the session, so `sensor` may carry other tests' values too
+    # (none today) and `__name__` lists every time-series type: assert inclusion, not equality.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        _seed_label_values(db, "PyLabelValues")
+
+        assert {"a", "b"} <= set(db.promql.label_values("sensor").data)
+        assert db.promql.label_values("sensor", start="0", end="4").data == ["a"]
+        assert db.promql.label_values("sensor", start="8", end="10").data == ["b"]
+        assert "PyLabelValues" in db.promql.label_values("__name__").data
+        # A name that needs escaping still reaches the route (a mis-escaped one would 404).
+        assert db.promql.label_values("no/such label").data == []
+
+
+@pytest.mark.asyncio
+async def test_async_promql_label_values_against_a_real_server(base_url: str, database: str) -> None:
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        _seed_label_values(srv.db(database), "PyLabelValuesAsync")
+
+    async with AsyncArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        assert "PyLabelValuesAsync" in (await db.promql.label_values("__name__")).data
+        assert (await db.promql.label_values("sensor", start="8", end="10")).data == ["b"]

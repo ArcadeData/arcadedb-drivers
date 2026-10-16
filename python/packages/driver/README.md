@@ -673,6 +673,24 @@ result-limit parameters are (see "Vector, hybrid and full-text search" above): t
 surfaces as an `ArcadeDBError` raised from the server's response, not a local exception before the
 request is even sent.
 
+## PromQL: `db.promql`
+
+`db.promql` is the Prometheus-compatible query surface, returning the generated models: `query`,
+`query_range`, `labels`, `label_values` and `series`, each with an async twin. The metric name for a
+time-series type is the **type name itself** (`Sensor`), not `Sensor_value`.
+
+```python
+db.promql.label_values("sensor")  # every value of the `sensor` tag
+db.promql.label_values("sensor", start="1700000000", end="1700003600")  # only values in that range
+db.promql.label_values("__name__")  # the time-series type names
+```
+
+`label_values` lists the values one label carries, restricted to `start`/`end` (Unix seconds, both
+optional; omit both for the whole series). The name `"__name__"` is special: it lists the
+time-series **type names** rather than a tag's values, since a type name is the metric name. The
+server answers an empty success, not an error, for a label no series carries, so an empty
+list does not mean the name was misspelled. Pass the name unescaped; the client percent-encodes it.
+
 ## Two error models
 
 The facade methods (`query`, `command`, `transaction`, `list_databases`, `exists`, `server_info`,

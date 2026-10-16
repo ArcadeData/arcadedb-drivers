@@ -7365,7 +7365,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Query terminated: the statement was stopped by 'terminate query', 'terminate queries' or 'terminate transaction' (POST /api/v1/server) and what it wrote was rolled back. Not retryable: somebody stopped this work on purpose. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            /** @description Query terminated: the statement was stopped by 'terminate query', 'terminate queries' or 'terminate transaction' (POST /api/v1/server) and what it wrote was rolled back. Not retryable: somebody stopped this work on purpose. Also 'create database' and 'import database' on a database name that is already taken (detail names the database). Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
                     "Retry-After": components["headers"]["RetryAfterHeader"];
@@ -7536,7 +7536,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            /** @description Conflict - a token with this name was already issued. The body names the exception (com.arcadedb.server.ServerControlPlane$AlreadyExistsException), which the Java remote clients raise as RemoteAlreadyExistsException. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
                     "Retry-After": components["headers"]["RetryAfterHeader"];
@@ -9938,7 +9938,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            /** @description Conflict - a user with this name already exists. 403 is kept for a caller who is not root. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
                     "Retry-After": components["headers"]["RetryAfterHeader"];

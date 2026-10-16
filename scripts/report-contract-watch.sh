@@ -146,12 +146,15 @@ close_if_resolved() {
   echo "Closed issue #$issue" >&2
 }
 
+# Prints the tracking issue's number and NOTHING else on stdout: main() captures it
+# as the number, and `gh issue edit` / `gh issue comment` print a URL there, which
+# once turned the refresh PR's closing line into "Closes #https://...".
 report_finding() {
   gh label create "$TRACKING_LABEL" \
     --repo "$REPO" \
     --color d93f0b \
     --description "Contract drift or behaviour regression found by the daily contract watch" \
-    2>/dev/null || true
+    >/dev/null 2>&1 || true
 
   local title body existing previous issue
   title="Contract watch: $STATE against $VERSION"
@@ -167,12 +170,12 @@ report_finding() {
     issue="$existing"
     previous="$(gh issue view "$issue" --repo "$REPO" --json body --jq .body)"
     # Always refresh the body, so the run link points at the latest evidence.
-    gh issue edit "$issue" --repo "$REPO" --title "$title" --body "$body"
+    gh issue edit "$issue" --repo "$REPO" --title "$title" --body "$body" >&2
     if [[ "$(marker_of "$previous")" == "$(finding_fingerprint)" ]]; then
       echo "Issue #$issue already describes this exact finding; not commenting." >&2
     else
       gh issue comment "$issue" --repo "$REPO" --body \
-        "The finding changed as of [this run]($RUN_URL). The description above has been updated."
+        "The finding changed as of [this run]($RUN_URL). The description above has been updated." >&2
       echo "Updated issue #$issue" >&2
     fi
   fi

@@ -763,6 +763,39 @@ leftover="$(git -C "$RPR/work" status --porcelain 2>/dev/null)"
 check "$leftover" "" "open_refresh_pr leaves nothing the watch detected uncommitted"
 rm -rf "$RPR"
 
+# main() captures report_finding's stdout as the issue number, so nothing else may
+# reach stdout. The real gh prints a URL from `issue edit` and `issue comment`;
+# before this was pinned, the refresh PR's body read "Closes #https://...76".
+# The stub prints what gh prints, so an unredirected call shows up here.
+reported="$(
+  # shellcheck disable=SC2329 # invoked by report_finding, not here
+  gh() {
+    case "$1 $2" in
+      "issue list") echo 76 ;;
+      "issue view") echo "<!-- contract-watch: stale -->" ;;
+      "issue edit") echo "https://github.com/o/r/issues/76" ;;
+      "issue comment") echo "https://github.com/o/r/issues/76#issuecomment-1" ;;
+      "label create") echo "label exists" ;;
+    esac
+  }
+  REPO=o/r TRACKING_LABEL=t RUN_URL=x CHANGED_FILES=" M a"
+  report_finding 2>/dev/null
+)"
+check "$reported" "76" "report_finding prints only the issue number, whatever gh prints"
+
+reported="$(
+  # shellcheck disable=SC2329 # invoked by report_finding, not here
+  gh() {
+    case "$1 $2" in
+      "issue create") echo "https://github.com/o/r/issues/77" ;;
+      "label create") echo "label exists" ;;
+    esac
+  }
+  REPO=o/r TRACKING_LABEL=t RUN_URL=x CHANGED_FILES=" M a"
+  report_finding 2>/dev/null
+)"
+check "$reported" "77" "report_finding prints only a newly opened issue's number"
+
 # The watch's detect step and the script share ONE list of refreshed paths, so a
 # new language directory cannot be detected but not committed (or the reverse).
 WATCH_YML="$REPO_ROOT/.github/workflows/contract-watch.yml"

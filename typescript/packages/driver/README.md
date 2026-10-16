@@ -947,7 +947,7 @@ This package was generated from `contracts/arcadedb-openapi-26.10.2.json`, recor
 | --- | --- |
 | 0.1.0 | 26.9.1 |
 | 0.2.0 | 26.10.1 |
-| 0.3.0 (unreleased) | 26.10.2 |
+| 0.3.0 | 26.10.2 |
 
 The client speaks ArcadeDB's HTTP API as described by that contract. Pointing it at a server on a
 materially different release may work for the endpoints both versions share, but is not tested or

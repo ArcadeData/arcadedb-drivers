@@ -275,8 +275,11 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   its content, so it can be neither deleted nor replaced, and moving the tag afterwards only breaks
   anyone fetching around the proxy. The remedy for a bad one is a `retract` directive in the next
   version, which is why the module-zip check runs before the tag exists. The repository's tag
-  ruleset, still outstanding, must protect `go/**` tags as well as `v*`, and must let the Actions
-  bot push them.
+  ruleset, "Release tags", protects `go/**` tags as well as `v*`: it blocks updating, force-pushing
+  and deleting them, and allows creating them, which is all `release.yml` and this workflow do. It
+  has no bypass actor, and needs none: GitHub refuses the Actions app as one on a repository
+  ruleset, and no admin is exempt either, so moving a tag means switching the ruleset off on
+  purpose.
 - `license-compliance.yml` — runs `scripts/check-licenses.py` over all three dependency trees on a
   push or pull request that touches a lockfile, a package manifest, `go/go.work` or any Go
   `go.mod`/`go.sum` (not `go.work.sum`, which only carries checksums), the checker itself, its

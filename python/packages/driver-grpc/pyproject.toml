@@ -1,6 +1,6 @@
 [project]
 name = "arcadedb-driver-grpc"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python gRPC client for ArcadeDB's data plane, generated from ArcadeDB's protobuf contract."
 readme = "README.md"
 license = "Apache-2.0"

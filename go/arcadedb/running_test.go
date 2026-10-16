@@ -104,6 +104,8 @@ func TestTerminateSendsWaitInMilliseconds(t *testing.T) {
 		{-time.Second, nil},
 		{3 * time.Second, float64(3000)},
 		{time.Microsecond, float64(1)},
+		{1500 * time.Microsecond, float64(2)},
+		{time.Millisecond, float64(1)},
 	} {
 		var rec recorded
 		srv := recordingServer(t, 200, `{"result":[]}`, &rec)

@@ -202,18 +202,16 @@ func (d *Database) Progress(ctx context.Context) (*generated.ProgressResponse, e
 	return nonEmpty(decodeBody(resp.JSON200, resp.Body))
 }
 
-// runningCommand sends command through POST /api/v1/server, with "wait" in milliseconds when
-// wait is positive, and decodes the body's "result" into out. It does not go through
+// runningCommand sends command through POST /api/v1/server, with "wait" in whole milliseconds,
+// rounded up, when wait is positive, and decodes the body's "result" into out. It does not go through
 // ServerCommand because the contract's CommandRequest has no "wait" field, although the server
 // reads one, and because the results are typed here rather than returned as a map.
 func (s *Server) runningCommand(ctx context.Context, command string, wait time.Duration, out any) error {
 	body := map[string]any{"command": command, "language": string(SQL)}
 	if wait > 0 {
-		ms := wait.Milliseconds()
-		if ms == 0 {
-			ms = 1 // a positive sub-millisecond wait must not read as "the default"
-		}
-		body["wait"] = ms
+		// Rounded up, as the Python and TypeScript clients do: truncating would send 1.5ms as 1,
+		// and a positive sub-millisecond wait as 0, which the server reads as "do not wait".
+		body["wait"] = int64((wait + time.Millisecond - 1) / time.Millisecond)
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {

@@ -24,8 +24,8 @@ func TestLoginQueryLogout(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = root.DropUser(context.Background(), user) })
 
-	// 403, not 401: the server answers every failed Basic check so. Login's doc comment relies on it.
-	if ae := asArcadeDBError(t, func() error { _, err := root.LoginAs(ctx, user, "wrong-password"); return err }()); ae.Status != 403 {
+	// 401 since ArcadeData/arcadedb#10109; earlier servers answered 403. Login's doc comment relies on it.
+	if ae := asArcadeDBError(t, func() error { _, err := root.LoginAs(ctx, user, "wrong-password"); return err }()); ae.Status != 401 {
 		t.Fatalf("wrong password: status %d %q", ae.Status, ae.Error())
 	}
 

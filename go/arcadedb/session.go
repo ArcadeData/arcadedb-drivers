@@ -106,10 +106,11 @@ type CreatedAPIToken struct {
 // Login opens a session with the client's own credentials through POST /api/v1/login and
 // returns its token. The client itself is unchanged: present the token with WithToken.
 //
-// Wrong Basic credentials are a 403 *ArcadeDBError ("Security error"), not a 401: the server
-// answers a failed password check with 403 on every endpoint, so on Login it cannot be told
-// apart from a forbidden user. 401 is what an invalid or expired bearer token gets. A server
-// that has reached its limit of concurrent sessions answers 503.
+// Wrong Basic credentials are a 401 *ArcadeDBError ("Authentication failed"), as an invalid
+// or expired bearer token is; 403 means authenticated but forbidden. A server built before
+// ArcadeData/arcadedb#10109 answers a failed password check with 403 "Security error" instead,
+// so on Login it cannot be told apart from a forbidden user. A server that has reached its
+// limit of concurrent sessions answers 503.
 //
 // Each login opens a new session, and a user holds at most 100 by default
 // (arcadedb.server.httpAuthSessionMaxPerUser): the next login silently evicts that user's

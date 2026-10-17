@@ -124,11 +124,11 @@ func TestTerminateQueryInsideATransaction(t *testing.T) {
 	}
 }
 
-// Terminating a transaction rolls back what it wrote. The client that owned it is not told at
-// commit: the server answers a commit naming a session it no longer has with 204, the same as
-// a real commit, so Transaction returns nil for work that is gone. Measured on
-// 26.11.1-SNAPSHOT; the READMEs warn about it. Only a statement sent after the terminate
-// sees the session is gone (404).
+// Terminating a transaction rolls back what it wrote, and the client that owned it is told at
+// commit: the server answers a commit naming a session it no longer has with 404, so
+// Transaction returns that error. Servers before ArcadeData/arcadedb#10164 answered 204, and
+// Transaction returned nil for work that was gone; the READMEs describe both. Measured on
+// 26.11.1-SNAPSHOT.
 func TestTerminateTransaction(t *testing.T) {
 	ctx := context.Background()
 	srv := newServer(t)
@@ -162,8 +162,8 @@ func TestTerminateTransaction(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("Transaction = %v; the server's 204 for a commit of a vanished session has changed, update the READMEs", err)
+	if ae := asArcadeDBError(t, err); ae.Status != 404 {
+		t.Fatalf("Transaction = %#v, want the commit's 404 for a terminated session", ae)
 	}
 	env, err := db.Query(ctx, arcadedb.SQL, "SELECT count(*) AS n FROM Doc", nil)
 	if err != nil {

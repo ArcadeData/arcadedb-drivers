@@ -124,23 +124,27 @@ describe("running work", () => {
     });
   });
 
-  // The server answers a commit naming a session it no longer has with 204, like a real commit, so
-  // the callback resolves although its insert was rolled back. The README and terminateTransaction's
-  // doc comment warn about it; if this starts failing, update both.
-  it("terminateTransaction rolls back, and the owner's commit does not notice", async () => {
+  // The server answers a commit naming a session it no longer has with 404, so transaction()
+  // rejects. Servers before ArcadeData/arcadedb#10164 answered 204 and the callback resolved
+  // although its insert was rolled back; the README and terminateTransaction's doc comment
+  // describe both.
+  it("terminateTransaction rolls back, and the owner's commit is refused", async () => {
     await withDatabase(async (name) => {
       const db = root.db(name);
       await db.command({ language: "sql", command: "CREATE DOCUMENT TYPE Doc" });
       let session = "";
-      await db.transaction(async (tx) => {
-        await tx.command({ language: "sql", command: "INSERT INTO Doc SET x = 1" });
-        const open = (await root.listTransactions()).filter((t) => t.database === name);
-        expect(open).toHaveLength(1);
-        session = open[0]!.id;
-        expect(await root.terminateTransaction(session)).toEqual({ id: session, status: "terminated" });
-        const after = await tx.query({ language: "sql", command: "SELECT 1" }).catch((e: unknown) => e);
-        expect((after as ArcadeDBError).status).toBe(404);
-      });
+      const committed = await db
+        .transaction(async (tx) => {
+          await tx.command({ language: "sql", command: "INSERT INTO Doc SET x = 1" });
+          const open = (await root.listTransactions()).filter((t) => t.database === name);
+          expect(open).toHaveLength(1);
+          session = open[0]!.id;
+          expect(await root.terminateTransaction(session)).toEqual({ id: session, status: "terminated" });
+          const after = await tx.query({ language: "sql", command: "SELECT 1" }).catch((e: unknown) => e);
+          expect((after as ArcadeDBError).status).toBe(404);
+        })
+        .catch((e: unknown) => e);
+      expect((committed as ArcadeDBError).status).toBe(404);
       const count = await db.query<{ n: number }>({ language: "sql", command: "SELECT count(*) AS n FROM Doc" });
       expect(count.result).toEqual([{ n: 0 }]);
       expect((await root.terminateTransaction(session)).status).toBe("not found");

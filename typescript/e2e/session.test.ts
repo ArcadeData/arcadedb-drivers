@@ -58,8 +58,8 @@ describe("sessions and API tokens", () => {
     try {
       await root.createUser(user, "session-password", { databases: { [tenant]: ["admin"] } });
       try {
-        // 403, not 401: the server answers every failed Basic check so (ArcadeData/arcadedb#10109).
-        expect((await rejected(root.loginAs(user, "wrong-password"))).status).toBe(403);
+        // 401 since ArcadeData/arcadedb#10109; earlier servers answered 403 "Security error".
+        expect((await rejected(root.loginAs(user, "wrong-password"))).status).toBe(401);
 
         const login = await root.loginAs(user, "session-password");
         expect(login.user).toBe(user);

@@ -125,19 +125,21 @@ def test_terminate_query_inside_a_transaction(srv: ArcadeDBServer, fresh_db: str
     assert is_query_terminated(caught.value)
 
 
-def test_terminate_transaction_is_not_seen_at_commit(srv: ArcadeDBServer, fresh_db: str) -> None:
-    """The server answers a commit naming a session it no longer has with 204, like a real
-    commit, so the block exits cleanly although its insert was rolled back. The README and the
-    `terminate_transaction` docstring warn about it; if this starts failing, update both."""
+def test_terminate_transaction_is_seen_at_commit(srv: ArcadeDBServer, fresh_db: str) -> None:
+    """The server answers a commit naming a session it no longer has with 404, so the block
+    raises on exit. Servers before arcadedb#10164 answered 204 and the block exited cleanly
+    although its insert was rolled back; the README and the `terminate_transaction` docstring
+    describe both."""
     db = srv.db(fresh_db)
     db.command(language="sql", command="CREATE DOCUMENT TYPE Doc")
-    with db.transaction() as tx:
+    with pytest.raises(ArcadeDBError) as at_commit, db.transaction() as tx:
         tx.command(language="sql", command="INSERT INTO Doc SET x = 1")
         (open_tx,) = [t for t in srv.list_transactions() if t.database == fresh_db]
         assert srv.terminate_transaction(open_tx.id).status == "terminated"
         with pytest.raises(ArcadeDBError) as caught:
             tx.query(language="sql", command="SELECT 1")
         assert caught.value.status == 404
+    assert at_commit.value.status == 404
     assert db.query(language="sql", command="SELECT count(*) AS n FROM Doc").result == [{"n": 0}]
     assert srv.terminate_transaction(open_tx.id).status == "not found"
 

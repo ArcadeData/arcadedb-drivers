@@ -216,8 +216,9 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   `with_token` builds a new server from the stored constructor arguments; unlike Go's, it does not
   share the connection pool (an httpx client's headers belong to the pool), so the caller closes
   each. The token-carrying dataclasses leave the token out of `repr()`. The statuses measured live
-  and pinned by `e2e/test_session.py` are Go's: wrong Basic credentials **403** on login as
-  everywhere (401 is for a bad bearer token), a duplicate API-token name 409, an unknown hash 404.
+  and pinned by `e2e/test_session.py` are Go's: wrong Basic credentials **401** on login as
+  everywhere, like a bad bearer token (403 until ArcadeData/arcadedb#10109), a duplicate API-token
+  name 409, an unknown hash 404.
 - **Running work is typed, and classified on a structured field** (`facade/running.py`, issue #124).
   `list_queries`, `terminate_query`, `terminate_queries_by_tag`, `list_transactions` and
   `terminate_transaction` send command strings through `POST /api/v1/server` but bypass
@@ -229,8 +230,9 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   white space, a tag if padded, because the server splits and trims them. Measured live and pinned
   by `e2e/test_running.py`: SQL `SLEEP` is not interruptible (it answers `terminating`, so the e2e
   suite uses a `sqlscript` `WHILE` loop), a terminated script inside a transaction ends the
-  transaction, and a commit naming a session `terminate_transaction` removed is answered **204**, so
-  the owner's `with db.transaction()` block exits cleanly for work that was rolled back.
+  transaction, and a commit naming a session `terminate_transaction` removed is answered **404**, so
+  the owner's `with db.transaction()` block raises on exit (204, and a clean exit for work that was
+  rolled back, until ArcadeData/arcadedb#10164, 2026-10-16).
   `list_queries` also lists a request the moment it is admitted, with `language` `None` and the
   request line as its `text`, before the statement starts; the e2e helper `wait_for_query` waits
   for `language`, and CI caught it once on #138 when it did not.

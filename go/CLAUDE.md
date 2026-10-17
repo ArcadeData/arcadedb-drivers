@@ -267,9 +267,9 @@ are under "The gRPC module" below.
   string, and the likely mistake is the plaintext token. `WithToken` derives a new `Server` (cloned
   headers, shared `http.Client`) rather than mutating one, so handing out per-user token clients is
   race-free. Three statuses measured live and pinned by `e2e/session_test.go`: wrong Basic
-  credentials are **403** "Security error" on login as everywhere (401 is for a bad bearer token),
-  a duplicate API-token name is 409, and deleting an unknown hash is 404, which the contract does
-  not list.
+  credentials are **401** "Authentication failed" on login as everywhere, the status a bad bearer
+  token gets (403 "Security error" until ArcadeData/arcadedb#10109, 2026-10-16), a duplicate
+  API-token name is 409, and deleting an unknown hash is 404, which the contract does not list.
 - **Running work is typed, and classified on a structured field** (`running.go`, issue #124).
   `ListQueries`, `TerminateQuery`, `TerminateQueriesByTag`, `ListTransactions` and
   `TerminateTransaction` send command strings through `POST /api/v1/server` but bypass
@@ -281,8 +281,9 @@ are under "The gRPC module" below.
   white space, a tag if padded, because the server splits and trims them. Measured live and pinned
   by `e2e/running_test.go`: SQL `SLEEP` is not interruptible (it answers `terminating`, so the e2e
   suite uses a `sqlscript` `WHILE` loop), a terminated script inside a transaction ends the
-  transaction, and a commit naming a session `TerminateTransaction` removed is answered **204**, so
-  the owner's `Transaction` returns nil for work that was rolled back.
+  transaction, and a commit naming a session `TerminateTransaction` removed is answered **404**, so
+  the owner's `Transaction` returns an error (204, and a nil return for work that was rolled back,
+  until ArcadeData/arcadedb#10164, 2026-10-16).
   `ListQueries` also lists a request the moment it is admitted, with an empty `Language` (`null`
   on the wire) and the request line as its `Text`, before the statement starts; the e2e helper
   `waitForQuery` waits for `Language`, and CI caught it once on #138 when it did not.

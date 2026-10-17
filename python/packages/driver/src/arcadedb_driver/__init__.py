@@ -683,11 +683,11 @@ class ArcadeDBServer:
         `terminate_query`; the answer is `"terminating"` when it has not.
 
         A statement running in it is stopped, and its request raises the 409 that
-        `is_query_terminated` recognises; a statement sent on the session afterwards gets a 404.
-        **A commit does not notice:** the server answers a commit naming the vanished session
-        with 204, like a real commit, so the owner's `with db.transaction()` block can exit
-        cleanly although what it wrote is gone. An unknown session, or another user's, is
-        answered `"not found"`.
+        `is_query_terminated` recognises; a statement sent on the session afterwards gets a 404,
+        and so does the commit, so the owner's `with db.transaction()` block raises on exit. A
+        server built before ArcadeData/arcadedb#10164 answers that commit 204, like a real
+        commit, so there the block can exit cleanly although what it wrote is gone. An unknown
+        session, or another user's, is answered `"not found"`.
 
         A session id that is empty or contains a space or control character raises `ValueError`
         before anything is sent. Raises `ArcadeDBError` on a non-2xx status.
@@ -777,11 +777,11 @@ class ArcadeDBServer:
         """Opens a session with the client's own credentials through `POST /api/v1/login` and
         returns its token. The client itself is unchanged: present the token with `with_token`.
 
-        Wrong Basic credentials raise `ArcadeDBError` with status **403** ("Security error"),
-        not 401: the server answers a failed password check with 403 on every endpoint, so on
-        `login` it cannot be told apart from a forbidden user (ArcadeData/arcadedb#10109). 401
-        is what an invalid or expired bearer token gets. A server that has reached its limit of
-        concurrent sessions answers 503.
+        Wrong Basic credentials raise `ArcadeDBError` with status **401** ("Authentication
+        failed"), as an invalid or expired bearer token does; 403 means authenticated but
+        forbidden. A server built before ArcadeData/arcadedb#10109 answers a failed password
+        check with 403 "Security error" instead, so on `login` it cannot be told apart from a
+        forbidden user. A server that has reached its limit of concurrent sessions answers 503.
 
         Each login opens a new session, and a user holds at most 100 by default
         (`arcadedb.server.httpAuthSessionMaxPerUser`): the next login silently evicts that

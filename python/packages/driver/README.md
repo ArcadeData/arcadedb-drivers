@@ -861,11 +861,13 @@ answers it 409 "Query terminated", but a 409 is also what a request still in fli
 `com.arcadedb.exception.QueryTerminatedException`, which the server sends as a structured field, not
 the message text. It is not retryable: somebody stopped this work on purpose.
 
-**`terminate_transaction` does not reach the client that owned the transaction at commit.** It
-rolls the transaction back, and a statement sent on it afterwards raises a 404, but a commit naming
-the vanished session is answered 204, exactly like a real commit: a `with db.transaction()` block
-that ran no statement after the terminate exits cleanly for work that is gone. Measured against
-26.11.1-SNAPSHOT and pinned by the e2e suite.
+**`terminate_transaction` reaches the client that owned the transaction at commit.** It rolls the
+transaction back, a statement sent on it afterwards raises a 404, and so does the commit: the
+owner's `with db.transaction()` block raises that 404 `ArcadeDBError` ("Remote transaction session
+not found or expired") on exit. Servers built before ArcadeData/arcadedb#10164 (2026-10-16) answer
+that commit 204, exactly like a real commit, so against those a block that ran no statement after
+the terminate exits cleanly for work that is gone. Measured against 26.11.1-SNAPSHOT and pinned by
+the e2e suite.
 
 Ids, session ids and the `database` filter must not be empty (where required) or contain a space
 or control character (anything at or below U+0020), because the server reads each as one word; a
@@ -921,10 +923,11 @@ logged-out one:
 
 What each failure looks like, measured against a real server and pinned by the e2e suite:
 
-- **Wrong Basic credentials are a 403** "Security error", not a 401. The server answers every
-  failed password check that way, on every endpoint, so a `login_as` 403 cannot be told apart from
-  a forbidden user (ArcadeData/arcadedb#10109 asks for 401). **401** is what an invalid, expired or
-  logged-out bearer token gets.
+- **Wrong Basic credentials are a 401** "Authentication failed", on every endpoint, the same
+  status an invalid, expired or logged-out bearer token gets; **403** means the caller
+  authenticated but may not do this. Servers built before ArcadeData/arcadedb#10109 (2026-10-16)
+  answer every failed password check with 403 "Security error" instead, so against those a
+  `login_as` 403 cannot be told apart from a forbidden user.
 - **`logout` only ends a session token.** The server answers 204 to a logout carrying Basic
   credentials or an API token and invalidates nothing, so `logout` on a client that does not
   present an `AU-` token raises `NotSessionTokenError` without sending anything. Logging out a

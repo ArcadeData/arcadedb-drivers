@@ -554,6 +554,30 @@ func (e PromQLSeriesResponseStatus) Valid() bool {
 	}
 }
 
+// Defines values for TerminationStatusStatus.
+const (
+	Completed   TerminationStatusStatus = "completed"
+	NotFound    TerminationStatusStatus = "not found"
+	Terminated  TerminationStatusStatus = "terminated"
+	Terminating TerminationStatusStatus = "terminating"
+)
+
+// Valid indicates whether the value is a known member of the TerminationStatusStatus enum.
+func (e TerminationStatusStatus) Valid() bool {
+	switch e {
+	case Completed:
+		return true
+	case NotFound:
+		return true
+	case Terminated:
+		return true
+	case Terminating:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TimeSeriesQueryRequestAggregationRequestsType.
 const (
 	TimeSeriesQueryRequestAggregationRequestsTypeAVG   TimeSeriesQueryRequestAggregationRequestsType = "AVG"
@@ -1505,6 +1529,11 @@ type CommandRequest struct {
 
 	// Params Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip).
 	Params *map[string]interface{} `json:"params,omitempty"`
+
+	// Wait Server commands only (POST /api/v1/server): how long 'terminate query', 'terminate queries tag' and 'terminate transaction' wait for the work to end before answering, in milliseconds. 5000 when absent, at most 10000. Work still running when it is over is answered 'terminating'.
+	//
+	// Example: 1000
+	Wait *int `json:"wait,omitempty"`
 }
 
 // CreateApiTokenRequest A token to issue
@@ -2482,6 +2511,60 @@ type QueryResponse_Result struct {
 	union json.RawMessage
 }
 
+// RunningQuery A statement this server is running
+type RunningQuery struct {
+	// ClientAddress Address of the client, where known
+	ClientAddress *string `json:"clientAddress,omitempty"`
+
+	// ConnectionId Connection it arrived on, where the protocol has one
+	ConnectionId *string `json:"connectionId,omitempty"`
+
+	// Database Database the statement runs against
+	Database string `json:"database"`
+
+	// ElapsedMs How long it has been running, in milliseconds
+	ElapsedMs int `json:"elapsedMs"`
+
+	// ForwardedFrom Id it has on the server that forwarded it here
+	ForwardedFrom *string `json:"forwardedFrom,omitempty"`
+
+	// ForwardedTo Server this one forwarded it to
+	ForwardedTo *string `json:"forwardedTo,omitempty"`
+
+	// Id Id to pass to 'terminate query'
+	Id string `json:"id"`
+
+	// Language Query language
+	Language string `json:"language"`
+
+	// Protocol Protocol it arrived on, such as 'http'
+	Protocol string `json:"protocol"`
+
+	// Server Name of the server running it
+	Server string `json:"server"`
+
+	// SessionId Transaction session it runs in. Absent outside one
+	SessionId *string `json:"sessionId,omitempty"`
+
+	// StartedAt When it started, in milliseconds since the epoch
+	StartedAt int `json:"startedAt"`
+
+	// Tag Label from the X-ArcadeDB-Query-Tag request header. Absent without one
+	Tag *string `json:"tag,omitempty"`
+
+	// TerminatedBy User that asked it to stop. Absent until one did
+	TerminatedBy *string `json:"terminatedBy,omitempty"`
+
+	// Terminating True once a terminate asked it to stop
+	Terminating bool `json:"terminating"`
+
+	// Text Statement text
+	Text string `json:"text"`
+
+	// User User that sent it
+	User string `json:"user"`
+}
+
 // SaveGroupRequest A group to create or replace. Replaces any group of the same name on the same database outright - the members are not merged into the existing definition - and refreshes the cached permissions of every open database it applies to.
 type SaveGroupRequest struct {
 	// Access Server-level rights the group grants. Defaults to none
@@ -2549,6 +2632,35 @@ type SecuritySeedResponse struct {
 
 	// UpToDate True when the caller's fingerprints already matched the leader's and nothing was submitted
 	UpToDate *bool `json:"upToDate,omitempty"`
+}
+
+// ServerCommandResponse Answer of a server command
+type ServerCommandResponse struct {
+	// Result What the command answered. "ok" for the commands that only act; the names of the databases for 'list databases'; RunningQuery rows for 'list queries'; TransactionSession rows for 'list transactions'; one TerminationStatus for 'terminate query' and 'terminate transaction'; an array of them for 'terminate queries tag'; an object for the commands that report one, such as 'get server events'.
+	Result ServerCommandResponse_Result `json:"result"`
+}
+
+// ServerCommandResponseResult0 "ok"
+type ServerCommandResponseResult0 = string
+
+// ServerCommandResponseResult1 list databases
+type ServerCommandResponseResult1 = []string
+
+// ServerCommandResponseResult2 list queries
+type ServerCommandResponseResult2 = []RunningQuery
+
+// ServerCommandResponseResult3 list transactions
+type ServerCommandResponseResult3 = []TransactionSession
+
+// ServerCommandResponseResult5 terminate queries tag
+type ServerCommandResponseResult5 = []TerminationStatus
+
+// ServerCommandResponseResult6 The report of a command that answers one, such as 'get server events'
+type ServerCommandResponseResult6 map[string]interface{}
+
+// ServerCommandResponse_Result What the command answered. "ok" for the commands that only act; the names of the databases for 'list databases'; RunningQuery rows for 'list queries'; TransactionSession rows for 'list transactions'; one TerminationStatus for 'terminate query' and 'terminate transaction'; an array of them for 'terminate queries tag'; an object for the commands that report one, such as 'get server events'.
+type ServerCommandResponse_Result struct {
+	union json.RawMessage
 }
 
 // ServerInfo Server information. The first four members are on every answer; which of the rest appear is decided by the 'mode' query parameter.
@@ -2817,6 +2929,24 @@ type SupportStatus struct {
 	WorkspaceName *string `json:"workspaceName,omitempty"`
 }
 
+// TerminationStatus How a terminate ended
+type TerminationStatus struct {
+	// Id Statement id, or session id for 'terminate transaction'
+	Id string `json:"id"`
+
+	// SessionId Statements only: the transaction session the statement ran in. Absent outside one
+	SessionId *string `json:"sessionId,omitempty"`
+
+	// SessionOpen Statements only, with 'sessionId': whether the session is still open. A terminated command ends its session, a terminated read leaves it to its client. For 'terminating', only the state when the answer was built
+	SessionOpen *bool `json:"sessionOpen,omitempty"`
+
+	// Status 'terminated': it stopped and what it wrote was rolled back. 'completed': it ended on its own before it noticed, and what it did stands (statements only). 'terminating': not stopped within 'wait'. 'not found': no such work, or not the caller's to see.
+	Status TerminationStatusStatus `json:"status"`
+}
+
+// TerminationStatusStatus 'terminated': it stopped and what it wrote was rolled back. 'completed': it ended on its own before it noticed, and what it did stands (statements only). 'terminating': not stopped within 'wait'. 'not found': no such work, or not the caller's to see.
+type TerminationStatusStatus string
+
 // TimeSeriesAggregatedResponse Aggregated samples
 type TimeSeriesAggregatedResponse struct {
 	// Aggregations Aliases of the computed aggregations, in bucket value order
@@ -2938,6 +3068,33 @@ type TimeSeriesWriteError struct {
 
 	// Written Samples successfully ingested
 	Written int `json:"written"`
+}
+
+// TransactionSession An open transaction session
+type TransactionSession struct {
+	// Busy True while a request runs in it
+	Busy bool `json:"busy"`
+
+	// Database Database of its transaction
+	Database string `json:"database"`
+
+	// Id Session id, to pass to 'terminate transaction'
+	Id string `json:"id"`
+
+	// IdleMs Milliseconds since it was last used
+	IdleMs int `json:"idleMs"`
+
+	// RunningQueries Ids of the statements running in it
+	RunningQueries []string `json:"runningQueries"`
+
+	// Server Name of the server holding it
+	Server string `json:"server"`
+
+	// Tag Label it was opened with. Absent without one
+	Tag *string `json:"tag,omitempty"`
+
+	// User User that opened it
+	User string `json:"user"`
 }
 
 // TransferLeaderRequest Transfer target. Send an empty object to let Raft choose. Unknown fields are rejected.
@@ -3371,7 +3528,7 @@ type ExecuteCommandParamsAccept string
 
 // CommitTransactionParams defines parameters for CommitTransaction.
 type CommitTransactionParams struct {
-	// ArcadedbSessionId Session id returned by 'beginTransaction', identifying the transaction to end. Omitting it, or presenting an id that no longer resolves to an open transaction, is an idempotent no-op: the call still answers 204, but commits or rolls back nothing.
+	// ArcadedbSessionId Session id returned by 'beginTransaction', identifying the transaction to commit. Omitting it commits nothing and answers 204. An id that no longer resolves to an open transaction of the caller - never issued, rolled back, ended by 'terminate transaction', expired, or another user's - answers 404: nothing was committed. The exception is a retry of a commit that did end this session, sent to the same server within the session timeout ('arcadedb.server.httpSessionExpireTimeout'): it answers 204 again, so a client whose first answer was lost is not told its work is gone. A retry sent while the first commit is still running waits for it, up to 5 seconds: it answers 204 when that commit succeeded, 404 when it failed, and a lock timeout error when the commit outlasts the wait. The server remembers this in memory only: a retry sent to another server of a cluster, after a restart or past the timeout answers 404 although the first commit may have landed.
 	ArcadedbSessionId *string `json:"arcadedb-session-id,omitempty"`
 
 	// XRequestId Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request.
@@ -4718,6 +4875,198 @@ func (t QueryResponse_Result) MarshalJSON() ([]byte, error) {
 }
 
 func (t *QueryResponse_Result) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
+// AsServerCommandResponseResult0 returns the union data inside the ServerCommandResponse_Result as a ServerCommandResponseResult0
+func (t ServerCommandResponse_Result) AsServerCommandResponseResult0() (ServerCommandResponseResult0, error) {
+	var body ServerCommandResponseResult0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromServerCommandResponseResult0 overwrites any union data inside the ServerCommandResponse_Result as the provided ServerCommandResponseResult0
+func (t *ServerCommandResponse_Result) FromServerCommandResponseResult0(v ServerCommandResponseResult0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeServerCommandResponseResult0 performs a merge with any union data inside the ServerCommandResponse_Result, using the provided ServerCommandResponseResult0
+func (t *ServerCommandResponse_Result) MergeServerCommandResponseResult0(v ServerCommandResponseResult0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsServerCommandResponseResult1 returns the union data inside the ServerCommandResponse_Result as a ServerCommandResponseResult1
+func (t ServerCommandResponse_Result) AsServerCommandResponseResult1() (ServerCommandResponseResult1, error) {
+	var body ServerCommandResponseResult1
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromServerCommandResponseResult1 overwrites any union data inside the ServerCommandResponse_Result as the provided ServerCommandResponseResult1
+func (t *ServerCommandResponse_Result) FromServerCommandResponseResult1(v ServerCommandResponseResult1) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeServerCommandResponseResult1 performs a merge with any union data inside the ServerCommandResponse_Result, using the provided ServerCommandResponseResult1
+func (t *ServerCommandResponse_Result) MergeServerCommandResponseResult1(v ServerCommandResponseResult1) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsServerCommandResponseResult2 returns the union data inside the ServerCommandResponse_Result as a ServerCommandResponseResult2
+func (t ServerCommandResponse_Result) AsServerCommandResponseResult2() (ServerCommandResponseResult2, error) {
+	var body ServerCommandResponseResult2
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromServerCommandResponseResult2 overwrites any union data inside the ServerCommandResponse_Result as the provided ServerCommandResponseResult2
+func (t *ServerCommandResponse_Result) FromServerCommandResponseResult2(v ServerCommandResponseResult2) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeServerCommandResponseResult2 performs a merge with any union data inside the ServerCommandResponse_Result, using the provided ServerCommandResponseResult2
+func (t *ServerCommandResponse_Result) MergeServerCommandResponseResult2(v ServerCommandResponseResult2) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsServerCommandResponseResult3 returns the union data inside the ServerCommandResponse_Result as a ServerCommandResponseResult3
+func (t ServerCommandResponse_Result) AsServerCommandResponseResult3() (ServerCommandResponseResult3, error) {
+	var body ServerCommandResponseResult3
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromServerCommandResponseResult3 overwrites any union data inside the ServerCommandResponse_Result as the provided ServerCommandResponseResult3
+func (t *ServerCommandResponse_Result) FromServerCommandResponseResult3(v ServerCommandResponseResult3) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeServerCommandResponseResult3 performs a merge with any union data inside the ServerCommandResponse_Result, using the provided ServerCommandResponseResult3
+func (t *ServerCommandResponse_Result) MergeServerCommandResponseResult3(v ServerCommandResponseResult3) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsTerminationStatus returns the union data inside the ServerCommandResponse_Result as a TerminationStatus
+func (t ServerCommandResponse_Result) AsTerminationStatus() (TerminationStatus, error) {
+	var body TerminationStatus
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTerminationStatus overwrites any union data inside the ServerCommandResponse_Result as the provided TerminationStatus
+func (t *ServerCommandResponse_Result) FromTerminationStatus(v TerminationStatus) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTerminationStatus performs a merge with any union data inside the ServerCommandResponse_Result, using the provided TerminationStatus
+func (t *ServerCommandResponse_Result) MergeTerminationStatus(v TerminationStatus) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsServerCommandResponseResult5 returns the union data inside the ServerCommandResponse_Result as a ServerCommandResponseResult5
+func (t ServerCommandResponse_Result) AsServerCommandResponseResult5() (ServerCommandResponseResult5, error) {
+	var body ServerCommandResponseResult5
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromServerCommandResponseResult5 overwrites any union data inside the ServerCommandResponse_Result as the provided ServerCommandResponseResult5
+func (t *ServerCommandResponse_Result) FromServerCommandResponseResult5(v ServerCommandResponseResult5) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeServerCommandResponseResult5 performs a merge with any union data inside the ServerCommandResponse_Result, using the provided ServerCommandResponseResult5
+func (t *ServerCommandResponse_Result) MergeServerCommandResponseResult5(v ServerCommandResponseResult5) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsServerCommandResponseResult6 returns the union data inside the ServerCommandResponse_Result as a ServerCommandResponseResult6
+func (t ServerCommandResponse_Result) AsServerCommandResponseResult6() (ServerCommandResponseResult6, error) {
+	var body ServerCommandResponseResult6
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromServerCommandResponseResult6 overwrites any union data inside the ServerCommandResponse_Result as the provided ServerCommandResponseResult6
+func (t *ServerCommandResponse_Result) FromServerCommandResponseResult6(v ServerCommandResponseResult6) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeServerCommandResponseResult6 performs a merge with any union data inside the ServerCommandResponse_Result, using the provided ServerCommandResponseResult6
+func (t *ServerCommandResponse_Result) MergeServerCommandResponseResult6(v ServerCommandResponseResult6) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ServerCommandResponse_Result) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ServerCommandResponse_Result) UnmarshalJSON(b []byte) error {
 	err := t.union.UnmarshalJSON(b)
 	return err
 }
@@ -20611,7 +20960,7 @@ type ExecuteServerCommandResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *QueryResponse
+	JSON200 *ServerCommandResponse
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *ErrorResponse
 	// JSON401 the response for an HTTP 401 `application/json` response
@@ -20649,7 +20998,7 @@ type ExecuteServerCommandResp struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ExecuteServerCommandResp) GetJSON200() *QueryResponse {
+func (r ExecuteServerCommandResp) GetJSON200() *ServerCommandResponse {
 	return r.JSON200
 }
 
@@ -20742,6 +21091,11 @@ type DeleteApiTokenResp403Headers struct {
 	XRequestId *string
 }
 
+// DeleteApiTokenResp404Headers the declared response headers of an HTTP 404 response for DeleteApiToken
+type DeleteApiTokenResp404Headers struct {
+	XRequestId *string
+}
+
 // DeleteApiTokenResp500Headers the declared response headers of an HTTP 500 response for DeleteApiToken
 type DeleteApiTokenResp500Headers struct {
 	XRequestId *string
@@ -20763,6 +21117,8 @@ type DeleteApiTokenResp struct {
 	JSON401 *ErrorResponse
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorResponse
 	// JSON504 the response for an HTTP 504 `application/json` response
@@ -20775,6 +21131,8 @@ type DeleteApiTokenResp struct {
 	Headers401 *DeleteApiTokenResp401Headers
 	// Headers403 the parsed response headers for an HTTP 403 response
 	Headers403 *DeleteApiTokenResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *DeleteApiTokenResp404Headers
 	// Headers500 the parsed response headers for an HTTP 500 response
 	Headers500 *DeleteApiTokenResp500Headers
 	// Headers504 the parsed response headers for an HTTP 504 response
@@ -20799,6 +21157,11 @@ func (r DeleteApiTokenResp) GetJSON401() *ErrorResponse {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r DeleteApiTokenResp) GetJSON403() *ErrorResponse {
 	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteApiTokenResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -21111,6 +21474,11 @@ type DeleteGroupResp403Headers struct {
 	XRequestId *string
 }
 
+// DeleteGroupResp404Headers the declared response headers of an HTTP 404 response for DeleteGroup
+type DeleteGroupResp404Headers struct {
+	XRequestId *string
+}
+
 // DeleteGroupResp500Headers the declared response headers of an HTTP 500 response for DeleteGroup
 type DeleteGroupResp500Headers struct {
 	XRequestId *string
@@ -21132,6 +21500,8 @@ type DeleteGroupResp struct {
 	JSON401 *ErrorResponse
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorResponse
 	// JSON504 the response for an HTTP 504 `application/json` response
@@ -21144,6 +21514,8 @@ type DeleteGroupResp struct {
 	Headers401 *DeleteGroupResp401Headers
 	// Headers403 the parsed response headers for an HTTP 403 response
 	Headers403 *DeleteGroupResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *DeleteGroupResp404Headers
 	// Headers500 the parsed response headers for an HTTP 500 response
 	Headers500 *DeleteGroupResp500Headers
 	// Headers504 the parsed response headers for an HTTP 504 response
@@ -21168,6 +21540,11 @@ func (r DeleteGroupResp) GetJSON401() *ErrorResponse {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r DeleteGroupResp) GetJSON403() *ErrorResponse {
 	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteGroupResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -24222,6 +24599,11 @@ type DeleteUserResp403Headers struct {
 	XRequestId *string
 }
 
+// DeleteUserResp404Headers the declared response headers of an HTTP 404 response for DeleteUser
+type DeleteUserResp404Headers struct {
+	XRequestId *string
+}
+
 // DeleteUserResp500Headers the declared response headers of an HTTP 500 response for DeleteUser
 type DeleteUserResp500Headers struct {
 	XRequestId *string
@@ -24243,6 +24625,8 @@ type DeleteUserResp struct {
 	JSON401 *ErrorResponse
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorResponse
 	// JSON504 the response for an HTTP 504 `application/json` response
@@ -24255,6 +24639,8 @@ type DeleteUserResp struct {
 	Headers401 *DeleteUserResp401Headers
 	// Headers403 the parsed response headers for an HTTP 403 response
 	Headers403 *DeleteUserResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *DeleteUserResp404Headers
 	// Headers500 the parsed response headers for an HTTP 500 response
 	Headers500 *DeleteUserResp500Headers
 	// Headers504 the parsed response headers for an HTTP 504 response
@@ -24279,6 +24665,11 @@ func (r DeleteUserResp) GetJSON401() *ErrorResponse {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r DeleteUserResp) GetJSON403() *ErrorResponse {
 	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteUserResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -24577,6 +24968,11 @@ type UpdateUserResp403Headers struct {
 	XRequestId *string
 }
 
+// UpdateUserResp404Headers the declared response headers of an HTTP 404 response for UpdateUser
+type UpdateUserResp404Headers struct {
+	XRequestId *string
+}
+
 // UpdateUserResp500Headers the declared response headers of an HTTP 500 response for UpdateUser
 type UpdateUserResp500Headers struct {
 	XRequestId *string
@@ -24598,6 +24994,8 @@ type UpdateUserResp struct {
 	JSON401 *ErrorResponse
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *ErrorResponse
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorResponse
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorResponse
 	// JSON504 the response for an HTTP 504 `application/json` response
@@ -24610,6 +25008,8 @@ type UpdateUserResp struct {
 	Headers401 *UpdateUserResp401Headers
 	// Headers403 the parsed response headers for an HTTP 403 response
 	Headers403 *UpdateUserResp403Headers
+	// Headers404 the parsed response headers for an HTTP 404 response
+	Headers404 *UpdateUserResp404Headers
 	// Headers500 the parsed response headers for an HTTP 500 response
 	Headers500 *UpdateUserResp500Headers
 	// Headers504 the parsed response headers for an HTTP 504 response
@@ -24634,6 +25034,11 @@ func (r UpdateUserResp) GetJSON401() *ErrorResponse {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r UpdateUserResp) GetJSON403() *ErrorResponse {
 	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateUserResp) GetJSON404() *ErrorResponse {
+	return r.JSON404
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -35085,7 +35490,7 @@ func ParseExecuteServerCommandResp(rsp *http.Response) (*ExecuteServerCommandRes
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest QueryResponse
+		var dest ServerCommandResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -35294,6 +35699,13 @@ func ParseDeleteApiTokenResp(rsp *http.Response) (*DeleteApiTokenResp, error) {
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -35351,6 +35763,16 @@ func ParseDeleteApiTokenResp(rsp *http.Response) (*DeleteApiTokenResp, error) {
 			headers.XRequestId = &value
 		}
 		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers DeleteApiTokenResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
 	case rsp.StatusCode == 500:
 		var headers DeleteApiTokenResp500Headers
 		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
@@ -35690,6 +36112,13 @@ func ParseDeleteGroupResp(rsp *http.Response) (*DeleteGroupResp, error) {
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -35747,6 +36176,16 @@ func ParseDeleteGroupResp(rsp *http.Response) (*DeleteGroupResp, error) {
 			headers.XRequestId = &value
 		}
 		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers DeleteGroupResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
 	case rsp.StatusCode == 500:
 		var headers DeleteGroupResp500Headers
 		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
@@ -39122,6 +39561,13 @@ func ParseDeleteUserResp(rsp *http.Response) (*DeleteUserResp, error) {
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -39179,6 +39625,16 @@ func ParseDeleteUserResp(rsp *http.Response) (*DeleteUserResp, error) {
 			headers.XRequestId = &value
 		}
 		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers DeleteUserResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
 	case rsp.StatusCode == 500:
 		var headers DeleteUserResp500Headers
 		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
@@ -39501,6 +39957,13 @@ func ParseUpdateUserResp(rsp *http.Response) (*UpdateUserResp, error) {
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -39558,6 +40021,16 @@ func ParseUpdateUserResp(rsp *http.Response) (*UpdateUserResp, error) {
 			headers.XRequestId = &value
 		}
 		response.Headers403 = &headers
+	case rsp.StatusCode == 404:
+		var headers UpdateUserResp404Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers404 = &headers
 	case rsp.StatusCode == 500:
 		var headers UpdateUserResp500Headers
 		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {

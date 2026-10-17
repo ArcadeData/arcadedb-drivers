@@ -7,7 +7,7 @@ from ... import errors
 from ...client import AuthenticatedClient, Client
 from ...models.command_request import CommandRequest
 from ...models.error_response import ErrorResponse
-from ...models.query_response import QueryResponse
+from ...models.server_command_response import ServerCommandResponse
 from ...types import UNSET, Response, Unset
 
 
@@ -35,9 +35,9 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> ErrorResponse | QueryResponse | None:
+) -> ErrorResponse | ServerCommandResponse | None:
     if response.status_code == 200:
-        response_200 = QueryResponse.from_dict(response.json())
+        response_200 = ServerCommandResponse.from_dict(response.json())
 
         return response_200
 
@@ -89,7 +89,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[ErrorResponse | QueryResponse]:
+) -> Response[ErrorResponse | ServerCommandResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -103,7 +103,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     x_request_id: str | Unset = UNSET,
-) -> Response[ErrorResponse | QueryResponse]:
+) -> Response[ErrorResponse | ServerCommandResponse]:
     """Execute server command
 
      Executes administrative commands on the server (root user only, except 'list databases' and the
@@ -146,7 +146,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | QueryResponse]
+        Response[ErrorResponse | ServerCommandResponse]
     """
 
     kwargs = _get_kwargs(
@@ -166,7 +166,7 @@ def sync(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     x_request_id: str | Unset = UNSET,
-) -> ErrorResponse | QueryResponse | None:
+) -> ErrorResponse | ServerCommandResponse | None:
     """Execute server command
 
      Executes administrative commands on the server (root user only, except 'list databases' and the
@@ -209,7 +209,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | QueryResponse
+        ErrorResponse | ServerCommandResponse
     """
 
     return sync_detailed(
@@ -224,7 +224,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     x_request_id: str | Unset = UNSET,
-) -> Response[ErrorResponse | QueryResponse]:
+) -> Response[ErrorResponse | ServerCommandResponse]:
     """Execute server command
 
      Executes administrative commands on the server (root user only, except 'list databases' and the
@@ -267,7 +267,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[ErrorResponse | QueryResponse]
+        Response[ErrorResponse | ServerCommandResponse]
     """
 
     kwargs = _get_kwargs(
@@ -285,7 +285,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     body: CommandRequest,
     x_request_id: str | Unset = UNSET,
-) -> ErrorResponse | QueryResponse | None:
+) -> ErrorResponse | ServerCommandResponse | None:
     """Execute server command
 
      Executes administrative commands on the server (root user only, except 'list databases' and the
@@ -328,7 +328,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        ErrorResponse | QueryResponse
+        ErrorResponse | ServerCommandResponse
     """
 
     return (

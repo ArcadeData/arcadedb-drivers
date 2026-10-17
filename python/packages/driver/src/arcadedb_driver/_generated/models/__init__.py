@@ -200,12 +200,15 @@ from .query_response_result_type_1 import QueryResponseResultType1
 from .query_response_result_type_1_edges_item import QueryResponseResultType1EdgesItem
 from .query_response_result_type_1_records_item import QueryResponseResultType1RecordsItem
 from .query_response_result_type_1_vertices_item import QueryResponseResultType1VerticesItem
+from .running_query import RunningQuery
 from .save_group_request import SaveGroupRequest
 from .save_group_request_types import SaveGroupRequestTypes
 from .security_admin_result import SecurityAdminResult
 from .security_seed_request import SecuritySeedRequest
 from .security_seed_request_fingerprints import SecuritySeedRequestFingerprints
 from .security_seed_response import SecuritySeedResponse
+from .server_command_response import ServerCommandResponse
+from .server_command_response_result_type_6 import ServerCommandResponseResultType6
 from .server_info import ServerInfo
 from .server_info_ha import ServerInfoHa
 from .server_info_metrics import ServerInfoMetrics
@@ -238,6 +241,8 @@ from .support_status_log_time_zone import SupportStatusLogTimeZone
 from .support_status_plan import SupportStatusPlan
 from .support_status_portal_error import SupportStatusPortalError
 from .support_status_sla import SupportStatusSla
+from .termination_status import TerminationStatus
+from .termination_status_status import TerminationStatusStatus
 from .time_series_aggregated_response import TimeSeriesAggregatedResponse
 from .time_series_aggregated_response_buckets_item import TimeSeriesAggregatedResponseBucketsItem
 from .time_series_latest_response import TimeSeriesLatestResponse
@@ -248,6 +253,7 @@ from .time_series_query_request_aggregation_requests_item_type import TimeSeries
 from .time_series_query_request_tags import TimeSeriesQueryRequestTags
 from .time_series_raw_response import TimeSeriesRawResponse
 from .time_series_write_error import TimeSeriesWriteError
+from .transaction_session import TransactionSession
 from .transfer_leader_request import TransferLeaderRequest
 from .update_user_request import UpdateUserRequest
 from .update_user_request_databases import UpdateUserRequestDatabases
@@ -458,12 +464,15 @@ __all__ = (
     "QueryResponseResultType1EdgesItem",
     "QueryResponseResultType1RecordsItem",
     "QueryResponseResultType1VerticesItem",
+    "RunningQuery",
     "SaveGroupRequest",
     "SaveGroupRequestTypes",
     "SecurityAdminResult",
     "SecuritySeedRequest",
     "SecuritySeedRequestFingerprints",
     "SecuritySeedResponse",
+    "ServerCommandResponse",
+    "ServerCommandResponseResultType6",
     "ServerInfo",
     "ServerInfoHa",
     "ServerInfoMetrics",
@@ -496,6 +505,8 @@ __all__ = (
     "SupportStatusPlan",
     "SupportStatusPortalError",
     "SupportStatusSla",
+    "TerminationStatus",
+    "TerminationStatusStatus",
     "TimeSeriesAggregatedResponse",
     "TimeSeriesAggregatedResponseBucketsItem",
     "TimeSeriesLatestResponse",
@@ -506,6 +517,7 @@ __all__ = (
     "TimeSeriesQueryRequestTags",
     "TimeSeriesRawResponse",
     "TimeSeriesWriteError",
+    "TransactionSession",
     "TransferLeaderRequest",
     "UpdateUserRequest",
     "UpdateUserRequestDatabases",

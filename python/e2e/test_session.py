@@ -31,10 +31,10 @@ def test_login_query_logout(base_url: str) -> None:
         try:
             srv.create_user(user, "session-password", databases={tenant: ["admin"]})
             try:
-                # 403, not 401: the server answers every failed Basic check so (arcadedb#10109).
+                # 401 since arcadedb#10109; earlier servers answered 403 "Security error".
                 with pytest.raises(ArcadeDBError) as info:
                     srv.login_as(user, "wrong-password")
-                assert info.value.status == 403
+                assert info.value.status == 401
 
                 login = srv.login_as(user, "session-password")
                 assert login.user == user

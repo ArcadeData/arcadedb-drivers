@@ -122,8 +122,8 @@ read as "never". `loginAs` and `withToken` build a **new** client through `creat
 options `ArcadeDBServer` now keeps (a third constructor argument, which `db()` also uses as the
 insert session's context, so `createClient` no longer passes that separately): a per-call
 `Authorization` would lose to the `auth` middleware, which sets the header after the call's own are
-applied. The statuses pinned by `e2e/session.test.ts` are Go's: wrong Basic credentials 403, a
-duplicate API-token name 409, an unknown hash 404.
+applied. The statuses pinned by `e2e/session.test.ts` are Go's: wrong Basic credentials 401 (403
+before ArcadeData/arcadedb#10109), a duplicate API-token name 409, an unknown hash 404.
 
 `src/facade/insert-session.ts` is the `/ws` duplex insert session. It has **no WebSocket
 dependency**: it uses the global `WebSocket` (Node 22+) or a class injected through

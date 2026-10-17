@@ -176,7 +176,10 @@ func (s *Server) ListTransactions(ctx context.Context) ([]OpenTransaction, error
 // (OpenTransaction.ID, the arcadedb-session-id a begin returned), waiting up to opts.Wait for
 // a statement running in it to stop, as TerminateQuery does: the answer is QueryTerminating
 // when it has not. A statement running in it is stopped, and its request receives a 409 that
-// IsQueryTerminated matches. An unknown session, or another user's, is answered QueryNotFound.
+// IsQueryTerminated matches. A statement or commit sent on the session afterwards gets a 404, so
+// the owner's Transaction returns an error (a server built before ArcadeData/arcadedb#10164
+// answers that commit 204, and Transaction returns nil for work that is gone). An unknown
+// session, or another user's, is answered QueryNotFound.
 // A session id that is empty or contains a space or control character is refused with an error
 // wrapping ErrInvalidName before anything is sent.
 func (s *Server) TerminateTransaction(ctx context.Context, sessionID string, opts TerminateOptions) (TerminateResult, error) {

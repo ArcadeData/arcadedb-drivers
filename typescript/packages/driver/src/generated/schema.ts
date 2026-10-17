@@ -2284,6 +2284,11 @@ export interface components {
             params?: {
                 [key: string]: unknown;
             };
+            /**
+             * @description Server commands only (POST /api/v1/server): how long 'terminate query', 'terminate queries tag' and 'terminate transaction' wait for the work to end before answering, in milliseconds. 5000 when absent, at most 10000. Work still running when it is over is answered 'terminating'.
+             * @example 1000
+             */
+            wait?: number;
         };
         /** @description A token to issue */
         CreateApiTokenRequest: {
@@ -3066,6 +3071,43 @@ export interface components {
             /** @description True when the cap stopped the serialization with rows still pending, so the response is incomplete */
             truncated: boolean;
         };
+        /** @description A statement this server is running */
+        RunningQuery: {
+            /** @description Address of the client, where known */
+            clientAddress?: string;
+            /** @description Connection it arrived on, where the protocol has one */
+            connectionId?: string;
+            /** @description Database the statement runs against */
+            database: string;
+            /** @description How long it has been running, in milliseconds */
+            elapsedMs: number;
+            /** @description Id it has on the server that forwarded it here */
+            forwardedFrom?: string;
+            /** @description Server this one forwarded it to */
+            forwardedTo?: string;
+            /** @description Id to pass to 'terminate query' */
+            id: string;
+            /** @description Query language */
+            language: string;
+            /** @description Protocol it arrived on, such as 'http' */
+            protocol: string;
+            /** @description Name of the server running it */
+            server: string;
+            /** @description Transaction session it runs in. Absent outside one */
+            sessionId?: string;
+            /** @description When it started, in milliseconds since the epoch */
+            startedAt: number;
+            /** @description Label from the X-ArcadeDB-Query-Tag request header. Absent without one */
+            tag?: string;
+            /** @description User that asked it to stop. Absent until one did */
+            terminatedBy?: string;
+            /** @description True once a terminate asked it to stop */
+            terminating: boolean;
+            /** @description Statement text */
+            text: string;
+            /** @description User that sent it */
+            user: string;
+        };
         /** @description A group to create or replace. Replaces any group of the same name on the same database outright - the members are not merged into the existing definition - and refreshes the cached permissions of every open database it applies to. */
         SaveGroupRequest: {
             /** @description Server-level rights the group grants. Defaults to none */
@@ -3118,6 +3160,13 @@ export interface components {
             seeded: boolean;
             /** @description True when the caller's fingerprints already matched the leader's and nothing was submitted */
             upToDate?: boolean;
+        };
+        /** @description Answer of a server command */
+        ServerCommandResponse: {
+            /** @description What the command answered. "ok" for the commands that only act; the names of the databases for 'list databases'; RunningQuery rows for 'list queries'; TransactionSession rows for 'list transactions'; one TerminationStatus for 'terminate query' and 'terminate transaction'; an array of them for 'terminate queries tag'; an object for the commands that report one, such as 'get server events'. */
+            result: string | string[] | components["schemas"]["RunningQuery"][] | components["schemas"]["TransactionSession"][] | components["schemas"]["TerminationStatus"] | components["schemas"]["TerminationStatus"][] | {
+                [key: string]: unknown;
+            };
         };
         /** @description Server information. The first four members are on every answer; which of the rest appear is decided by the 'mode' query parameter. */
         ServerInfo: {
@@ -3338,6 +3387,20 @@ export interface components {
             /** @description Name of the workspace, from the portal */
             workspaceName?: string;
         };
+        /** @description How a terminate ended */
+        TerminationStatus: {
+            /** @description Statement id, or session id for 'terminate transaction' */
+            id: string;
+            /** @description Statements only: the transaction session the statement ran in. Absent outside one */
+            sessionId?: string;
+            /** @description Statements only, with 'sessionId': whether the session is still open. A terminated command ends its session, a terminated read leaves it to its client. For 'terminating', only the state when the answer was built */
+            sessionOpen?: boolean;
+            /**
+             * @description 'terminated': it stopped and what it wrote was rolled back. 'completed': it ended on its own before it noticed, and what it did stands (statements only). 'terminating': not stopped within 'wait'. 'not found': no such work, or not the caller's to see.
+             * @enum {string}
+             */
+            status: "terminated" | "completed" | "terminating" | "not found";
+        };
         /** @description Aggregated samples */
         TimeSeriesAggregatedResponse: {
             /** @description Aliases of the computed aggregations, in bucket value order */
@@ -3430,6 +3493,25 @@ export interface components {
             unreadableValues?: string[];
             /** @description Samples successfully ingested */
             written: number;
+        };
+        /** @description An open transaction session */
+        TransactionSession: {
+            /** @description True while a request runs in it */
+            busy: boolean;
+            /** @description Database of its transaction */
+            database: string;
+            /** @description Session id, to pass to 'terminate transaction' */
+            id: string;
+            /** @description Milliseconds since it was last used */
+            idleMs: number;
+            /** @description Ids of the statements running in it */
+            runningQueries: string[];
+            /** @description Name of the server holding it */
+            server: string;
+            /** @description Label it was opened with. Absent without one */
+            tag?: string;
+            /** @description User that opened it */
+            user: string;
         };
         /** @description Transfer target. Send an empty object to let Raft choose. Unknown fields are rejected. */
         TransferLeaderRequest: {
@@ -6014,7 +6096,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Query terminated: the statement was stopped by 'terminate query', 'terminate queries' or 'terminate transaction' (POST /api/v1/server) and what it wrote was rolled back. Not retryable: somebody stopped this work on purpose. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
+            /** @description Query terminated: the statement was stopped by 'terminate query', 'terminate queries' or 'terminate transaction' (POST /api/v1/server) and what it wrote was rolled back. Not retryable: somebody stopped this work on purpose. Also a create, or a rename, onto a schema object name already taken - a type, property, index, constraint, bucket, trigger, view or function: 'error' names the kind (e.g. 'Type already exists'), 'exception' is com.arcadedb.exception.AlreadyExistsException and 'exceptionArgs' the kind (TYPE, PROPERTY, INDEX, ...). Not retryable: the name is held. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException. */
             409: {
                 headers: {
                     "Retry-After": components["headers"]["RetryAfterHeader"];
@@ -6063,7 +6145,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Session id returned by 'beginTransaction', identifying the transaction to end. Omitting it, or presenting an id that no longer resolves to an open transaction, is an idempotent no-op: the call still answers 204, but commits or rolls back nothing. */
+                /** @description Session id returned by 'beginTransaction', identifying the transaction to commit. Omitting it commits nothing and answers 204. An id that no longer resolves to an open transaction of the caller - never issued, rolled back, ended by 'terminate transaction', expired, or another user's - answers 404: nothing was committed. The exception is a retry of a commit that did end this session, sent to the same server within the session timeout ('arcadedb.server.httpSessionExpireTimeout'): it answers 204 again, so a client whose first answer was lost is not told its work is gone. A retry sent while the first commit is still running waits for it, up to 5 seconds: it answers 204 when that commit succeeded, 404 when it failed, and a lock timeout error when the commit outlasts the wait. The server remembers this in memory only: a retry sent to another server of a cluster, after a restart or past the timeout answers 404 although the first commit may have landed. */
                 "arcadedb-session-id"?: string;
                 /** @description Correlation id, echoed on the response and logged with the request. On this POST route it also makes a retry safe to send verbatim: a successful (2xx) response is kept for up to the milliseconds set by the 'arcadedb.ha.idempotencyCacheTtlMs' server setting, keyed by this id together with the method, path, database and body and bound to the authenticated user, and an identical retry is answered from it instead of executing again. The cache is also bounded by entry count and total size, so under pressure a completed response can be evicted before its TTL, and a retry then executes again. A failed request is not kept, so its retry executes afresh. While the first request is still executing, an identical retry waits briefly for it and then answers 409 with Retry-After rather than executing a second time. Not replayed: a request inside a client-managed transaction (it carries 'arcadedb- session-id'), a request asking for an NDJSON stream, and a response larger than the bytes set by the 'arcadedb.ha.idempotencyCacheMaxBodyBytes' server setting. A restore or import asked for as an SSE stream is replayed as a one-event stream carrying its 'completed' event. Use a new id for every distinct request. */
                 "X-Request-Id"?: components["parameters"]["RequestIdParam"];
@@ -6106,7 +6188,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Database not found */
+            /** @description Database not found, or the session id header names a transaction that no longer resolves ("Remote transaction session not found or expired"): it was rolled back, terminated, expired or never existed, and nothing was committed */
             404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -7332,7 +7414,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["QueryResponse"];
+                    "application/json": components["schemas"]["ServerCommandResponse"];
                 };
             };
             /** @description Bad request */
@@ -7631,6 +7713,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not found - No API token has this hash */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -7850,6 +7942,16 @@ export interface operations {
             };
             /** @description Forbidden - root user required */
             403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found - No group has this name in the given database */
+            404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -9859,6 +9961,16 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Not found - No user has this name */
+            404: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Internal server error */
             500: {
                 headers: {
@@ -10015,6 +10127,16 @@ export interface operations {
             };
             /** @description Forbidden - root user required */
             403: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not found - No user has this name */
+            404: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;

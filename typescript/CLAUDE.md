@@ -109,9 +109,11 @@ and the growth since then is not one module that a lazy import could take back. 
 (issue #124: `listQueries`, `terminateQuery`, `terminateQueriesByTag`, `listTransactions`,
 `terminateTransaction` and `db.progress`) is lazy too, and its six methods share one module-level
 `loadRunning` loader rather than an `import()` each, which saved 175 of the 670 bytes they cost: the
-eager chunk measured 19,255 bytes before #124 and 19,750 after. About 250 bytes of headroom remain,
-so the next addition to `ArcadeDBServer` will need room made first (the same shared-loader change
-applied to the admin and session methods is the obvious source); raising the ceiling instead
+eager chunk measured 19,255 bytes before #124 and 19,750 after, and 19,814 once `transaction`'s
+`isolationLevel` body landed (#152). About 185 bytes of headroom remain, which is why that option
+is not checked client-side, so the next addition to `ArcadeDBServer` will need room made first (the
+same shared-loader change applied to the admin and session methods is the obvious source); raising
+the ceiling instead
 weakens what the test guards. `NotSessionTokenError` and `isQueryTerminated` live in `errors.ts`
 so exporting them does not pull `session.ts` or `running.ts` in. Three calls refuse locally, unsent: `logout` unless the
 `auth` middleware presents `Bearer AU-...` (read with `internal/authorization.ts`, the probe the

@@ -350,6 +350,22 @@ reachable through `raw`). The consequence is for a caller that replays a whole `
 on a conflict: a block containing such statements must not be replayed, because its first run
 already left part of its work behind, and a replay would apply that part twice.
 
+### Isolation level
+
+```ts
+await db.transaction(async (tx) => { /* ... */ }, { isolationLevel: "REPEATABLE_READ" });
+```
+
+`isolationLevel` is `"READ_COMMITTED"` or `"REPEATABLE_READ"` (the exported `IsolationLevel` type),
+sent in the begin request's body. Omitted, the begin request carries no body and the server begins
+at the database's default isolation level. Under `REPEATABLE_READ` a record the transaction has read
+keeps the value it was read with, even after another session commits a change to it; under
+`READ_COMMITTED` a second read shows that change. Those two are the engine's only levels. Any other
+value - a differently-cased one included - is refused by the server with a 400 `ArcadeDBError`
+naming the accepted values. This client does not check it first, unlike the Python and Go clients:
+the check would spend most of the data plane's remaining bundle-size headroom
+(`test/treeshake.test.ts`), and the server's answer is already exact.
+
 ## Labelling work: `queryTag`
 
 `query`, `command`, `queryStream`, `commandStream`, `batchLoad` and `batchLoadStream` take an

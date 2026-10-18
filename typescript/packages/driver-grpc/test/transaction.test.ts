@@ -16,7 +16,9 @@ import type {
   TimeSeriesQueryRequestSchema,
   VectorSearchRequestSchema,
 } from "../src/gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
+import { TransactionIsolation } from "../src/gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import { createTransaction } from "../src/transaction.js";
+import type { IsolationLevel } from "../src/transaction.js";
 
 type BeginRequest = MessageInitShape<typeof BeginTransactionRequestSchema>;
 type BeginResponse = MessageInitShape<typeof BeginTransactionResponseSchema>;
@@ -607,5 +609,48 @@ describe("transaction", () => {
       expect(calls.insertStream[0]?.transaction).toEqual({ transactionId: "tx-abc", database: "mydb" });
       expect(calls.insertStream[0]?.last).toBe(true);
     });
+  });
+});
+
+describe("transaction isolationLevel (issue #152)", () => {
+  it("sends the level as BeginTransactionRequest.isolation", async () => {
+    const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+    const transaction = createTransaction(raw);
+
+    await transaction("mydb", async () => undefined, { isolationLevel: "REPEATABLE_READ" });
+    await transaction("mydb", async () => undefined, { isolationLevel: "READ_COMMITTED" });
+
+    expect(calls.begin.map((r) => r.isolation)).toEqual([
+      TransactionIsolation.REPEATABLE_READ,
+      TransactionIsolation.READ_COMMITTED,
+    ]);
+  });
+
+  it("leaves isolation unset when no level is given", async () => {
+    const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+    const transaction = createTransaction(raw);
+
+    await transaction("mydb", async () => undefined);
+
+    expect(calls.begin[0]?.isolation).toBeUndefined();
+  });
+
+  it("refuses a level the engine does not have before sending anything", async () => {
+    const { raw, calls } = mockRaw({ transactionId: "tx-abc" });
+    const transaction = createTransaction(raw);
+    let ran = false;
+
+    await expect(
+      transaction(
+        "mydb",
+        async () => {
+          ran = true;
+        },
+        { isolationLevel: "SERIALIZABLE" as IsolationLevel },
+      ),
+    ).rejects.toThrow(/SERIALIZABLE/);
+
+    expect(calls.begin).toHaveLength(0);
+    expect(ran).toBe(false);
   });
 });

@@ -543,14 +543,14 @@ unary `TimeSeriesWrite` has the same zero value and no such protection.
 
 ### Transactions and `TxHandle`
 
-`Transaction(ctx, database, fn func(*TxHandle) error)` follows "The transaction contract" above
-clause for clause (named result, `returned` flag, `WithoutCancel` rollbacks, `*TxError` unwrapping
-only `Err`, the original panic value re-raised, nil panic and `Goexit` never read as a commit), plus
-two clauses from Python: a blank `transaction_id` from `BeginTransaction` is `ErrNoTransactionID`
-before `fn` runs, and a commit answering `committed=false` with no error status (how the server
-answers for a transaction it already reaped: `success=true, committed=false`) is `ErrNotCommitted`
-carrying the server's message, with no rollback since nothing is left to roll back. The check reads
-`committed`, never `success`.
+`Transaction(ctx, database, fn func(*TxHandle) error, opts ...TransactionOption)` follows "The
+transaction contract" above clause for clause (named result, `returned` flag, `WithoutCancel`
+rollbacks, `*TxError` unwrapping only `Err`, the original panic value re-raised, nil panic and
+`Goexit` never read as a commit), plus two clauses from Python: a blank `transaction_id` from
+`BeginTransaction` is `ErrNoTransactionID` before `fn` runs, and a commit answering
+`committed=false` with no error status (how the server answers for a transaction it already reaped:
+`success=true, committed=false`) is `ErrNotCommitted` carrying the server's message, with no
+rollback since nothing is left to roll back. The check reads `committed`, never `success`.
 
 `TxHandle` has the ten unary data-plane methods (`ExecuteQuery`, `ExecuteCommand`, `CreateRecord`,
 `UpdateRecord`, `DeleteRecord`, `LookupByRid`, `VectorSearch`, `HybridSearch`, `FullTextSearch`,

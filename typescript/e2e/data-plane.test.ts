@@ -2,7 +2,7 @@ import { GenericContainer, Wait } from "testcontainers";
 import type { StartedTestContainer } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ArcadeDBError, basicAuth, bearerAuth, createClient, TimeSeriesWriteError } from "../packages/driver/src/index.js";
-import type { ArcadeDBServer } from "../packages/driver/src/index.js";
+import type { ArcadeDBServer, IsolationLevel } from "../packages/driver/src/index.js";
 import type { NdJsonQueryEvent } from "../packages/driver/src/facade/stream.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 
@@ -516,4 +516,35 @@ describe("db.promql.labelValues against a real server (issue #125)", () => {
     // A name that needs escaping still reaches the route (a mis-escaped one would 404).
     expect((await db.promql.labelValues("no/such label")).data).toEqual([]);
   });
+});
+
+// Issue #152: read one record twice inside a transaction while another session changes it in
+// between. REPEATABLE_READ keeps the first value; READ_COMMITTED, and the database's default with
+// no level, show the committed change.
+describe("transaction isolationLevel against a real server", () => {
+  const cases: { level?: IsolationLevel; second: string }[] = [
+    { level: "REPEATABLE_READ", second: "one" },
+    { level: "READ_COMMITTED", second: "two" },
+    { second: "two" },
+  ];
+  for (const { level, second } of cases) {
+    it(`${level ?? "default"}: the second read sees "${second}"`, async () => {
+      const db = rootServer.db(DB_NAME);
+      await db.command({ language: "sql", command: "CREATE DOCUMENT TYPE IsoDoc IF NOT EXISTS" });
+      const inserted = await db.command<{ "@rid": string }>({ language: "sql", command: "INSERT INTO IsoDoc SET v = 'one'" });
+      const rid = inserted.result[0]["@rid"];
+
+      const reads = await db.transaction(
+        async (tx) => {
+          const read = async () => (await tx.query<{ v: string }>({ language: "sql", command: `SELECT v FROM ${rid}` })).result[0].v;
+          const first = await read();
+          await db.command({ language: "sql", command: `UPDATE ${rid} SET v = 'two'` }); // outside the transaction
+          return [first, await read()];
+        },
+        level === undefined ? {} : { isolationLevel: level },
+      );
+
+      expect(reads).toEqual(["one", second]);
+    });
+  }
 });

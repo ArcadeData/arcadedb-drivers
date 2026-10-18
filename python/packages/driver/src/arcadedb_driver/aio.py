@@ -64,8 +64,10 @@ from .facade.batch import BatchOptions, abatch_load, abatch_load_stream
 from .facade.dashboards import AsyncGrafanaNamespace, AsyncPromQLNamespace
 from .facade.data import (
     SESSION_HEADER,
+    IsolationLevel,
     QueryEnvelope,
     QueryLanguage,
+    begin_request,
     build_command_request,
     build_query_request,
     query_tag_kwarg,
@@ -110,14 +112,23 @@ from .facade.vector import AsyncVectorNamespace
 __all__ = ["AsyncArcadeDBDatabase", "AsyncArcadeDBServer", "AsyncTransaction"]
 
 
-async def begin_transaction(client: Client, database: str, query_tag: str | None = None) -> str:
+async def begin_transaction(
+    client: Client, database: str, query_tag: str | None = None, isolation_level: IsolationLevel | None = None
+) -> str:
     """Begins a transaction and returns its session id, read from the `arcadedb-session-id` response header.
 
     `query_tag`, when set, goes out as `X-ArcadeDB-Query-Tag` on this begin request only; the
     server applies it to every statement of the session that carries no label of its own.
+
+    `isolation_level`, when set, is the request's only body (`{"isolationLevel": ...}`); with none
+    there is no body and the server uses the database's default level. A value other than
+    `READ_COMMITTED` or `REPEATABLE_READ` raises `ValueError` unsent.
     """
     response = await begin_op.asyncio_detailed(
-        database, client=client, x_arcade_db_query_tag=query_tag_kwarg(query_tag)
+        database,
+        client=client,
+        body=begin_request(isolation_level),
+        x_arcade_db_query_tag=query_tag_kwarg(query_tag),
     )
     if not is_success(response):
         raise ArcadeDBError.from_response(response)
@@ -150,6 +161,13 @@ class AsyncTransaction:
       discarded) before the commit error is re-raised, so the session is not left
       open until `arcadedb.server.httpSessionExpireTimeout` reaps it.
 
+    `isolation_level` is `READ_COMMITTED` or `REPEATABLE_READ`, sent in the begin
+    request's body; `None` sends no body, and the server begins at the database's default
+    level. Under `REPEATABLE_READ` a record the block has read keeps the value it was read
+    with even after another session commits a change to it; under `READ_COMMITTED` a second
+    read sees the change. Any other value raises `ValueError` when the transaction is
+    created, before anything is sent.
+
     `query_tag` is sent as `X-ArcadeDB-Query-Tag` on the begin request ONLY - never on
     the statements, the commit or the rollback. The server labels every statement of
     the session that carries no label of its own with it, so `list queries` shows them
@@ -166,14 +184,22 @@ class AsyncTransaction:
     conflict must not replay one that partially committed.
     """
 
-    def __init__(self, client: Client, database: str, query_tag: str | None = None) -> None:
+    def __init__(
+        self,
+        client: Client,
+        database: str,
+        query_tag: str | None = None,
+        isolation_level: IsolationLevel | None = None,
+    ) -> None:
+        begin_request(isolation_level)  # refuses an unsupported level now, before the block runs
         self._client = client
         self._database = database
         self._query_tag = query_tag
+        self._isolation_level = isolation_level
         self._session_id: str | None = None
 
     async def __aenter__(self) -> AsyncArcadeDBDatabase:
-        self._session_id = await begin_transaction(self._client, self._database, self._query_tag)
+        self._session_id = await begin_transaction(self._client, self._database, self._query_tag, self._isolation_level)
         return AsyncArcadeDBDatabase(self._client, self._database, self._session_id)
 
     async def __aexit__(
@@ -448,7 +474,9 @@ class AsyncArcadeDBDatabase:
             self._client, self.name, vertices=vertices, edges=edges, options=options, query_tag=query_tag
         )
 
-    def transaction(self, *, query_tag: str | None = None) -> AsyncTransaction:
+    def transaction(
+        self, *, query_tag: str | None = None, isolation_level: IsolationLevel | None = None
+    ) -> AsyncTransaction:
         """Runs a block inside a server-side transaction; see `AsyncTransaction`.
 
         `query_tag` is sent as `X-ArcadeDB-Query-Tag` on the begin request only, and the server
@@ -456,8 +484,12 @@ class AsyncArcadeDBDatabase:
         statement that passes its own `query_tag` through the handle overrides it. No header is
         sent when it is `None` or empty. The client does not check its length or characters (the
         256-character cap is the server's rule, and not one to count on a refusal from).
+
+        `isolation_level` is `"READ_COMMITTED"` or `"REPEATABLE_READ"`, sent in the begin request's
+        body; `None` sends none, and the server begins at the database's default level. Any other
+        value raises `ValueError` here, before anything is sent.
         """
-        return AsyncTransaction(self._client, self.name, query_tag=query_tag)
+        return AsyncTransaction(self._client, self.name, query_tag=query_tag, isolation_level=isolation_level)
 
     def insert_session(
         self,

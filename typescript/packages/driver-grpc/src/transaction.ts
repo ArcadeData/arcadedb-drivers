@@ -1,7 +1,7 @@
 import type { CallOptions, Client } from "@connectrpc/connect";
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { ArcadeDbService } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
-import { TransactionContextSchema } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
+import { TransactionContextSchema, TransactionIsolation } from "./gen/arcadedb-server-26.11.1-SNAPSHOT_pb.js";
 import { createInsertStream, createStreamQuery, createTimeSeriesQuery } from "./stream.js";
 
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbService`. */
@@ -124,10 +124,38 @@ async function safeRollback(raw: RawClient, database: string, transactionId: str
 }
 
 /**
- * Builds the `transaction(database, fn)` method: begins a server-side transaction, hands `fn` a
+ * A transaction isolation level the engine provides. `TransactionIsolation` also has
+ * `READ_UNCOMMITTED` and `SERIALIZABLE`, but the server runs those as `READ_COMMITTED` and
+ * `REPEATABLE_READ` without saying so, so a caller who asked for `SERIALIZABLE` would get a weaker
+ * level than it named. `transaction` accepts only these two; use `raw.beginTransaction` for the
+ * enum itself.
+ */
+export type IsolationLevel = "READ_COMMITTED" | "REPEATABLE_READ";
+
+/** Options for `transaction`. */
+export interface TransactionOptions {
+  /**
+   * Isolation level, sent as `BeginTransactionRequest.isolation`. Omitted, the field is left unset
+   * and the server begins at `READ_COMMITTED`, which is also every database's default. It ignores a
+   * default an embedding application changed with `setTransactionIsolationLevel`, which the HTTP
+   * API's `/begin` honours; no server configuration key changes it.
+   */
+  isolationLevel?: IsolationLevel;
+}
+
+const ISOLATION: Record<IsolationLevel, TransactionIsolation> = {
+  READ_COMMITTED: TransactionIsolation.READ_COMMITTED,
+  REPEATABLE_READ: TransactionIsolation.REPEATABLE_READ,
+};
+
+/**
+ * Builds the `transaction(database, fn, opts)` method: begins a server-side transaction, hands `fn` a
  * {@link TransactionHandle} whose calls all carry the transaction's id automatically, and ends
  * the transaction on both the success and failure paths.
  *
+ * - `opts.isolationLevel` other than the two {@link IsolationLevel} values throws before
+ *   `beginTransaction` is sent: a JavaScript caller can pass any string, and mapping an unknown one
+ *   to the enum's zero value would begin at a level nobody chose.
  * - `beginTransaction`'s response is validated before it is trusted: a missing or blank
  *   `transactionId` throws immediately, rather than handing `fn` a handle whose every call binds
  *   an empty id - on this server a blank transaction id means "no external transaction, use the
@@ -149,8 +177,22 @@ async function safeRollback(raw: RawClient, database: string, transactionId: str
  *   would otherwise hold the transaction open until it's reaped) and re-throws the commit error.
  */
 export function createTransaction(raw: RawClient) {
-  return async function transaction<T>(database: string, fn: (tx: TransactionHandle) => Promise<T>): Promise<T> {
-    const begun = await raw.beginTransaction({ database });
+  return async function transaction<T>(
+    database: string,
+    fn: (tx: TransactionHandle) => Promise<T>,
+    opts: TransactionOptions = {},
+  ): Promise<T> {
+    let isolation: TransactionIsolation | undefined;
+    if (opts.isolationLevel !== undefined) {
+      isolation = Object.hasOwn(ISOLATION, opts.isolationLevel) ? ISOLATION[opts.isolationLevel] : undefined;
+      if (isolation === undefined) {
+        throw new Error(
+          `transaction: unsupported isolationLevel "${String(opts.isolationLevel)}" - ` +
+            "use READ_COMMITTED or REPEATABLE_READ.",
+        );
+      }
+    }
+    const begun = await raw.beginTransaction(isolation === undefined ? { database } : { database, isolation });
     if (!begun.transactionId || begun.transactionId.trim() === "") {
       throw new Error(
         `transaction: beginTransaction did not return a transaction id for database "${database}" - ` +

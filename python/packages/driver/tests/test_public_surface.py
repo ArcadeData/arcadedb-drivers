@@ -14,6 +14,7 @@ EXPECTED_SURFACE = {
     "EdgeRow",
     "InsertSession",
     "InsertSessionError",
+    "IsolationLevel",
     "LoginResult",
     "NotSessionTokenError",
     "OpenTransaction",

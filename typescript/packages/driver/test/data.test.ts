@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ArcadeDBError, createClient } from "../src/index.js";
+import type { IsolationLevel } from "../src/index.js";
 
 function jsonResponse(body: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -569,5 +570,54 @@ describe("queryTag: the X-ArcadeDB-Query-Tag request header (issue #117)", () =>
 
     expect(requests[1].headers.get("X-ArcadeDB-Query-Tag")).toBe("own-label");
     expect(requests[1].headers.get("arcadedb-session-id")).toBe("sess-1");
+  });
+});
+
+describe("transaction isolationLevel (issue #152)", () => {
+  function recordingClient(): { server: ReturnType<typeof createClient>; requests: Request[] } {
+    const requests: Request[] = [];
+    const fetchMock = vi.fn(async (request: Request) => {
+      requests.push(request);
+      const url = new URL(request.url).pathname;
+      if (url.startsWith("/api/v1/begin/")) return noContent(204, { "arcadedb-session-id": "sess-1" });
+      if (url.startsWith("/api/v1/commit/") || url.startsWith("/api/v1/rollback/")) return noContent();
+      return jsonResponse({ result: [], limit: -1, returned: 0, truncated: false }, 200);
+    });
+    return {
+      server: createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch }),
+      requests,
+    };
+  }
+
+  it("sends it in the begin request's body, and only there", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").transaction(
+      async (tx) => {
+        await tx.query({ language: "sql", command: "SELECT FROM V" });
+      },
+      { isolationLevel: "REPEATABLE_READ" },
+    );
+
+    expect(new URL(requests[0].url).pathname).toBe("/api/v1/begin/mydb");
+    await expect(requests[0].clone().json()).resolves.toEqual({ isolationLevel: "REPEATABLE_READ" });
+    await expect(requests[1].clone().json()).resolves.toEqual({ language: "sql", command: "SELECT FROM V" });
+  });
+
+  it("sends an empty level as a level, for the server to refuse, never as a bare body", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").transaction(async () => undefined, { isolationLevel: "" as IsolationLevel });
+
+    await expect(requests[0].clone().json()).resolves.toEqual({ isolationLevel: "" });
+  });
+
+  it("sends no begin body when absent, so the server uses the database's default", async () => {
+    const { server, requests } = recordingClient();
+
+    await server.db("mydb").transaction(async () => undefined);
+
+    expect(new URL(requests[0].url).pathname).toBe("/api/v1/begin/mydb");
+    await expect(requests[0].clone().text()).resolves.toBe("");
   });
 });

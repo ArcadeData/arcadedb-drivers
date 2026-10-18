@@ -10,6 +10,7 @@ from arcadedb_driver import (
     ArcadeDBError,
     ArcadeDBServer,
     AsyncArcadeDBServer,
+    IsolationLevel,
     TimeSeriesWriteError,
     basic_auth,
 )
@@ -543,3 +544,24 @@ async def test_async_promql_label_values_against_a_real_server(base_url: str, da
         db = srv.db(database)
         assert "PyLabelValuesAsync" in (await db.promql.label_values("__name__")).data
         assert (await db.promql.label_values("sensor", start="8", end="10")).data == ["b"]
+
+
+@pytest.mark.parametrize(
+    ("isolation_level", "second_read"),
+    [("REPEATABLE_READ", "one"), ("READ_COMMITTED", "two"), (None, "two")],
+)
+def test_transaction_isolation_level(
+    base_url: str, database: str, isolation_level: IsolationLevel | None, second_read: str
+) -> None:
+    # Issue #152: read one record twice inside the transaction while another session changes it
+    # in between. REPEATABLE_READ keeps the first value; READ_COMMITTED, and the database's
+    # default with no level, shows the committed change.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        db.command(language="sql", command="CREATE DOCUMENT TYPE IsoDoc IF NOT EXISTS")
+        rid = db.command(language="sql", command="INSERT INTO IsoDoc SET v = 'one'").result[0]["@rid"]
+        with db.transaction(isolation_level=isolation_level) as tx:
+            first = tx.query(language="sql", command=f"SELECT v FROM {rid}").result[0]["v"]
+            db.command(language="sql", command=f"UPDATE {rid} SET v = 'two'")  # outside the transaction
+            second = tx.query(language="sql", command=f"SELECT v FROM {rid}").result[0]["v"]
+        assert (first, second) == ("one", second_read)

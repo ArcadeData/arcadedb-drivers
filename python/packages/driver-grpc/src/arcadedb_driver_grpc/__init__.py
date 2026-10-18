@@ -18,7 +18,7 @@ from .stream import insert_stream as _insert_stream
 from .stream import stream_query as _stream_query
 from .stream import time_series_query as _time_series_query
 from .stream import time_series_write_stream as _time_series_write_stream
-from .transaction import Transaction, TransactionHandle
+from .transaction import IsolationLevel, Transaction, TransactionHandle
 
 # Read from the installed distribution's metadata, never written here: pyproject.toml's
 # [project] version is the one place a release sets (set-release-version.sh), and a literal
@@ -34,6 +34,7 @@ __all__ = [
     "Auth",
     "InsecureChannelError",
     "InsertStreamRequest",
+    "IsolationLevel",
     "TimeSeriesWriteStreamRequest",
     "Transaction",
     "TransactionHandle",
@@ -263,7 +264,7 @@ class ArcadeDBGrpcClient:
         """
         return _time_series_write_stream(self.raw, request, timeout=timeout, metadata=metadata)
 
-    def transaction(self, database: str) -> Transaction:
+    def transaction(self, database: str, *, isolation_level: IsolationLevel | None = None) -> Transaction:
         """Runs a server-side transaction: `with client.transaction("db") as tx:`.
 
         Returns a `Transaction` without contacting the server; `BeginTransaction` is sent on
@@ -276,8 +277,12 @@ class ArcadeDBGrpcClient:
         A clean exit commits, and raises `RuntimeError` if the server reports the commit did
         not take effect; any exception from the body rolls back and propagates. See
         `Transaction.__exit__` for the failure paths and the one known gap.
+
+        `isolation_level` is `"READ_COMMITTED"` or `"REPEATABLE_READ"`; `None` leaves it to the
+        server, which begins at `READ_COMMITTED`. Any other value raises `ValueError` here, before
+        anything is sent. See `Transaction`.
         """
-        return Transaction(self.raw, database)
+        return Transaction(self.raw, database, isolation_level)
 
     def __enter__(self) -> ArcadeDBGrpcClient:
         return self

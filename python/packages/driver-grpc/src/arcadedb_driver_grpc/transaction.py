@@ -23,7 +23,7 @@ import contextlib
 import dataclasses
 from collections.abc import Iterator, Sequence
 from types import TracebackType
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from ._generated import arcadedb_server_pb2 as messages
 from ._generated.arcadedb_server_pb2_grpc import ArcadeDbServiceStub
@@ -32,7 +32,38 @@ from .stream import insert_stream as _insert_stream
 from .stream import stream_query as _stream_query
 from .stream import time_series_query as _time_series_query
 
-__all__ = ["Transaction", "TransactionHandle"]
+__all__ = ["IsolationLevel", "Transaction", "TransactionHandle"]
+
+#: A transaction isolation level the engine provides. `messages.TransactionIsolation` also has
+#: `READ_UNCOMMITTED` and `SERIALIZABLE`, but the server runs those as `READ_COMMITTED` and
+#: `REPEATABLE_READ` without saying so, so a caller who asked for `SERIALIZABLE` would get a weaker
+#: level than it named. `transaction()` accepts only these two; set
+#: `BeginTransactionRequest.isolation` through `raw` for the enum itself.
+IsolationLevel = Literal["READ_COMMITTED", "REPEATABLE_READ"]
+
+_ISOLATION: dict[str, messages.TransactionIsolation.ValueType] = {
+    "READ_COMMITTED": messages.READ_COMMITTED,
+    "REPEATABLE_READ": messages.REPEATABLE_READ,
+}
+
+
+def _begin_request(database: str, isolation_level: IsolationLevel | None) -> messages.BeginTransactionRequest:
+    """The `BeginTransactionRequest` for `database`, `isolation` set only when a level is given.
+
+    Raises `ValueError` for anything but the two `IsolationLevel` names: the type hint does not stop
+    a caller passing another string at runtime, and leaving the field unset for it would begin at a
+    level nobody chose.
+    """
+    if isolation_level is None:
+        return messages.BeginTransactionRequest(database=database)
+    try:
+        isolation = _ISOLATION[isolation_level]
+    except KeyError:
+        raise ValueError(
+            f"unsupported isolation_level {isolation_level!r}: use 'READ_COMMITTED' or 'REPEATABLE_READ'"
+        ) from None
+    return messages.BeginTransactionRequest(database=database, isolation=isolation)
+
 
 _Request = TypeVar(
     "_Request",
@@ -300,15 +331,23 @@ class Transaction:
     `begin`/`commit`/`rollback` flags on `TransactionContext` stay reachable by setting the
     field directly; this wrapper covers only the EXPLICIT model, which is the one that needs
     the safety.
+
+    `isolation_level` is `READ_COMMITTED` or `REPEATABLE_READ`, sent as
+    `BeginTransactionRequest.isolation`. `None` leaves the field unset, and the server then begins
+    at `READ_COMMITTED`, which is also every database's default. It ignores a default an embedding
+    application changed with `setTransactionIsolationLevel`, which the HTTP driver's
+    `transaction()` honours with no level; no server configuration key changes it. Any other value
+    raises `ValueError` when the transaction is created, before anything is sent.
     """
 
-    def __init__(self, raw: ArcadeDbServiceStub, database: str) -> None:
+    def __init__(self, raw: ArcadeDbServiceStub, database: str, isolation_level: IsolationLevel | None = None) -> None:
+        self._begin = _begin_request(database, isolation_level)  # an unsupported level raises here
         self._raw = raw
         self._database = database
         self._transaction_id = ""
 
     def __enter__(self) -> TransactionHandle:
-        begun = self._raw.BeginTransaction(messages.BeginTransactionRequest(database=self._database))
+        begun = self._raw.BeginTransaction(self._begin)
         if not begun.transaction_id.strip():
             # Running the caller's writes outside a real transaction while implying
             # otherwise is the worst outcome available here, so this refuses before the

@@ -12,13 +12,15 @@ from .._generated.api.transaction import rollback_transaction as rollback_op
 from .._generated.client import Client
 from .._internal.unwrap import is_success, unwrap
 from ..errors import ArcadeDBError
-from .data import SESSION_HEADER, query_tag_kwarg
+from .data import SESSION_HEADER, IsolationLevel, begin_request, query_tag_kwarg
 
 if TYPE_CHECKING:
     from .. import ArcadeDBDatabase
 
 
-def begin_transaction(client: Client, database: str, query_tag: str | None = None) -> str:
+def begin_transaction(
+    client: Client, database: str, query_tag: str | None = None, isolation_level: IsolationLevel | None = None
+) -> str:
     """Begins a transaction and returns its session id.
 
     The endpoint answers 204 with no body and carries the id in the
@@ -29,8 +31,17 @@ def begin_transaction(client: Client, database: str, query_tag: str | None = Non
     `query_tag`, when set, goes out as `X-ArcadeDB-Query-Tag` on this begin request
     only; the server applies it to every statement of the session that carries no
     label of its own.
+
+    `isolation_level`, when set, is the request's only body (`{"isolationLevel": ...}`);
+    with none there is no body and the server uses the database's default level. A
+    value other than `READ_COMMITTED` or `REPEATABLE_READ` raises `ValueError` unsent.
     """
-    response = begin_op.sync_detailed(database, client=client, x_arcade_db_query_tag=query_tag_kwarg(query_tag))
+    response = begin_op.sync_detailed(
+        database,
+        client=client,
+        body=begin_request(isolation_level),
+        x_arcade_db_query_tag=query_tag_kwarg(query_tag),
+    )
     if not is_success(response):
         raise ArcadeDBError.from_response(response)
     session_id = response.headers.get(SESSION_HEADER)
@@ -75,6 +86,13 @@ class Transaction:
       leaves the session open server-side until `arcadedb.server.httpSessionExpireTimeout`
       reaps it.
 
+    `isolation_level` is `READ_COMMITTED` or `REPEATABLE_READ`, sent in the begin
+    request's body; `None` sends no body, and the server begins at the database's default
+    level. Under `REPEATABLE_READ` a record the block has read keeps the value it was read
+    with even after another session commits a change to it; under `READ_COMMITTED` a second
+    read sees the change. Any other value raises `ValueError` when the transaction is
+    created, before anything is sent.
+
     `query_tag` is sent as `X-ArcadeDB-Query-Tag` on the begin request ONLY - never on
     the statements, the commit or the rollback. The server labels every statement of
     the session that carries no label of its own with it, so `list queries` shows them
@@ -91,16 +109,24 @@ class Transaction:
     conflict must not replay one that partially committed.
     """
 
-    def __init__(self, client: Client, database: str, query_tag: str | None = None) -> None:
+    def __init__(
+        self,
+        client: Client,
+        database: str,
+        query_tag: str | None = None,
+        isolation_level: IsolationLevel | None = None,
+    ) -> None:
+        begin_request(isolation_level)  # refuses an unsupported level now, before the block runs
         self._client = client
         self._database = database
         self._query_tag = query_tag
+        self._isolation_level = isolation_level
         self._session_id: str | None = None
 
     def __enter__(self) -> ArcadeDBDatabase:
         from .. import ArcadeDBDatabase
 
-        self._session_id = begin_transaction(self._client, self._database, self._query_tag)
+        self._session_id = begin_transaction(self._client, self._database, self._query_tag, self._isolation_level)
         return ArcadeDBDatabase(self._client, self._database, self._session_id)
 
     def __exit__(

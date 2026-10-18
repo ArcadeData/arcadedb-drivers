@@ -71,12 +71,14 @@ type QueryOption interface{ applyQuery(*callOptions) }
 // CommandOptions.
 type CommandOption interface{ applyCommand(*callOptions) }
 
-// TransactionOption tunes a Transaction call. WithQueryTag is one.
+// TransactionOption tunes a Transaction call. WithQueryTag and WithIsolationLevel are
+// TransactionOptions.
 type TransactionOption interface{ applyTransaction(*callOptions) }
 
 type callOptions struct {
-	limit    *int
-	queryTag string
+	limit     *int
+	queryTag  string
+	isolation *IsolationLevel // nil when WithIsolationLevel was not given, so "" is refused
 }
 
 // LimitOption is what WithLimit returns: a QueryOption and a CommandOption at once.

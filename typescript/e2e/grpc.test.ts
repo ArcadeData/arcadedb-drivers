@@ -7,7 +7,7 @@ import { basicAuth, createClient as createHttpClient } from "../packages/driver/
 import type { ArcadeDBServer } from "../packages/driver/src/index.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 import { bearerAuth, createClient as createGrpcClient, passwordAuth } from "../packages/driver-grpc/src/index.js";
-import type { ArcadeDBGrpcClient, GrpcRecordSchema, IsolationLevel, GrpcValueSchema, InsertSummarySchema, Interceptor, QueryResultSchema } from "../packages/driver-grpc/src/index.js";
+import type { ArcadeDBGrpcClient, GrpcRecordSchema, GrpcValueSchema, InsertSummarySchema, Interceptor, IsolationLevel, QueryResultSchema } from "../packages/driver-grpc/src/index.js";
 // Imported from the package entry point, not from the version-stamped generated file: this is the
 // path the README documents to callers (`import { TimeSeriesPrecision } from "@arcadedb/driver-grpc"`),
 // `src/index.ts` re-exports the whole generated module for exactly that reason, and naming the

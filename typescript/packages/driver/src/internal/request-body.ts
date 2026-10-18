@@ -75,19 +75,20 @@ export function statementHeaders(
  */
 export function buildCommandBody(
   opts: CommandOptions,
-): { command: string; language: string; params?: Record<string, never> } {
+): { command: string; language: string; params?: Record<string, never>; limit?: number } {
   return {
     command: opts.command,
     language: opts.language,
     params: opts.params as Record<string, never> | undefined,
+    limit: opts.limit,
   };
 }
 
 /**
- * Builds the JSON body for `/query`: `buildCommandBody`'s fields plus `limit`, sent only when
- * supplied. Composes from `buildCommandBody` rather than repeating its fields so a field added to
- * `CommandOptions` reaches both `/query` and `/command` bodies automatically instead of only the
- * one call site someone remembered to update.
+ * Builds the JSON body for `/query`: exactly `buildCommandBody`'s, `limit` included, since
+ * `QueryRequest` and `CommandRequest` carry the same fields. Delegates rather than repeating them
+ * so a field added to `CommandOptions` reaches both `/query` and `/command` bodies automatically
+ * instead of only the one call site someone remembered to update.
  *
  * Shared by `facade/data.ts`'s buffered `executeQuery` and `facade/stream.ts`'s streaming
  * `queryStream` - both send the same body to `/api/v1/query/{database}` and differ only in
@@ -96,5 +97,5 @@ export function buildCommandBody(
 export function buildQueryBody(
   opts: QueryOptions,
 ): { command: string; language: string; params?: Record<string, never>; limit?: number } {
-  return { ...buildCommandBody(opts), limit: opts.limit };
+  return buildCommandBody(opts);
 }

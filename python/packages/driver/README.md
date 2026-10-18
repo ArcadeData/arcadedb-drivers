@@ -92,8 +92,8 @@ class QueryEnvelope:
 rows to write - `result` is then a partial answer, not a short-but-complete one. A caller that
 reads `result` and ignores `truncated` can silently work off a partial answer, because a truncated
 list and a complete one are indistinguishable by shape alone. Always check `truncated` before
-treating `result` as the whole answer, and re-query with a narrower filter or a higher `limit`
-when it is `True` - though raising `limit` is not always the fix: a result whose true size exceeds
+treating `result` as the whole answer, and re-run with a narrower filter or a higher `limit`
+(accepted by `query` and `command` and their streaming twins) when it is `True` - though raising `limit` is not always the fix: a result whose true size exceeds
 the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused outright with 413
 rather than truncated, so once you are past that ceiling a narrower filter is the only way forward.
 

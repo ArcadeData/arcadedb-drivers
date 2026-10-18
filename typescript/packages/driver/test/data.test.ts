@@ -108,6 +108,37 @@ describe("ArcadeDBDatabase.command", () => {
 
     expect(capturedBody).toEqual({ language: "sql", command: "CREATE VERTEX V", params: { name: "x" } });
   });
+
+  it("sends limit in the body when supplied (issue #151: CommandOptions.limit)", async () => {
+    let capturedBody: unknown;
+    const fetchMock = vi.fn(async (request: Request) => {
+      capturedBody = await request.clone().json();
+      return jsonResponse({ result: [], limit: -1, returned: 0, truncated: false }, 200);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await server.db("mydb").command({ language: "sql", command: "SELECT FROM V", limit: -1 });
+
+    expect(capturedBody).toEqual({ language: "sql", command: "SELECT FROM V", limit: -1 });
+  });
+
+  it("sends limit inside a transaction too", async () => {
+    const bodies: unknown[] = [];
+    const fetchMock = vi.fn(async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      if (path.startsWith("/api/v1/begin/")) return noContent(204, { "arcadedb-session-id": "AS-1" });
+      if (path.startsWith("/api/v1/commit/")) return noContent(204);
+      bodies.push(await request.clone().json());
+      return jsonResponse({ result: [], limit: 50000, returned: 0, truncated: false }, 200);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await server.db("mydb").transaction(async (tx) => {
+      await tx.command({ language: "sql", command: "SELECT FROM V", limit: 50000 });
+    });
+
+    expect(bodies).toEqual([{ language: "sql", command: "SELECT FROM V", limit: 50000 }]);
+  });
 });
 
 describe("EXPLAIN / PROFILE plans in the envelope (issue #74)", () => {

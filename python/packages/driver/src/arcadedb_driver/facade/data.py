@@ -149,22 +149,20 @@ def build_command_request(
     language: QueryLanguage,
     command: str,
     params: dict[str, Any] | None,
+    limit: int | None,
 ) -> CommandRequest:
     """Builds the body for `POST /api/v1/command/{database}`.
 
     `language` is a required field here, unlike on `/query`, matching the server's
-    `PostCommandHandler`, which rejects a request without it.
-
-    NOTE: `CommandRequest` also carries an optional `limit` in the current contract.
-    It is deliberately NOT exposed on `command()`. `@arcadedb/driver` does not
-    expose it either, and keeping the two clients' public surfaces identical matters
-    more than one optional field. Adding it is additive and belongs in a change that
-    does it for both clients at once.
+    `PostCommandHandler`, which rejects a request without it. `limit` is sent only when
+    supplied, as on `/query`; `@arcadedb/driver` and the Go client take it on their
+    `command` too.
     """
     return CommandRequest(
         command=command,
         language=language,
         params=UNSET if params is None else CommandRequestParams.from_dict(params),
+        limit=UNSET if limit is None else limit,
     )
 
 

@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import pytest
 import respx
@@ -135,3 +137,18 @@ async def test_a_failed_commit_still_issues_a_rollback() -> None:
 
     assert caught.value.error == "commit failed"
     assert rollback.called
+
+
+@respx.mock
+async def test_command_sends_limit_only_when_supplied() -> None:
+    route = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(
+        return_value=httpx.Response(200, json={"result": [], "limit": 50000, "returned": 0, "truncated": False})
+    )
+    async with AsyncArcadeDBServer(base_url=BASE_URL) as srv:
+        await srv.db("mydb").command(language="sql", command="SELECT FROM V", limit=50000)
+        with_limit = json.loads(route.calls.last.request.read())
+        await srv.db("mydb").command(language="sql", command="SELECT FROM V")
+        without = json.loads(route.calls.last.request.read())
+
+    assert with_limit["limit"] == 50000
+    assert "limit" not in without

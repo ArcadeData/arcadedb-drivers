@@ -80,8 +80,8 @@ interface QueryEnvelope<T> {
 rows to write - `result` is then a partial answer, not a short-but-complete one. A client that
 returned only `result` would hand back an array a caller cannot tell apart from a complete result
 set; the array looks the same shape either way. Always check `truncated` before treating `result`
-as the whole answer, and re-query with a narrower filter or a higher `limit` (via
-`QueryOptions.limit`) when it is `true` - though a value large enough to exceed the server's hard
+as the whole answer, and re-run with a narrower filter or a higher `limit` (an option on both
+`query` and `command`, and their streaming twins) when it is `true` - though a value large enough to exceed the server's hard
 ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused with 413 rather than truncated, so a
 narrower filter is the only fix once you're past that ceiling.
 

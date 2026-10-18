@@ -44,13 +44,13 @@ func (d *Database) Query(ctx context.Context, lang QueryLanguage, command string
 	return envelopeFromBody(resp.JSON200, resp.Body)
 }
 
-// Command runs a statement that may change data. It never sends a row limit; use Query
-// with WithLimit to cap a read. opts takes WithQueryTag.
+// Command runs a statement that may change data, and returns the whole result envelope.
+// See QueryEnvelope for why Truncated matters. opts takes WithLimit and WithQueryTag.
 func (d *Database) Command(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...CommandOption) (QueryEnvelope, error) {
 	o := commandCallOptions(opts)
 	resp, err := d.srv.raw.ExecuteCommandWithResponse(ctx, d.name,
 		&generated.ExecuteCommandParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(o.queryTag)},
-		buildCommandRequest(lang, command, params))
+		buildCommandRequest(lang, command, params, o))
 	if err != nil {
 		return QueryEnvelope{}, err
 	}

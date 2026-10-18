@@ -321,3 +321,27 @@ func TestQueryTagAccepted(t *testing.T) {
 		t.Fatalf("count = %v", c)
 	}
 }
+
+// TestCommandHonoursLimit is issue #151 against a real server: Command used to send no
+// limit, so a result past the server default came back truncated with no way to lift it.
+func TestCommandHonoursLimit(t *testing.T) {
+	ctx := context.Background()
+	db := newDatabase(t)
+	mustCommand(t, db, "CREATE DOCUMENT TYPE CmdLimit IF NOT EXISTS")
+	mustCommand(t, db, "INSERT INTO CmdLimit (n) VALUES (1),(2),(3)")
+
+	capped, err := db.Command(ctx, arcadedb.SQL, "SELECT FROM CmdLimit", nil, arcadedb.WithLimit(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(capped.Result) != 1 || capped.Returned != 1 || !capped.Truncated {
+		t.Fatalf("limit 1: rows %d, returned %d, truncated %v", len(capped.Result), capped.Returned, capped.Truncated)
+	}
+	all, err := db.Command(ctx, arcadedb.SQL, "SELECT FROM CmdLimit", nil, arcadedb.WithLimit(-1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all.Result) != 3 || all.Truncated {
+		t.Fatalf("limit -1: rows %d, truncated %v", len(all.Result), all.Truncated)
+	}
+}

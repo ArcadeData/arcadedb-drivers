@@ -196,3 +196,20 @@ def test_query_rejects_a_graph_shaped_result_instead_of_mangling_it() -> None:
 
     assert caught.value.status == 200
     assert "serializer" in str(caught.value.detail)
+
+
+@respx.mock
+def test_command_sends_limit_only_when_supplied() -> None:
+    # Issue #151: `command` had no `limit`, so a result past the server default came back
+    # truncated with no way to lift the cap.
+    route = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(
+        return_value=httpx.Response(200, json={"result": [], "limit": -1, "returned": 0, "truncated": False})
+    )
+    with server() as srv:
+        srv.db("mydb").command(language="sql", command="SELECT FROM V", limit=-1)
+        with_limit = json.loads(route.calls.last.request.read())
+        srv.db("mydb").command(language="sql", command="SELECT FROM V")
+        without = json.loads(route.calls.last.request.read())
+
+    assert with_limit["limit"] == -1
+    assert "limit" not in without

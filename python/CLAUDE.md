@@ -290,12 +290,12 @@ side.
 
 ## `CommandRequest.limit`
 
-The generated `CommandRequest` model carries an optional `limit` field - the contract has it, the
-generator produced it - but `ArcadeDBDatabase.command()` deliberately does not expose it (see
-`build_command_request`'s docstring in `facade/data.py`). `@arcadedb/driver`'s `command()` does not
-expose it either. Keeping the two clients' public surfaces identical matters more than shipping one
-optional field early; adding it is additive and belongs in a change that does it for both clients
-at once, not one that gets ahead of the other.
+The generated `CommandRequest` model carries an optional `limit` field, and `command()` and
+`command_stream()` (sync and async) expose it, sent only when supplied, exactly as `query()` does.
+Up to 0.3.0 it was deliberately left out to keep the public surface identical to `@arcadedb/driver`'s,
+which lacked it too; a `command` result past the server default then came back truncated with no way
+to lift the cap (issue #151). It was added to all three HTTP clients in one change, which is the
+rule that still holds: an option on one client's `command` lands on the others' in the same change.
 
 ## Two contract defects this milestone uncovered
 

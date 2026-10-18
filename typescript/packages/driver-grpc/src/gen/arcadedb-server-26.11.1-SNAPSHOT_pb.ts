@@ -5742,10 +5742,19 @@ export const ReadyResponseSchema: GenMessage<ReadyResponse> = /*@__PURE__*/
   messageDesc(file_arcadedb_server_26_11_1_SNAPSHOT, 165);
 
 /**
+ * The engine provides two isolation levels, READ_COMMITTED and REPEATABLE_READ. The other two values are accepted
+ * and silently mapped to the nearest level the engine provides, with no error and no signal in the response:
+ *   READ_UNCOMMITTED -> READ_COMMITTED (it is also the proto default, so an unset field begins at READ_COMMITTED)
+ *   SERIALIZABLE     -> REPEATABLE_READ (a WEAKER level than the one asked for)
+ * A caller that needs serializable isolation does not get it. The HTTP API (POST /api/v1/begin/{database}) accepts
+ * only READ_COMMITTED and REPEATABLE_READ and refuses any other value with 400.
+ *
  * @generated from enum com.arcadedb.grpc.TransactionIsolation
  */
 export enum TransactionIsolation {
   /**
+   * runs as READ_COMMITTED
+   *
    * @generated from enum value: READ_UNCOMMITTED = 0;
    */
   READ_UNCOMMITTED = 0,
@@ -5761,6 +5770,8 @@ export enum TransactionIsolation {
   REPEATABLE_READ = 2,
 
   /**
+   * runs as REPEATABLE_READ
+   *
    * @generated from enum value: SERIALIZABLE = 3;
    */
   SERIALIZABLE = 3,

@@ -6,6 +6,7 @@ import httpx
 
 from ... import errors
 from ...client import AuthenticatedClient, Client
+from ...models.begin_request import BeginRequest
 from ...models.error_response import ErrorResponse
 from ...types import UNSET, Response, Unset
 
@@ -13,6 +14,7 @@ from ...types import UNSET, Response, Unset
 def _get_kwargs(
     database: str,
     *,
+    body: BeginRequest | Unset = UNSET,
     arcadedb_session_id: str | Unset = UNSET,
     x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
@@ -33,6 +35,11 @@ def _get_kwargs(
             database=quote(str(database), safe=""),
         ),
     }
+
+    if not isinstance(body, Unset):
+        _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
 
     _kwargs["headers"] = headers
     return _kwargs
@@ -87,6 +94,7 @@ def sync_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    body: BeginRequest | Unset = UNSET,
     arcadedb_session_id: str | Unset = UNSET,
     x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
@@ -100,6 +108,7 @@ def sync_detailed(
         arcadedb_session_id (str | Unset):
         x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
+        body (BeginRequest | Unset): Begin transaction request object
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -111,6 +120,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         database=database,
+        body=body,
         arcadedb_session_id=arcadedb_session_id,
         x_arcade_db_query_tag=x_arcade_db_query_tag,
         x_request_id=x_request_id,
@@ -127,6 +137,7 @@ def sync(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    body: BeginRequest | Unset = UNSET,
     arcadedb_session_id: str | Unset = UNSET,
     x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
@@ -140,6 +151,7 @@ def sync(
         arcadedb_session_id (str | Unset):
         x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
+        body (BeginRequest | Unset): Begin transaction request object
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -152,6 +164,7 @@ def sync(
     return sync_detailed(
         database=database,
         client=client,
+        body=body,
         arcadedb_session_id=arcadedb_session_id,
         x_arcade_db_query_tag=x_arcade_db_query_tag,
         x_request_id=x_request_id,
@@ -162,6 +175,7 @@ async def asyncio_detailed(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    body: BeginRequest | Unset = UNSET,
     arcadedb_session_id: str | Unset = UNSET,
     x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
@@ -175,6 +189,7 @@ async def asyncio_detailed(
         arcadedb_session_id (str | Unset):
         x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
+        body (BeginRequest | Unset): Begin transaction request object
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -186,6 +201,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         database=database,
+        body=body,
         arcadedb_session_id=arcadedb_session_id,
         x_arcade_db_query_tag=x_arcade_db_query_tag,
         x_request_id=x_request_id,
@@ -200,6 +216,7 @@ async def asyncio(
     database: str,
     *,
     client: AuthenticatedClient | Client,
+    body: BeginRequest | Unset = UNSET,
     arcadedb_session_id: str | Unset = UNSET,
     x_arcade_db_query_tag: str | Unset = UNSET,
     x_request_id: str | Unset = UNSET,
@@ -213,6 +230,7 @@ async def asyncio(
         arcadedb_session_id (str | Unset):
         x_arcade_db_query_tag (str | Unset):
         x_request_id (str | Unset):
+        body (BeginRequest | Unset): Begin transaction request object
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -226,6 +244,7 @@ async def asyncio(
         await asyncio_detailed(
             database=database,
             client=client,
+            body=body,
             arcadedb_session_id=arcadedb_session_id,
             x_arcade_db_query_tag=x_arcade_db_query_tag,
             x_request_id=x_request_id,

@@ -742,6 +742,20 @@
         ],
         "type": "object"
       },
+      "BeginRequest": {
+        "description": "Begin transaction request object",
+        "properties": {
+          "isolationLevel": {
+            "description": "Isolation level of the transaction. Optional: when absent the transaction runs at the database's default isolation level. The value is case-sensitive, and any other value is refused with 400.",
+            "enum": [
+              "READ_COMMITTED",
+              "REPEATABLE_READ"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BootstrapStateResponse": {
         "description": "Per-database bootstrap state of one peer",
         "properties": {
@@ -6576,6 +6590,17 @@
             "$ref": "#/components/parameters/RequestIdParam"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginRequest"
+              }
+            }
+          },
+          "description": "Optional transaction settings. Omit the body to begin at the database's default isolation level",
+          "required": false
+        },
         "responses": {
           "204": {
             "description": "Transaction operation completed successfully",
@@ -6605,7 +6630,7 @@
                 }
               }
             },
-            "description": "Bad request",
+            "description": "Bad request, including an 'isolationLevel' that is not one of the values the request body declares",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"

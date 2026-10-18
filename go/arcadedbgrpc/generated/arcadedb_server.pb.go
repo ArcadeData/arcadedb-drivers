@@ -39,13 +39,21 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// The engine provides two isolation levels, READ_COMMITTED and REPEATABLE_READ. The other two values are accepted
+// and silently mapped to the nearest level the engine provides, with no error and no signal in the response:
+//
+//	READ_UNCOMMITTED -> READ_COMMITTED (it is also the proto default, so an unset field begins at READ_COMMITTED)
+//	SERIALIZABLE     -> REPEATABLE_READ (a WEAKER level than the one asked for)
+//
+// A caller that needs serializable isolation does not get it. The HTTP API (POST /api/v1/begin/{database}) accepts
+// only READ_COMMITTED and REPEATABLE_READ and refuses any other value with 400.
 type TransactionIsolation int32
 
 const (
-	TransactionIsolation_READ_UNCOMMITTED TransactionIsolation = 0
+	TransactionIsolation_READ_UNCOMMITTED TransactionIsolation = 0 // runs as READ_COMMITTED
 	TransactionIsolation_READ_COMMITTED   TransactionIsolation = 1
 	TransactionIsolation_REPEATABLE_READ  TransactionIsolation = 2
-	TransactionIsolation_SERIALIZABLE     TransactionIsolation = 3
+	TransactionIsolation_SERIALIZABLE     TransactionIsolation = 3 // runs as REPEATABLE_READ
 )
 
 // Enum value maps for TransactionIsolation.

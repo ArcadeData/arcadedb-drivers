@@ -2003,6 +2003,14 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** @description Begin transaction request object */
+        BeginRequest: {
+            /**
+             * @description Isolation level of the transaction. Optional: when absent the transaction runs at the database's default isolation level. The value is case-sensitive, and any other value is refused with 400.
+             * @enum {string}
+             */
+            isolationLevel?: "READ_COMMITTED" | "REPEATABLE_READ";
+        };
         /** @description Per-database bootstrap state of one peer */
         BootstrapStateResponse: {
             /** @description Databases on this peer. Empty when it holds none */
@@ -4715,7 +4723,12 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        /** @description Optional transaction settings. Omit the body to begin at the database's default isolation level */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["BeginRequest"];
+            };
+        };
         responses: {
             /** @description Transaction operation completed successfully */
             204: {
@@ -4729,7 +4742,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Bad request */
+            /** @description Bad request, including an 'isolationLevel' that is not one of the values the request body declares */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];

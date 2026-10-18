@@ -1451,6 +1451,11 @@
             },
             "description": "Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {\"$bytes\": \"<base64>\"} for byte[] (standard or URL-safe base64), {\"$int8\": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip).",
             "type": "object"
+          },
+          "wait": {
+            "description": "Server commands only (POST /api/v1/server): how long 'terminate query', 'terminate queries tag' and 'terminate transaction' wait for the work to end before answering, in milliseconds. 5000 when absent, at most 10000. Work still running when it is over is answered 'terminating'.",
+            "example": 1000,
+            "type": "integer"
           }
         },
         "required": [
@@ -3357,6 +3362,92 @@
         ],
         "type": "object"
       },
+      "RunningQuery": {
+        "description": "A statement this server is running",
+        "properties": {
+          "clientAddress": {
+            "description": "Address of the client, where known",
+            "type": "string"
+          },
+          "connectionId": {
+            "description": "Connection it arrived on, where the protocol has one",
+            "type": "string"
+          },
+          "database": {
+            "description": "Database the statement runs against",
+            "type": "string"
+          },
+          "elapsedMs": {
+            "description": "How long it has been running, in milliseconds",
+            "type": "integer"
+          },
+          "forwardedFrom": {
+            "description": "Id it has on the server that forwarded it here",
+            "type": "string"
+          },
+          "forwardedTo": {
+            "description": "Server this one forwarded it to",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id to pass to 'terminate query'",
+            "type": "string"
+          },
+          "language": {
+            "description": "Query language",
+            "type": "string"
+          },
+          "protocol": {
+            "description": "Protocol it arrived on, such as 'http'",
+            "type": "string"
+          },
+          "server": {
+            "description": "Name of the server running it",
+            "type": "string"
+          },
+          "sessionId": {
+            "description": "Transaction session it runs in. Absent outside one",
+            "type": "string"
+          },
+          "startedAt": {
+            "description": "When it started, in milliseconds since the epoch",
+            "type": "integer"
+          },
+          "tag": {
+            "description": "Label from the X-ArcadeDB-Query-Tag request header. Absent without one",
+            "type": "string"
+          },
+          "terminatedBy": {
+            "description": "User that asked it to stop. Absent until one did",
+            "type": "string"
+          },
+          "terminating": {
+            "description": "True once a terminate asked it to stop",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "Statement text",
+            "type": "string"
+          },
+          "user": {
+            "description": "User that sent it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database",
+          "elapsedMs",
+          "id",
+          "language",
+          "protocol",
+          "server",
+          "startedAt",
+          "terminating",
+          "text",
+          "user"
+        ],
+        "type": "object"
+      },
       "SaveGroupRequest": {
         "description": "A group to create or replace. Replaces any group of the same name on the same database outright - the members are not merged into the existing definition - and refreshes the cached permissions of every open database it applies to.",
         "properties": {
@@ -3475,6 +3566,61 @@
         },
         "required": [
           "seeded"
+        ],
+        "type": "object"
+      },
+      "ServerCommandResponse": {
+        "description": "Answer of a server command",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "description": "\"ok\"",
+                "type": "string"
+              },
+              {
+                "description": "list databases",
+                "items": {
+                  "description": "Database name",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "description": "list queries",
+                "items": {
+                  "$ref": "#/components/schemas/RunningQuery"
+                },
+                "type": "array"
+              },
+              {
+                "description": "list transactions",
+                "items": {
+                  "$ref": "#/components/schemas/TransactionSession"
+                },
+                "type": "array"
+              },
+              {
+                "$ref": "#/components/schemas/TerminationStatus"
+              },
+              {
+                "description": "terminate queries tag",
+                "items": {
+                  "$ref": "#/components/schemas/TerminationStatus"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "description": "The report of a command that answers one, such as 'get server events'",
+                "type": "object"
+              }
+            ],
+            "description": "What the command answered. \"ok\" for the commands that only act; the names of the databases for 'list databases'; RunningQuery rows for 'list queries'; TransactionSession rows for 'list transactions'; one TerminationStatus for 'terminate query' and 'terminate transaction'; an array of them for 'terminate queries tag'; an object for the commands that report one, such as 'get server events'."
+          }
+        },
+        "required": [
+          "result"
         ],
         "type": "object"
       },
@@ -3968,6 +4114,38 @@
         ],
         "type": "object"
       },
+      "TerminationStatus": {
+        "description": "How a terminate ended",
+        "properties": {
+          "id": {
+            "description": "Statement id, or session id for 'terminate transaction'",
+            "type": "string"
+          },
+          "sessionId": {
+            "description": "Statements only: the transaction session the statement ran in. Absent outside one",
+            "type": "string"
+          },
+          "sessionOpen": {
+            "description": "Statements only, with 'sessionId': whether the session is still open. A terminated command ends its session, a terminated read leaves it to its client. For 'terminating', only the state when the answer was built",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "'terminated': it stopped and what it wrote was rolled back. 'completed': it ended on its own before it noticed, and what it did stands (statements only). 'terminating': not stopped within 'wait'. 'not found': no such work, or not the caller's to see.",
+            "enum": [
+              "terminated",
+              "completed",
+              "terminating",
+              "not found"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "type": "object"
+      },
       "TimeSeriesAggregatedResponse": {
         "description": "Aggregated samples",
         "properties": {
@@ -4247,6 +4425,57 @@
           "dropped",
           "error",
           "written"
+        ],
+        "type": "object"
+      },
+      "TransactionSession": {
+        "description": "An open transaction session",
+        "properties": {
+          "busy": {
+            "description": "True while a request runs in it",
+            "type": "boolean"
+          },
+          "database": {
+            "description": "Database of its transaction",
+            "type": "string"
+          },
+          "id": {
+            "description": "Session id, to pass to 'terminate transaction'",
+            "type": "string"
+          },
+          "idleMs": {
+            "description": "Milliseconds since it was last used",
+            "type": "integer"
+          },
+          "runningQueries": {
+            "description": "Ids of the statements running in it",
+            "items": {
+              "description": "RunningQuery id",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "server": {
+            "description": "Name of the server holding it",
+            "type": "string"
+          },
+          "tag": {
+            "description": "Label it was opened with. Absent without one",
+            "type": "string"
+          },
+          "user": {
+            "description": "User that opened it",
+            "type": "string"
+          }
+        },
+        "required": [
+          "busy",
+          "database",
+          "id",
+          "idleMs",
+          "runningQueries",
+          "server",
+          "user"
         ],
         "type": "object"
       },
@@ -8478,7 +8707,7 @@
                 }
               }
             },
-            "description": "Query terminated: the statement was stopped by 'terminate query', 'terminate queries' or 'terminate transaction' (POST /api/v1/server) and what it wrote was rolled back. Not retryable: somebody stopped this work on purpose. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
+            "description": "Query terminated: the statement was stopped by 'terminate query', 'terminate queries' or 'terminate transaction' (POST /api/v1/server) and what it wrote was rolled back. Not retryable: somebody stopped this work on purpose. Also a create, or a rename, onto a schema object name already taken - a type, property, index, constraint, bucket, trigger, view or function: 'error' names the kind (e.g. 'Type already exists'), 'exception' is com.arcadedb.exception.AlreadyExistsException and 'exceptionArgs' the kind (TYPE, PROPERTY, INDEX, ...). Not retryable: the name is held. Also: An identical request with the same 'X-Request-Id' is still executing. It was NOT executed again: retry it later with the same id, after 'Retry-After' seconds, to receive the result of the execution in progress. The body names RequestStillInFlightException.",
             "headers": {
               "Retry-After": {
                 "$ref": "#/components/headers/RetryAfterHeader"
@@ -8576,7 +8805,7 @@
             }
           },
           {
-            "description": "Session id returned by 'beginTransaction', identifying the transaction to end. Omitting it, or presenting an id that no longer resolves to an open transaction, is an idempotent no-op: the call still answers 204, but commits or rolls back nothing.",
+            "description": "Session id returned by 'beginTransaction', identifying the transaction to commit. Omitting it commits nothing and answers 204. An id that no longer resolves to an open transaction of the caller - never issued, rolled back, ended by 'terminate transaction', expired, or another user's - answers 404: nothing was committed. The exception is a retry of a commit that did end this session, sent to the same server within the session timeout ('arcadedb.server.httpSessionExpireTimeout'): it answers 204 again, so a client whose first answer was lost is not told its work is gone. A retry sent while the first commit is still running waits for it, up to 5 seconds: it answers 204 when that commit succeeded, 404 when it failed, and a lock timeout error when the commit outlasts the wait. The server remembers this in memory only: a retry sent to another server of a cluster, after a restart or past the timeout answers 404 although the first commit may have landed.",
             "in": "header",
             "name": "arcadedb-session-id",
             "required": false,
@@ -8641,7 +8870,7 @@
                 }
               }
             },
-            "description": "Database not found",
+            "description": "Database not found, or the session id header names a transaction that no longer resolves (\"Remote transaction session not found or expired\"): it was rolled back, terminated, expired or never existed, and nothing was committed",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -10573,7 +10802,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/QueryResponse"
+                  "$ref": "#/components/schemas/ServerCommandResponse"
                 }
               }
             },
@@ -10784,6 +11013,21 @@
               }
             },
             "description": "Forbidden - root user required",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found - No API token has this hash",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -11140,6 +11384,21 @@
               }
             },
             "description": "Forbidden - root user required",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found - No group has this name in the given database",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"
@@ -14233,6 +14492,21 @@
               }
             }
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found - No user has this name",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
           "500": {
             "content": {
               "application/json": {
@@ -14568,6 +14842,21 @@
               }
             },
             "description": "Forbidden - root user required",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/RequestIdHeader"
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found - No user has this name",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/RequestIdHeader"

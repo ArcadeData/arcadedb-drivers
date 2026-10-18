@@ -33,12 +33,16 @@ class CommandRequest:
             marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for
             byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32
             round-trip).
+        wait (int | Unset): Server commands only (POST /api/v1/server): how long 'terminate query', 'terminate queries
+            tag' and 'terminate transaction' wait for the work to end before answering, in milliseconds. 5000 when absent,
+            at most 10000. Work still running when it is over is answered 'terminating'. Example: 1000.
     """
 
     command: str
     language: str
     limit: int | Unset = UNSET
     params: CommandRequestParams | Unset = UNSET
+    wait: int | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -52,6 +56,8 @@ class CommandRequest:
         if not isinstance(self.params, Unset):
             params = self.params.to_dict()
 
+        wait = self.wait
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -64,6 +70,8 @@ class CommandRequest:
             field_dict["limit"] = limit
         if params is not UNSET:
             field_dict["params"] = params
+        if wait is not UNSET:
+            field_dict["wait"] = wait
 
         return field_dict
 
@@ -85,11 +93,14 @@ class CommandRequest:
         else:
             params = CommandRequestParams.from_dict(_params)
 
+        wait = d.pop("wait", UNSET)
+
         command_request = cls(
             command=command,
             language=language,
             limit=limit,
             params=params,
+            wait=wait,
         )
 
         command_request.additional_properties = d

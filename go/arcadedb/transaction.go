@@ -140,10 +140,13 @@ func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error,
 // beginTransaction returns the new transaction's session id. The endpoint answers 204
 // with no body and carries the id in the arcadedb-session-id RESPONSE header, which the
 // generator exposes as Headers204; a non-204 2xx leaves that nil, so the raw header is
-// the fallback. A non-empty queryTag is sent as X-ArcadeDB-Query-Tag.
+// the fallback. A non-empty queryTag is sent as X-ArcadeDB-Query-Tag. The body is an empty
+// BeginRequest, sent as {}: with no isolationLevel the server begins at the database's
+// default isolation level, exactly as it does for a request with no body.
 func (d *Database) beginTransaction(ctx context.Context, queryTag string) (string, error) {
 	resp, err := d.srv.raw.BeginTransactionWithResponse(ctx, d.name,
-		&generated.BeginTransactionParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(queryTag)})
+		&generated.BeginTransactionParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(queryTag)},
+		generated.BeginRequest{})
 	if err != nil {
 		return "", err
 	}

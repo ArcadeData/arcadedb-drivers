@@ -292,10 +292,11 @@ side.
 
 The generated `CommandRequest` model carries an optional `limit` field, and `command()` and
 `command_stream()` (sync and async) expose it, sent only when supplied, exactly as `query()` does.
-Up to 0.3.0 it was deliberately left out to keep the public surface identical to `@arcadedb/driver`'s,
-which lacked it too; a `command` result past the server default then came back truncated with no way
-to lift the cap (issue #151). It was added to all three HTTP clients in one change, which is the
-rule that still holds: an option on one client's `command` lands on the others' in the same change.
+Up to 0.3.0 it was deliberately left out to keep the public surface identical to
+`@arcadedb/driver`'s, which lacked it too; a `command` result past the server default then came back
+truncated with no way to lift the cap (issue #151). It was added to all three HTTP clients in one
+change, which is the rule that still holds: an option on one client's `command` lands on the others'
+in the same change.
 
 ## Two contract defects this milestone uncovered
 

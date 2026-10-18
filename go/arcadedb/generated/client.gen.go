@@ -101,6 +101,24 @@ func (e BatchVertexLineType) Valid() bool {
 	}
 }
 
+// Defines values for BeginRequestIsolationLevel.
+const (
+	READCOMMITTED  BeginRequestIsolationLevel = "READ_COMMITTED"
+	REPEATABLEREAD BeginRequestIsolationLevel = "REPEATABLE_READ"
+)
+
+// Valid indicates whether the value is a known member of the BeginRequestIsolationLevel enum.
+func (e BeginRequestIsolationLevel) Valid() bool {
+	switch e {
+	case READCOMMITTED:
+		return true
+	case REPEATABLEREAD:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ClusterAuthSessionRequestAction.
 const (
 	Revoke   ClusterAuthSessionRequestAction = "revoke"
@@ -1154,6 +1172,15 @@ type BatchVertexLine struct {
 
 // BatchVertexLineType Discriminator. 'v' is accepted as a synonym of 'vertex'
 type BatchVertexLineType string
+
+// BeginRequest Begin transaction request object
+type BeginRequest struct {
+	// IsolationLevel Isolation level of the transaction. Optional: when absent the transaction runs at the database's default isolation level. The value is case-sensitive, and any other value is refused with 400.
+	IsolationLevel *BeginRequestIsolationLevel `json:"isolationLevel,omitempty"`
+}
+
+// BeginRequestIsolationLevel Isolation level of the transaction. Optional: when absent the transaction runs at the database's default isolation level. The value is case-sensitive, and any other value is refused with 400.
+type BeginRequestIsolationLevel string
 
 // BootstrapStateResponse Per-database bootstrap state of one peer
 type BootstrapStateResponse struct {
@@ -3951,6 +3978,9 @@ type StreamChatWithAiJSONRequestBody = AiChatRequest
 // UpdateAiChatJSONRequestBody defines body for UpdateAiChat for application/json ContentType.
 type UpdateAiChatJSONRequestBody = AiChat
 
+// BeginTransactionJSONRequestBody defines body for BeginTransaction for application/json ContentType.
+type BeginTransactionJSONRequestBody = BeginRequest
+
 // ResolveClusterAuthSessionJSONRequestBody defines body for ResolveClusterAuthSession for application/json ContentType.
 type ResolveClusterAuthSessionJSONRequestBody = ClusterAuthSessionRequest
 
@@ -5420,12 +5450,23 @@ type ClientInterface interface {
 	// Corresponds with POST /api/v1/batch/{database} (the `ExecuteBatch` operationId).
 	ExecuteBatchWithBody(ctx context.Context, database string, params *ExecuteBatchParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// BeginTransactionWithBody Begin transaction
+	//
+	// Begins a new transaction.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
+	BeginTransactionWithBody(ctx context.Context, database string, params *BeginTransactionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// BeginTransaction Begin transaction
 	//
 	// Begins a new transaction.
 	//
+	// Takes a body of the `application/json` content type.
+	//
 	// Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
-	BeginTransaction(ctx context.Context, database string, params *BeginTransactionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+	BeginTransaction(ctx context.Context, database string, params *BeginTransactionParams, body BeginTransactionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetClusterStatus Read cluster and replication status
 	//
@@ -6740,13 +6781,34 @@ func (c *Client) ExecuteBatchWithBody(ctx context.Context, database string, para
 	return c.Client.Do(req)
 }
 
+// BeginTransactionWithBody Begin transaction
+//
+// Begins a new transaction.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
+func (c *Client) BeginTransactionWithBody(ctx context.Context, database string, params *BeginTransactionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBeginTransactionRequestWithBody(c.Server, database, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // BeginTransaction Begin transaction
 //
 // Begins a new transaction.
 //
+// Takes a body of the `application/json` content type.
+//
 // Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
-func (c *Client) BeginTransaction(ctx context.Context, database string, params *BeginTransactionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewBeginTransactionRequest(c.Server, database, params)
+func (c *Client) BeginTransaction(ctx context.Context, database string, params *BeginTransactionParams, body BeginTransactionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBeginTransactionRequest(c.Server, database, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -9599,8 +9661,19 @@ func NewExecuteBatchRequestWithBody(server string, database string, params *Exec
 	return req, nil
 }
 
-// NewBeginTransactionRequest constructs an http.Request for the BeginTransaction method
-func NewBeginTransactionRequest(server string, database string, params *BeginTransactionParams) (*http.Request, error) {
+// NewBeginTransactionRequest calls the generic BeginTransaction builder with application/json body
+func NewBeginTransactionRequest(server string, database string, params *BeginTransactionParams, body BeginTransactionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewBeginTransactionRequestWithBody(server, database, params, "application/json", bodyReader)
+}
+
+// NewBeginTransactionRequestWithBody constructs an http.Request for the BeginTransaction method, with any body, and a specified content type
+func NewBeginTransactionRequestWithBody(server string, database string, params *BeginTransactionParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -9625,10 +9698,12 @@ func NewBeginTransactionRequest(server string, database string, params *BeginTra
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -14377,14 +14452,23 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/v1/batch/{database} (the `ExecuteBatch` operationId).
 	ExecuteBatchWithBodyWithResponse(ctx context.Context, database string, params *ExecuteBatchParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteBatchResp, error)
 
+	// BeginTransactionWithBodyWithResponse Begin transaction
+	//
+	// Begins a new transaction.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
+	BeginTransactionWithBodyWithResponse(ctx context.Context, database string, params *BeginTransactionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BeginTransactionResp, error)
+
 	// BeginTransactionWithResponse Begin transaction
 	//
 	// Begins a new transaction.
 	//
-	// Returns a wrapper object for the known response body format(s).
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
-	BeginTransactionWithResponse(ctx context.Context, database string, params *BeginTransactionParams, reqEditors ...RequestEditorFn) (*BeginTransactionResp, error)
+	BeginTransactionWithResponse(ctx context.Context, database string, params *BeginTransactionParams, body BeginTransactionJSONRequestBody, reqEditors ...RequestEditorFn) (*BeginTransactionResp, error)
 
 	// GetClusterStatusWithResponse Read cluster and replication status
 	//
@@ -27575,15 +27659,30 @@ func (c *ClientWithResponses) ExecuteBatchWithBodyWithResponse(ctx context.Conte
 	return ParseExecuteBatchResp(rsp)
 }
 
+// BeginTransactionWithBodyWithResponse Begin transaction
+//
+// Begins a new transaction.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
+func (c *ClientWithResponses) BeginTransactionWithBodyWithResponse(ctx context.Context, database string, params *BeginTransactionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BeginTransactionResp, error) {
+	rsp, err := c.BeginTransactionWithBody(ctx, database, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBeginTransactionResp(rsp)
+}
+
 // BeginTransactionWithResponse Begin transaction
 //
 // Begins a new transaction.
 //
-// Returns a wrapper object for the known response body format(s).
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /api/v1/begin/{database} (the `BeginTransaction` operationId).
-func (c *ClientWithResponses) BeginTransactionWithResponse(ctx context.Context, database string, params *BeginTransactionParams, reqEditors ...RequestEditorFn) (*BeginTransactionResp, error) {
-	rsp, err := c.BeginTransaction(ctx, database, params, reqEditors...)
+func (c *ClientWithResponses) BeginTransactionWithResponse(ctx context.Context, database string, params *BeginTransactionParams, body BeginTransactionJSONRequestBody, reqEditors ...RequestEditorFn) (*BeginTransactionResp, error) {
+	rsp, err := c.BeginTransaction(ctx, database, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}

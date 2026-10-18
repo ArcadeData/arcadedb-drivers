@@ -39,6 +39,8 @@ from .batch_response import BatchResponse
 from .batch_response_id_mapping import BatchResponseIdMapping
 from .batch_vertex_line import BatchVertexLine
 from .batch_vertex_line_type import BatchVertexLineType
+from .begin_request import BeginRequest
+from .begin_request_isolation_level import BeginRequestIsolationLevel
 from .bootstrap_state_response import BootstrapStateResponse
 from .bootstrap_state_response_databases_item import BootstrapStateResponseDatabasesItem
 from .cluster_action_response import ClusterActionResponse
@@ -317,6 +319,8 @@ __all__ = (
     "BatchResponseIdMapping",
     "BatchVertexLine",
     "BatchVertexLineType",
+    "BeginRequest",
+    "BeginRequestIsolationLevel",
     "BootstrapStateResponse",
     "BootstrapStateResponseDatabasesItem",
     "ClusterActionResponse",

@@ -47,16 +47,27 @@ class _TransactionIsolation:
 class _TransactionIsolationEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_TransactionIsolation.ValueType], _builtins.type):
     DESCRIPTOR: _descriptor.EnumDescriptor
     READ_UNCOMMITTED: _TransactionIsolation.ValueType  # 0
+    """runs as READ_COMMITTED"""
     READ_COMMITTED: _TransactionIsolation.ValueType  # 1
     REPEATABLE_READ: _TransactionIsolation.ValueType  # 2
     SERIALIZABLE: _TransactionIsolation.ValueType  # 3
+    """runs as REPEATABLE_READ"""
 
-class TransactionIsolation(_TransactionIsolation, metaclass=_TransactionIsolationEnumTypeWrapper): ...
+class TransactionIsolation(_TransactionIsolation, metaclass=_TransactionIsolationEnumTypeWrapper):
+    """The engine provides two isolation levels, READ_COMMITTED and REPEATABLE_READ. The other two values are accepted
+    and silently mapped to the nearest level the engine provides, with no error and no signal in the response:
+      READ_UNCOMMITTED -> READ_COMMITTED (it is also the proto default, so an unset field begins at READ_COMMITTED)
+      SERIALIZABLE     -> REPEATABLE_READ (a WEAKER level than the one asked for)
+    A caller that needs serializable isolation does not get it. The HTTP API (POST /api/v1/begin/{database}) accepts
+    only READ_COMMITTED and REPEATABLE_READ and refuses any other value with 400.
+    """
 
 READ_UNCOMMITTED: TransactionIsolation.ValueType  # 0
+"""runs as READ_COMMITTED"""
 READ_COMMITTED: TransactionIsolation.ValueType  # 1
 REPEATABLE_READ: TransactionIsolation.ValueType  # 2
 SERIALIZABLE: TransactionIsolation.ValueType  # 3
+"""runs as REPEATABLE_READ"""
 Global___TransactionIsolation: _TypeAlias = TransactionIsolation  # noqa: Y015
 
 class _TimeSeriesPrecision:

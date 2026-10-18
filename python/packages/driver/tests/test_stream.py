@@ -341,3 +341,26 @@ async def test_async_command_stream_reaches_the_command_endpoint() -> None:
 
     assert route.calls.last.request.headers["Accept"] == "application/x-ndjson"
     assert _stats(events[0]) == {"limit": -1, "returned": 0, "truncated": False}
+
+
+@respx.mock
+def test_command_stream_sends_limit_when_supplied() -> None:
+    route = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(
+        return_value=httpx.Response(200, content=_lines({"stats": {"limit": -1, "returned": 0, "truncated": False}}))
+    )
+    with server() as srv:
+        list(srv.db("mydb").command_stream(language="sql", command="SELECT FROM V", limit=-1))
+
+    assert json.loads(route.calls.last.request.read())["limit"] == -1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_async_command_stream_sends_limit_when_supplied() -> None:
+    route = respx.post(f"{BASE_URL}/api/v1/command/mydb").mock(
+        return_value=httpx.Response(200, content=_lines({"stats": {"limit": -1, "returned": 0, "truncated": False}}))
+    )
+    async with async_server() as srv:
+        [e async for e in srv.db("mydb").command_stream(language="sql", command="SELECT FROM V", limit=-1)]
+
+    assert json.loads(route.calls.last.request.read())["limit"] == -1

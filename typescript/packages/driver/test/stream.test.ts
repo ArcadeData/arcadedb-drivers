@@ -228,6 +228,19 @@ describe("ArcadeDBDatabase.commandStream", () => {
     expect(capturedRequest?.headers.get("accept")).toBe("application/x-ndjson");
     expect(events).toEqual([{ stats: { limit: -1, returned: 0, truncated: false } }]);
   });
+
+  it("sends limit in the body when supplied (issue #151)", async () => {
+    let capturedBody: unknown;
+    const fetchMock = vi.fn(async (request: Request) => {
+      capturedBody = await request.clone().json();
+      return ndjsonResponse([JSON.stringify({ stats: { limit: -1, returned: 0, truncated: false } })]);
+    });
+    const server = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch });
+
+    await collect(server.db("mydb").commandStream({ language: "sql", command: "SELECT FROM V", limit: -1 }));
+
+    expect(capturedBody).toEqual({ language: "sql", command: "SELECT FROM V", limit: -1 });
+  });
 });
 
 /** Drains `iter` and returns what it threw, failing the test if it threw nothing. */

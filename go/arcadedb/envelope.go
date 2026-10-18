@@ -63,10 +63,12 @@ type QueryEnvelope struct {
 //
 // QueryOption, CommandOption and TransactionOption are sealed interfaces rather than one
 // func type so that an option goes only where it means something: WithQueryTag is all
-// three, WithLimit is a QueryOption only, and passing it to Command does not compile.
+// three, WithLimit is a QueryOption and a CommandOption, and passing it to Transaction does
+// not compile.
 type QueryOption interface{ applyQuery(*callOptions) }
 
-// CommandOption tunes a Command or CommandStream call. WithQueryTag is one.
+// CommandOption tunes a Command or CommandStream call. WithLimit and WithQueryTag are
+// CommandOptions.
 type CommandOption interface{ applyCommand(*callOptions) }
 
 // TransactionOption tunes a Transaction call. WithQueryTag is one.
@@ -77,14 +79,18 @@ type callOptions struct {
 	queryTag string
 }
 
-type limitOption int
+// LimitOption is what WithLimit returns: a QueryOption and a CommandOption at once.
+type LimitOption struct{ n int }
 
-func (l limitOption) applyQuery(o *callOptions) { n := int(l); o.limit = &n }
+func (l LimitOption) applyQuery(o *callOptions)   { n := l.n; o.limit = &n }
+func (l LimitOption) applyCommand(o *callOptions) { n := l.n; o.limit = &n }
 
 // WithLimit caps the rows the server serializes into the response; -1 means no cap. Left
-// unset, a LIMIT stated by the query is honoured and only a query stating none is capped
-// by the server default. Command does not accept it.
-func WithLimit(n int) QueryOption { return limitOption(n) }
+// unset, a LIMIT stated by the statement is honoured and only one stating none is capped
+// by the server default. It applies to Query, QueryStream, Command and CommandStream. Up
+// to 0.3.0 it returned a QueryOption and Command did not accept it, so a command result
+// past the server default came back truncated with no way to lift the cap (issue #151).
+func WithLimit(n int) LimitOption { return LimitOption{n: n} }
 
 // QueryTagOption is what WithQueryTag returns: a QueryOption, a CommandOption and a
 // TransactionOption at once.
@@ -148,9 +154,8 @@ func buildQueryRequest(lang QueryLanguage, command string, params map[string]any
 	return req
 }
 
-// buildCommandRequest deliberately has no limit parameter, as in the other drivers.
-func buildCommandRequest(lang QueryLanguage, command string, params map[string]any) generated.CommandRequest {
-	req := generated.CommandRequest{Command: command, Language: string(lang)}
+func buildCommandRequest(lang QueryLanguage, command string, params map[string]any, o callOptions) generated.CommandRequest {
+	req := generated.CommandRequest{Command: command, Language: string(lang), Limit: o.limit}
 	if params != nil {
 		req.Params = &params
 	}

@@ -116,13 +116,15 @@ type QueryEnvelope struct {
 }
 ```
 
-`Truncated` is `true` when the server's serializer hit its row cap while the query still had rows
-to write: `Result` is then a partial answer, not a short-but-complete one, and the two are
+`Truncated` is `true` when the server's serializer hit its row cap while the query still had rows to
+write: `Result` is then a partial answer, not a short-but-complete one, and the two are
 indistinguishable by shape. Always check `Truncated` before treating `Result` as the whole answer.
-`Query` accepts `arcadedb.WithLimit(n)` to set the cap for one call (`-1` for none); `Command` does
-not take a limit, as in the other drivers. Raising the limit is not always the fix: a result larger
-than the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`) is refused with 413
-rather than truncated, and past that ceiling a narrower filter is the only way forward.
+`Query` and `Command` (and their streaming twins) accept `arcadedb.WithLimit(n)` to set the cap for
+one call (`-1` for none), as in the other drivers. Up to 0.3.0 `Command` did not take it, so a
+command result past the server default came back truncated with no way to lift the cap. Raising the
+limit is not always the fix: a result larger than the server's hard ceiling
+(`arcadedb.server.httpQueryMaxResultRows`) is refused with 413 rather than truncated, and past that
+ceiling a narrower filter is the only way forward.
 
 ### Labelling work: `WithQueryTag`
 
@@ -146,7 +148,8 @@ err := db.Transaction(ctx, func(tx *arcadedb.Database) error {
 The tag is not validated here: the contract allows at most 256 printable characters, but that is
 the server's rule, and a 26.11.1-SNAPSHOT server accepted a 257-character tag without complaint, so
 do not count on a refusal either. Repeating the rule client-side would only drift from the
-server's. `WithLimit` is a `QueryOption` only, so passing it to `Command` does not compile.
+server's. `WithLimit` is a `QueryOption` and a `CommandOption`, not a `TransactionOption`, so
+passing it to `Transaction` does not compile.
 
 When the server omits a field, the envelope reads `Result` as an empty, non-nil slice, `Limit` as
 `-1` (uncapped), `Returned` as `0` and `Truncated` as `false`. The contract marks `limit`,

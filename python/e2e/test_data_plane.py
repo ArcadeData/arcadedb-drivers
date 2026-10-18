@@ -42,6 +42,21 @@ def test_sync_round_trip(base_url: str, database: str) -> None:
         assert env.truncated is False
 
 
+def test_command_honours_limit(base_url: str, database: str) -> None:
+    # Issue #151: `command` used to send no limit, so a result past the server default came
+    # back truncated with no way to lift it.
+    with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
+        db = srv.db(database)
+        db.command(language="sql", command="CREATE DOCUMENT TYPE CmdLimit IF NOT EXISTS")
+        db.command(language="sql", command="INSERT INTO CmdLimit (n) VALUES (1),(2),(3)")
+
+        capped = db.command(language="sql", command="SELECT FROM CmdLimit", limit=1)
+        assert (len(capped.result), capped.returned, capped.truncated) == (1, 1, True)
+
+        everything = db.command(language="sql", command="SELECT FROM CmdLimit", limit=-1)
+        assert (len(everything.result), everything.truncated) == (3, False)
+
+
 def test_explain_returns_the_plan_in_the_envelope(base_url: str, database: str) -> None:
     with ArcadeDBServer(base_url=base_url, auth=basic_auth("root", ROOT_PASSWORD)) as srv:
         db = srv.db(database)

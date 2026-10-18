@@ -13,11 +13,24 @@ type RawClient = Client<paths>;
  */
 export type QueryLanguage = "sql" | "sqlscript" | "cypher" | "gremlin" | "graphql" | "mongo";
 
-/** Options shared by `/command`. `QueryOptions` below adds `limit`, which `/command`'s contract does not have. */
+/** Options for `/command`. `/query` takes the same ones; see `QueryOptions`. */
 export interface CommandOptions {
   language: QueryLanguage;
   command: string;
   params?: Record<string, unknown>;
+  /**
+   * Maximum number of rows to serialize into the response. When omitted, a `LIMIT` stated by the
+   * statement is honored as written, and only a statement stating none is capped by the server
+   * default (`arcadedb.server.httpQueryDefaultLimit`). Use `-1` for no cap. No value here can widen
+   * a single response past the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`): a
+   * result that would exceed it is refused with 413 instead of being truncated - so raising this
+   * is not always the fix for a `truncated: true` response; see `QueryEnvelope`'s doc comment.
+   *
+   * Up to 0.3.0 this was on `QueryOptions` only, because `/command`'s contract (`CommandRequest`)
+   * had no `limit` field, so a `command` past the server default came back truncated with no way to
+   * lift the cap (issue #151). The contract now declares it on both.
+   */
+  limit?: number;
   /**
    * Label for this statement, sent as the `X-ArcadeDB-Query-Tag` header (never in the body). The
    * server lists it under `list queries` and stops it with `terminate queries tag <label>`. Sent
@@ -29,23 +42,11 @@ export interface CommandOptions {
   queryTag?: string;
 }
 
-export interface QueryOptions extends CommandOptions {
-  /**
-   * Maximum number of rows to serialize into the response. When omitted, a `LIMIT` stated by the
-   * query is honored as written, and only a query stating none is capped by the server default
-   * (`arcadedb.server.httpQueryDefaultLimit`). Use `-1` for no cap. No value here can widen a
-   * single response past the server's hard ceiling (`arcadedb.server.httpQueryMaxResultRows`): a
-   * result that would exceed it is refused with 413 instead of being truncated - so raising this
-   * is not always the fix for a `truncated: true` response; see `QueryEnvelope`'s doc comment.
-   *
-   * `/command`'s contract (`CommandRequest`) has no `limit` field, even though the server
-   * happens to honor one there too (`PostCommandHandler` reads it as optional) - this is
-   * query-only so a typed public option is never shipped with no contract behind it. Adding
-   * `limit` to `CommandOptions` later, if the contract grows one, is additive and
-   * backwards-compatible.
-   */
-  limit?: number;
-}
+/**
+ * Options for `/query`: the same as `CommandOptions`, `limit` included. Kept as its own name
+ * because it is public API; it no longer adds anything.
+ */
+export type QueryOptions = CommandOptions;
 
 /** Options for `ArcadeDBDatabase.transaction`. */
 export interface TransactionOptions {

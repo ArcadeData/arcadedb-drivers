@@ -257,6 +257,22 @@ describe("queryStream / commandStream: ndjson events over a real container", () 
     expect(last?.stats?.truncated).toBe(true);
   });
 
+  it("command honours limit, buffered and streamed (issue #151)", async () => {
+    const db = rootServer.db(DB_NAME);
+    const capped = await db.command({ language: "sql", command: `SELECT FROM ${STREAM_TYPE}`, limit: 3 });
+    expect([capped.result.length, capped.returned, capped.truncated]).toEqual([3, 3, true]);
+
+    const everything = await db.command({ language: "sql", command: `SELECT FROM ${STREAM_TYPE}`, limit: -1 });
+    expect([everything.result.length, everything.truncated]).toEqual([STREAM_ROW_COUNT, false]);
+
+    const events: NdJsonQueryEvent[] = [];
+    for await (const event of db.commandStream({ language: "sql", command: `SELECT FROM ${STREAM_TYPE}`, limit: 3 })) {
+      events.push(event);
+    }
+    expect(events.filter((e) => e.record !== undefined).length).toBe(3);
+    expect(events[events.length - 1]?.stats?.truncated).toBe(true);
+  });
+
   it("the buffered query over the same data returns the same rows streaming did - streaming did not change the buffered path", async () => {
     const db = rootServer.db(DB_NAME);
 

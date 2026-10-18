@@ -264,9 +264,17 @@ class AsyncArcadeDBDatabase:
         language: QueryLanguage,
         command: str,
         params: dict[str, Any] | None = None,
+        limit: int | None = None,
         query_tag: str | None = None,
     ) -> QueryEnvelope:
         """Executes a command and returns the whole result envelope - not just `result`.
+
+        `limit` caps the rows serialized into the response, exactly as on `query`: omitted, a
+        `LIMIT` stated by the statement is honoured and only one stating none is capped by the
+        server default; `-1` means no cap; no value widens a response past the server's hard
+        ceiling, which refuses a larger result with 413. Up to 0.3.0 `command` had no `limit`, so
+        a result past the server default came back truncated with no way to lift the cap
+        (issue #151).
 
         `query_tag` labels the statement: it is sent as the `X-ArcadeDB-Query-Tag` request header,
         `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
@@ -279,7 +287,7 @@ class AsyncArcadeDBDatabase:
         response = await execute_command.asyncio_detailed(
             self.name,
             client=self._client,
-            body=build_command_request(language=language, command=command, params=params),
+            body=build_command_request(language=language, command=command, params=params, limit=limit),
             arcadedb_session_id=session_kwarg(self._session_id),
             x_arcade_db_query_tag=query_tag_kwarg(query_tag),
         )
@@ -348,11 +356,12 @@ class AsyncArcadeDBDatabase:
         language: QueryLanguage,
         command: str,
         params: dict[str, Any] | None = None,
+        limit: int | None = None,
         query_tag: str | None = None,
     ) -> AsyncGenerator[NdJsonQueryEvent, None]:
         """Streams `POST /api/v1/command/{database}` as `application/x-ndjson` - the `command`
         twin of `query_stream`; see its docstring for what an event carries and why an in-band
-        `error` raises `ArcadeDBError`.
+        `error` raises `ArcadeDBError`. `limit` is as on `command`.
 
         Only a READ-ONLY statement can stream: a mutating one (`UPDATE`, `INSERT`, DDL,
         `RETURN AFTER` included) is refused with an `ArcadeDBError` (HTTP 400) before it produces a
@@ -374,6 +383,7 @@ class AsyncArcadeDBDatabase:
             language=language,
             command=command,
             params=params,
+            limit=limit,
             query_tag=query_tag,
         )
 

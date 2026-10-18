@@ -59,14 +59,14 @@ func (d *Database) QueryStream(ctx context.Context, lang QueryLanguage, command 
 // CommandStream is QueryStream for /command. It accepts read-only statements only: the
 // server streams rows for a statement that produces them, and a statement that changes
 // data does not fit the row-per-line shape. Use Command for those. The trailer and error
-// rules are QueryStream's. opts takes WithQueryTag.
+// rules are QueryStream's. opts takes WithLimit and WithQueryTag.
 func (d *Database) CommandStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...CommandOption) iter.Seq2[StreamEvent, error] {
 	o := commandCallOptions(opts)
 	return d.stream(func() (*http.Response, error) {
 		accept := generated.ExecuteCommandParamsAcceptApplicationxNdjson
 		return d.srv.raw.ExecuteCommand(ctx, d.name,
 			&generated.ExecuteCommandParams{ArcadedbSessionId: d.sessionParam(), Accept: &accept, XArcadeDBQueryTag: queryTagParam(o.queryTag)},
-			buildCommandRequest(lang, command, params))
+			buildCommandRequest(lang, command, params, o))
 	})
 }
 

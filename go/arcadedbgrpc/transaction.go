@@ -80,8 +80,25 @@ func (e *TxError) Unwrap() error { return e.Err }
 //
 // RPC failures, from BeginTransaction, CommitTransaction or a handle call fn returns, are
 // grpc-go status errors, unwrapped.
-func (c *Client) Transaction(ctx context.Context, database string, fn func(tx *TxHandle) error) (err error) {
-	begun, err := c.raw.BeginTransaction(ctx, &generated.BeginTransactionRequest{Database: database})
+//
+// opts takes WithIsolationLevel. Without it BeginTransactionRequest.Isolation is left unset
+// and the server begins at READ_COMMITTED (see WithIsolationLevel). A
+// level other than ReadCommitted or RepeatableRead returns an error wrapping
+// ErrInvalidIsolationLevel before any RPC.
+func (c *Client) Transaction(ctx context.Context, database string, fn func(tx *TxHandle) error, opts ...TransactionOption) (err error) {
+	var o txOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	req := &generated.BeginTransactionRequest{Database: database}
+	if o.isolation != nil {
+		isolation, ok := isolations[*o.isolation]
+		if !ok {
+			return fmt.Errorf("%w %q: use ReadCommitted or RepeatableRead", ErrInvalidIsolationLevel, string(*o.isolation))
+		}
+		req.Isolation = isolation
+	}
+	begun, err := c.raw.BeginTransaction(ctx, req)
 	if err != nil {
 		return err
 	}

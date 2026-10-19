@@ -82,7 +82,11 @@ func (e *TxError) Unwrap() error { return e.Err }
 // with the begin, so the server refuses the nesting (409) rather than silently opening an
 // independent transaction.
 //
-// opts takes WithQueryTag, which is sent with the begin request only: the server labels
+// opts takes WithIsolationLevel and WithQueryTag. The isolation level is sent in the
+// begin request's body; without one the server begins at the database's default level. A
+// level other than ReadCommitted or RepeatableRead returns an error wrapping
+// ErrInvalidIsolationLevel before anything is sent. The query tag is sent with the begin
+// request only: the server labels
 // every statement of the session that carries no tag of its own with it, so the statements
 // fn runs inherit it without sending it, and one passed its own WithQueryTag overrides it.
 //
@@ -97,7 +101,10 @@ func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error,
 	for _, opt := range opts {
 		opt.applyTransaction(&o)
 	}
-	sid, err := d.beginTransaction(ctx, o.queryTag)
+	if o.isolation != nil && !generated.BeginRequestIsolationLevel(*o.isolation).Valid() {
+		return fmt.Errorf("%w %q: use ReadCommitted or RepeatableRead", ErrInvalidIsolationLevel, string(*o.isolation))
+	}
+	sid, err := d.beginTransaction(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -140,13 +147,19 @@ func (d *Database) Transaction(ctx context.Context, fn func(tx *Database) error,
 // beginTransaction returns the new transaction's session id. The endpoint answers 204
 // with no body and carries the id in the arcadedb-session-id RESPONSE header, which the
 // generator exposes as Headers204; a non-204 2xx leaves that nil, so the raw header is
-// the fallback. A non-empty queryTag is sent as X-ArcadeDB-Query-Tag. The body is an empty
-// BeginRequest, sent as {}: with no isolationLevel the server begins at the database's
-// default isolation level, exactly as it does for a request with no body.
-func (d *Database) beginTransaction(ctx context.Context, queryTag string) (string, error) {
+// the fallback. A non-empty o.queryTag is sent as X-ArcadeDB-Query-Tag. The body is a
+// BeginRequest carrying o.isolation, or empty and sent as {} when there is none: with no
+// isolationLevel the server begins at the database's default isolation level, exactly as
+// it does for a request with no body.
+func (d *Database) beginTransaction(ctx context.Context, o callOptions) (string, error) {
+	var body generated.BeginRequest
+	if o.isolation != nil {
+		level := generated.BeginRequestIsolationLevel(*o.isolation)
+		body.IsolationLevel = &level
+	}
 	resp, err := d.srv.raw.BeginTransactionWithResponse(ctx, d.name,
-		&generated.BeginTransactionParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(queryTag)},
-		generated.BeginRequest{})
+		&generated.BeginTransactionParams{ArcadedbSessionId: d.sessionParam(), XArcadeDBQueryTag: queryTagParam(o.queryTag)},
+		body)
 	if err != nil {
 		return "", err
 	}

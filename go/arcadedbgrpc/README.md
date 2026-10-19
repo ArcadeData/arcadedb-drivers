@@ -410,6 +410,31 @@ Two more cases, ported from the Python client:
 Both rollbacks run under `context.WithoutCancel(ctx)`: the commonest reason `fn` fails is that
 `ctx` was cancelled or timed out, and a rollback bound to that `ctx` would never reach the server.
 
+### Isolation level
+
+```go
+err := client.Transaction(ctx, "mydb", func(tx *arcadedbgrpc.TxHandle) error {
+	// ...
+	return nil
+}, arcadedbgrpc.WithIsolationLevel(arcadedbgrpc.RepeatableRead))
+```
+
+`WithIsolationLevel` takes `arcadedbgrpc.ReadCommitted` or `arcadedbgrpc.RepeatableRead`, sent as
+`BeginTransactionRequest.Isolation`; any other value is refused, before any RPC, with an error
+wrapping `ErrInvalidIsolationLevel`. The generated `TransactionIsolation` enum has two more values,
+and `Transaction` deliberately accepts neither (set `Isolation` through `Raw()` for them):
+the server runs `READ_UNCOMMITTED` as `READ_COMMITTED` and `SERIALIZABLE` as `REPEATABLE_READ`
+without saying so (ArcadeData/arcadedb#10322), so a caller who asked for `SERIALIZABLE` would get a
+weaker level than it named. Under `REPEATABLE_READ` a record the transaction has read keeps the
+value it was read with, even after another session commits a change to it; under `READ_COMMITTED` a
+second read shows that change.
+
+With no level the request's `isolation` field is left at proto3's zero value, which the server
+begins at `READ_COMMITTED`. That is also every database's default, so today it is what the HTTP
+client gets with no level too. The two can differ only on an embedded server whose own code changed
+a database's default with `setTransactionIsolationLevel`: HTTP's `/begin` honours that default and
+gRPC does not. No server configuration key changes it.
+
 ### What the handle binds, and why it copies
 
 `TxHandle` has the ten unary data-plane methods that carry a transaction (`ExecuteQuery`,

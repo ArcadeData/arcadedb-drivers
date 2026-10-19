@@ -62,7 +62,7 @@ export type { ArcadeDBErrorExtras } from "./errors.js";
 export { basicAuth, bearerAuth } from "./auth.js";
 export type { APIToken, CreateAPITokenOptions, CreatedAPIToken, LoginResult, Session } from "./facade/session.js";
 export type { Middleware } from "openapi-fetch";
-export type { CommandOptions, QueryEnvelope, QueryLanguage, QueryOptions, TransactionOptions } from "./facade/data.js";
+export type { CommandOptions, IsolationLevel, QueryEnvelope, QueryLanguage, QueryOptions, TransactionOptions } from "./facade/data.js";
 export type { NdJsonQueryEvent } from "./facade/stream.js";
 export type {
   CreateUserOptions,
@@ -408,7 +408,8 @@ export class ArcadeDBDatabase {
    *    server-side until `arcadedb.server.httpSessionExpireTimeout` reaps it.
    *
    * `opts.queryTag` labels the transaction: it is sent on the begin request only, and the server
-   * applies it to every statement that carries no tag of its own.
+   * applies it to every statement that carries no tag of its own. `opts.isolationLevel` chooses
+   * `READ_COMMITTED` or `REPEATABLE_READ`; omitted, the database's default applies.
    *
    * A rollback cannot undo a statement that published a commit while it ran - an explicit
    * `BATCH n` boundary, or a statement with its own `COMMIT`. The server marks such a response
@@ -417,7 +418,7 @@ export class ArcadeDBDatabase {
    * for a body containing such statements - part of it is already durable.
    */
   async transaction<T>(fn: (tx: ArcadeDBDatabase) => Promise<T>, opts: TransactionOptions = {}): Promise<T> {
-    const sessionId = await beginTransaction(this.client, this.name, opts.queryTag);
+    const sessionId = await beginTransaction(this.client, this.name, opts.queryTag, opts.isolationLevel);
     const tx = new ArcadeDBDatabase(this.client, this.name, sessionId, this.insertContext);
     let result: T;
     try {

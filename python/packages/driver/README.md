@@ -494,6 +494,21 @@ transaction durable before the block ends, and the server flags that response wi
 through `.raw`), so a caller that replays a transaction block on conflict must know, from the
 statements it runs, whether the block can partially commit - and must not replay one that did.
 
+### Isolation level
+
+```python
+with db.transaction(isolation_level="REPEATABLE_READ") as tx:
+    ...
+```
+
+`isolation_level` is `"READ_COMMITTED"` or `"REPEATABLE_READ"` (the exported `IsolationLevel` type),
+sent in the begin request's body, on the sync and the async client alike. `None`, the default, sends
+no body and the server begins at the database's default isolation level. Under `REPEATABLE_READ` a
+record the transaction has read keeps the value it was read with, even after another session commits
+a change to it; under `READ_COMMITTED` a second read shows that change. Those two are the engine's
+only levels. Any other value raises `ValueError` from `transaction()` itself, before anything is
+sent: the type hint does not stop a caller passing another string at runtime.
+
 ## Labelling statements: `query_tag`
 
 `query`, `command`, `query_stream`, `command_stream`, `batch_load`, `batch_load_stream` and

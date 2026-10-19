@@ -431,6 +431,24 @@ transaction later did. `tx.BatchLoad` therefore returns `ErrBatchInTransaction`,
 with `errors.Is`. Run the load from the outer `db` instead, knowing it is not atomic with the
 transaction.
 
+### Isolation level
+
+```go
+err := db.Transaction(ctx, func(tx *arcadedb.Database) error {
+	// ...
+	return nil
+}, arcadedb.WithIsolationLevel(arcadedb.RepeatableRead))
+```
+
+`WithIsolationLevel` takes `arcadedb.ReadCommitted` or `arcadedb.RepeatableRead`, sent in the begin
+request's body. Without it the body is `{}` and the server begins at the database's default
+isolation level. Under `REPEATABLE_READ` a record the transaction has read keeps the value it was
+read with, even after another session commits a change to it; under `READ_COMMITTED` a second read
+shows that change. Those two are the engine's only levels. `IsolationLevel` is a string type, so any
+other value compiles; `Transaction` refuses it with an error wrapping `ErrInvalidIsolationLevel`
+before anything is sent. `WithIsolationLevel` is a `TransactionOption` only: passing it to `Query`
+or `Command` does not compile.
+
 ## Vector, hybrid and full-text search: `db.Vector()`
 
 ```go

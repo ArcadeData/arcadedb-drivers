@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 
+from .._generated.models.begin_request import BeginRequest
+from .._generated.models.begin_request_isolation_level import BeginRequestIsolationLevel
 from .._generated.models.command_request import CommandRequest
 from .._generated.models.command_request_params import CommandRequestParams
 from .._generated.models.query_request import QueryRequest
@@ -30,7 +32,29 @@ QUERY_TAG_HEADER = "X-ArcadeDB-Query-Tag"
 #: runs several SQL statements, separated by `;`, as one script.
 QueryLanguage = Literal["sql", "sqlscript", "cypher", "gremlin", "graphql", "mongo"]
 
+#: A transaction isolation level `/begin` accepts. The engine has these two and no others; the
+#: server refuses any other value, a differently-cased one included, with 400.
+IsolationLevel = Literal["READ_COMMITTED", "REPEATABLE_READ"]
+
 T = TypeVar("T")
+
+
+def begin_request(isolation_level: IsolationLevel | None) -> BeginRequest | Unset:
+    """The body for `POST /api/v1/begin/{database}`: `UNSET` - no body at all, so the server
+    begins at the database's default isolation level - when `isolation_level` is `None`.
+
+    Raises `ValueError` for any other value than the two `IsolationLevel` names, before anything
+    is sent: the type hint does not stop a caller passing an arbitrary string at runtime.
+    """
+    if isolation_level is None:
+        return UNSET
+    try:
+        level = BeginRequestIsolationLevel(isolation_level)
+    except ValueError:
+        raise ValueError(
+            f"unsupported isolation_level {isolation_level!r}: use 'READ_COMMITTED' or 'REPEATABLE_READ'"
+        ) from None
+    return BeginRequest(isolation_level=level)
 
 
 def _or(value: T | Unset, fallback: T) -> T:

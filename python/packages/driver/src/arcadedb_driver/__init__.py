@@ -54,6 +54,7 @@ from .facade.admin import (
 from .facade.batch import BatchOptions, batch_load, batch_load_stream
 from .facade.dashboards import GrafanaNamespace, PromQLNamespace
 from .facade.data import (
+    IsolationLevel,
     QueryEnvelope,
     QueryLanguage,
     build_command_request,
@@ -121,6 +122,7 @@ __all__ = [
     "EdgeRow",
     "InsertSession",
     "InsertSessionError",
+    "IsolationLevel",
     "LoginResult",
     "NotSessionTokenError",
     "OpenTransaction",
@@ -381,7 +383,9 @@ class ArcadeDBDatabase:
             self._client, self.name, vertices=vertices, edges=edges, options=options, query_tag=query_tag
         )
 
-    def transaction(self, *, query_tag: str | None = None) -> Transaction:
+    def transaction(
+        self, *, query_tag: str | None = None, isolation_level: IsolationLevel | None = None
+    ) -> Transaction:
         """Runs a block inside a server-side transaction; see `Transaction`.
 
         `query_tag` is sent as `X-ArcadeDB-Query-Tag` on the begin request only, and the server
@@ -389,8 +393,12 @@ class ArcadeDBDatabase:
         statement that passes its own `query_tag` through the handle overrides it. No header is
         sent when it is `None` or empty. The client does not check its length or characters (the
         256-character cap is the server's rule, and not one to count on a refusal from).
+
+        `isolation_level` is `"READ_COMMITTED"` or `"REPEATABLE_READ"`, sent in the begin request's
+        body; `None` sends none, and the server begins at the database's default level. Any other
+        value raises `ValueError` here, before anything is sent.
         """
-        return Transaction(self._client, self.name, query_tag=query_tag)
+        return Transaction(self._client, self.name, query_tag=query_tag, isolation_level=isolation_level)
 
     def insert_session(
         self,

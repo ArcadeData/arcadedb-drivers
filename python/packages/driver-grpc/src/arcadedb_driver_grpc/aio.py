@@ -33,6 +33,7 @@ from .stream import (
     _build_time_series_chunk,
     _EndOfStream,
 )
+from .transaction import IsolationLevel, _begin_request
 
 if TYPE_CHECKING:
     # `ArcadeDbServiceAsyncStub`/`ArcadeDbAdminServiceAsyncStub` exist ONLY in the
@@ -551,15 +552,25 @@ class AsyncTransaction:
     not have to relearn the shape. The inline `begin`/`commit`/`rollback` flags on
     `TransactionContext` stay reachable by setting the field directly; this wrapper covers
     only the EXPLICIT model, which is the one that needs the safety.
+
+    `isolation_level` is `READ_COMMITTED` or `REPEATABLE_READ`, sent as
+    `BeginTransactionRequest.isolation`. `None` leaves the field unset, and the server then begins
+    at `READ_COMMITTED`, which is also every database's default. It ignores a default an embedding
+    application changed with `setTransactionIsolationLevel`, which the HTTP driver's
+    `transaction()` honours with no level; no server configuration key changes it. Any other value
+    raises `ValueError` when the transaction is created, before anything is sent.
     """
 
-    def __init__(self, raw: ArcadeDbServiceAsyncStub, database: str) -> None:
+    def __init__(
+        self, raw: ArcadeDbServiceAsyncStub, database: str, isolation_level: IsolationLevel | None = None
+    ) -> None:
+        self._begin = _begin_request(database, isolation_level)  # an unsupported level raises here
         self._raw = raw
         self._database = database
         self._transaction_id = ""
 
     async def __aenter__(self) -> AsyncTransactionHandle:
-        begun = await self._raw.BeginTransaction(messages.BeginTransactionRequest(database=self._database))
+        begun = await self._raw.BeginTransaction(self._begin)
         if not begun.transaction_id.strip():
             # Running the caller's writes outside a real transaction while implying
             # otherwise is the worst outcome available here, so this refuses before the
@@ -897,7 +908,7 @@ class AsyncArcadeDBGrpcClient:
             _envelope_time_series_chunks(request), timeout=timeout, metadata=metadata
         )
 
-    def transaction(self, database: str) -> AsyncTransaction:
+    def transaction(self, database: str, *, isolation_level: IsolationLevel | None = None) -> AsyncTransaction:
         """Runs a server-side transaction: `async with client.transaction("db") as tx:`.
 
         Returns an `AsyncTransaction` without contacting the server; `BeginTransaction` is
@@ -912,8 +923,12 @@ class AsyncArcadeDBGrpcClient:
         not take effect; any exception from the body - an `asyncio.CancelledError` included
         - rolls back and propagates. See `AsyncTransaction.__aexit__` for the failure paths
         and the one known gap (a second cancellation arriving mid-rollback).
+
+        `isolation_level` is `"READ_COMMITTED"` or `"REPEATABLE_READ"`; `None` leaves it to the
+        server, which begins at `READ_COMMITTED`. Any other value raises `ValueError` here, before
+        anything is sent. See `AsyncTransaction`.
         """
-        return AsyncTransaction(self.raw, database)
+        return AsyncTransaction(self.raw, database, isolation_level)
 
 
 def create_client(

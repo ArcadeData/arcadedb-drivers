@@ -48,8 +48,21 @@ export interface CommandOptions {
  */
 export type QueryOptions = CommandOptions;
 
+/**
+ * A transaction isolation level `/begin` accepts. The engine has these two and no others; the
+ * server refuses any other value, a differently-cased one included, with 400.
+ */
+export type IsolationLevel = NonNullable<components["schemas"]["BeginRequest"]["isolationLevel"]>;
+
 /** Options for `ArcadeDBDatabase.transaction`. */
 export interface TransactionOptions {
+  /**
+   * Isolation level the transaction runs at, sent in the begin request's body. Omitted, no body is
+   * sent and the server begins at the database's default isolation level. Under `REPEATABLE_READ`,
+   * a record the transaction has read keeps the value it was read with even after another session
+   * commits a change to it; under `READ_COMMITTED` a second read sees that change.
+   */
+  isolationLevel?: IsolationLevel;
   /**
    * Label for the whole transaction, sent as `X-ArcadeDB-Query-Tag` on the begin request only. The
    * server applies it to every statement of the session that carries no tag of its own, so
@@ -209,13 +222,21 @@ export async function executeCommand<T = unknown>(
  * body). Threading that id onto every subsequent call is what keeps those
  * calls inside the transaction; the actual threading happens in the caller.
  *
+ * `isolationLevel`, when set, is the request's only body; with none there is no body at all.
+ *
  * `queryTag`, when set, goes on this request only. The server applies it to every statement of
  * the session that carries no tag of its own, so it is not repeated on the statements, nor sent
  * on commit/rollback.
  */
-export async function beginTransaction(client: RawClient, database: string, queryTag?: string): Promise<string> {
+export async function beginTransaction(
+  client: RawClient,
+  database: string,
+  queryTag?: string,
+  isolationLevel?: IsolationLevel,
+): Promise<string> {
   const { error, response } = await client.POST("/api/v1/begin/{database}", {
     params: { path: { database }, header: queryTagHeader(queryTag) },
+    body: isolationLevel === undefined ? undefined : { isolationLevel },
   });
   if (!response.ok) {
     throw ArcadeDBError.fromResponse(response, error);

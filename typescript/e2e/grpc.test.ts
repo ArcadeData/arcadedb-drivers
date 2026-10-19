@@ -7,7 +7,7 @@ import { basicAuth, createClient as createHttpClient } from "../packages/driver/
 import type { ArcadeDBServer } from "../packages/driver/src/index.js";
 import { unwrap } from "../packages/driver/src/internal/unwrap.js";
 import { bearerAuth, createClient as createGrpcClient, passwordAuth } from "../packages/driver-grpc/src/index.js";
-import type { ArcadeDBGrpcClient, GrpcRecordSchema, GrpcValueSchema, InsertSummarySchema, Interceptor, QueryResultSchema } from "../packages/driver-grpc/src/index.js";
+import type { ArcadeDBGrpcClient, GrpcRecordSchema, GrpcValueSchema, InsertSummarySchema, Interceptor, IsolationLevel, QueryResultSchema } from "../packages/driver-grpc/src/index.js";
 // Imported from the package entry point, not from the version-stamped generated file: this is the
 // path the README documents to callers (`import { TimeSeriesPrecision } from "@arcadedb/driver-grpc"`),
 // `src/index.ts` re-exports the whole generated module for exactly that reason, and naming the
@@ -578,4 +578,50 @@ describe("TimeSeriesWriteStream, TimeSeriesQuery and TimeSeriesLatest", () => {
     // The most recently written point above carries timestamp 3000.
     expect(tsValue?.kind.case === "int64Value" ? tsValue.kind.value : undefined).toBe(3_000n);
   });
+});
+
+// Issue #152: read one record twice inside a transaction while another session changes it in
+// between. REPEATABLE_READ keeps the first value; READ_COMMITTED, and an unset level, show the
+// committed change.
+describe("transaction isolationLevel against a real gRPC server", () => {
+  const cases: { level?: IsolationLevel; second: string }[] = [
+    { level: "REPEATABLE_READ", second: "one" },
+    { level: "READ_COMMITTED", second: "two" },
+    { second: "two" },
+  ];
+  for (const { level, second } of cases) {
+    it(`${level ?? "unset"}: the second read sees "${second}"`, async () => {
+      const marker = `iso-${level ?? "unset"}`;
+      const set = (v: string) =>
+        rootGrpc.raw.executeCommand({
+          database: DB_NAME,
+          command: `UPDATE Person SET v = '${v}' WHERE name = '${marker}'`,
+          language: "sql",
+        });
+      await rootGrpc.raw.executeCommand({
+        database: DB_NAME,
+        command: `INSERT INTO Person SET name = '${marker}', v = 'one'`,
+        language: "sql",
+      });
+
+      const reads = await rootGrpc.transaction(
+        DB_NAME,
+        async (tx) => {
+          const read = async () => {
+            const response = await tx.executeQuery({
+              query: `SELECT v FROM Person WHERE name = '${marker}'`,
+              language: "sql",
+            });
+            return readStringProperty(response.results[0].records[0], "v");
+          };
+          const first = await read();
+          await set("two"); // outside the transaction
+          return [first, await read()];
+        },
+        level === undefined ? {} : { isolationLevel: level },
+      );
+
+      expect(reads).toEqual(["one", second]);
+    });
+  }
 });

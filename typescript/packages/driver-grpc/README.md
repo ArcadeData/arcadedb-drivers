@@ -220,6 +220,28 @@ on individual RPCs, so a call can begin or end a transaction as a side effect wi
 flags - they are reachable through `grpc.raw` for callers who want that shape, but `transaction`
 only ever manages transactions the explicit way.
 
+### Isolation level
+
+```ts
+await grpc.transaction("mydb", async (tx) => { /* ... */ }, { isolationLevel: "REPEATABLE_READ" });
+```
+
+`isolationLevel` is `"READ_COMMITTED"` or `"REPEATABLE_READ"` (the exported `IsolationLevel` type),
+sent as `BeginTransactionRequest.isolation`. Any other value throws before `beginTransaction` is
+sent. The generated `TransactionIsolation` enum has two more members, and `transaction` deliberately
+accepts neither (set `isolation` through `raw.beginTransaction` for them): the server runs
+`READ_UNCOMMITTED` as `READ_COMMITTED` and `SERIALIZABLE` as `REPEATABLE_READ` without saying so
+(ArcadeData/arcadedb#10322), so a caller who asked for `SERIALIZABLE` would get a weaker level than
+it named. Under `REPEATABLE_READ` a record the transaction has read keeps the value it was read
+with, even after another session commits a change to it; under `READ_COMMITTED` a second read shows
+that change.
+
+With no level the request's `isolation` field is left at proto3's zero value, which the server
+begins at `READ_COMMITTED`. That is also every database's default, so today it is what the HTTP
+client gets with no level too. The two can differ only on an embedded server whose own code changed
+a database's default with `setTransactionIsolationLevel`: HTTP's `/begin` honours that default and
+gRPC does not. No server configuration key changes it.
+
 ### `insertStream` joins a `transaction()`; `bulkInsert` does not
 
 ```ts

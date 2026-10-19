@@ -14,7 +14,7 @@ export type {
   TimeSeriesQueryRequestInit,
   TimeSeriesWriteStreamRequest,
 } from "./stream.js";
-export type { TransactionHandle } from "./transaction.js";
+export type { IsolationLevel, TransactionHandle, TransactionOptions } from "./transaction.js";
 // Re-exports every data-plane message type and enum the generated client uses (`GrpcRecord`,
 // `QueryResult`, `StreamQueryRequest_RetrievalMode`, etc.) under this package's own entry point.
 // Without this, a caller cannot name a single one of these types without importing the
@@ -114,6 +114,8 @@ export interface ArcadeDBGrpcClient {
    * Runs `fn` inside a server-side transaction: begins it, hands `fn` a {@link TransactionHandle}
    * whose calls all carry the transaction's id automatically, and ends the transaction on both
    * the success and failure paths - see `transaction.ts` for the full commit/rollback contract.
+   * `opts.isolationLevel` is `READ_COMMITTED` or `REPEATABLE_READ`; unset, the server uses
+   * `READ_COMMITTED`.
    * This is the safety net against the transaction-hijack, silent-data-loss and leaked-transaction
    * defects the 2026-07 gRPC audit filed as #5040-#5042.
    */

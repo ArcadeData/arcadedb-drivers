@@ -11,7 +11,9 @@ import pytest
 from arcadedb_driver_grpc import (
     ArcadeDBGrpcClient,
     InsertStreamRequest,
+    IsolationLevel,
     TimeSeriesWriteStreamRequest,
+    TransactionHandle,
     create_client,
     messages,
 )
@@ -419,3 +421,41 @@ def test_an_empty_time_series_write_stream_is_accepted_with_an_all_zero_summary(
     assert list(summary.non_time_series_types) == []
     assert list(summary.unavailable_types) == []
     assert list(summary.undeclared_keys) == []
+
+
+@pytest.mark.parametrize(
+    ("isolation_level", "second_read"),
+    [("REPEATABLE_READ", "one"), ("READ_COMMITTED", "two"), (None, "two")],
+)
+def test_transaction_isolation_level(
+    client: ArcadeDBGrpcClient, grpc_database: str, isolation_level: IsolationLevel | None, second_read: str
+) -> None:
+    # Issue #152, as in the HTTP suite: REPEATABLE_READ keeps the value the transaction first
+    # read; READ_COMMITTED, and an unset level, shows the change another session committed.
+    marker = f"iso{uuid.uuid4().hex[:8]}"
+
+    def set_v(value: str) -> None:
+        client.raw.ExecuteCommand(
+            messages.ExecuteCommandRequest(
+                database=grpc_database,
+                language="sql",
+                command=f"UPDATE Person SET v = '{value}' WHERE name = '{marker}'",
+            )
+        )
+
+    def read(tx: TransactionHandle) -> str:
+        response = tx.execute_query(
+            messages.ExecuteQueryRequest(language="sql", query=f"SELECT v FROM Person WHERE name = '{marker}'")
+        )
+        return response.results[0].records[0].properties["v"].string_value
+
+    client.raw.ExecuteCommand(
+        messages.ExecuteCommandRequest(
+            database=grpc_database, language="sql", command=f"INSERT INTO Person SET name = '{marker}', v = 'one'"
+        )
+    )
+    with client.transaction(grpc_database, isolation_level=isolation_level) as tx:
+        first = read(tx)
+        set_v("two")  # outside the transaction
+        second = read(tx)
+    assert (first, second) == ("one", second_read)

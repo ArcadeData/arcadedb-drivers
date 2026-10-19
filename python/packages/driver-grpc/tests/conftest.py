@@ -38,6 +38,7 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self.ts_chunks: list[pb2.TimeSeriesWriteChunk] = []
         self.ts_query_requests: list[pb2.TimeSeriesQueryRequest] = []
         self.ts_latest_requests: list[pb2.TimeSeriesLatestRequest] = []
+        self.begin_requests: list[pb2.BeginTransactionRequest] = []
         # `time_remaining()` is how a call's `timeout=` reaching the server is observed:
         # `grpc._server`'s sync `ServicerContext` returns a huge sentinel float (~9.2e18)
         # when no deadline was set and the actual remaining seconds otherwise; `grpc.aio`'s
@@ -140,6 +141,7 @@ class RecordingServicer(pb2_grpc.ArcadeDbServiceServicer):
         self, request: pb2.BeginTransactionRequest, context: grpc.ServicerContext
     ) -> pb2.BeginTransactionResponse:
         self._record("BeginTransaction", context)
+        self.begin_requests.append(request)
         return pb2.BeginTransactionResponse(transaction_id=self.transaction_id)
 
     def CommitTransaction(

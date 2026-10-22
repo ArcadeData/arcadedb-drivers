@@ -39,21 +39,20 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// The engine provides two isolation levels, READ_COMMITTED and REPEATABLE_READ. The other two values are accepted
-// and silently mapped to the nearest level the engine provides, with no error and no signal in the response:
-//
-//	READ_UNCOMMITTED -> READ_COMMITTED (it is also the proto default, so an unset field begins at READ_COMMITTED)
-//	SERIALIZABLE     -> REPEATABLE_READ (a WEAKER level than the one asked for)
-//
-// A caller that needs serializable isolation does not get it. The HTTP API (POST /api/v1/begin/{database}) accepts
-// only READ_COMMITTED and REPEATABLE_READ and refuses any other value with 400.
+// The engine provides two isolation levels, READ_COMMITTED and REPEATABLE_READ. BeginTransaction accepts those two, and
+// READ_UNCOMMITTED, which runs at the STRONGER READ_COMMITTED (it is also the proto default, so an unset field begins at
+// READ_COMMITTED). SERIALIZABLE is NOT supported: BeginTransaction refuses it with INVALID_ARGUMENT, as it refuses a value
+// this server does not know, because starting it at a weaker level would be the one failure a caller cannot detect. The
+// HTTP API (POST /api/v1/begin/{database}), SQL, openCypher and PostgreSQL refuse it the same way. The constant stays in
+// the enum so that a client generated from an older version of this file still compiles and gets that answer, not
+// a silent downgrade.
 type TransactionIsolation int32
 
 const (
 	TransactionIsolation_READ_UNCOMMITTED TransactionIsolation = 0 // runs as READ_COMMITTED
 	TransactionIsolation_READ_COMMITTED   TransactionIsolation = 1
 	TransactionIsolation_REPEATABLE_READ  TransactionIsolation = 2
-	TransactionIsolation_SERIALIZABLE     TransactionIsolation = 3 // runs as REPEATABLE_READ
+	TransactionIsolation_SERIALIZABLE     TransactionIsolation = 3 // NOT SUPPORTED: refused with INVALID_ARGUMENT
 )
 
 // Enum value maps for TransactionIsolation.
@@ -2415,8 +2414,13 @@ type BeginTransactionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TransactionId string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"`
 	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// The isolation level the transaction really runs at: READ_COMMITTED or REPEATABLE_READ, which differs from the requested
+	// value only for READ_UNCOMMITTED, run at the stronger READ_COMMITTED (see TransactionIsolation). A server that predates
+	// this field leaves it unset, which reads as READ_UNCOMMITTED (the proto default) - a value a current server never
+	// reports, so it means "unknown".
+	EffectiveIsolation TransactionIsolation `protobuf:"varint,3,opt,name=effective_isolation,json=effectiveIsolation,proto3,enum=com.arcadedb.grpc.TransactionIsolation" json:"effective_isolation,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *BeginTransactionResponse) Reset() {
@@ -2461,6 +2465,13 @@ func (x *BeginTransactionResponse) GetTimestamp() int64 {
 		return x.Timestamp
 	}
 	return 0
+}
+
+func (x *BeginTransactionResponse) GetEffectiveIsolation() TransactionIsolation {
+	if x != nil {
+		return x.EffectiveIsolation
+	}
+	return TransactionIsolation_READ_UNCOMMITTED
 }
 
 type CommitTransactionRequest struct {
@@ -11726,10 +11737,11 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x17BeginTransactionRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12H\n" +
 	"\vcredentials\x18\x02 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\x12E\n" +
-	"\tisolation\x18\x03 \x01(\x0e2'.com.arcadedb.grpc.TransactionIsolationR\tisolation\"_\n" +
+	"\tisolation\x18\x03 \x01(\x0e2'.com.arcadedb.grpc.TransactionIsolationR\tisolation\"\xb9\x01\n" +
 	"\x18BeginTransactionResponse\x12%\n" +
 	"\x0etransaction_id\x18\x01 \x01(\tR\rtransactionId\x12\x1c\n" +
-	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\xad\x01\n" +
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12X\n" +
+	"\x13effective_isolation\x18\x03 \x01(\x0e2'.com.arcadedb.grpc.TransactionIsolationR\x12effectiveIsolation\"\xad\x01\n" +
 	"\x18CommitTransactionRequest\x12G\n" +
 	"\vtransaction\x18\x01 \x01(\v2%.com.arcadedb.grpc.TransactionContextR\vtransaction\x12H\n" +
 	"\vcredentials\x18\x02 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\"\x8b\x01\n" +
@@ -12791,300 +12803,301 @@ var file_arcadedb_server_proto_depIdxs = []int32{
 	22,  // 30: com.arcadedb.grpc.FullTextSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
 	8,   // 31: com.arcadedb.grpc.BeginTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
 	0,   // 32: com.arcadedb.grpc.BeginTransactionRequest.isolation:type_name -> com.arcadedb.grpc.TransactionIsolation
-	9,   // 33: com.arcadedb.grpc.CommitTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 34: com.arcadedb.grpc.CommitTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 35: com.arcadedb.grpc.RollbackTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 36: com.arcadedb.grpc.RollbackTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 37: com.arcadedb.grpc.DeleteRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 38: com.arcadedb.grpc.DeleteRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	180, // 39: com.arcadedb.grpc.ExecuteCommandRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
-	8,   // 40: com.arcadedb.grpc.ExecuteCommandRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 41: com.arcadedb.grpc.ExecuteCommandRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	18,  // 42: com.arcadedb.grpc.ExecuteCommandRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
-	11,  // 43: com.arcadedb.grpc.ExecuteCommandResponse.records:type_name -> com.arcadedb.grpc.GrpcRecord
-	39,  // 44: com.arcadedb.grpc.ExecuteCommandResponse.stats:type_name -> com.arcadedb.grpc.QueryUpdateStats
-	181, // 45: com.arcadedb.grpc.ExecuteQueryRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
-	8,   // 46: com.arcadedb.grpc.ExecuteQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 47: com.arcadedb.grpc.ExecuteQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	18,  // 48: com.arcadedb.grpc.ExecuteQueryRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
-	20,  // 49: com.arcadedb.grpc.ExecuteQueryResponse.results:type_name -> com.arcadedb.grpc.QueryResult
-	8,   // 50: com.arcadedb.grpc.CreateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	11,  // 51: com.arcadedb.grpc.CreateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
-	9,   // 52: com.arcadedb.grpc.CreateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	182, // 53: com.arcadedb.grpc.PropertiesUpdate.properties:type_name -> com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
-	8,   // 54: com.arcadedb.grpc.UpdateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	11,  // 55: com.arcadedb.grpc.UpdateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
-	44,  // 56: com.arcadedb.grpc.UpdateRecordRequest.partial:type_name -> com.arcadedb.grpc.PropertiesUpdate
-	9,   // 57: com.arcadedb.grpc.UpdateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 58: com.arcadedb.grpc.LookupByRidRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 59: com.arcadedb.grpc.LookupByRidRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	11,  // 60: com.arcadedb.grpc.LookupByRidResponse.record:type_name -> com.arcadedb.grpc.GrpcRecord
-	49,  // 61: com.arcadedb.grpc.InsertSummary.errors:type_name -> com.arcadedb.grpc.InsertError
-	193, // 62: com.arcadedb.grpc.InsertSummary.started_at:type_name -> google.protobuf.Timestamp
-	193, // 63: com.arcadedb.grpc.InsertSummary.finished_at:type_name -> google.protobuf.Timestamp
-	5,   // 64: com.arcadedb.grpc.InsertOptions.conflict_mode:type_name -> com.arcadedb.grpc.InsertOptions.ConflictMode
-	6,   // 65: com.arcadedb.grpc.InsertOptions.transaction_mode:type_name -> com.arcadedb.grpc.InsertOptions.TransactionMode
-	8,   // 66: com.arcadedb.grpc.InsertOptions.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 67: com.arcadedb.grpc.BulkInsertRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	51,  // 68: com.arcadedb.grpc.BulkInsertRequest.options:type_name -> com.arcadedb.grpc.InsertOptions
-	11,  // 69: com.arcadedb.grpc.BulkInsertRequest.rows:type_name -> com.arcadedb.grpc.GrpcRecord
-	9,   // 70: com.arcadedb.grpc.BulkInsertRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 71: com.arcadedb.grpc.InsertChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	51,  // 72: com.arcadedb.grpc.InsertChunk.options:type_name -> com.arcadedb.grpc.InsertOptions
-	9,   // 73: com.arcadedb.grpc.InsertChunk.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	11,  // 74: com.arcadedb.grpc.InsertChunk.rows:type_name -> com.arcadedb.grpc.GrpcRecord
-	55,  // 75: com.arcadedb.grpc.InsertRequest.start:type_name -> com.arcadedb.grpc.Start
-	53,  // 76: com.arcadedb.grpc.InsertRequest.chunk:type_name -> com.arcadedb.grpc.InsertChunk
-	56,  // 77: com.arcadedb.grpc.InsertRequest.commit:type_name -> com.arcadedb.grpc.Commit
-	8,   // 78: com.arcadedb.grpc.Start.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	51,  // 79: com.arcadedb.grpc.Start.options:type_name -> com.arcadedb.grpc.InsertOptions
-	9,   // 80: com.arcadedb.grpc.Start.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	58,  // 81: com.arcadedb.grpc.InsertResponse.started:type_name -> com.arcadedb.grpc.Started
-	59,  // 82: com.arcadedb.grpc.InsertResponse.batch_ack:type_name -> com.arcadedb.grpc.BatchAck
-	60,  // 83: com.arcadedb.grpc.InsertResponse.committed:type_name -> com.arcadedb.grpc.Committed
-	49,  // 84: com.arcadedb.grpc.InsertResponse.error:type_name -> com.arcadedb.grpc.InsertError
-	49,  // 85: com.arcadedb.grpc.BatchAck.errors:type_name -> com.arcadedb.grpc.InsertError
-	50,  // 86: com.arcadedb.grpc.Committed.summary:type_name -> com.arcadedb.grpc.InsertSummary
-	7,   // 87: com.arcadedb.grpc.GraphBatchRecord.kind:type_name -> com.arcadedb.grpc.GraphBatchRecord.Kind
-	183, // 88: com.arcadedb.grpc.GraphBatchRecord.properties:type_name -> com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
-	8,   // 89: com.arcadedb.grpc.GraphBatchChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	61,  // 90: com.arcadedb.grpc.GraphBatchChunk.options:type_name -> com.arcadedb.grpc.GraphBatchOptions
-	62,  // 91: com.arcadedb.grpc.GraphBatchChunk.records:type_name -> com.arcadedb.grpc.GraphBatchRecord
-	184, // 92: com.arcadedb.grpc.GraphBatchResult.id_mapping:type_name -> com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
-	185, // 93: com.arcadedb.grpc.TimeSeriesPoint.tags:type_name -> com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
-	186, // 94: com.arcadedb.grpc.TimeSeriesPoint.fields:type_name -> com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
-	8,   // 95: com.arcadedb.grpc.TimeSeriesWriteRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	1,   // 96: com.arcadedb.grpc.TimeSeriesWriteRequest.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
-	65,  // 97: com.arcadedb.grpc.TimeSeriesWriteRequest.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
-	8,   // 98: com.arcadedb.grpc.TimeSeriesWriteChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	1,   // 99: com.arcadedb.grpc.TimeSeriesWriteChunk.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
-	65,  // 100: com.arcadedb.grpc.TimeSeriesWriteChunk.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
-	187, // 101: com.arcadedb.grpc.TimeSeriesTagFilter.equals:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
-	2,   // 102: com.arcadedb.grpc.TimeSeriesAggregationRequest.type:type_name -> com.arcadedb.grpc.TimeSeriesAggregationType
-	70,  // 103: com.arcadedb.grpc.TimeSeriesAggregation.requests:type_name -> com.arcadedb.grpc.TimeSeriesAggregationRequest
-	8,   // 104: com.arcadedb.grpc.TimeSeriesQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	69,  // 105: com.arcadedb.grpc.TimeSeriesQueryRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
-	71,  // 106: com.arcadedb.grpc.TimeSeriesQueryRequest.aggregation:type_name -> com.arcadedb.grpc.TimeSeriesAggregation
-	9,   // 107: com.arcadedb.grpc.TimeSeriesQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	12,  // 108: com.arcadedb.grpc.TimeSeriesRow.values:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 109: com.arcadedb.grpc.TimeSeriesBucket.values:type_name -> com.arcadedb.grpc.GrpcValue
-	73,  // 110: com.arcadedb.grpc.TimeSeriesQueryResult.rows:type_name -> com.arcadedb.grpc.TimeSeriesRow
-	74,  // 111: com.arcadedb.grpc.TimeSeriesQueryResult.buckets:type_name -> com.arcadedb.grpc.TimeSeriesBucket
-	8,   // 112: com.arcadedb.grpc.TimeSeriesLatestRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	69,  // 113: com.arcadedb.grpc.TimeSeriesLatestRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
-	9,   // 114: com.arcadedb.grpc.TimeSeriesLatestRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	73,  // 115: com.arcadedb.grpc.TimeSeriesLatestResponse.latest:type_name -> com.arcadedb.grpc.TimeSeriesRow
-	8,   // 116: com.arcadedb.grpc.PingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 117: com.arcadedb.grpc.GetServerInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	188, // 118: com.arcadedb.grpc.GetServerInfoResponse.features:type_name -> com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
-	8,   // 119: com.arcadedb.grpc.ListDatabasesRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 120: com.arcadedb.grpc.ExistsDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 121: com.arcadedb.grpc.CreateDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 122: com.arcadedb.grpc.DropDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 123: com.arcadedb.grpc.GetDatabaseInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	189, // 124: com.arcadedb.grpc.GetDatabaseInfoResponse.properties:type_name -> com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
-	8,   // 125: com.arcadedb.grpc.CreateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	190, // 126: com.arcadedb.grpc.CreateUserRequest.databases:type_name -> com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
-	8,   // 127: com.arcadedb.grpc.DeleteUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 128: com.arcadedb.grpc.OpenDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 129: com.arcadedb.grpc.CloseDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 130: com.arcadedb.grpc.AlignDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 131: com.arcadedb.grpc.SetServerSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 132: com.arcadedb.grpc.SetDatabaseSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	191, // 133: com.arcadedb.grpc.UserInfo.databases:type_name -> com.arcadedb.grpc.UserInfo.DatabasesEntry
-	8,   // 134: com.arcadedb.grpc.ListUsersRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	107, // 135: com.arcadedb.grpc.ListUsersResponse.users:type_name -> com.arcadedb.grpc.UserInfo
-	192, // 136: com.arcadedb.grpc.UserDatabases.databases:type_name -> com.arcadedb.grpc.UserDatabases.DatabasesEntry
-	8,   // 137: com.arcadedb.grpc.UpdateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	110, // 138: com.arcadedb.grpc.UpdateUserRequest.databases:type_name -> com.arcadedb.grpc.UserDatabases
-	8,   // 139: com.arcadedb.grpc.ListGroupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 140: com.arcadedb.grpc.SaveGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 141: com.arcadedb.grpc.DeleteGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 142: com.arcadedb.grpc.ListApiTokensRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	119, // 143: com.arcadedb.grpc.ListApiTokensResponse.tokens:type_name -> com.arcadedb.grpc.ApiTokenInfo
-	8,   // 144: com.arcadedb.grpc.CreateApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	119, // 145: com.arcadedb.grpc.CreateApiTokenResponse.info:type_name -> com.arcadedb.grpc.ApiTokenInfo
-	8,   // 146: com.arcadedb.grpc.DeleteApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 147: com.arcadedb.grpc.GetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 148: com.arcadedb.grpc.SetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 149: com.arcadedb.grpc.ListBackupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	130, // 150: com.arcadedb.grpc.ListBackupsResponse.backups:type_name -> com.arcadedb.grpc.BackupInfo
-	8,   // 151: com.arcadedb.grpc.TriggerBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 152: com.arcadedb.grpc.DeleteBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 153: com.arcadedb.grpc.ProfilerStartRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 154: com.arcadedb.grpc.ProfilerStopRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 155: com.arcadedb.grpc.ProfilerResetRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 156: com.arcadedb.grpc.ProfilerResultsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 157: com.arcadedb.grpc.ProfilerListRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 158: com.arcadedb.grpc.ProfilerLoadRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	145, // 159: com.arcadedb.grpc.ProfilerListResponse.runs:type_name -> com.arcadedb.grpc.ProfilerRunInfo
-	8,   // 160: com.arcadedb.grpc.RestoreBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 161: com.arcadedb.grpc.RestoreDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 162: com.arcadedb.grpc.ImportDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 163: com.arcadedb.grpc.GetServerEventsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 164: com.arcadedb.grpc.ShutdownRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 165: com.arcadedb.grpc.DisconnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 166: com.arcadedb.grpc.ConnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 167: com.arcadedb.grpc.AcceptDivergedDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 168: com.arcadedb.grpc.AcceptStaleSnapshotRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 169: com.arcadedb.grpc.GetProgressRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	164, // 170: com.arcadedb.grpc.GetProgressResponse.operations:type_name -> com.arcadedb.grpc.OperationProgressInfo
-	8,   // 171: com.arcadedb.grpc.ListSessionsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	167, // 172: com.arcadedb.grpc.ListSessionsResponse.sessions:type_name -> com.arcadedb.grpc.SessionInfo
-	12,  // 173: com.arcadedb.grpc.GrpcRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 174: com.arcadedb.grpc.GrpcMap.EntriesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 175: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 176: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 177: com.arcadedb.grpc.HybridSearchResponse.LegsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 178: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 179: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 180: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 181: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 182: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 183: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 184: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	106, // 185: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	106, // 186: com.arcadedb.grpc.UserInfo.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	106, // 187: com.arcadedb.grpc.UserDatabases.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	19,  // 188: com.arcadedb.grpc.ArcadeDbService.StreamQuery:input_type -> com.arcadedb.grpc.StreamQueryRequest
-	37,  // 189: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:input_type -> com.arcadedb.grpc.ExecuteCommandRequest
-	40,  // 190: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:input_type -> com.arcadedb.grpc.ExecuteQueryRequest
-	42,  // 191: com.arcadedb.grpc.ArcadeDbService.CreateRecord:input_type -> com.arcadedb.grpc.CreateRecordRequest
-	45,  // 192: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:input_type -> com.arcadedb.grpc.UpdateRecordRequest
-	47,  // 193: com.arcadedb.grpc.ArcadeDbService.LookupByRid:input_type -> com.arcadedb.grpc.LookupByRidRequest
-	35,  // 194: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:input_type -> com.arcadedb.grpc.DeleteRecordRequest
-	52,  // 195: com.arcadedb.grpc.ArcadeDbService.BulkInsert:input_type -> com.arcadedb.grpc.BulkInsertRequest
-	53,  // 196: com.arcadedb.grpc.ArcadeDbService.InsertStream:input_type -> com.arcadedb.grpc.InsertChunk
-	54,  // 197: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:input_type -> com.arcadedb.grpc.InsertRequest
-	29,  // 198: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:input_type -> com.arcadedb.grpc.BeginTransactionRequest
-	31,  // 199: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:input_type -> com.arcadedb.grpc.CommitTransactionRequest
-	33,  // 200: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:input_type -> com.arcadedb.grpc.RollbackTransactionRequest
-	63,  // 201: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:input_type -> com.arcadedb.grpc.GraphBatchChunk
-	21,  // 202: com.arcadedb.grpc.ArcadeDbService.VectorSearch:input_type -> com.arcadedb.grpc.VectorSearchRequest
-	25,  // 203: com.arcadedb.grpc.ArcadeDbService.HybridSearch:input_type -> com.arcadedb.grpc.HybridSearchRequest
-	27,  // 204: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:input_type -> com.arcadedb.grpc.FullTextSearchRequest
-	66,  // 205: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:input_type -> com.arcadedb.grpc.TimeSeriesWriteRequest
-	67,  // 206: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:input_type -> com.arcadedb.grpc.TimeSeriesWriteChunk
-	72,  // 207: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:input_type -> com.arcadedb.grpc.TimeSeriesQueryRequest
-	76,  // 208: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:input_type -> com.arcadedb.grpc.TimeSeriesLatestRequest
-	78,  // 209: com.arcadedb.grpc.ArcadeDbAdminService.Ping:input_type -> com.arcadedb.grpc.PingRequest
-	80,  // 210: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:input_type -> com.arcadedb.grpc.GetServerInfoRequest
-	82,  // 211: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:input_type -> com.arcadedb.grpc.ListDatabasesRequest
-	84,  // 212: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:input_type -> com.arcadedb.grpc.ExistsDatabaseRequest
-	86,  // 213: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:input_type -> com.arcadedb.grpc.CreateDatabaseRequest
-	88,  // 214: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:input_type -> com.arcadedb.grpc.DropDatabaseRequest
-	96,  // 215: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:input_type -> com.arcadedb.grpc.OpenDatabaseRequest
-	98,  // 216: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:input_type -> com.arcadedb.grpc.CloseDatabaseRequest
-	100, // 217: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:input_type -> com.arcadedb.grpc.AlignDatabaseRequest
-	90,  // 218: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:input_type -> com.arcadedb.grpc.GetDatabaseInfoRequest
-	165, // 219: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:input_type -> com.arcadedb.grpc.GetProgressRequest
-	92,  // 220: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:input_type -> com.arcadedb.grpc.CreateUserRequest
-	111, // 221: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:input_type -> com.arcadedb.grpc.UpdateUserRequest
-	94,  // 222: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:input_type -> com.arcadedb.grpc.DeleteUserRequest
-	108, // 223: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:input_type -> com.arcadedb.grpc.ListUsersRequest
-	113, // 224: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:input_type -> com.arcadedb.grpc.ListGroupsRequest
-	115, // 225: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:input_type -> com.arcadedb.grpc.SaveGroupRequest
-	117, // 226: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:input_type -> com.arcadedb.grpc.DeleteGroupRequest
-	120, // 227: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:input_type -> com.arcadedb.grpc.ListApiTokensRequest
-	122, // 228: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:input_type -> com.arcadedb.grpc.CreateApiTokenRequest
-	124, // 229: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:input_type -> com.arcadedb.grpc.DeleteApiTokenRequest
-	102, // 230: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:input_type -> com.arcadedb.grpc.SetServerSettingRequest
-	104, // 231: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:input_type -> com.arcadedb.grpc.SetDatabaseSettingRequest
-	126, // 232: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:input_type -> com.arcadedb.grpc.GetBackupConfigRequest
-	128, // 233: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:input_type -> com.arcadedb.grpc.SetBackupConfigRequest
-	131, // 234: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:input_type -> com.arcadedb.grpc.ListBackupsRequest
-	133, // 235: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:input_type -> com.arcadedb.grpc.TriggerBackupRequest
-	135, // 236: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:input_type -> com.arcadedb.grpc.DeleteBackupRequest
-	137, // 237: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:input_type -> com.arcadedb.grpc.ProfilerStartRequest
-	138, // 238: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:input_type -> com.arcadedb.grpc.ProfilerStopRequest
-	139, // 239: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:input_type -> com.arcadedb.grpc.ProfilerResetRequest
-	140, // 240: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:input_type -> com.arcadedb.grpc.ProfilerResultsRequest
-	141, // 241: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:input_type -> com.arcadedb.grpc.ProfilerListRequest
-	142, // 242: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:input_type -> com.arcadedb.grpc.ProfilerLoadRequest
-	147, // 243: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:input_type -> com.arcadedb.grpc.RestoreBackupRequest
-	148, // 244: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:input_type -> com.arcadedb.grpc.RestoreDatabaseRequest
-	149, // 245: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:input_type -> com.arcadedb.grpc.ImportDatabaseRequest
-	152, // 246: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:input_type -> com.arcadedb.grpc.GetServerEventsRequest
-	154, // 247: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:input_type -> com.arcadedb.grpc.ShutdownRequest
-	156, // 248: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:input_type -> com.arcadedb.grpc.DisconnectClusterRequest
-	158, // 249: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:input_type -> com.arcadedb.grpc.ConnectClusterRequest
-	160, // 250: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:input_type -> com.arcadedb.grpc.AcceptDivergedDatabaseRequest
-	162, // 251: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:input_type -> com.arcadedb.grpc.AcceptStaleSnapshotRequest
-	168, // 252: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:input_type -> com.arcadedb.grpc.ListSessionsRequest
-	170, // 253: com.arcadedb.grpc.ArcadeDbAdminService.Health:input_type -> com.arcadedb.grpc.HealthRequest
-	172, // 254: com.arcadedb.grpc.ArcadeDbAdminService.Ready:input_type -> com.arcadedb.grpc.ReadyRequest
-	20,  // 255: com.arcadedb.grpc.ArcadeDbService.StreamQuery:output_type -> com.arcadedb.grpc.QueryResult
-	38,  // 256: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:output_type -> com.arcadedb.grpc.ExecuteCommandResponse
-	41,  // 257: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:output_type -> com.arcadedb.grpc.ExecuteQueryResponse
-	43,  // 258: com.arcadedb.grpc.ArcadeDbService.CreateRecord:output_type -> com.arcadedb.grpc.CreateRecordResponse
-	46,  // 259: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:output_type -> com.arcadedb.grpc.UpdateRecordResponse
-	48,  // 260: com.arcadedb.grpc.ArcadeDbService.LookupByRid:output_type -> com.arcadedb.grpc.LookupByRidResponse
-	36,  // 261: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:output_type -> com.arcadedb.grpc.DeleteRecordResponse
-	50,  // 262: com.arcadedb.grpc.ArcadeDbService.BulkInsert:output_type -> com.arcadedb.grpc.InsertSummary
-	50,  // 263: com.arcadedb.grpc.ArcadeDbService.InsertStream:output_type -> com.arcadedb.grpc.InsertSummary
-	57,  // 264: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:output_type -> com.arcadedb.grpc.InsertResponse
-	30,  // 265: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:output_type -> com.arcadedb.grpc.BeginTransactionResponse
-	32,  // 266: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:output_type -> com.arcadedb.grpc.CommitTransactionResponse
-	34,  // 267: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:output_type -> com.arcadedb.grpc.RollbackTransactionResponse
-	64,  // 268: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:output_type -> com.arcadedb.grpc.GraphBatchResult
-	23,  // 269: com.arcadedb.grpc.ArcadeDbService.VectorSearch:output_type -> com.arcadedb.grpc.VectorSearchResponse
-	26,  // 270: com.arcadedb.grpc.ArcadeDbService.HybridSearch:output_type -> com.arcadedb.grpc.HybridSearchResponse
-	28,  // 271: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:output_type -> com.arcadedb.grpc.FullTextSearchResponse
-	68,  // 272: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
-	68,  // 273: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
-	75,  // 274: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:output_type -> com.arcadedb.grpc.TimeSeriesQueryResult
-	77,  // 275: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:output_type -> com.arcadedb.grpc.TimeSeriesLatestResponse
-	79,  // 276: com.arcadedb.grpc.ArcadeDbAdminService.Ping:output_type -> com.arcadedb.grpc.PingResponse
-	81,  // 277: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:output_type -> com.arcadedb.grpc.GetServerInfoResponse
-	83,  // 278: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:output_type -> com.arcadedb.grpc.ListDatabasesResponse
-	85,  // 279: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:output_type -> com.arcadedb.grpc.ExistsDatabaseResponse
-	87,  // 280: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:output_type -> com.arcadedb.grpc.CreateDatabaseResponse
-	89,  // 281: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:output_type -> com.arcadedb.grpc.DropDatabaseResponse
-	97,  // 282: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:output_type -> com.arcadedb.grpc.OpenDatabaseResponse
-	99,  // 283: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:output_type -> com.arcadedb.grpc.CloseDatabaseResponse
-	101, // 284: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:output_type -> com.arcadedb.grpc.AlignDatabaseResponse
-	91,  // 285: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:output_type -> com.arcadedb.grpc.GetDatabaseInfoResponse
-	166, // 286: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:output_type -> com.arcadedb.grpc.GetProgressResponse
-	93,  // 287: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:output_type -> com.arcadedb.grpc.CreateUserResponse
-	112, // 288: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:output_type -> com.arcadedb.grpc.UpdateUserResponse
-	95,  // 289: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:output_type -> com.arcadedb.grpc.DeleteUserResponse
-	109, // 290: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:output_type -> com.arcadedb.grpc.ListUsersResponse
-	114, // 291: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:output_type -> com.arcadedb.grpc.ListGroupsResponse
-	116, // 292: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:output_type -> com.arcadedb.grpc.SaveGroupResponse
-	118, // 293: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:output_type -> com.arcadedb.grpc.DeleteGroupResponse
-	121, // 294: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:output_type -> com.arcadedb.grpc.ListApiTokensResponse
-	123, // 295: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:output_type -> com.arcadedb.grpc.CreateApiTokenResponse
-	125, // 296: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:output_type -> com.arcadedb.grpc.DeleteApiTokenResponse
-	103, // 297: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:output_type -> com.arcadedb.grpc.SetServerSettingResponse
-	105, // 298: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:output_type -> com.arcadedb.grpc.SetDatabaseSettingResponse
-	127, // 299: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:output_type -> com.arcadedb.grpc.GetBackupConfigResponse
-	129, // 300: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:output_type -> com.arcadedb.grpc.SetBackupConfigResponse
-	132, // 301: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:output_type -> com.arcadedb.grpc.ListBackupsResponse
-	134, // 302: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:output_type -> com.arcadedb.grpc.TriggerBackupResponse
-	136, // 303: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:output_type -> com.arcadedb.grpc.DeleteBackupResponse
-	143, // 304: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:output_type -> com.arcadedb.grpc.ProfilerStateResponse
-	144, // 305: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	143, // 306: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:output_type -> com.arcadedb.grpc.ProfilerStateResponse
-	144, // 307: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	146, // 308: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:output_type -> com.arcadedb.grpc.ProfilerListResponse
-	144, // 309: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	150, // 310: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:output_type -> com.arcadedb.grpc.RestoreProgress
-	150, // 311: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:output_type -> com.arcadedb.grpc.RestoreProgress
-	151, // 312: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:output_type -> com.arcadedb.grpc.ImportProgress
-	153, // 313: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:output_type -> com.arcadedb.grpc.GetServerEventsResponse
-	155, // 314: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:output_type -> com.arcadedb.grpc.ShutdownResponse
-	157, // 315: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:output_type -> com.arcadedb.grpc.DisconnectClusterResponse
-	159, // 316: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:output_type -> com.arcadedb.grpc.ConnectClusterResponse
-	161, // 317: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:output_type -> com.arcadedb.grpc.AcceptDivergedDatabaseResponse
-	163, // 318: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:output_type -> com.arcadedb.grpc.AcceptStaleSnapshotResponse
-	169, // 319: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:output_type -> com.arcadedb.grpc.ListSessionsResponse
-	171, // 320: com.arcadedb.grpc.ArcadeDbAdminService.Health:output_type -> com.arcadedb.grpc.HealthResponse
-	173, // 321: com.arcadedb.grpc.ArcadeDbAdminService.Ready:output_type -> com.arcadedb.grpc.ReadyResponse
-	255, // [255:322] is the sub-list for method output_type
-	188, // [188:255] is the sub-list for method input_type
-	188, // [188:188] is the sub-list for extension type_name
-	188, // [188:188] is the sub-list for extension extendee
-	0,   // [0:188] is the sub-list for field type_name
+	0,   // 33: com.arcadedb.grpc.BeginTransactionResponse.effective_isolation:type_name -> com.arcadedb.grpc.TransactionIsolation
+	9,   // 34: com.arcadedb.grpc.CommitTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 35: com.arcadedb.grpc.CommitTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 36: com.arcadedb.grpc.RollbackTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 37: com.arcadedb.grpc.RollbackTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 38: com.arcadedb.grpc.DeleteRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 39: com.arcadedb.grpc.DeleteRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	180, // 40: com.arcadedb.grpc.ExecuteCommandRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
+	8,   // 41: com.arcadedb.grpc.ExecuteCommandRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 42: com.arcadedb.grpc.ExecuteCommandRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	18,  // 43: com.arcadedb.grpc.ExecuteCommandRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
+	11,  // 44: com.arcadedb.grpc.ExecuteCommandResponse.records:type_name -> com.arcadedb.grpc.GrpcRecord
+	39,  // 45: com.arcadedb.grpc.ExecuteCommandResponse.stats:type_name -> com.arcadedb.grpc.QueryUpdateStats
+	181, // 46: com.arcadedb.grpc.ExecuteQueryRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
+	8,   // 47: com.arcadedb.grpc.ExecuteQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 48: com.arcadedb.grpc.ExecuteQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	18,  // 49: com.arcadedb.grpc.ExecuteQueryRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
+	20,  // 50: com.arcadedb.grpc.ExecuteQueryResponse.results:type_name -> com.arcadedb.grpc.QueryResult
+	8,   // 51: com.arcadedb.grpc.CreateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	11,  // 52: com.arcadedb.grpc.CreateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
+	9,   // 53: com.arcadedb.grpc.CreateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	182, // 54: com.arcadedb.grpc.PropertiesUpdate.properties:type_name -> com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
+	8,   // 55: com.arcadedb.grpc.UpdateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	11,  // 56: com.arcadedb.grpc.UpdateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
+	44,  // 57: com.arcadedb.grpc.UpdateRecordRequest.partial:type_name -> com.arcadedb.grpc.PropertiesUpdate
+	9,   // 58: com.arcadedb.grpc.UpdateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 59: com.arcadedb.grpc.LookupByRidRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 60: com.arcadedb.grpc.LookupByRidRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	11,  // 61: com.arcadedb.grpc.LookupByRidResponse.record:type_name -> com.arcadedb.grpc.GrpcRecord
+	49,  // 62: com.arcadedb.grpc.InsertSummary.errors:type_name -> com.arcadedb.grpc.InsertError
+	193, // 63: com.arcadedb.grpc.InsertSummary.started_at:type_name -> google.protobuf.Timestamp
+	193, // 64: com.arcadedb.grpc.InsertSummary.finished_at:type_name -> google.protobuf.Timestamp
+	5,   // 65: com.arcadedb.grpc.InsertOptions.conflict_mode:type_name -> com.arcadedb.grpc.InsertOptions.ConflictMode
+	6,   // 66: com.arcadedb.grpc.InsertOptions.transaction_mode:type_name -> com.arcadedb.grpc.InsertOptions.TransactionMode
+	8,   // 67: com.arcadedb.grpc.InsertOptions.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 68: com.arcadedb.grpc.BulkInsertRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	51,  // 69: com.arcadedb.grpc.BulkInsertRequest.options:type_name -> com.arcadedb.grpc.InsertOptions
+	11,  // 70: com.arcadedb.grpc.BulkInsertRequest.rows:type_name -> com.arcadedb.grpc.GrpcRecord
+	9,   // 71: com.arcadedb.grpc.BulkInsertRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 72: com.arcadedb.grpc.InsertChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	51,  // 73: com.arcadedb.grpc.InsertChunk.options:type_name -> com.arcadedb.grpc.InsertOptions
+	9,   // 74: com.arcadedb.grpc.InsertChunk.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	11,  // 75: com.arcadedb.grpc.InsertChunk.rows:type_name -> com.arcadedb.grpc.GrpcRecord
+	55,  // 76: com.arcadedb.grpc.InsertRequest.start:type_name -> com.arcadedb.grpc.Start
+	53,  // 77: com.arcadedb.grpc.InsertRequest.chunk:type_name -> com.arcadedb.grpc.InsertChunk
+	56,  // 78: com.arcadedb.grpc.InsertRequest.commit:type_name -> com.arcadedb.grpc.Commit
+	8,   // 79: com.arcadedb.grpc.Start.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	51,  // 80: com.arcadedb.grpc.Start.options:type_name -> com.arcadedb.grpc.InsertOptions
+	9,   // 81: com.arcadedb.grpc.Start.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	58,  // 82: com.arcadedb.grpc.InsertResponse.started:type_name -> com.arcadedb.grpc.Started
+	59,  // 83: com.arcadedb.grpc.InsertResponse.batch_ack:type_name -> com.arcadedb.grpc.BatchAck
+	60,  // 84: com.arcadedb.grpc.InsertResponse.committed:type_name -> com.arcadedb.grpc.Committed
+	49,  // 85: com.arcadedb.grpc.InsertResponse.error:type_name -> com.arcadedb.grpc.InsertError
+	49,  // 86: com.arcadedb.grpc.BatchAck.errors:type_name -> com.arcadedb.grpc.InsertError
+	50,  // 87: com.arcadedb.grpc.Committed.summary:type_name -> com.arcadedb.grpc.InsertSummary
+	7,   // 88: com.arcadedb.grpc.GraphBatchRecord.kind:type_name -> com.arcadedb.grpc.GraphBatchRecord.Kind
+	183, // 89: com.arcadedb.grpc.GraphBatchRecord.properties:type_name -> com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
+	8,   // 90: com.arcadedb.grpc.GraphBatchChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	61,  // 91: com.arcadedb.grpc.GraphBatchChunk.options:type_name -> com.arcadedb.grpc.GraphBatchOptions
+	62,  // 92: com.arcadedb.grpc.GraphBatchChunk.records:type_name -> com.arcadedb.grpc.GraphBatchRecord
+	184, // 93: com.arcadedb.grpc.GraphBatchResult.id_mapping:type_name -> com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
+	185, // 94: com.arcadedb.grpc.TimeSeriesPoint.tags:type_name -> com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
+	186, // 95: com.arcadedb.grpc.TimeSeriesPoint.fields:type_name -> com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
+	8,   // 96: com.arcadedb.grpc.TimeSeriesWriteRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	1,   // 97: com.arcadedb.grpc.TimeSeriesWriteRequest.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
+	65,  // 98: com.arcadedb.grpc.TimeSeriesWriteRequest.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
+	8,   // 99: com.arcadedb.grpc.TimeSeriesWriteChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	1,   // 100: com.arcadedb.grpc.TimeSeriesWriteChunk.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
+	65,  // 101: com.arcadedb.grpc.TimeSeriesWriteChunk.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
+	187, // 102: com.arcadedb.grpc.TimeSeriesTagFilter.equals:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
+	2,   // 103: com.arcadedb.grpc.TimeSeriesAggregationRequest.type:type_name -> com.arcadedb.grpc.TimeSeriesAggregationType
+	70,  // 104: com.arcadedb.grpc.TimeSeriesAggregation.requests:type_name -> com.arcadedb.grpc.TimeSeriesAggregationRequest
+	8,   // 105: com.arcadedb.grpc.TimeSeriesQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	69,  // 106: com.arcadedb.grpc.TimeSeriesQueryRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
+	71,  // 107: com.arcadedb.grpc.TimeSeriesQueryRequest.aggregation:type_name -> com.arcadedb.grpc.TimeSeriesAggregation
+	9,   // 108: com.arcadedb.grpc.TimeSeriesQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	12,  // 109: com.arcadedb.grpc.TimeSeriesRow.values:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 110: com.arcadedb.grpc.TimeSeriesBucket.values:type_name -> com.arcadedb.grpc.GrpcValue
+	73,  // 111: com.arcadedb.grpc.TimeSeriesQueryResult.rows:type_name -> com.arcadedb.grpc.TimeSeriesRow
+	74,  // 112: com.arcadedb.grpc.TimeSeriesQueryResult.buckets:type_name -> com.arcadedb.grpc.TimeSeriesBucket
+	8,   // 113: com.arcadedb.grpc.TimeSeriesLatestRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	69,  // 114: com.arcadedb.grpc.TimeSeriesLatestRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
+	9,   // 115: com.arcadedb.grpc.TimeSeriesLatestRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	73,  // 116: com.arcadedb.grpc.TimeSeriesLatestResponse.latest:type_name -> com.arcadedb.grpc.TimeSeriesRow
+	8,   // 117: com.arcadedb.grpc.PingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 118: com.arcadedb.grpc.GetServerInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	188, // 119: com.arcadedb.grpc.GetServerInfoResponse.features:type_name -> com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
+	8,   // 120: com.arcadedb.grpc.ListDatabasesRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 121: com.arcadedb.grpc.ExistsDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 122: com.arcadedb.grpc.CreateDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 123: com.arcadedb.grpc.DropDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 124: com.arcadedb.grpc.GetDatabaseInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	189, // 125: com.arcadedb.grpc.GetDatabaseInfoResponse.properties:type_name -> com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
+	8,   // 126: com.arcadedb.grpc.CreateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	190, // 127: com.arcadedb.grpc.CreateUserRequest.databases:type_name -> com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
+	8,   // 128: com.arcadedb.grpc.DeleteUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 129: com.arcadedb.grpc.OpenDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 130: com.arcadedb.grpc.CloseDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 131: com.arcadedb.grpc.AlignDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 132: com.arcadedb.grpc.SetServerSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 133: com.arcadedb.grpc.SetDatabaseSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	191, // 134: com.arcadedb.grpc.UserInfo.databases:type_name -> com.arcadedb.grpc.UserInfo.DatabasesEntry
+	8,   // 135: com.arcadedb.grpc.ListUsersRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	107, // 136: com.arcadedb.grpc.ListUsersResponse.users:type_name -> com.arcadedb.grpc.UserInfo
+	192, // 137: com.arcadedb.grpc.UserDatabases.databases:type_name -> com.arcadedb.grpc.UserDatabases.DatabasesEntry
+	8,   // 138: com.arcadedb.grpc.UpdateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	110, // 139: com.arcadedb.grpc.UpdateUserRequest.databases:type_name -> com.arcadedb.grpc.UserDatabases
+	8,   // 140: com.arcadedb.grpc.ListGroupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 141: com.arcadedb.grpc.SaveGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 142: com.arcadedb.grpc.DeleteGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 143: com.arcadedb.grpc.ListApiTokensRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	119, // 144: com.arcadedb.grpc.ListApiTokensResponse.tokens:type_name -> com.arcadedb.grpc.ApiTokenInfo
+	8,   // 145: com.arcadedb.grpc.CreateApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	119, // 146: com.arcadedb.grpc.CreateApiTokenResponse.info:type_name -> com.arcadedb.grpc.ApiTokenInfo
+	8,   // 147: com.arcadedb.grpc.DeleteApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 148: com.arcadedb.grpc.GetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 149: com.arcadedb.grpc.SetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 150: com.arcadedb.grpc.ListBackupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	130, // 151: com.arcadedb.grpc.ListBackupsResponse.backups:type_name -> com.arcadedb.grpc.BackupInfo
+	8,   // 152: com.arcadedb.grpc.TriggerBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 153: com.arcadedb.grpc.DeleteBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 154: com.arcadedb.grpc.ProfilerStartRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 155: com.arcadedb.grpc.ProfilerStopRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 156: com.arcadedb.grpc.ProfilerResetRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 157: com.arcadedb.grpc.ProfilerResultsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 158: com.arcadedb.grpc.ProfilerListRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 159: com.arcadedb.grpc.ProfilerLoadRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	145, // 160: com.arcadedb.grpc.ProfilerListResponse.runs:type_name -> com.arcadedb.grpc.ProfilerRunInfo
+	8,   // 161: com.arcadedb.grpc.RestoreBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 162: com.arcadedb.grpc.RestoreDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 163: com.arcadedb.grpc.ImportDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 164: com.arcadedb.grpc.GetServerEventsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 165: com.arcadedb.grpc.ShutdownRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 166: com.arcadedb.grpc.DisconnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 167: com.arcadedb.grpc.ConnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 168: com.arcadedb.grpc.AcceptDivergedDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 169: com.arcadedb.grpc.AcceptStaleSnapshotRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 170: com.arcadedb.grpc.GetProgressRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	164, // 171: com.arcadedb.grpc.GetProgressResponse.operations:type_name -> com.arcadedb.grpc.OperationProgressInfo
+	8,   // 172: com.arcadedb.grpc.ListSessionsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	167, // 173: com.arcadedb.grpc.ListSessionsResponse.sessions:type_name -> com.arcadedb.grpc.SessionInfo
+	12,  // 174: com.arcadedb.grpc.GrpcRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 175: com.arcadedb.grpc.GrpcMap.EntriesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 176: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 177: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 178: com.arcadedb.grpc.HybridSearchResponse.LegsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 179: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 180: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 181: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 182: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 183: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 184: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 185: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	106, // 186: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	106, // 187: com.arcadedb.grpc.UserInfo.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	106, // 188: com.arcadedb.grpc.UserDatabases.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	19,  // 189: com.arcadedb.grpc.ArcadeDbService.StreamQuery:input_type -> com.arcadedb.grpc.StreamQueryRequest
+	37,  // 190: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:input_type -> com.arcadedb.grpc.ExecuteCommandRequest
+	40,  // 191: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:input_type -> com.arcadedb.grpc.ExecuteQueryRequest
+	42,  // 192: com.arcadedb.grpc.ArcadeDbService.CreateRecord:input_type -> com.arcadedb.grpc.CreateRecordRequest
+	45,  // 193: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:input_type -> com.arcadedb.grpc.UpdateRecordRequest
+	47,  // 194: com.arcadedb.grpc.ArcadeDbService.LookupByRid:input_type -> com.arcadedb.grpc.LookupByRidRequest
+	35,  // 195: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:input_type -> com.arcadedb.grpc.DeleteRecordRequest
+	52,  // 196: com.arcadedb.grpc.ArcadeDbService.BulkInsert:input_type -> com.arcadedb.grpc.BulkInsertRequest
+	53,  // 197: com.arcadedb.grpc.ArcadeDbService.InsertStream:input_type -> com.arcadedb.grpc.InsertChunk
+	54,  // 198: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:input_type -> com.arcadedb.grpc.InsertRequest
+	29,  // 199: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:input_type -> com.arcadedb.grpc.BeginTransactionRequest
+	31,  // 200: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:input_type -> com.arcadedb.grpc.CommitTransactionRequest
+	33,  // 201: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:input_type -> com.arcadedb.grpc.RollbackTransactionRequest
+	63,  // 202: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:input_type -> com.arcadedb.grpc.GraphBatchChunk
+	21,  // 203: com.arcadedb.grpc.ArcadeDbService.VectorSearch:input_type -> com.arcadedb.grpc.VectorSearchRequest
+	25,  // 204: com.arcadedb.grpc.ArcadeDbService.HybridSearch:input_type -> com.arcadedb.grpc.HybridSearchRequest
+	27,  // 205: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:input_type -> com.arcadedb.grpc.FullTextSearchRequest
+	66,  // 206: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:input_type -> com.arcadedb.grpc.TimeSeriesWriteRequest
+	67,  // 207: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:input_type -> com.arcadedb.grpc.TimeSeriesWriteChunk
+	72,  // 208: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:input_type -> com.arcadedb.grpc.TimeSeriesQueryRequest
+	76,  // 209: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:input_type -> com.arcadedb.grpc.TimeSeriesLatestRequest
+	78,  // 210: com.arcadedb.grpc.ArcadeDbAdminService.Ping:input_type -> com.arcadedb.grpc.PingRequest
+	80,  // 211: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:input_type -> com.arcadedb.grpc.GetServerInfoRequest
+	82,  // 212: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:input_type -> com.arcadedb.grpc.ListDatabasesRequest
+	84,  // 213: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:input_type -> com.arcadedb.grpc.ExistsDatabaseRequest
+	86,  // 214: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:input_type -> com.arcadedb.grpc.CreateDatabaseRequest
+	88,  // 215: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:input_type -> com.arcadedb.grpc.DropDatabaseRequest
+	96,  // 216: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:input_type -> com.arcadedb.grpc.OpenDatabaseRequest
+	98,  // 217: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:input_type -> com.arcadedb.grpc.CloseDatabaseRequest
+	100, // 218: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:input_type -> com.arcadedb.grpc.AlignDatabaseRequest
+	90,  // 219: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:input_type -> com.arcadedb.grpc.GetDatabaseInfoRequest
+	165, // 220: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:input_type -> com.arcadedb.grpc.GetProgressRequest
+	92,  // 221: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:input_type -> com.arcadedb.grpc.CreateUserRequest
+	111, // 222: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:input_type -> com.arcadedb.grpc.UpdateUserRequest
+	94,  // 223: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:input_type -> com.arcadedb.grpc.DeleteUserRequest
+	108, // 224: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:input_type -> com.arcadedb.grpc.ListUsersRequest
+	113, // 225: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:input_type -> com.arcadedb.grpc.ListGroupsRequest
+	115, // 226: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:input_type -> com.arcadedb.grpc.SaveGroupRequest
+	117, // 227: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:input_type -> com.arcadedb.grpc.DeleteGroupRequest
+	120, // 228: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:input_type -> com.arcadedb.grpc.ListApiTokensRequest
+	122, // 229: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:input_type -> com.arcadedb.grpc.CreateApiTokenRequest
+	124, // 230: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:input_type -> com.arcadedb.grpc.DeleteApiTokenRequest
+	102, // 231: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:input_type -> com.arcadedb.grpc.SetServerSettingRequest
+	104, // 232: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:input_type -> com.arcadedb.grpc.SetDatabaseSettingRequest
+	126, // 233: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:input_type -> com.arcadedb.grpc.GetBackupConfigRequest
+	128, // 234: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:input_type -> com.arcadedb.grpc.SetBackupConfigRequest
+	131, // 235: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:input_type -> com.arcadedb.grpc.ListBackupsRequest
+	133, // 236: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:input_type -> com.arcadedb.grpc.TriggerBackupRequest
+	135, // 237: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:input_type -> com.arcadedb.grpc.DeleteBackupRequest
+	137, // 238: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:input_type -> com.arcadedb.grpc.ProfilerStartRequest
+	138, // 239: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:input_type -> com.arcadedb.grpc.ProfilerStopRequest
+	139, // 240: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:input_type -> com.arcadedb.grpc.ProfilerResetRequest
+	140, // 241: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:input_type -> com.arcadedb.grpc.ProfilerResultsRequest
+	141, // 242: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:input_type -> com.arcadedb.grpc.ProfilerListRequest
+	142, // 243: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:input_type -> com.arcadedb.grpc.ProfilerLoadRequest
+	147, // 244: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:input_type -> com.arcadedb.grpc.RestoreBackupRequest
+	148, // 245: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:input_type -> com.arcadedb.grpc.RestoreDatabaseRequest
+	149, // 246: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:input_type -> com.arcadedb.grpc.ImportDatabaseRequest
+	152, // 247: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:input_type -> com.arcadedb.grpc.GetServerEventsRequest
+	154, // 248: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:input_type -> com.arcadedb.grpc.ShutdownRequest
+	156, // 249: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:input_type -> com.arcadedb.grpc.DisconnectClusterRequest
+	158, // 250: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:input_type -> com.arcadedb.grpc.ConnectClusterRequest
+	160, // 251: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:input_type -> com.arcadedb.grpc.AcceptDivergedDatabaseRequest
+	162, // 252: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:input_type -> com.arcadedb.grpc.AcceptStaleSnapshotRequest
+	168, // 253: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:input_type -> com.arcadedb.grpc.ListSessionsRequest
+	170, // 254: com.arcadedb.grpc.ArcadeDbAdminService.Health:input_type -> com.arcadedb.grpc.HealthRequest
+	172, // 255: com.arcadedb.grpc.ArcadeDbAdminService.Ready:input_type -> com.arcadedb.grpc.ReadyRequest
+	20,  // 256: com.arcadedb.grpc.ArcadeDbService.StreamQuery:output_type -> com.arcadedb.grpc.QueryResult
+	38,  // 257: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:output_type -> com.arcadedb.grpc.ExecuteCommandResponse
+	41,  // 258: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:output_type -> com.arcadedb.grpc.ExecuteQueryResponse
+	43,  // 259: com.arcadedb.grpc.ArcadeDbService.CreateRecord:output_type -> com.arcadedb.grpc.CreateRecordResponse
+	46,  // 260: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:output_type -> com.arcadedb.grpc.UpdateRecordResponse
+	48,  // 261: com.arcadedb.grpc.ArcadeDbService.LookupByRid:output_type -> com.arcadedb.grpc.LookupByRidResponse
+	36,  // 262: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:output_type -> com.arcadedb.grpc.DeleteRecordResponse
+	50,  // 263: com.arcadedb.grpc.ArcadeDbService.BulkInsert:output_type -> com.arcadedb.grpc.InsertSummary
+	50,  // 264: com.arcadedb.grpc.ArcadeDbService.InsertStream:output_type -> com.arcadedb.grpc.InsertSummary
+	57,  // 265: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:output_type -> com.arcadedb.grpc.InsertResponse
+	30,  // 266: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:output_type -> com.arcadedb.grpc.BeginTransactionResponse
+	32,  // 267: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:output_type -> com.arcadedb.grpc.CommitTransactionResponse
+	34,  // 268: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:output_type -> com.arcadedb.grpc.RollbackTransactionResponse
+	64,  // 269: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:output_type -> com.arcadedb.grpc.GraphBatchResult
+	23,  // 270: com.arcadedb.grpc.ArcadeDbService.VectorSearch:output_type -> com.arcadedb.grpc.VectorSearchResponse
+	26,  // 271: com.arcadedb.grpc.ArcadeDbService.HybridSearch:output_type -> com.arcadedb.grpc.HybridSearchResponse
+	28,  // 272: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:output_type -> com.arcadedb.grpc.FullTextSearchResponse
+	68,  // 273: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
+	68,  // 274: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
+	75,  // 275: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:output_type -> com.arcadedb.grpc.TimeSeriesQueryResult
+	77,  // 276: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:output_type -> com.arcadedb.grpc.TimeSeriesLatestResponse
+	79,  // 277: com.arcadedb.grpc.ArcadeDbAdminService.Ping:output_type -> com.arcadedb.grpc.PingResponse
+	81,  // 278: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:output_type -> com.arcadedb.grpc.GetServerInfoResponse
+	83,  // 279: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:output_type -> com.arcadedb.grpc.ListDatabasesResponse
+	85,  // 280: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:output_type -> com.arcadedb.grpc.ExistsDatabaseResponse
+	87,  // 281: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:output_type -> com.arcadedb.grpc.CreateDatabaseResponse
+	89,  // 282: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:output_type -> com.arcadedb.grpc.DropDatabaseResponse
+	97,  // 283: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:output_type -> com.arcadedb.grpc.OpenDatabaseResponse
+	99,  // 284: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:output_type -> com.arcadedb.grpc.CloseDatabaseResponse
+	101, // 285: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:output_type -> com.arcadedb.grpc.AlignDatabaseResponse
+	91,  // 286: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:output_type -> com.arcadedb.grpc.GetDatabaseInfoResponse
+	166, // 287: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:output_type -> com.arcadedb.grpc.GetProgressResponse
+	93,  // 288: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:output_type -> com.arcadedb.grpc.CreateUserResponse
+	112, // 289: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:output_type -> com.arcadedb.grpc.UpdateUserResponse
+	95,  // 290: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:output_type -> com.arcadedb.grpc.DeleteUserResponse
+	109, // 291: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:output_type -> com.arcadedb.grpc.ListUsersResponse
+	114, // 292: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:output_type -> com.arcadedb.grpc.ListGroupsResponse
+	116, // 293: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:output_type -> com.arcadedb.grpc.SaveGroupResponse
+	118, // 294: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:output_type -> com.arcadedb.grpc.DeleteGroupResponse
+	121, // 295: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:output_type -> com.arcadedb.grpc.ListApiTokensResponse
+	123, // 296: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:output_type -> com.arcadedb.grpc.CreateApiTokenResponse
+	125, // 297: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:output_type -> com.arcadedb.grpc.DeleteApiTokenResponse
+	103, // 298: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:output_type -> com.arcadedb.grpc.SetServerSettingResponse
+	105, // 299: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:output_type -> com.arcadedb.grpc.SetDatabaseSettingResponse
+	127, // 300: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:output_type -> com.arcadedb.grpc.GetBackupConfigResponse
+	129, // 301: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:output_type -> com.arcadedb.grpc.SetBackupConfigResponse
+	132, // 302: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:output_type -> com.arcadedb.grpc.ListBackupsResponse
+	134, // 303: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:output_type -> com.arcadedb.grpc.TriggerBackupResponse
+	136, // 304: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:output_type -> com.arcadedb.grpc.DeleteBackupResponse
+	143, // 305: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:output_type -> com.arcadedb.grpc.ProfilerStateResponse
+	144, // 306: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	143, // 307: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:output_type -> com.arcadedb.grpc.ProfilerStateResponse
+	144, // 308: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	146, // 309: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:output_type -> com.arcadedb.grpc.ProfilerListResponse
+	144, // 310: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	150, // 311: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:output_type -> com.arcadedb.grpc.RestoreProgress
+	150, // 312: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:output_type -> com.arcadedb.grpc.RestoreProgress
+	151, // 313: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:output_type -> com.arcadedb.grpc.ImportProgress
+	153, // 314: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:output_type -> com.arcadedb.grpc.GetServerEventsResponse
+	155, // 315: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:output_type -> com.arcadedb.grpc.ShutdownResponse
+	157, // 316: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:output_type -> com.arcadedb.grpc.DisconnectClusterResponse
+	159, // 317: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:output_type -> com.arcadedb.grpc.ConnectClusterResponse
+	161, // 318: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:output_type -> com.arcadedb.grpc.AcceptDivergedDatabaseResponse
+	163, // 319: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:output_type -> com.arcadedb.grpc.AcceptStaleSnapshotResponse
+	169, // 320: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:output_type -> com.arcadedb.grpc.ListSessionsResponse
+	171, // 321: com.arcadedb.grpc.ArcadeDbAdminService.Health:output_type -> com.arcadedb.grpc.HealthResponse
+	173, // 322: com.arcadedb.grpc.ArcadeDbAdminService.Ready:output_type -> com.arcadedb.grpc.ReadyResponse
+	256, // [256:323] is the sub-list for method output_type
+	189, // [189:256] is the sub-list for method input_type
+	189, // [189:189] is the sub-list for extension type_name
+	189, // [189:189] is the sub-list for extension extendee
+	0,   // [0:189] is the sub-list for field type_name
 }
 
 func init() { file_arcadedb_server_proto_init() }

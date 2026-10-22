@@ -51,15 +51,16 @@ class _TransactionIsolationEnumTypeWrapper(_enum_type_wrapper._EnumTypeWrapper[_
     READ_COMMITTED: _TransactionIsolation.ValueType  # 1
     REPEATABLE_READ: _TransactionIsolation.ValueType  # 2
     SERIALIZABLE: _TransactionIsolation.ValueType  # 3
-    """runs as REPEATABLE_READ"""
+    """NOT SUPPORTED: refused with INVALID_ARGUMENT"""
 
 class TransactionIsolation(_TransactionIsolation, metaclass=_TransactionIsolationEnumTypeWrapper):
-    """The engine provides two isolation levels, READ_COMMITTED and REPEATABLE_READ. The other two values are accepted
-    and silently mapped to the nearest level the engine provides, with no error and no signal in the response:
-      READ_UNCOMMITTED -> READ_COMMITTED (it is also the proto default, so an unset field begins at READ_COMMITTED)
-      SERIALIZABLE     -> REPEATABLE_READ (a WEAKER level than the one asked for)
-    A caller that needs serializable isolation does not get it. The HTTP API (POST /api/v1/begin/{database}) accepts
-    only READ_COMMITTED and REPEATABLE_READ and refuses any other value with 400.
+    """The engine provides two isolation levels, READ_COMMITTED and REPEATABLE_READ. BeginTransaction accepts those two, and
+    READ_UNCOMMITTED, which runs at the STRONGER READ_COMMITTED (it is also the proto default, so an unset field begins at
+    READ_COMMITTED). SERIALIZABLE is NOT supported: BeginTransaction refuses it with INVALID_ARGUMENT, as it refuses a value
+    this server does not know, because starting it at a weaker level would be the one failure a caller cannot detect. The
+    HTTP API (POST /api/v1/begin/{database}), SQL, openCypher and PostgreSQL refuse it the same way. The constant stays in
+    the enum so that a client generated from an older version of this file still compiles and gets that answer, not
+    a silent downgrade.
     """
 
 READ_UNCOMMITTED: TransactionIsolation.ValueType  # 0
@@ -67,7 +68,7 @@ READ_UNCOMMITTED: TransactionIsolation.ValueType  # 0
 READ_COMMITTED: TransactionIsolation.ValueType  # 1
 REPEATABLE_READ: TransactionIsolation.ValueType  # 2
 SERIALIZABLE: TransactionIsolation.ValueType  # 3
-"""runs as REPEATABLE_READ"""
+"""NOT SUPPORTED: refused with INVALID_ARGUMENT"""
 Global___TransactionIsolation: _TypeAlias = TransactionIsolation  # noqa: Y015
 
 class _TimeSeriesPrecision:
@@ -1217,17 +1218,25 @@ class BeginTransactionResponse(_message.Message):
 
     TRANSACTION_ID_FIELD_NUMBER: _builtins.int
     TIMESTAMP_FIELD_NUMBER: _builtins.int
+    EFFECTIVE_ISOLATION_FIELD_NUMBER: _builtins.int
     transaction_id: _builtins.str
     timestamp: _builtins.int
+    effective_isolation: Global___TransactionIsolation.ValueType
+    """The isolation level the transaction really runs at: READ_COMMITTED or REPEATABLE_READ, which differs from the requested
+    value only for READ_UNCOMMITTED, run at the stronger READ_COMMITTED (see TransactionIsolation). A server that predates
+    this field leaves it unset, which reads as READ_UNCOMMITTED (the proto default) - a value a current server never
+    reports, so it means "unknown".
+    """
     def __init__(
         self,
         *,
         transaction_id: _builtins.str = ...,
         timestamp: _builtins.int = ...,
+        effective_isolation: Global___TransactionIsolation.ValueType = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["timestamp", b"timestamp", "transaction_id", b"transaction_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["effective_isolation", b"effective_isolation", "timestamp", b"timestamp", "transaction_id", b"transaction_id"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

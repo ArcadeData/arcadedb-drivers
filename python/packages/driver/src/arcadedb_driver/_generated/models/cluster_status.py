@@ -114,8 +114,8 @@ class ClusterStatus:
             shared window as the readiness probe, so the first read that finds the node otherwise ready opens the window,
             exactly as a probe would.
         uptime (int): Milliseconds since the Raft server started
-        database_presence (ClusterStatusDatabasePresence | Unset): Which peer holds which database, keyed by database
-            name. Present only when this server is the leader and the request set '?presence=true'.
+        database_presence (ClusterStatusDatabasePresence | Unset): Which node holds which database. Present only when
+            this server is the leader and the request set '?presence=true'.
     """
 
     alerts: list[ClusterStatusAlertsItem]

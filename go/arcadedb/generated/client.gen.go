@@ -1322,8 +1322,29 @@ type ClusterStatus struct {
 		Timestamp int `json:"timestamp"`
 	} `json:"criticalHalt"`
 
-	// DatabasePresence Which peer holds which database, keyed by database name. Present only when this server is the leader and the request set '?presence=true'.
-	DatabasePresence *map[string][]string `json:"databasePresence,omitempty"`
+	// DatabasePresence Which node holds which database. Present only when this server is the leader and the request set '?presence=true'.
+	DatabasePresence *struct {
+		// Databases One row per database held by any reachable node
+		Databases *[]struct {
+			// Missing Reachable nodes that do not hold it. An unreachable node is in neither list
+			Missing *[]string `json:"missing,omitempty"`
+
+			// Name Database name
+			Name *string `json:"name,omitempty"`
+
+			// Present Reachable nodes that hold the database
+			Present *[]string `json:"present,omitempty"`
+		} `json:"databases,omitempty"`
+
+		// Nodes Every peer this node knows: the server list reconciled with the live Raft configuration, so a peer that joined at runtime is one of them
+		Nodes *[]string `json:"nodes,omitempty"`
+
+		// NotInConfiguration Declared nodes the live Raft configuration does not hold: the leader does not replicate to them, so a database they lack is not a replication gap
+		NotInConfiguration *[]string `json:"notInConfiguration,omitempty"`
+
+		// Unreachable Nodes of 'nodes' that did not answer, left out of the present/missing accounting so a transient failure is not read as a missing database
+		Unreachable *[]string `json:"unreachable,omitempty"`
+	} `json:"databasePresence,omitempty"`
 
 	// Databases Replicated databases
 	Databases []struct {

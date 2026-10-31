@@ -3682,6 +3682,7 @@ class GetDatabaseInfoResponse(_message.Message):
     INDEXES_FIELD_NUMBER: _builtins.int
     SIZE_BYTES_FIELD_NUMBER: _builtins.int
     PROPERTIES_FIELD_NUMBER: _builtins.int
+    UNCOUNTED_TYPES_FIELD_NUMBER: _builtins.int
     database: _builtins.str
     type: _builtins.str
     """"graph"/"document" """
@@ -3694,6 +3695,12 @@ class GetDatabaseInfoResponse(_message.Message):
     def properties(self) -> _containers.ScalarMap[_builtins.str, _builtins.str]:
         """extra info"""
 
+    @_builtins.property
+    def uncounted_types(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """The types whose records could not be counted (issue #10877): 'records' is the sum over every other type, so a
+        non-empty list says the total is short by an unknown amount rather than that the database holds fewer records
+        """
+
     def __init__(
         self,
         *,
@@ -3704,10 +3711,11 @@ class GetDatabaseInfoResponse(_message.Message):
         indexes: _builtins.int = ...,
         size_bytes: _builtins.int = ...,
         properties: _abc.Mapping[_builtins.str, _builtins.str] | None = ...,
+        uncounted_types: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["classes", b"classes", "database", b"database", "indexes", b"indexes", "properties", b"properties", "records", b"records", "size_bytes", b"size_bytes", "type", b"type"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["classes", b"classes", "database", b"database", "indexes", b"indexes", "properties", b"properties", "records", b"records", "size_bytes", b"size_bytes", "type", b"type", "uncounted_types", b"uncounted_types"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

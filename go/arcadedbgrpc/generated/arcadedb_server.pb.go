@@ -6926,16 +6926,19 @@ func (x *GetDatabaseInfoRequest) GetName() string {
 }
 
 type GetDatabaseInfoResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Database      string                 `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
-	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // "graph"/"document"
-	Records       int64                  `protobuf:"varint,3,opt,name=records,proto3" json:"records,omitempty"`
-	Classes       int32                  `protobuf:"varint,4,opt,name=classes,proto3" json:"classes,omitempty"`
-	Indexes       int32                  `protobuf:"varint,5,opt,name=indexes,proto3" json:"indexes,omitempty"`
-	SizeBytes     int64                  `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`                                                           // optional if you can provide
-	Properties    map[string]string      `protobuf:"bytes,7,rep,name=properties,proto3" json:"properties,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // extra info
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Database   string                 `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	Type       string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"` // "graph"/"document"
+	Records    int64                  `protobuf:"varint,3,opt,name=records,proto3" json:"records,omitempty"`
+	Classes    int32                  `protobuf:"varint,4,opt,name=classes,proto3" json:"classes,omitempty"`
+	Indexes    int32                  `protobuf:"varint,5,opt,name=indexes,proto3" json:"indexes,omitempty"`
+	SizeBytes  int64                  `protobuf:"varint,6,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`                                                           // optional if you can provide
+	Properties map[string]string      `protobuf:"bytes,7,rep,name=properties,proto3" json:"properties,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // extra info
+	// The types whose records could not be counted (issue #10877): 'records' is the sum over every other type, so a
+	// non-empty list says the total is short by an unknown amount rather than that the database holds fewer records
+	UncountedTypes []string `protobuf:"bytes,8,rep,name=uncounted_types,json=uncountedTypes,proto3" json:"uncounted_types,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetDatabaseInfoResponse) Reset() {
@@ -7013,6 +7016,13 @@ func (x *GetDatabaseInfoResponse) GetSizeBytes() int64 {
 func (x *GetDatabaseInfoResponse) GetProperties() map[string]string {
 	if x != nil {
 		return x.Properties
+	}
+	return nil
+}
+
+func (x *GetDatabaseInfoResponse) GetUncountedTypes() []string {
+	if x != nil {
+		return x.UncountedTypes
 	}
 	return nil
 }
@@ -12142,7 +12152,7 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\adropped\x18\x01 \x01(\bR\adropped\"v\n" +
 	"\x16GetDatabaseInfoRequest\x12H\n" +
 	"\vcredentials\x18\x01 \x01(\v2&.com.arcadedb.grpc.DatabaseCredentialsR\vcredentials\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"\xd1\x02\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xfa\x02\n" +
 	"\x17GetDatabaseInfoResponse\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x18\n" +
@@ -12153,7 +12163,8 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"size_bytes\x18\x06 \x01(\x03R\tsizeBytes\x12Z\n" +
 	"\n" +
 	"properties\x18\a \x03(\v2:.com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntryR\n" +
-	"properties\x1a=\n" +
+	"properties\x12'\n" +
+	"\x0funcounted_types\x18\b \x03(\tR\x0euncountedTypes\x1a=\n" +
 	"\x0fPropertiesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd5\x02\n" +

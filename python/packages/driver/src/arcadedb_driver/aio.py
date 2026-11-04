@@ -64,14 +64,16 @@ from .facade.batch import BatchOptions, abatch_load, abatch_load_stream
 from .facade.dashboards import AsyncGrafanaNamespace, AsyncPromQLNamespace
 from .facade.data import (
     SESSION_HEADER,
+    DataUrls,
     IsolationLevel,
     QueryEnvelope,
     QueryLanguage,
     begin_request,
-    build_command_request,
-    build_query_request,
+    command_body,
+    fast_envelope,
+    query_body,
     query_tag_kwarg,
-    session_kwarg,
+    request_headers,
     to_envelope,
 )
 from .facade.insert_session import AsyncInsertSession
@@ -246,6 +248,8 @@ class AsyncArcadeDBDatabase:
         self._client = client
         self.name = name
         self._session_id = session_id
+        self._request_headers = request_headers(session_id)
+        self._urls = DataUrls()
 
     async def query(
         self,
@@ -273,14 +277,17 @@ class AsyncArcadeDBDatabase:
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
         """
-        response = await execute_query_post.asyncio_detailed(
-            self.name,
-            client=self._client,
-            body=build_query_request(language=language, command=command, params=params, limit=limit),
-            arcadedb_session_id=session_kwarg(self._session_id),
-            x_arcade_db_query_tag=query_tag_kwarg(query_tag),
+        http = self._client.get_async_httpx_client()
+        response = await http.request(
+            "POST",
+            self._urls.query(http, self.name),
+            json=query_body(language=language, command=command, params=params, limit=limit),
+            headers=request_headers(self._session_id, query_tag) if query_tag else self._request_headers,
         )
-        data = unwrap(response)
+        envelope = fast_envelope(response)
+        if envelope is not None:
+            return envelope
+        data = unwrap(execute_query_post._build_response(client=self._client, response=response))
         assert isinstance(data, QueryResponse)
         return to_envelope(data)
 
@@ -310,14 +317,17 @@ class AsyncArcadeDBDatabase:
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
         """
-        response = await execute_command.asyncio_detailed(
-            self.name,
-            client=self._client,
-            body=build_command_request(language=language, command=command, params=params, limit=limit),
-            arcadedb_session_id=session_kwarg(self._session_id),
-            x_arcade_db_query_tag=query_tag_kwarg(query_tag),
+        http = self._client.get_async_httpx_client()
+        response = await http.request(
+            "POST",
+            self._urls.command(http, self.name),
+            json=command_body(language=language, command=command, params=params, limit=limit),
+            headers=request_headers(self._session_id, query_tag) if query_tag else self._request_headers,
         )
-        data = unwrap(response)
+        envelope = fast_envelope(response)
+        if envelope is not None:
+            return envelope
+        data = unwrap(execute_command._build_response(client=self._client, response=response))
         assert isinstance(data, QueryResponse)
         return to_envelope(data)
 

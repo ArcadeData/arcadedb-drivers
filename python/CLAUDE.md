@@ -103,6 +103,18 @@ not line up with the module split: most sync classes live under `facade/` (`Arca
 both their sync and async classes side by side. Don't assume "facade/" means sync-only or
 "aio.py" means every async class - check the class name, not the file it happens to be in.
 
+`query()` and `command()` (both facades) are the one place the facade does not call the generated
+`sync_detailed`/`asyncio_detailed`: they send the request through the generated `Client`'s own httpx
+client themselves, because a one-row read spent about a third of the call's latency building the
+request model, merging a relative URL with `base_url` on every call, and parsing the response into
+models that `to_envelope` then flattened again. The request is byte for byte the one the generated
+operation builds (`facade/data.py`: `query_body`, `command_body`, `DataUrls`), and `fast_envelope`
+answers only a plain `200` row result; every other response (errors, `explain`, an unexpected shape)
+goes through the generated `_build_response`, `unwrap` and `to_envelope` unchanged, so errors are
+what they always were. `tests/test_hot_path.py` pins both halves against the generated path. If a
+generated operation changes how `/query` or `/command` is called (a new header, a new body field),
+change `query_body`/`command_body` with it; that test fails if the two drift.
+
 The duplication between the sync and async facades is mechanical and deliberate.
 [`unasync`](https://github.com/python-trio/unasync)-style single-source generation (write async,
 strip `await`/`async` mechanically to produce sync) is a **non-goal** here: it would add a build

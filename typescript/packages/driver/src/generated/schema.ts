@@ -2120,9 +2120,23 @@ export interface components {
                 /** @description When it tripped, as epoch milliseconds */
                 timestamp: number;
             } | null;
-            /** @description Which peer holds which database, keyed by database name. Present only when this server is the leader and the request set '?presence=true'. */
+            /** @description Which node holds which database. Present only when this server is the leader and the request set '?presence=true'. */
             databasePresence?: {
-                [key: string]: string[];
+                /** @description One row per database held by any reachable node */
+                databases?: {
+                    /** @description Reachable nodes that do not hold it. An unreachable node is in neither list */
+                    missing?: string[];
+                    /** @description Database name */
+                    name?: string;
+                    /** @description Reachable nodes that hold the database */
+                    present?: string[];
+                }[];
+                /** @description Every peer this node knows: the server list reconciled with the live Raft configuration, so a peer that joined at runtime is one of them */
+                nodes?: string[];
+                /** @description Declared nodes the live Raft configuration does not hold: the leader does not replicate to them, so a database they lack is not a replication gap */
+                notInConfiguration?: string[];
+                /** @description Nodes of 'nodes' that did not answer, left out of the present/missing accounting so a transient failure is not read as a missing database */
+                unreachable?: string[];
             };
             /** @description Replicated databases */
             databases: {

@@ -199,6 +199,10 @@ def session_kwarg(session_id: str | None) -> str | Unset:
     The contract declares the header, so the generator emits it as a keyword
     argument on every data-plane and transaction operation - no header plumbing
     needed.
+
+    No production code calls this any more: `query()` and `command()` build their
+    headers through `request_headers`. It stays as the reference implementation
+    that `tests/test_hot_path.py`'s legacy oracle compares the fast path against.
     """
     return UNSET if session_id is None else session_id
 
@@ -285,6 +289,10 @@ class DataUrls:
     `base_url` object changes (`set_httpx_client`) or when the database name does
     (`ArcadeDBDatabase.name` is a public attribute), so neither goes stale.
     Sync and async clients share this class: `build_request` is synchronous on both.
+
+    Not thread-safe, like the database handle that owns it: the cache is four plain
+    attributes updated without a lock, so two threads sharing one handle can read a
+    half-refreshed pair. The README's "one session per thread" contract covers it.
     """
 
     __slots__ = ("_base", "_command", "_name", "_query")

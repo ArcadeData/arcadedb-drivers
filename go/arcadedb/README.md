@@ -146,7 +146,7 @@ err := db.Transaction(ctx, func(tx *arcadedb.Database) error {
 ```
 
 The tag is not validated here: the contract allows at most 256 printable characters, but that is
-the server's rule, and a 26.11.1-SNAPSHOT server accepted a 257-character tag without complaint, so
+the server's rule, and a 26.12.1-SNAPSHOT-SNAPSHOT server accepted a 257-character tag without complaint, so
 do not count on a refusal either. Repeating the rule client-side would only drift from the
 server's. `WithLimit` is a `QueryOption` and a `CommandOption`, not a `TransactionOption`, so
 passing it to `Transaction` does not compile.
@@ -708,7 +708,7 @@ transaction back, a statement sent on it afterwards gets a 404, and so does the 
 `Transaction` returns that 404 *ArcadeDBError ("Remote transaction session not found or expired").
 Servers built before ArcadeData/arcadedb#10164 (2026-10-16) answer that commit 204, exactly like a
 real commit, so against those a `Transaction` whose callback ran no statement after the terminate
-returns nil for work that is gone. Measured against 26.11.1-SNAPSHOT and pinned by the e2e suite.
+returns nil for work that is gone. Measured against 26.12.1-SNAPSHOT-SNAPSHOT and pinned by the e2e suite.
 
 Ids, session ids and the `Database` filter must not be empty (where required) or contain a space
 or control character (anything at or below U+0020), because the server reads each as one word; a
@@ -813,11 +813,11 @@ reports `Limit`, `Returned` and `Truncated` as zero values the wire never carrie
 
 ## Contract version and compatibility
 
-This module was generated from `contracts/arcadedb-openapi-26.11.1.json`, recorded in
+This module was generated from `contracts/arcadedb-openapi-26.12.1-SNAPSHOT.json`, recorded in
 `version.go` as `ServerVersion`:
 
 ```go
-const ServerVersion = "26.11.1"
+const ServerVersion = "26.12.1-SNAPSHOT"
 ```
 
 | `github.com/ArcadeData/arcadedb-drivers/go/arcadedb` | ArcadeDB server |

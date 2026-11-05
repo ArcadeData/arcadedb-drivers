@@ -116,7 +116,7 @@ func (q QueryTagOption) applyTransaction(o *callOptions) { o.queryTag = q.tag }
 //
 // The tag is not validated here. The contract allows at most 256 printable characters, but
 // that is the server's rule and it is not enforced by a refusal callers can count on (a
-// 26.11.1-SNAPSHOT server accepted 257); repeating it client-side would only drift from the
+// 26.12.1-SNAPSHOT-SNAPSHOT server accepted 257); repeating it client-side would only drift from the
 // server's the first time it changes.
 func WithQueryTag(tag string) QueryTagOption { return QueryTagOption{tag: tag} }
 

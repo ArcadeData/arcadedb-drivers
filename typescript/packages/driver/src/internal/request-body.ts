@@ -33,7 +33,7 @@ export const QUERY_TAG_HEADER = "X-ArcadeDB-Query-Tag";
  * The tag is sent exactly as given. The contract caps it at 256 printable characters, and this
  * client deliberately does not check that: the rule is the server's, and a client-side copy of it
  * would only drift from the server's the first time either side changed it. Nor does the contract
- * say what the server does with a tag past the cap - a 26.11.1-SNAPSHOT server accepted a
+ * say what the server does with a tag past the cap - a 26.12.1-SNAPSHOT-SNAPSHOT server accepted a
  * 257-character one without error - so do not count on a refusal either.
  */
 export function queryTagHeader(queryTag: string | undefined): { [QUERY_TAG_HEADER]?: string } {

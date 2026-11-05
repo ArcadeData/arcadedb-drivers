@@ -213,7 +213,7 @@ def query_tag_kwarg(query_tag: str | None) -> str | Unset:
 
     Deliberately NOT checked here. The contract caps a tag at 256 printable characters, but that
     is the server's rule to enforce: repeating it client-side would be a second copy to drift from
-    the first. Nor should a caller count on the server refusing a longer one - a 26.11.1-SNAPSHOT
+    the first. Nor should a caller count on the server refusing a longer one - a 26.12.1-SNAPSHOT-SNAPSHOT
     server was observed accepting a 257-character tag.
     """
     return query_tag if query_tag else UNSET

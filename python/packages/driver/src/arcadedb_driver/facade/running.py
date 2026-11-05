@@ -10,7 +10,7 @@ Every one of them is a command string sent through `POST /api/v1/server`, posted
 pooled httpx client for the reason `facade/admin.py` gives, and with a `wait` the contract's
 `CommandRequest` does not declare although the server reads it. The answers are not in the
 contract at all (it declares `QueryResponse` for every server command), so their shapes here are
-the ones a 26.11.1-SNAPSHOT server sends, pinned by `e2e/test_running.py`.
+the ones a 26.12.1-SNAPSHOT-SNAPSHOT server sends, pinned by `e2e/test_running.py`.
 """
 
 from __future__ import annotations

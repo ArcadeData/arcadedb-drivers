@@ -818,12 +818,12 @@ object does not already implement.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.11.1.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.12.1-SNAPSHOT.proto`, recorded in
 `pyproject.toml` as `tool.arcadedb.server-version`:
 
 ```toml
 [tool.arcadedb]
-server-version = "26.11.1"
+server-version = "26.12.1-SNAPSHOT"
 ```
 
 | `arcadedb-driver-grpc` | ArcadeDB server |

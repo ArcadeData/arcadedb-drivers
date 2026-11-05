@@ -1,5 +1,5 @@
 """List and terminate running work, and `progress` (issue #124). Bodies are copied from a live
-26.11.1-SNAPSHOT server."""
+26.12.1-SNAPSHOT-SNAPSHOT server."""
 
 import json
 from datetime import datetime, timedelta, timezone

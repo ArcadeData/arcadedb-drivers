@@ -592,11 +592,11 @@ plain errors from the call that received them.
 
 ## Contract version and compatibility
 
-This module was generated from `contracts/arcadedb-server-26.11.1.proto`, recorded in
+This module was generated from `contracts/arcadedb-server-26.12.1-SNAPSHOT.proto`, recorded in
 `version.go` as `ServerVersion`:
 
 ```go
-const ServerVersion = "26.11.1"
+const ServerVersion = "26.12.1-SNAPSHOT"
 ```
 
 | `github.com/ArcadeData/arcadedb-drivers/go/arcadedbgrpc` | ArcadeDB server |

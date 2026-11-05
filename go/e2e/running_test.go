@@ -128,7 +128,7 @@ func TestTerminateQueryInsideATransaction(t *testing.T) {
 // commit: the server answers a commit naming a session it no longer has with 404, so
 // Transaction returns that error. Servers before ArcadeData/arcadedb#10164 answered 204, and
 // Transaction returned nil for work that was gone; the READMEs describe both. Measured on
-// 26.12.1-SNAPSHOT-SNAPSHOT.
+// 26.11.1-SNAPSHOT.
 func TestTerminateTransaction(t *testing.T) {
 	ctx := context.Background()
 	srv := newServer(t)

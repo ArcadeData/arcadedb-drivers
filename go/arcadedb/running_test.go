@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Bodies below are copied from a live 26.12.1-SNAPSHOT-SNAPSHOT server.
+// Bodies below are copied from a live 26.11.1-SNAPSHOT server.
 
 func TestListQueriesSendsFiltersAndDecodes(t *testing.T) {
 	ctx := context.Background()

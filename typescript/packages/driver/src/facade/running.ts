@@ -15,7 +15,7 @@ export type QueryStatus = "terminated" | "completed" | "terminating" | "not foun
 
 /**
  * One statement as `listQueries` returns it, passed through as the server sends it. The contract
- * does not describe this shape; it is what a 26.12.1-SNAPSHOT-SNAPSHOT server sends. `sessionId` is absent
+ * does not describe this shape; it is what a 26.11.1-SNAPSHOT server sends. `sessionId` is absent
  * for a statement that does not run inside a transaction, and `tag` for one sent without a
  * `queryTag`. `startedAt` is epoch milliseconds.
  */

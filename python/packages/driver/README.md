@@ -532,7 +532,7 @@ overrides it. On `batch_load`/`batch_load_stream` it is a header like everywhere
 query parameter beside `options`. No header is sent when the tag is `None` or empty. The client
 does not check the tag's length or characters: the contract caps it at 256 printable characters,
 but that is the server's rule, and a second copy of it here would only drift from the first. Do not
-count on a refusal either - a 26.12.1-SNAPSHOT-SNAPSHOT server was observed accepting a 257-character tag.
+count on a refusal either - a 26.11.1-SNAPSHOT server was observed accepting a 257-character tag.
 
 ## Vector, hybrid and full-text search: `db.vector`
 
@@ -882,7 +882,7 @@ transaction back, a statement sent on it afterwards raises a 404, and so does th
 owner's `with db.transaction()` block raises that 404 `ArcadeDBError` ("Remote transaction session
 not found or expired") on exit. Servers built before ArcadeData/arcadedb#10164 (2026-10-16) answer
 that commit 204, exactly like a real commit, so against those a block that ran no statement after
-the terminate exits cleanly for work that is gone. Measured against 26.12.1-SNAPSHOT-SNAPSHOT and pinned by
+the terminate exits cleanly for work that is gone. Measured against 26.11.1-SNAPSHOT and pinned by
 the e2e suite.
 
 Ids, session ids and the `database` filter must not be empty (where required) or contain a space

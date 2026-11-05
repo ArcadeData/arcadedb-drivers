@@ -181,7 +181,7 @@ class ArcadeDBDatabase:
         `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
         it. No header is sent when it is `None` or empty. It is not checked here: the contract's
         cap of 256 printable characters is the server's rule, a second copy of it client-side would
-        only drift from the first, and a 26.12.1-SNAPSHOT-SNAPSHOT server was observed accepting a longer
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
         """
@@ -223,7 +223,7 @@ class ArcadeDBDatabase:
         `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
         it. No header is sent when it is `None` or empty. It is not checked here: the contract's
         cap of 256 printable characters is the server's rule, a second copy of it client-side would
-        only drift from the first, and a 26.12.1-SNAPSHOT-SNAPSHOT server was observed accepting a longer
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
         """
@@ -278,7 +278,7 @@ class ArcadeDBDatabase:
         `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
         it. No header is sent when it is `None` or empty. It is not checked here: the contract's
         cap of 256 printable characters is the server's rule, a second copy of it client-side would
-        only drift from the first, and a 26.12.1-SNAPSHOT-SNAPSHOT server was observed accepting a longer
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
 
@@ -318,7 +318,7 @@ class ArcadeDBDatabase:
         `list queries` shows it, and `terminate queries tag <label>` stops every statement carrying
         it. No header is sent when it is `None` or empty. It is not checked here: the contract's
         cap of 256 printable characters is the server's rule, a second copy of it client-side would
-        only drift from the first, and a 26.12.1-SNAPSHOT-SNAPSHOT server was observed accepting a longer
+        only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
         """

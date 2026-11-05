@@ -43,7 +43,7 @@ const defaultStreamError = "the stream reported an error"
 // duplicated key, 413 for a result cut short, ...), and is 200 only when the event carries
 // none; ErrorMessage, Exception, Detail, ExceptionArgs and RetryAfter come from the event,
 // and RequestID from the response's X-Request-Id, else the event's requestId (see
-// streamError). Before contract 26.12.1-SNAPSHOT the status was always 200, so code that keyed on
+// streamError). Before contract 26.11.1 the status was always 200, so code that keyed on
 // 200 to recognise an in-band failure must key on the iteration's error instead. Events of an unknown kind are ignored, so a newer server can
 // add kinds without breaking this client. A non-2xx status is an *ArcadeDBError.
 func (d *Database) QueryStream(ctx context.Context, lang QueryLanguage, command string, params map[string]any, opts ...QueryOption) iter.Seq2[StreamEvent, error] {

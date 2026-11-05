@@ -393,7 +393,7 @@ its own tag, runs as `cart-cleanup`. Commit and rollback carry no tag.
 
 The contract allows at most 256 printable characters. This client does not check that - the rule
 is the server's, and a copy here would drift from it - and the contract does not say what the
-server does with a longer tag either (a 26.12.1-SNAPSHOT-SNAPSHOT server accepted a 257-character one
+server does with a longer tag either (a 26.11.1-SNAPSHOT server accepted a 257-character one
 without complaint), so keep tags short rather than relying on a refusal.
 
 ## Duplex insert session: `db.insertSession`
@@ -828,7 +828,7 @@ transaction back, a statement sent on it afterwards throws a 404, and so does th
 owner's `transaction()` rejects with that 404 `ArcadeDBError` ("Remote transaction session not
 found or expired"). Servers built before ArcadeData/arcadedb#10164 (2026-10-16) answer that commit
 204, exactly like a real commit, so against those a `transaction()` callback that ran no statement
-after the terminate resolves for work that is gone. Measured against 26.12.1-SNAPSHOT-SNAPSHOT and pinned by
+after the terminate resolves for work that is gone. Measured against 26.11.1-SNAPSHOT and pinned by
 the e2e suite.
 
 Ids, session ids and the `database` filter must not be empty (where required) or contain a space
@@ -932,7 +932,7 @@ a bundle that never logs in does not carry it (see "Bundling and tree-shaking").
 The facade wraps the data plane and a handful of server calls; everything else in the contract is
 reachable only through `server.raw`. That includes, **deliberately**, the cluster override
 endpoints `POST /api/v1/cluster/accept-diverged/{database}` (`acceptClusterDivergedDatabase`) and
-`POST /api/v1/cluster/accept-stale-snapshot` (`acceptClusterStaleSnapshot`), new in 26.12.1-SNAPSHOT, beside
+`POST /api/v1/cluster/accept-stale-snapshot` (`acceptClusterStaleSnapshot`), new in 26.11.1, beside
 the older `POST /api/v1/cluster/accept-copy/{database}`. They are root-only operator overrides
 that make a node accept a copy of its data without a resync - a decision a person takes while
 looking at a broken cluster, not something an application calls - and no facade method wraps any

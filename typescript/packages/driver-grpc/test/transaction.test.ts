@@ -15,8 +15,8 @@ import type {
   TimeSeriesLatestRequestSchema,
   TimeSeriesQueryRequestSchema,
   VectorSearchRequestSchema,
-} from "../src/gen/arcadedb-server-26.11.1_pb.js";
-import { TransactionIsolation } from "../src/gen/arcadedb-server-26.11.1_pb.js";
+} from "../src/gen/arcadedb-server-26.12.1-SNAPSHOT_pb.js";
+import { TransactionIsolation } from "../src/gen/arcadedb-server-26.12.1-SNAPSHOT_pb.js";
 import { createTransaction } from "../src/transaction.js";
 import type { IsolationLevel } from "../src/transaction.js";
 

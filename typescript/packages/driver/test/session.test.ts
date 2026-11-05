@@ -13,7 +13,7 @@ const BASE = "http://db.test";
 const SESSION_TOKEN = "AU-node-6f1c2d3e";
 const API_TOKEN = "at-0123456789abcdef";
 const HASH = "a".repeat(64);
-const DB_LIST = { user: "root", version: "26.11.1", serverName: "s", result: [] as string[] };
+const DB_LIST = { user: "root", version: "26.12.1-SNAPSHOT", serverName: "s", result: [] as string[] };
 const TOKEN_FIELDS = {
   name: "ci",
   database: "tenant_a",

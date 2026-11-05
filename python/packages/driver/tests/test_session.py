@@ -27,7 +27,7 @@ SESSION_TOKEN = "AU-node-6f1c2d3e"
 API_TOKEN = "at-0123456789abcdef"
 HASH = "a" * 64
 UTC = timezone.utc
-DB_LIST = {"user": "root", "version": "26.11.1", "serverName": "s", "result": []}
+DB_LIST = {"user": "root", "version": "26.12.1-SNAPSHOT", "serverName": "s", "result": []}
 
 TOKEN_FIELDS = {
     "name": "ci",

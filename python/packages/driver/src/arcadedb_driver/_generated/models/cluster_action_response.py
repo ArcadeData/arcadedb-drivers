@@ -21,8 +21,8 @@ class ClusterActionResponse:
             on accept-copy and accept-diverged. On accept-stale-snapshot, the applied position now recorded for the node.
         database (str | Unset): Database the action applied to. Present on resync, accept-copy and accept-diverged.
         divergence_cause (str | Unset): Why the lifted quarantine had been raised (WAL_VERSION_GAP,
-            UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE), when one stood.
-            Present on accept-diverged.
+            UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE,
+            LOCAL_RECOVERY_INCOMPLETE, UNAVAILABLE_UNIQUE_INDEX), when one stood. Present on accept-diverged.
         leader_id (str | Unset): Leader after the action. Present on leadership transfer.
         local_server (str | Unset): Server that performed the action. Present on resync, accept-copy, accept-diverged
             and accept-stale-snapshot.

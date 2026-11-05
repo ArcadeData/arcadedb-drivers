@@ -951,13 +951,13 @@ absent; it only means "not visible to this caller right now."
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-openapi-26.11.1-SNAPSHOT.json`, recorded in
+This package was generated from `contracts/arcadedb-openapi-26.11.1.json`, recorded in
 `package.json` as `arcadedb.serverVersion`:
 
 ```json
 {
   "arcadedb": {
-    "serverVersion": "26.11.1-SNAPSHOT"
+    "serverVersion": "26.11.1"
   }
 }
 ```

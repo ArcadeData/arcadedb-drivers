@@ -161,7 +161,9 @@ func (e ClusterStatusAlertsSeverity) Valid() bool {
 // Defines values for ClusterStatusLocalResyncDivergenceCauses.
 const (
 	APPLYERROR                ClusterStatusLocalResyncDivergenceCauses = "APPLY_ERROR"
+	LOCALRECOVERYINCOMPLETE   ClusterStatusLocalResyncDivergenceCauses = "LOCAL_RECOVERY_INCOMPLETE"
 	SNAPSHOTINSTALLINCOMPLETE ClusterStatusLocalResyncDivergenceCauses = "SNAPSHOT_INSTALL_INCOMPLETE"
+	UNAVAILABLEUNIQUEINDEX    ClusterStatusLocalResyncDivergenceCauses = "UNAVAILABLE_UNIQUE_INDEX"
 	UNDECODABLELOGENTRY       ClusterStatusLocalResyncDivergenceCauses = "UNDECODABLE_LOG_ENTRY"
 	UNPUBLISHEDSCHEMACHANGE   ClusterStatusLocalResyncDivergenceCauses = "UNPUBLISHED_SCHEMA_CHANGE"
 	WALVERSIONGAP             ClusterStatusLocalResyncDivergenceCauses = "WAL_VERSION_GAP"
@@ -172,7 +174,11 @@ func (e ClusterStatusLocalResyncDivergenceCauses) Valid() bool {
 	switch e {
 	case APPLYERROR:
 		return true
+	case LOCALRECOVERYINCOMPLETE:
+		return true
 	case SNAPSHOTINSTALLINCOMPLETE:
+		return true
+	case UNAVAILABLEUNIQUEINDEX:
 		return true
 	case UNDECODABLELOGENTRY:
 		return true
@@ -1211,7 +1217,7 @@ type ClusterActionResponse struct {
 	// Database Database the action applied to. Present on resync, accept-copy and accept-diverged.
 	Database *string `json:"database,omitempty"`
 
-	// DivergenceCause Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE), when one stood. Present on accept-diverged.
+	// DivergenceCause Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE, LOCAL_RECOVERY_INCOMPLETE, UNAVAILABLE_UNIQUE_INDEX), when one stood. Present on accept-diverged.
 	DivergenceCause *string `json:"divergenceCause,omitempty"`
 
 	// LeaderId Leader after the action. Present on leadership transfer.
@@ -1426,7 +1432,7 @@ type ClusterStatus struct {
 		// DatabaseAppliedFloors Per-database applied floor, keyed by database name
 		DatabaseAppliedFloors map[string]int `json:"databaseAppliedFloors"`
 
-		// DivergedDatabases Databases quarantined because this node's WAL diverged from the leader's
+		// DivergedDatabases Databases this node quarantined and does not serve until a copy from the cluster replaces them, for the cause 'divergenceCauses' names: a WAL divergence from the leader, or a local copy found incomplete or unsafe
 		DivergedDatabases []string `json:"divergedDatabases"`
 
 		// DivergenceCauses Why each quarantined database was quarantined, keyed by database name. Same keys as 'divergedDatabases'
@@ -1554,7 +1560,7 @@ type ClusterStatus struct {
 // ClusterStatusAlertsSeverity How urgent the condition is. 'critical' means this node or the cluster is not serving correctly right now, 'warning' that it will not keep serving correctly, 'info' that a declared configuration and the live one differ without consequence yet.
 type ClusterStatusAlertsSeverity string
 
-// ClusterStatusLocalResyncDivergenceCauses Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index; 'UNPUBLISHED_SCHEMA_CHANGE' a schema change or compaction this node ran locally whose replication was refused or could not be published, so no other node holds it.
+// ClusterStatusLocalResyncDivergenceCauses Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index; 'UNPUBLISHED_SCHEMA_CHANGE' a schema change or compaction this node ran locally whose replication was refused or could not be published, so no other node holds it; 'LOCAL_RECOVERY_INCOMPLETE' a crash recovery of this node's own copy that did not replay every transaction; 'UNAVAILABLE_UNIQUE_INDEX' a unique index of this node's own copy that could not be loaded, so its constraint is not enforced here.
 type ClusterStatusLocalResyncDivergenceCauses string
 
 // ClusterStatusPeersCapabilitiesUnknownKind What kind of unknown 'capabilitiesUnknownReason' describes, present exactly when it is (issue #8655): ROUTE_MISSING (the peer answered HTTP 404 on the capability route, so its build predates it - every node's probe gets that answer, the leader's included), UNREACHABLE (the answering node got no usable answer - a transport failure, a timeout, another status, or an answer naming another peer - which says nothing about what another node's probe gets), ADDRESS_REFUSED (the answering node has no address it may dial for this peer) or STALE (the last answer aged out with no failed probe behind it). Lets a client on a follower gate on ROUTE_MISSING without matching the reason's text.

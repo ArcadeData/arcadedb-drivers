@@ -1058,6 +1058,7 @@ server-version = "26.11.1"
 | 0.1.0 | 26.9.1 |
 | 0.2.0 | 26.10.1 |
 | 0.3.0 | 26.10.2 |
+| 0.4.0 | 26.11.1 |
 
 This table is a historical record tied to a package version, not something derived automatically:
 `scripts/adopt-contract-version.sh` deliberately does not touch it when it retires an old contract

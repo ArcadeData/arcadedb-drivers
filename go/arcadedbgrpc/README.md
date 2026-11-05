@@ -603,6 +603,7 @@ const ServerVersion = "26.11.1"
 | --- | --- |
 | 0.2.0 | 26.10.1 |
 | 0.3.0 | 26.10.2 |
+| 0.4.0 | 26.11.1 |
 
 The module had no 0.1.0 release: it joined the lockstep at 0.2.0, its first published version.
 This table is a historical record tied to a module version, not something derived automatically:

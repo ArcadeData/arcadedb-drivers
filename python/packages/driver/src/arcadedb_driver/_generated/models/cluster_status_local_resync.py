@@ -24,7 +24,9 @@ class ClusterStatusLocalResync:
         Attributes:
             database_applied_floors (ClusterStatusLocalResyncDatabaseAppliedFloors): Per-database applied floor, keyed by
                 database name
-            diverged_databases (list[str]): Databases quarantined because this node's WAL diverged from the leader's
+            diverged_databases (list[str]): Databases this node quarantined and does not serve until a copy from the cluster
+                replaces them, for the cause 'divergenceCauses' names: a WAL divergence from the leader, or a local copy found
+                incomplete or unsafe
             divergence_causes (ClusterStatusLocalResyncDivergenceCauses): Why each quarantined database was quarantined,
                 keyed by database name. Same keys as 'divergedDatabases'
             in_progress (bool): True while a resync is holding this node out of the ready set. NOT the whole answer

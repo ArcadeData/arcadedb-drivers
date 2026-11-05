@@ -633,13 +633,13 @@ client surfaces the error its own transport actually gives it.
 
 ## Contract version and compatibility
 
-This package was generated from `contracts/arcadedb-server-26.11.1-SNAPSHOT.proto`, recorded in
+This package was generated from `contracts/arcadedb-server-26.11.1.proto`, recorded in
 `package.json` as `arcadedb.serverVersion`:
 
 ```json
 {
   "arcadedb": {
-    "serverVersion": "26.11.1-SNAPSHOT"
+    "serverVersion": "26.11.1"
   }
 }
 ```

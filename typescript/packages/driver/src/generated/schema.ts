@@ -2033,7 +2033,7 @@ export interface components {
             appliedIndex?: number;
             /** @description Database the action applied to. Present on resync, accept-copy and accept-diverged. */
             database?: string;
-            /** @description Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE), when one stood. Present on accept-diverged. */
+            /** @description Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE, LOCAL_RECOVERY_INCOMPLETE, UNAVAILABLE_UNIQUE_INDEX), when one stood. Present on accept-diverged. */
             divergenceCause?: string;
             /** @description Leader after the action. Present on leadership transfer. */
             leaderId?: string;
@@ -2196,11 +2196,11 @@ export interface components {
                 databaseAppliedFloors: {
                     [key: string]: number;
                 };
-                /** @description Databases quarantined because this node's WAL diverged from the leader's */
+                /** @description Databases this node quarantined and does not serve until a copy from the cluster replaces them, for the cause 'divergenceCauses' names: a WAL divergence from the leader, or a local copy found incomplete or unsafe */
                 divergedDatabases: string[];
                 /** @description Why each quarantined database was quarantined, keyed by database name. Same keys as 'divergedDatabases' */
                 divergenceCauses: {
-                    [key: string]: "WAL_VERSION_GAP" | "UNDECODABLE_LOG_ENTRY" | "APPLY_ERROR" | "SNAPSHOT_INSTALL_INCOMPLETE" | "UNPUBLISHED_SCHEMA_CHANGE";
+                    [key: string]: "WAL_VERSION_GAP" | "UNDECODABLE_LOG_ENTRY" | "APPLY_ERROR" | "SNAPSHOT_INSTALL_INCOMPLETE" | "UNPUBLISHED_SCHEMA_CHANGE" | "LOCAL_RECOVERY_INCOMPLETE" | "UNAVAILABLE_UNIQUE_INDEX";
                 };
                 /** @description True while a resync is holding this node out of the ready set. NOT the whole answer '/api/v1/ready' gives: a node halted by a critical error or wedged by a log-write failure has this false and answers 503 anyway, so read it together with 'criticalHalt' and 'raftLogFailure' (issue #7872), and 'bootstrapInstalls' (issue #8044). */
                 inProgress: boolean;

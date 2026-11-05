@@ -813,7 +813,7 @@
             "type": "string"
           },
           "divergenceCause": {
-            "description": "Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE), when one stood. Present on accept-diverged.",
+            "description": "Why the lifted quarantine had been raised (WAL_VERSION_GAP, UNDECODABLE_LOG_ENTRY, APPLY_ERROR, SNAPSHOT_INSTALL_INCOMPLETE, UNPUBLISHED_SCHEMA_CHANGE, LOCAL_RECOVERY_INCOMPLETE, UNAVAILABLE_UNIQUE_INDEX), when one stood. Present on accept-diverged.",
             "type": "string"
           },
           "leaderId": {
@@ -1219,7 +1219,7 @@
                 "type": "object"
               },
               "divergedDatabases": {
-                "description": "Databases quarantined because this node's WAL diverged from the leader's",
+                "description": "Databases this node quarantined and does not serve until a copy from the cluster replaces them, for the cause 'divergenceCauses' names: a WAL divergence from the leader, or a local copy found incomplete or unsafe",
                 "items": {
                   "description": "Database name",
                   "type": "string"
@@ -1228,13 +1228,15 @@
               },
               "divergenceCauses": {
                 "additionalProperties": {
-                  "description": "Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index; 'UNPUBLISHED_SCHEMA_CHANGE' a schema change or compaction this node ran locally whose replication was refused or could not be published, so no other node holds it.",
+                  "description": "Why this database was quarantined. 'WAL_VERSION_GAP' means an intermediate transaction never reached this node; 'UNDECODABLE_LOG_ENTRY' a corrupt local log segment or an entry written by a newer node, which is not a replication fault; 'APPLY_ERROR' an unexpected error while applying a committed entry; 'SNAPSHOT_INSTALL_INCOMPLETE' an install that did not reach the snapshot's index; 'UNPUBLISHED_SCHEMA_CHANGE' a schema change or compaction this node ran locally whose replication was refused or could not be published, so no other node holds it; 'LOCAL_RECOVERY_INCOMPLETE' a crash recovery of this node's own copy that did not replay every transaction; 'UNAVAILABLE_UNIQUE_INDEX' a unique index of this node's own copy that could not be loaded, so its constraint is not enforced here.",
                   "enum": [
                     "WAL_VERSION_GAP",
                     "UNDECODABLE_LOG_ENTRY",
                     "APPLY_ERROR",
                     "SNAPSHOT_INSTALL_INCOMPLETE",
-                    "UNPUBLISHED_SCHEMA_CHANGE"
+                    "UNPUBLISHED_SCHEMA_CHANGE",
+                    "LOCAL_RECOVERY_INCOMPLETE",
+                    "UNAVAILABLE_UNIQUE_INDEX"
                   ],
                   "type": "string"
                 },
@@ -4996,7 +4998,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
     },
     "title": "ArcadeDB HTTP API",
-    "version": "26.11.1-SNAPSHOT"
+    "version": "26.11.1"
   },
   "openapi": "3.0.3",
   "paths": {

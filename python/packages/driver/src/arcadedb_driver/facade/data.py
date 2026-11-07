@@ -7,6 +7,7 @@ envelope-normalising code without either importing the other.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar
 from urllib.parse import quote
@@ -339,6 +340,26 @@ def fast_envelope(response: httpx.Response) -> QueryEnvelope | None:
         data = response.json()
     except ValueError:
         return None
+    return _envelope_from_json(data)
+
+
+def fast_envelope_from_bytes(status_code: int, content: bytes) -> QueryEnvelope | None:
+    """`fast_envelope` for a transport that has no `httpx.Response` (`_internal/http_client.py`).
+
+    The same rule on the same bytes: `None` means "not the common case", and the caller then builds an
+    `httpx.Response` from the answer and runs the generated parse on it.
+    """
+    if status_code != 200:
+        return None
+    try:
+        data = json.loads(content)
+    except ValueError:
+        return None
+    return _envelope_from_json(data)
+
+
+def _envelope_from_json(data: Any) -> QueryEnvelope | None:
+    """The shape checks `fast_envelope` makes on a decoded body, shared by both of its entry points."""
     if type(data) is not dict:
         return None
     rows = data.get("result")

@@ -455,6 +455,40 @@ these facades wrap defaults its own timeout to `None` and forwards it the same w
 srv = ArcadeDBServer(base_url="http://localhost:2480", timeout=httpx.Timeout(5.0))
 ```
 
+### The `http.client` transport
+
+`ArcadeDBServer` takes `transport`: `"httpx"` (the default, unchanged) or `"http.client"`. With
+`"http.client"`, `query`, `command` and the transaction calls (`begin`, `commit`, `rollback`) go over
+persistent `http.client` connections instead of httpx. That removes most of the fixed cost of a call, which
+matters for one-row reads and other small statements; a large result is dominated by the server and the JSON
+decode and gains little (issue #187). The public API, the return types, the exceptions and the answers are the
+same for both transports.
+
+```python
+srv = ArcadeDBServer(base_url="http://localhost:2480", transport="http.client")
+```
+
+- Everything else still goes through httpx, over its own connections: `query_stream`, `command_stream`,
+  `batch_load`, `batch_load_stream`, `insert_session`, time series, vector search, administration, sessions and
+  `.raw`. One server object holds both. `AsyncArcadeDBServer` has no such option.
+- Threads may share the server object: each concurrent call uses its own connection, and up to 20 idle
+  connections are kept between calls, as httpx keeps. `with_token` carries the option over and `close()` closes
+  the connections.
+- The server's `httpx.Timeout` becomes the connect timeout and the read timeout. `http.client` has one socket
+  timeout, so the read timeout also bounds each send, and the write and pool timeouts have no effect of their
+  own. A timeout, a refused connection and a dropped connection raise the httpx exceptions the httpx transport
+  raises (`httpx.ReadTimeout`, `httpx.ConnectError`, `httpx.RemoteProtocolError`), and a connection that failed
+  is never reused.
+- A server may close a connection that sat idle. If that is found out before the server's answer starts, the
+  call is sent once more on a new connection, whatever its method. A failure while the answer is being read, a
+  timeout, and a failure on a connection opened for that very call are never retried. The retry sends the
+  request again, so a statement that the server received and then dropped without answering can run twice on
+  this transport; httpx raises instead.
+- Not applied: proxy settings read from the environment (`HTTP_PROXY` and the like), httpx `event_hooks` and
+  HTTP/2. Redirects are not followed, as with the facade's httpx client. TLS verification uses the same trust
+  store httpx uses, and `verify_ssl=False` turns it off. `Accept-Encoding: gzip, deflate` is sent, as httpx
+  sends it, and a gzip or deflate answer is decoded.
+
 ## Transactions
 
 ```python

@@ -115,6 +115,17 @@ what they always were. `tests/test_hot_path.py` pins both halves against the gen
 generated operation changes how `/query` or `/command` is called (a new header, a new body field),
 change `query_body`/`command_body` with it; that test fails if the two drift.
 
+`ArcadeDBServer(transport="http.client")` (issue #187) sends `query`, `command` and `begin`/`commit`/`rollback`
+over persistent `http.client` connections instead (`_internal/http_client.py`); `"httpx"` stays the default and
+its code path is untouched. The transport only carries bytes: a plain `200` row result is read by
+`fast_envelope_from_bytes` (the shape checks `fast_envelope` makes, shared), and every other answer becomes an
+`httpx.Response` (`TransportResponse.as_httpx`) and takes the generated `_build_response`, `unwrap` and
+`to_envelope`, so errors cannot differ. `HttpClientTransport.call(operation, client, ...)` runs any generated
+operation that way (its `_get_kwargs`, then its `_build_response`), which is how the transaction calls ride it;
+the streams, `batch_load` and the rest stay on httpx on purpose. Socket-layer failures are raised as the httpx
+exceptions httpx raises, so `except httpx.HTTPError` behaves the same for both. `tests/test_http_client_transport.py`
+runs the same cases against both transports on an in-process fake server and needs no container.
+
 The duplication between the sync and async facades is mechanical and deliberate.
 [`unasync`](https://github.com/python-trio/unasync)-style single-source generation (write async,
 strip `await`/`async` mechanically to produce sync) is a **non-goal** here: it would add a build

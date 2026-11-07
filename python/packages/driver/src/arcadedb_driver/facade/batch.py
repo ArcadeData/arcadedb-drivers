@@ -80,14 +80,14 @@ module does not track or dedupe that on a caller's behalf.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncGenerator, Generator, Iterable
+from collections.abc import AsyncGenerator, AsyncIterable, Generator, Iterable
 from typing import Any
 from urllib.parse import quote
 
 from typing_extensions import NotRequired, TypedDict
 
 from .._generated.client import Client
-from .._internal.batch_rows import EdgeRow, VertexRow, serialize_rows
+from .._internal.batch_rows import EdgeRow, VertexRow, aiter_body, iter_body, serialize_rows
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
 from ..errors import ArcadeDBError, _int_or_none, _status_or
 from .data import query_tag_headers
@@ -148,6 +148,35 @@ def _params(options: BatchOptions | None) -> dict[str, Any] | None:
     return dict(options) if options else None
 
 
+def _unset(rows: Iterable[Any]) -> bool:
+    """True for the empty tuple or list a caller leaves as the default. Any other iterable (a
+    generator, say) cannot be tested for emptiness without consuming it, so it counts as given."""
+    return isinstance(rows, (tuple, list)) and not rows
+
+
+def _check_lines(vertices: Iterable[VertexRow], edges: Iterable[EdgeRow], lines: object | None) -> None:
+    if lines is not None and not (_unset(vertices) and _unset(edges)):
+        raise ValueError("pass either `lines` or `vertices`/`edges`, not both")
+
+
+def _content(
+    vertices: Iterable[VertexRow], edges: Iterable[EdgeRow], lines: Iterable[str | bytes] | None
+) -> bytes | Iterable[bytes]:
+    if lines is not None:
+        return iter_body(lines)
+    return serialize_rows(vertices, edges).encode("utf-8")
+
+
+def _acontent(
+    vertices: Iterable[VertexRow],
+    edges: Iterable[EdgeRow],
+    lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None,
+) -> bytes | AsyncIterable[bytes]:
+    if lines is not None:
+        return aiter_body(lines)
+    return serialize_rows(vertices, edges).encode("utf-8")
+
+
 def _raise_on_error_event(event: dict[str, Any]) -> dict[str, Any]:
     """Raises `ArcadeDBError` for an in-band `error` event instead of returning it - see the
     module docstring's "D6" section for why this is the same failure as a non-2xx response."""
@@ -172,6 +201,7 @@ def batch_load(
     *,
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
+    lines: Iterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
 ) -> dict[str, Any]:
@@ -194,15 +224,28 @@ def batch_load(
     rather than resuming cleanly. Use `batch_load_stream` when the caller needs to see how far a
     load got before it failed.
 
+    `lines` is the other way in, for a payload that should not be built in memory: an iterable (an
+    async iterable too, in the async functions and methods) of already-serialized ndjson lines
+    (`str` or `bytes`; a file opened with `"rb"`, or `iter_rows(vertices, edges)`, which yields the
+    lines of rows lazily) that replaces `vertices` and `edges`. It is sent as the request body while
+    it is read, with `Transfer-Encoding: chunked`, and is never joined: no line is pulled before the
+    transport asks for the chunk holding it, and at most one chunk of about 64 KiB is held. A line
+    without a trailing newline gets one and an empty line is skipped. Giving `lines` together with
+    `vertices` or `edges` raises `ValueError`. With `lines` the ordering is the caller's: every
+    vertex must come before any edge that names its temporary id, because the driver cannot reorder
+    a stream and the server refuses an edge whose id was not declared earlier. The driver does not
+    check the size of the body.
+
     `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
     parameter, unlike `options`), so `list queries` shows the load and
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
     """
+    _check_lines(vertices, edges, lines)
     raw = client.get_httpx_client().post(
         _batch_url(database),
-        content=serialize_rows(vertices, edges).encode("utf-8"),
+        content=_content(vertices, edges, lines),
         headers={"Content-Type": "application/x-ndjson", **query_tag_headers(query_tag)},
         params=_params(options),
     )
@@ -217,6 +260,7 @@ def batch_load_stream(
     *,
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
+    lines: Iterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
 ) -> Generator[dict[str, Any], None, None]:
@@ -238,16 +282,44 @@ def batch_load_stream(
     merged across events (D5), so a caller that needs the whole mapping must concatenate it
     themselves as they receive it.
 
+    `lines` is the other way in, for a payload that should not be built in memory: an iterable (an
+    async iterable too, in the async functions and methods) of already-serialized ndjson lines
+    (`str` or `bytes`; a file opened with `"rb"`, or `iter_rows(vertices, edges)`, which yields the
+    lines of rows lazily) that replaces `vertices` and `edges`. It is sent as the request body while
+    it is read, with `Transfer-Encoding: chunked`, and is never joined: no line is pulled before the
+    transport asks for the chunk holding it, and at most one chunk of about 64 KiB is held. A line
+    without a trailing newline gets one and an empty line is skipped. Giving `lines` together with
+    `vertices` or `edges` raises `ValueError`. With `lines` the ordering is the caller's: every
+    vertex must come before any edge that names its temporary id, because the driver cannot reorder
+    a stream and the server refuses an edge whose id was not declared earlier. The driver does not
+    check the size of the body.
+
     `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
     parameter, unlike `options`), so `list queries` shows the load and
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
     """
+    _check_lines(vertices, edges, lines)
+    return _stream_load(client, database, vertices, edges, lines, options, query_tag)
+
+
+def _stream_load(
+    client: Client,
+    database: str,
+    vertices: Iterable[VertexRow],
+    edges: Iterable[EdgeRow],
+    lines: Iterable[str | bytes] | None,
+    options: BatchOptions | None,
+    query_tag: str | None,
+) -> Generator[dict[str, Any], None, None]:
+    """The generator behind `batch_load_stream`, which is a plain function so that a bad `lines`
+    argument raises at the call and not at the first `next()`. The body is built here, on the
+    first `next()`, as it always was."""
     with client.get_httpx_client().stream(
         "POST",
         _batch_url(database),
-        content=serialize_rows(vertices, edges).encode("utf-8"),
+        content=_content(vertices, edges, lines),
         headers={
             "Content-Type": "application/x-ndjson",
             "Accept": "application/x-ndjson",
@@ -268,6 +340,7 @@ async def abatch_load(
     *,
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
+    lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
 ) -> dict[str, Any]:
@@ -290,15 +363,28 @@ async def abatch_load(
     rather than resuming cleanly. Use `batch_load_stream` when the caller needs to see how far a
     load got before it failed.
 
+    `lines` is the other way in, for a payload that should not be built in memory: an iterable (an
+    async iterable too, in the async functions and methods) of already-serialized ndjson lines
+    (`str` or `bytes`; a file opened with `"rb"`, or `iter_rows(vertices, edges)`, which yields the
+    lines of rows lazily) that replaces `vertices` and `edges`. It is sent as the request body while
+    it is read, with `Transfer-Encoding: chunked`, and is never joined: no line is pulled before the
+    transport asks for the chunk holding it, and at most one chunk of about 64 KiB is held. A line
+    without a trailing newline gets one and an empty line is skipped. Giving `lines` together with
+    `vertices` or `edges` raises `ValueError`. With `lines` the ordering is the caller's: every
+    vertex must come before any edge that names its temporary id, because the driver cannot reorder
+    a stream and the server refuses an edge whose id was not declared earlier. The driver does not
+    check the size of the body.
+
     `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
     parameter, unlike `options`), so `list queries` shows the load and
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
     """
+    _check_lines(vertices, edges, lines)
     raw = await client.get_async_httpx_client().post(
         _batch_url(database),
-        content=serialize_rows(vertices, edges).encode("utf-8"),
+        content=_acontent(vertices, edges, lines),
         headers={"Content-Type": "application/x-ndjson", **query_tag_headers(query_tag)},
         params=_params(options),
     )
@@ -307,12 +393,13 @@ async def abatch_load(
     return body
 
 
-async def abatch_load_stream(
+def abatch_load_stream(
     client: Client,
     database: str,
     *,
     vertices: Iterable[VertexRow] = (),
     edges: Iterable[EdgeRow] = (),
+    lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
@@ -334,16 +421,42 @@ async def abatch_load_stream(
     merged across events (D5), so a caller that needs the whole mapping must concatenate it
     themselves as they receive it.
 
+    `lines` is the other way in, for a payload that should not be built in memory: an iterable (an
+    async iterable too, in the async functions and methods) of already-serialized ndjson lines
+    (`str` or `bytes`; a file opened with `"rb"`, or `iter_rows(vertices, edges)`, which yields the
+    lines of rows lazily) that replaces `vertices` and `edges`. It is sent as the request body while
+    it is read, with `Transfer-Encoding: chunked`, and is never joined: no line is pulled before the
+    transport asks for the chunk holding it, and at most one chunk of about 64 KiB is held. A line
+    without a trailing newline gets one and an empty line is skipped. Giving `lines` together with
+    `vertices` or `edges` raises `ValueError`. With `lines` the ordering is the caller's: every
+    vertex must come before any edge that names its temporary id, because the driver cannot reorder
+    a stream and the server refuses an edge whose id was not declared earlier. The driver does not
+    check the size of the body.
+
     `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header (never as a query
     parameter, unlike `options`), so `list queries` shows the load and
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
     """
+    _check_lines(vertices, edges, lines)
+    return _astream_load(client, database, vertices, edges, lines, options, query_tag)
+
+
+async def _astream_load(
+    client: Client,
+    database: str,
+    vertices: Iterable[VertexRow],
+    edges: Iterable[EdgeRow],
+    lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None,
+    options: BatchOptions | None,
+    query_tag: str | None,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """The async twin of `_stream_load`."""
     async with client.get_async_httpx_client().stream(
         "POST",
         _batch_url(database),
-        content=serialize_rows(vertices, edges).encode("utf-8"),
+        content=_acontent(vertices, edges, lines),
         headers={
             "Content-Type": "application/x-ndjson",
             "Accept": "application/x-ndjson",

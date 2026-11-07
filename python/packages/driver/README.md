@@ -242,8 +242,36 @@ against a live server and reported upstream as
 described it; the contract now declares it as `BatchLine` and the two agree field for field. That
 schema covers one line rather than the whole body, so it does not remove the need for this module -
 but it does mean the format is now documented upstream rather than only here. `VertexRow` and
-`EdgeRow` are consequently the only way in: a hand-built payload string is not a supported input
-to either method.
+`EdgeRow` are the default way in: `vertices=`/`edges=` are serialized by the driver and sent as one
+body with a `Content-Length`, which builds the whole payload in memory.
+
+### Streaming a large payload: `lines=`
+
+For a payload that should not be built in memory, both methods (and their async twins) take
+`lines=`, an iterable of already-serialized ndjson lines (`str` or `bytes`; the async methods also
+take an async iterable) in place of `vertices`/`edges`. The body is sent while it is read, with
+`Transfer-Encoding: chunked`, and at most one chunk of about 64 KiB is held at a time. A file
+opened in binary mode works as is, and `iter_rows` yields the lines of rows lazily:
+
+```python
+from arcadedb_driver import iter_rows
+
+
+def people():  # a generator: rows are produced while the body is sent
+    for i in range(10_000_000):
+        yield {"type": "Person", "id": f"p{i}", "properties": {"n": i}}
+
+
+summary = db.batch_load(lines=iter_rows(people(), edges=[]))
+
+with open("graph.jsonl", "rb") as f:  # already ndjson: vertices first, then edges
+    summary = db.batch_load(lines=f)
+```
+
+Giving `lines` together with `vertices` or `edges` raises `ValueError`. With `lines`, the ordering
+rule is the caller's: the driver cannot reorder a stream, so every vertex must come before any edge
+that names its temporary id. A line without a trailing newline gets one, and an empty line is
+skipped. The driver does not check the size of the body.
 
 ### A load is not atomic
 

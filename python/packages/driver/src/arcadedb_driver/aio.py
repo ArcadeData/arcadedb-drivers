@@ -610,6 +610,12 @@ class AsyncArcadeDBServer:
     `.raw` disagree against the same server; it also matches `@arcadedb/driver`,
     where `fetch` has no default timeout either. Pass an `httpx.Timeout` to
     bound requests.
+
+    `httpx_args` is an optional mapping of extra keyword arguments passed to the underlying
+    `httpx.AsyncClient` constructor, for options this facade has no parameter for: `limits`,
+    `transport` (for example `httpx.AsyncHTTPTransport(retries=3)`), `http2`, `proxy`,
+    `event_hooks`. It must not repeat `base_url`, `headers`, `timeout`, `verify` or
+    `cookies`, which the facade and the generated client already set. `with_token` keeps it.
     """
 
     def __init__(
@@ -620,6 +626,7 @@ class AsyncArcadeDBServer:
         headers: Mapping[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         verify_ssl: bool = True,
+        httpx_args: Mapping[str, Any] | None = None,
     ) -> None:
         merged: dict[str, str] = {**(auth or {}), **(headers or {})}
         # Kept for `with_token` and `logout`; `raw`'s own copies are private to the generator.
@@ -627,9 +634,16 @@ class AsyncArcadeDBServer:
         self._headers = merged
         self._timeout = timeout
         self._verify_ssl = verify_ssl
+        self._httpx_args: dict[str, Any] = dict(httpx_args or {})
         #: The generated client. Returns a `Response` and does NOT raise, unlike
         #: every method here.
-        self.raw = Client(base_url=base_url, headers=merged, timeout=timeout, verify_ssl=verify_ssl)
+        self.raw = Client(
+            base_url=base_url,
+            headers=merged,
+            timeout=timeout,
+            verify_ssl=verify_ssl,
+            httpx_args=self._httpx_args,
+        )
 
     def db(self, name: str) -> AsyncArcadeDBDatabase:
         """Scopes subsequent calls to one database, reached through this server."""
@@ -914,7 +928,7 @@ class AsyncArcadeDBServer:
     def with_token(self, token: str) -> AsyncArcadeDBServer:
         """Returns a new `AsyncArcadeDBServer` that authenticates every request with `token` as a
         bearer token, and is otherwise configured like this one: the same base URL, extra
-        headers, timeout and TLS verification. This server is unchanged. It performs no request.
+        headers, timeout, TLS verification and `httpx_args`. This server is unchanged. It performs no request.
 
         `token` is a session token from `login` or `login_as`, or an API token from
         `create_api_token`. The new server has its own connection pool, so close it (`aclose`, or
@@ -925,6 +939,7 @@ class AsyncArcadeDBServer:
             headers=with_authorization(self._headers, bearer_auth(token)["Authorization"]),
             timeout=self._timeout,
             verify_ssl=self._verify_ssl,
+            httpx_args=self._httpx_args,
         )
 
     async def logout(self) -> None:

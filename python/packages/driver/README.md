@@ -455,6 +455,25 @@ these facades wrap defaults its own timeout to `None` and forwards it the same w
 srv = ArcadeDBServer(base_url="http://localhost:2480", timeout=httpx.Timeout(5.0))
 ```
 
+### Other httpx options
+
+Both constructors take an optional `httpx_args` mapping, forwarded as keyword arguments to the
+`httpx.Client` (sync) or `httpx.AsyncClient` (async) the facade owns. Use it for what the facade has
+no parameter for: connection pool `limits`, a `transport` such as `httpx.HTTPTransport(retries=3)`
+(connect-level retries only; requests are not retried), `http2`, `proxy` or `event_hooks`. It
+defaults to `None`, which changes nothing. Do not repeat `base_url`, `headers`, `timeout`, `verify` or
+`cookies` in it, since the facade already sets those. `with_token` carries it over to the new server.
+
+```python
+srv = ArcadeDBServer(
+    base_url="http://localhost:2480",
+    httpx_args={
+        "limits": httpx.Limits(max_connections=50, keepalive_expiry=30.0),
+        "transport": httpx.HTTPTransport(retries=3),
+    },
+)
+```
+
 ## Transactions
 
 ```python

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.metadata
 from collections.abc import Iterator, Sequence
 from types import TracebackType
+from typing import Any
 
 import grpc
 
@@ -302,6 +303,8 @@ def create_client(
     auth: Auth | None = None,
     credentials: grpc.ChannelCredentials | None = None,
     insecure: bool = False,
+    options: Sequence[tuple[str, Any]] | None = None,
+    compression: grpc.Compression | None = None,
 ) -> ArcadeDBGrpcClient:
     """Creates a gRPC data-plane client.
 
@@ -319,6 +322,11 @@ def create_client(
     the same `credentials is not None or insecure` test this function applies to its own
     guard above, but unconditionally on `auth`: the admin hazard is credentials inside an
     admin RPC's request body, not anything an auth interceptor puts on the wire.
+
+    `options` is passed as the `options` argument of the grpc channel constructor, as a sequence
+    of `(key, value)` pairs such as `("grpc.max_receive_message_length", 64 * 1024 * 1024)` or
+    the keepalive settings, and `compression` as its `compression` argument. Both default to
+    `None`, which leaves grpc's own defaults (for example its 4 MiB receive limit) in place.
     """
     if credentials is None and not insecure and auth is not None and auth.sends_plaintext_password:
         raise InsecureChannelError(
@@ -328,7 +336,11 @@ def create_client(
         )
 
     interceptors = sync_interceptors(auth)
-    channel = grpc.insecure_channel(target) if credentials is None else grpc.secure_channel(target, credentials)
+    channel = (
+        grpc.insecure_channel(target, options=options, compression=compression)
+        if credentials is None
+        else grpc.secure_channel(target, credentials, options=options, compression=compression)
+    )
     if interceptors:
         channel = grpc.intercept_channel(channel, *interceptors)
     return ArcadeDBGrpcClient(channel, allow_admin=credentials is not None or insecure)

@@ -35,7 +35,7 @@ from ._generated.models.progress_response import ProgressResponse
 from ._generated.models.query_response import QueryResponse
 from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
-from ._internal.batch_rows import EdgeRow, VertexRow, iter_rows
+from ._internal.batch_rows import EdgeRow, VertexRow
 from ._internal.unwrap import is_success, unwrap
 from .aio import AsyncArcadeDBDatabase, AsyncArcadeDBServer, AsyncTransaction
 from .auth import basic_auth, bearer_auth
@@ -51,7 +51,7 @@ from .facade.admin import (
     update_user_request,
     users_from,
 )
-from .facade.batch import BatchOptions, batch_load, batch_load_stream
+from .facade.batch import BatchOptions, batch_load, batch_load_stream, iter_rows
 from .facade.dashboards import GrafanaNamespace, PromQLNamespace
 from .facade.data import (
     DataUrls,

@@ -87,7 +87,7 @@ from urllib.parse import quote
 from typing_extensions import NotRequired, TypedDict
 
 from .._generated.client import Client
-from .._internal.batch_rows import EdgeRow, VertexRow, aiter_body, iter_body, serialize_rows
+from .._internal.batch_rows import EdgeRow, VertexRow, aiter_body, iter_body, iter_rows, serialize_rows
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
 from ..errors import ArcadeDBError, _int_or_none, _status_or
 from .data import query_tag_headers
@@ -100,6 +100,7 @@ __all__ = [
     "abatch_load_stream",
     "batch_load",
     "batch_load_stream",
+    "iter_rows",
 ]
 
 

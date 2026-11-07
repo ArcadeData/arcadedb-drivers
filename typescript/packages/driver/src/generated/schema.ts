@@ -2389,6 +2389,94 @@ export interface components {
             /** @description What to do about it, when the server can say */
             help?: string;
         };
+        /** @description One bucket of a facet. A term bucket carries 'value'; a range or histogram bucket carries 'key' and its bounds; the bucket of the records without a value carries 'value' null and 'missing' true. Open: a facet kind may add attributes of its own (a hierarchy bucket carries 'parent', 'depth' and 'orphan'). */
+        FacetBucket: {
+            /** @description Number of matching records in the bucket */
+            count: number;
+            /** @description True on the bucket of the values that fall in no range */
+            default?: boolean;
+            /** @description Hierarchy facets: the shortest distance from a root, 0 for a root and for an orphan, -1 for a node no root reaches (it lies on or under a cycle of the hierarchy) */
+            depth?: number;
+            /** @description Inclusive lower bound of a range or histogram bucket; absent when unbounded */
+            from?: unknown;
+            /** @description Label of a range or histogram bucket */
+            key?: string;
+            /** @description True on the bucket of the records without a value */
+            missing?: boolean;
+            /** @description Hierarchy facets: true on a value that has no vertex in the hierarchy; it is counted as its own root bucket. Absent otherwise */
+            orphan?: boolean;
+            /** @description Hierarchy facets: the key of the node's first parent (parents ordered by key), null for a root and for an orphan */
+            parent?: unknown;
+            /** @description Exclusive upper bound of a range or histogram bucket; absent when unbounded */
+            to?: unknown;
+            /** @description The term, written as a row's value of the faceted property is (a date in the database's date format, a date-time in its date-time format, a non-finite number by its name); null for the missing bucket */
+            value?: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description One facet. Terms, range, histogram and hierarchy facets carry 'buckets'; a distinct facet carries 'value' and 'exact'; a stats facet carries 'count', 'min', 'max', 'sum' and 'avg'. A facet that could not be computed has source 'unavailable', a 'reason' and no other result member. */
+        FacetResult: {
+            /** @description Present only when the request asked for type hints ('typeHints') and a member of the facet is of a type JSON does not round-trip (a date, a decimal, a long, a float, ...): comma separated entries in the form a result row's hint takes, 'value:<type id>' for the values of the property (bucket values, a stats facet's min and max, the cursor), 'sum:<type id>' and 'avg:<type id>' for a stats facet's sum and average, to restore each as a column of that type. */
+            "@props"?: string;
+            /** @description Cursor to pass to AFTER to get the next page of buckets: the last value of this page, written as a row's value of the property; null when no value follows. Present on every terms facet ordered by VALUE ASC (the default for VALUE, and implied by AFTER) without INCLUDE; a VALUE DESC facet has none. Echo it exactly as received: a value rewritten by the client, such as a date-time reformatted or truncated to its sub-second part, can start the next page elsewhere. */
+            after?: unknown;
+            /** @description STATS: the average of the values, the value and type SELECT avg() gives (a non-finite one by its name, as a row's); null for a date property or when no matching record has a value */
+            avg?: unknown;
+            /** @description The buckets, ranked as the FACETS clause asked. Absent from distinct, stats and unavailable facets */
+            buckets?: components["schemas"]["FacetBucket"][];
+            /** @description STATS: the number of matching records with a value */
+            count?: number;
+            /** @description DISTINCT: false when the number of distinct values is approximate */
+            exact?: boolean;
+            /** @description STATS: the largest value, a value of the type of the property written as a row's value of it; null when no matching record has a value */
+            max?: unknown;
+            /** @description STATS: the smallest value, a value of the type of the property written as a row's value of it (a date in the database's date format); null when no matching record has a value */
+            min?: unknown;
+            /** @description Number of matching records without a value for the faceted property */
+            missing?: number;
+            /** @description Sum of the counts of the values not returned in 'buckets'. Written by terms and hierarchy facets only */
+            otherCount?: number;
+            /** @description Why the facet is unavailable. Present only when source is 'unavailable' */
+            reason?: string;
+            /**
+             * @description How the facet was computed: 'index' from the columnar projection, 'scan' when at least one bucket of the type was read from the records, 'unavailable' when it could not be computed (see 'reason').
+             * @enum {string}
+             */
+            source: "index" | "scan" | "unavailable";
+            /** @description STATS: the sum of the values, the value and type SELECT sum() gives (a non-finite one by its name, as a row's); null for a date property or when no matching record has a value */
+            sum?: unknown;
+            /**
+             * @description Kind of the facet
+             * @enum {string}
+             */
+            type: "terms" | "range" | "histogram" | "hierarchy" | "distinct" | "stats";
+            /** @description DISTINCT: the number of distinct values */
+            value?: number;
+        };
+        /** @description A row of SELECT expand(facet.searchValues(type, property, prefix, limit)): a value of a COLUMNAR dictionary property that starts with the prefix (case-sensitive, in value order) and the number of documents of the type carrying it now. Values come only from the applied dictionaries of indexed buckets: a value held only by a type without the COLUMNAR index, or only by the caller's own uncommitted writes, is not suggested. A value no live document carries any more is not returned. */
+        FacetValueSuggestion: {
+            /** @description Number of documents of the type carrying the value, as a facet counts it */
+            count: number;
+            /** @description Present, and false, only when the count of the batch the value came from may lag the committed data (the patch budget was exceeded); absent when the count is exact */
+            exact?: boolean;
+            /** @description The suggested value */
+            value: string;
+        };
+        /** @description The facets of a SELECT with a FACETS clause: one entry per facet alias, plus 'meta'. Present only when the statement asked for facets. Facets cover the full WHERE match set, not the LIMIT page: 'returned' and 'truncated' describe the rows only, the facets always count every match. Inside a REPEATABLE_READ transaction the facets count the latest committed data, corrected by patching for the records written since the projection was applied (and for the transaction's own writes), not the transaction's snapshot. */
+        Facets: {
+            meta: components["schemas"]["FacetsMeta"];
+        } & {
+            [key: string]: components["schemas"]["FacetResult"];
+        };
+        /** @description How exact the facets of this response are */
+        FacetsMeta: {
+            /** @description False when the counts may lag the committed data because the patch budget was exceeded, or when a DISTINCT facet is approximate. True when every count is exact. */
+            exact: boolean;
+            /** @description How many milliseconds the columnar projection was behind the committed data */
+            lagMs: number;
+            /** @description Number of records read from the record itself to correct the columnar projection */
+            patched: number;
+        };
         /** @description Full-text search over a FULL_TEXT index */
         FullTextSearchRequest: {
             /** @description Full-text index to search; wins over 'typeName' when both are given */
@@ -2899,7 +2987,7 @@ export interface components {
                 idMappingStreamed?: boolean;
             };
         };
-        /** @description One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present. */
+        /** @description One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present; the 'stats' trailer of a SELECT with a FACETS clause also carries its facets. */
         NdJsonQueryEvent: {
             /** @description A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows. */
             error?: {
@@ -2924,8 +3012,9 @@ export interface components {
             record?: {
                 [key: string]: unknown;
             };
-            /** @description Trailer, always the last line of a complete stream. Carries the same three numbers the buffered response reports at top level. */
+            /** @description Trailer, always the last line of a complete stream. Carries the same three numbers the buffered response reports at top level, and the facets of a SELECT with a FACETS clause. */
             stats?: {
+                facets?: components["schemas"]["Facets"];
                 /** @description Effective row cap applied while streaming, -1 when uncapped */
                 limit?: number;
                 /** @description Number of rows that reached the client */
@@ -3069,9 +3158,10 @@ export interface components {
             explainPlan?: {
                 [key: string]: unknown;
             };
+            facets?: components["schemas"]["Facets"];
             /** @description Effective row cap applied while serializing, -1 when uncapped. This is the serializer's cap, not the query's own LIMIT: a query stating a LIMIT below the server default reports the default here, and 'returned' with 'truncated' describe what the response actually carries. */
             limit: number;
-            /** @description The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers. */
+            /** @description The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers. The rows of SELECT expand(facet.searchValues(...)) are FacetValueSuggestion objects (#/components/schemas/FacetValueSuggestion). */
             result?: {
                 [key: string]: unknown;
             }[] | {

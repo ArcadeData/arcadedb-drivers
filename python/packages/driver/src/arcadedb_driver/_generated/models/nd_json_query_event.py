@@ -19,16 +19,17 @@ T = TypeVar("T", bound="NdJsonQueryEvent")
 
 @_attrs_define
 class NdJsonQueryEvent:
-    """One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present.
+    """One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present; the
+    'stats' trailer of a SELECT with a FACETS clause also carries its facets.
 
-    Attributes:
-        error (NdJsonQueryEventError | Unset): A failure raised after the 200 had already been sent. The status code
-            cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.
-        record (NdJsonQueryEventRecord | Unset): One result row, identical to an element of the 'result' array of the
-            buffered application/json response. An open map: a row's keys are the projections the statement asked for, plus
-            the '@rid' and '@type' markers JsonSerializer writes into every serialized record.
-        stats (NdJsonQueryEventStats | Unset): Trailer, always the last line of a complete stream. Carries the same
-            three numbers the buffered response reports at top level.
+        Attributes:
+            error (NdJsonQueryEventError | Unset): A failure raised after the 200 had already been sent. The status code
+                cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.
+            record (NdJsonQueryEventRecord | Unset): One result row, identical to an element of the 'result' array of the
+                buffered application/json response. An open map: a row's keys are the projections the statement asked for, plus
+                the '@rid' and '@type' markers JsonSerializer writes into every serialized record.
+            stats (NdJsonQueryEventStats | Unset): Trailer, always the last line of a complete stream. Carries the same
+                three numbers the buffered response reports at top level, and the facets of a SELECT with a FACETS clause.
     """
 
     error: NdJsonQueryEventError | Unset = UNSET

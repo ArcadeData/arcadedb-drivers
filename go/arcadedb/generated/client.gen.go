@@ -215,6 +215,57 @@ func (e ClusterStatusPeersCapabilitiesUnknownKind) Valid() bool {
 	}
 }
 
+// Defines values for FacetResultSource.
+const (
+	Index       FacetResultSource = "index"
+	Scan        FacetResultSource = "scan"
+	Unavailable FacetResultSource = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the FacetResultSource enum.
+func (e FacetResultSource) Valid() bool {
+	switch e {
+	case Index:
+		return true
+	case Scan:
+		return true
+	case Unavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FacetResultType.
+const (
+	Distinct  FacetResultType = "distinct"
+	Hierarchy FacetResultType = "hierarchy"
+	Histogram FacetResultType = "histogram"
+	Range     FacetResultType = "range"
+	Stats     FacetResultType = "stats"
+	Terms     FacetResultType = "terms"
+)
+
+// Valid indicates whether the value is a known member of the FacetResultType enum.
+func (e FacetResultType) Valid() bool {
+	switch e {
+	case Distinct:
+		return true
+	case Hierarchy:
+		return true
+	case Histogram:
+		return true
+	case Range:
+		return true
+	case Stats:
+		return true
+	case Terms:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FullTextSearchResponseSimilarity.
 const (
 	FullTextSearchResponseSimilarityBM25    FullTextSearchResponseSimilarity = "BM25"
@@ -1686,6 +1737,113 @@ type ErrorResponse struct {
 	Help *string `json:"help,omitempty"`
 }
 
+// FacetBucket One bucket of a facet. A term bucket carries 'value'; a range or histogram bucket carries 'key' and its bounds; the bucket of the records without a value carries 'value' null and 'missing' true. Open: a facet kind may add attributes of its own (a hierarchy bucket carries 'parent', 'depth' and 'orphan').
+type FacetBucket struct {
+	// Count Number of matching records in the bucket
+	Count int `json:"count"`
+
+	// Default True on the bucket of the values that fall in no range
+	Default *bool `json:"default,omitempty"`
+
+	// Depth Hierarchy facets: the shortest distance from a root, 0 for a root and for an orphan, -1 for a node no root reaches (it lies on or under a cycle of the hierarchy)
+	Depth *int `json:"depth,omitempty"`
+
+	// From Inclusive lower bound of a range or histogram bucket; absent when unbounded
+	From interface{} `json:"from,omitempty"`
+
+	// Key Label of a range or histogram bucket
+	Key *string `json:"key,omitempty"`
+
+	// Missing True on the bucket of the records without a value
+	Missing *bool `json:"missing,omitempty"`
+
+	// Orphan Hierarchy facets: true on a value that has no vertex in the hierarchy; it is counted as its own root bucket. Absent otherwise
+	Orphan *bool `json:"orphan,omitempty"`
+
+	// Parent Hierarchy facets: the key of the node's first parent (parents ordered by key), null for a root and for an orphan
+	Parent interface{} `json:"parent,omitempty"`
+
+	// To Exclusive upper bound of a range or histogram bucket; absent when unbounded
+	To interface{} `json:"to,omitempty"`
+
+	// Value The term, written as a row's value of the faceted property is (a date in the database's date format, a date-time in its date-time format, a non-finite number by its name); null for the missing bucket
+	Value                interface{}            `json:"value,omitempty"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// FacetResult One facet. Terms, range, histogram and hierarchy facets carry 'buckets'; a distinct facet carries 'value' and 'exact'; a stats facet carries 'count', 'min', 'max', 'sum' and 'avg'. A facet that could not be computed has source 'unavailable', a 'reason' and no other result member.
+type FacetResult struct {
+	// Props Present only when the request asked for type hints ('typeHints') and a member of the facet is of a type JSON does not round-trip (a date, a decimal, a long, a float, ...): comma separated entries in the form a result row's hint takes, 'value:<type id>' for the values of the property (bucket values, a stats facet's min and max, the cursor), 'sum:<type id>' and 'avg:<type id>' for a stats facet's sum and average, to restore each as a column of that type.
+	Props *string `json:"@props,omitempty"`
+
+	// After Cursor to pass to AFTER to get the next page of buckets: the last value of this page, written as a row's value of the property; null when no value follows. Present on every terms facet ordered by VALUE ASC (the default for VALUE, and implied by AFTER) without INCLUDE; a VALUE DESC facet has none. Echo it exactly as received: a value rewritten by the client, such as a date-time reformatted or truncated to its sub-second part, can start the next page elsewhere.
+	After interface{} `json:"after,omitempty"`
+
+	// Avg STATS: the average of the values, the value and type SELECT avg() gives (a non-finite one by its name, as a row's); null for a date property or when no matching record has a value
+	Avg interface{} `json:"avg,omitempty"`
+
+	// Buckets The buckets, ranked as the FACETS clause asked. Absent from distinct, stats and unavailable facets
+	Buckets *[]FacetBucket `json:"buckets,omitempty"`
+
+	// Count STATS: the number of matching records with a value
+	Count *int `json:"count,omitempty"`
+
+	// Exact DISTINCT: false when the number of distinct values is approximate
+	Exact *bool `json:"exact,omitempty"`
+
+	// Max STATS: the largest value, a value of the type of the property written as a row's value of it; null when no matching record has a value
+	Max interface{} `json:"max,omitempty"`
+
+	// Min STATS: the smallest value, a value of the type of the property written as a row's value of it (a date in the database's date format); null when no matching record has a value
+	Min interface{} `json:"min,omitempty"`
+
+	// Missing Number of matching records without a value for the faceted property
+	Missing *int `json:"missing,omitempty"`
+
+	// OtherCount Sum of the counts of the values not returned in 'buckets'. Written by terms and hierarchy facets only
+	OtherCount *int `json:"otherCount,omitempty"`
+
+	// Reason Why the facet is unavailable. Present only when source is 'unavailable'
+	Reason *string `json:"reason,omitempty"`
+
+	// Source How the facet was computed: 'index' from the columnar projection, 'scan' when at least one bucket of the type was read from the records, 'unavailable' when it could not be computed (see 'reason').
+	Source FacetResultSource `json:"source"`
+
+	// Sum STATS: the sum of the values, the value and type SELECT sum() gives (a non-finite one by its name, as a row's); null for a date property or when no matching record has a value
+	Sum interface{} `json:"sum,omitempty"`
+
+	// Type Kind of the facet
+	Type FacetResultType `json:"type"`
+
+	// Value DISTINCT: the number of distinct values
+	Value *int `json:"value,omitempty"`
+}
+
+// FacetResultSource How the facet was computed: 'index' from the columnar projection, 'scan' when at least one bucket of the type was read from the records, 'unavailable' when it could not be computed (see 'reason').
+type FacetResultSource string
+
+// FacetResultType Kind of the facet
+type FacetResultType string
+
+// Facets The facets of a SELECT with a FACETS clause: one entry per facet alias, plus 'meta'. Present only when the statement asked for facets. Facets cover the full WHERE match set, not the LIMIT page: 'returned' and 'truncated' describe the rows only, the facets always count every match. Inside a REPEATABLE_READ transaction the facets count the latest committed data, corrected by patching for the records written since the projection was applied (and for the transaction's own writes), not the transaction's snapshot.
+type Facets struct {
+	// Meta How exact the facets of this response are
+	Meta                 FacetsMeta             `json:"meta"`
+	AdditionalProperties map[string]FacetResult `json:"-"`
+}
+
+// FacetsMeta How exact the facets of this response are
+type FacetsMeta struct {
+	// Exact False when the counts may lag the committed data because the patch budget was exceeded, or when a DISTINCT facet is approximate. True when every count is exact.
+	Exact bool `json:"exact"`
+
+	// LagMs How many milliseconds the columnar projection was behind the committed data
+	LagMs int `json:"lagMs"`
+
+	// Patched Number of records read from the record itself to correct the columnar projection
+	Patched int `json:"patched"`
+}
+
 // FullTextSearchRequest Full-text search over a FULL_TEXT index
 type FullTextSearchRequest struct {
 	// IndexName Full-text index to search; wins over 'typeName' when both are given
@@ -2318,7 +2476,7 @@ type NdJsonBatchEvent struct {
 	} `json:"summary,omitempty"`
 }
 
-// NdJsonQueryEvent One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present.
+// NdJsonQueryEvent One line of a newline-delimited streaming response. Exactly one of 'record', 'stats' or 'error' is present; the 'stats' trailer of a SELECT with a FACETS clause also carries its facets.
 type NdJsonQueryEvent struct {
 	// Error A failure raised after the 200 had already been sent. The status code cannot be taken back at that point, so the failure is reported in band and no 'stats' line follows.
 	Error *struct {
@@ -2350,8 +2508,11 @@ type NdJsonQueryEvent struct {
 	// Record One result row, identical to an element of the 'result' array of the buffered application/json response. An open map: a row's keys are the projections the statement asked for, plus the '@rid' and '@type' markers JsonSerializer writes into every serialized record.
 	Record *map[string]interface{} `json:"record,omitempty"`
 
-	// Stats Trailer, always the last line of a complete stream. Carries the same three numbers the buffered response reports at top level.
+	// Stats Trailer, always the last line of a complete stream. Carries the same three numbers the buffered response reports at top level, and the facets of a SELECT with a FACETS clause.
 	Stats *struct {
+		// Facets The facets of a SELECT with a FACETS clause: one entry per facet alias, plus 'meta'. Present only when the statement asked for facets. Facets cover the full WHERE match set, not the LIMIT page: 'returned' and 'truncated' describe the rows only, the facets always count every match. Inside a REPEATABLE_READ transaction the facets count the latest committed data, corrected by patching for the records written since the projection was applied (and for the transaction's own writes), not the transaction's snapshot.
+		Facets *Facets `json:"facets,omitempty"`
+
 		// Limit Effective row cap applied while streaming, -1 when uncapped
 		Limit *int `json:"limit,omitempty"`
 
@@ -2532,10 +2693,13 @@ type QueryResponse struct {
 	// ExplainPlan The same plan in structured form, for a caller that reads the steps rather than prints them. Present exactly when 'explain' is.
 	ExplainPlan *map[string]interface{} `json:"explainPlan,omitempty"`
 
+	// Facets The facets of a SELECT with a FACETS clause: one entry per facet alias, plus 'meta'. Present only when the statement asked for facets. Facets cover the full WHERE match set, not the LIMIT page: 'returned' and 'truncated' describe the rows only, the facets always count every match. Inside a REPEATABLE_READ transaction the facets count the latest committed data, corrected by patching for the records written since the projection was applied (and for the transaction's own writes), not the transaction's snapshot.
+	Facets *Facets `json:"facets,omitempty"`
+
 	// Limit Effective row cap applied while serializing, -1 when uncapped. This is the serializer's cap, not the query's own LIMIT: a query stating a LIMIT below the server default reports the default here, and 'returned' with 'truncated' describe what the response actually carries.
 	Limit int `json:"limit"`
 
-	// Result The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers.
+	// Result The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers. The rows of SELECT expand(facet.searchValues(...)) are FacetValueSuggestion objects (#/components/schemas/FacetValueSuggestion).
 	Result *QueryResponse_Result `json:"result,omitempty"`
 
 	// Returned Number of rows carried by this response. With the 'graph' serializer, whose cap counts graph elements rather than rows, it is the number of serialized vertices plus edges, and it can exceed 'limit': a single row can expand into several elements, and the expansion of the row that reaches the cap is not cut in half.
@@ -2560,7 +2724,7 @@ type QueryResponseResult1 struct {
 	Vertices []map[string]interface{} `json:"vertices"`
 }
 
-// QueryResponse_Result The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers.
+// QueryResponse_Result The rows, shaped by the 'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges} object - plus 'records' under 'studio' - with the two graph serializers. The rows of SELECT expand(facet.searchValues(...)) are FacetValueSuggestion objects (#/components/schemas/FacetValueSuggestion).
 type QueryResponse_Result struct {
 	union json.RawMessage
 }
@@ -4286,6 +4450,265 @@ func (a BatchVertexLine) MarshalJSON() ([]byte, error) {
 	object["@type"], err = json.Marshal(a.Type)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling '@type': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for FacetBucket. Returns the specified
+// element and whether it was found
+func (a FacetBucket) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for FacetBucket
+func (a *FacetBucket) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for FacetBucket to handle AdditionalProperties
+func (a *FacetBucket) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["count"]; found {
+		err = json.Unmarshal(raw, &a.Count)
+		if err != nil {
+			return fmt.Errorf("error reading 'count': %w", err)
+		}
+		delete(object, "count")
+	}
+
+	if raw, found := object["default"]; found {
+		err = json.Unmarshal(raw, &a.Default)
+		if err != nil {
+			return fmt.Errorf("error reading 'default': %w", err)
+		}
+		delete(object, "default")
+	}
+
+	if raw, found := object["depth"]; found {
+		err = json.Unmarshal(raw, &a.Depth)
+		if err != nil {
+			return fmt.Errorf("error reading 'depth': %w", err)
+		}
+		delete(object, "depth")
+	}
+
+	if raw, found := object["from"]; found {
+		err = json.Unmarshal(raw, &a.From)
+		if err != nil {
+			return fmt.Errorf("error reading 'from': %w", err)
+		}
+		delete(object, "from")
+	}
+
+	if raw, found := object["key"]; found {
+		err = json.Unmarshal(raw, &a.Key)
+		if err != nil {
+			return fmt.Errorf("error reading 'key': %w", err)
+		}
+		delete(object, "key")
+	}
+
+	if raw, found := object["missing"]; found {
+		err = json.Unmarshal(raw, &a.Missing)
+		if err != nil {
+			return fmt.Errorf("error reading 'missing': %w", err)
+		}
+		delete(object, "missing")
+	}
+
+	if raw, found := object["orphan"]; found {
+		err = json.Unmarshal(raw, &a.Orphan)
+		if err != nil {
+			return fmt.Errorf("error reading 'orphan': %w", err)
+		}
+		delete(object, "orphan")
+	}
+
+	if raw, found := object["parent"]; found {
+		err = json.Unmarshal(raw, &a.Parent)
+		if err != nil {
+			return fmt.Errorf("error reading 'parent': %w", err)
+		}
+		delete(object, "parent")
+	}
+
+	if raw, found := object["to"]; found {
+		err = json.Unmarshal(raw, &a.To)
+		if err != nil {
+			return fmt.Errorf("error reading 'to': %w", err)
+		}
+		delete(object, "to")
+	}
+
+	if raw, found := object["value"]; found {
+		err = json.Unmarshal(raw, &a.Value)
+		if err != nil {
+			return fmt.Errorf("error reading 'value': %w", err)
+		}
+		delete(object, "value")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for FacetBucket to handle AdditionalProperties
+func (a FacetBucket) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["count"], err = json.Marshal(a.Count)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'count': %w", err)
+	}
+
+	if a.Default != nil {
+		object["default"], err = json.Marshal(a.Default)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'default': %w", err)
+		}
+	}
+
+	if a.Depth != nil {
+		object["depth"], err = json.Marshal(a.Depth)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'depth': %w", err)
+		}
+	}
+
+	object["from"], err = json.Marshal(a.From)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'from': %w", err)
+	}
+
+	if a.Key != nil {
+		object["key"], err = json.Marshal(a.Key)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'key': %w", err)
+		}
+	}
+
+	if a.Missing != nil {
+		object["missing"], err = json.Marshal(a.Missing)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'missing': %w", err)
+		}
+	}
+
+	if a.Orphan != nil {
+		object["orphan"], err = json.Marshal(a.Orphan)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'orphan': %w", err)
+		}
+	}
+
+	object["parent"], err = json.Marshal(a.Parent)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'parent': %w", err)
+	}
+
+	object["to"], err = json.Marshal(a.To)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'to': %w", err)
+	}
+
+	object["value"], err = json.Marshal(a.Value)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'value': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// Getter for additional properties for Facets. Returns the specified
+// element and whether it was found
+func (a Facets) Get(fieldName string) (value FacetResult, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for Facets
+func (a *Facets) Set(fieldName string, value FacetResult) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]FacetResult)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for Facets to handle AdditionalProperties
+func (a *Facets) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["meta"]; found {
+		err = json.Unmarshal(raw, &a.Meta)
+		if err != nil {
+			return fmt.Errorf("error reading 'meta': %w", err)
+		}
+		delete(object, "meta")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]FacetResult)
+		for fieldName, fieldBuf := range object {
+			var fieldVal FacetResult
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for Facets to handle AdditionalProperties
+func (a Facets) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["meta"], err = json.Marshal(a.Meta)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'meta': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

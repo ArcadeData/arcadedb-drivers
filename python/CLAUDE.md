@@ -208,7 +208,10 @@ including why `Health`/`Ready` are deliberately exempt; it is not duplicated her
   defaults `_timeout` to `None` and passes it through the same way, so a facade-only default would
   make `ArcadeDBServer` and `.raw` disagree against the same server, and it preserves parity with
   `@arcadedb/driver`, where `fetch` has no default timeout either. Pass an `httpx.Timeout` to
-  bound requests.
+  bound requests. `query`, `command`, `query_stream` and `command_stream` also take a per-call
+  `timeout` (`_internal/timeout.py`: httpx's `USE_CLIENT_DEFAULT` by default, forwarded to the
+  request) that replaces the client's value for that call only; the facade maps no httpx timeout
+  error, so a run-out phase raises `httpx.TimeoutException`.
 - **`auth.py` is three lines where `auth.ts` is sixty; do not port the workaround.** `auth.ts`
   spends most of its length working around `btoa`: it treats input as Latin-1 and throws on
   anything above U+00FF, and a naive `String.fromCharCode(...bytes)` blows the call stack on a

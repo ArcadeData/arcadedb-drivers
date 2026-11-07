@@ -36,6 +36,7 @@ from ._generated.models.query_response import QueryResponse
 from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
 from ._internal.batch_rows import EdgeRow, VertexRow
+from ._internal.timeout import USE_CLIENT_DEFAULT, CallTimeout
 from ._internal.unwrap import is_success, unwrap
 from .aio import AsyncArcadeDBDatabase, AsyncArcadeDBServer, AsyncTransaction
 from .auth import basic_auth, bearer_auth
@@ -167,6 +168,7 @@ class ArcadeDBDatabase:
         params: dict[str, Any] | None = None,
         limit: int | None = None,
         query_tag: str | None = None,
+        timeout: CallTimeout = USE_CLIENT_DEFAULT,
     ) -> QueryEnvelope:
         """Executes a read-or-write query and returns the whole result envelope - not just `result`.
 
@@ -184,6 +186,16 @@ class ArcadeDBDatabase:
         only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
+
+        `timeout` applies to THIS call only and replaces the client's timeout for it. A `float` sets
+        all four httpx phases (connect, write, read, pool) to that many seconds, an `httpx.Timeout`
+        sets them separately, `None` removes every timeout for the call, and omitting it keeps the
+        client's own timeout (the `timeout` given to the server object, which is no timeout when
+        that was omitted too). httpx counts a timeout per phase, not as a deadline for the whole
+        call: the read timeout is the longest single wait for response bytes, so a server that
+        keeps answering slowly is not cut off. A phase that runs out raises `httpx.TimeoutException`
+        (for example `httpx.ReadTimeout`), the same exception the client-level timeout raises; it
+        is not wrapped in `ArcadeDBError`.
         """
         http = self._client.get_httpx_client()
         response = http.request(
@@ -191,6 +203,7 @@ class ArcadeDBDatabase:
             self._urls.query(http, self.name),
             json=query_body(language=language, command=command, params=params, limit=limit),
             headers=request_headers(self._session_id, query_tag) if query_tag else self._request_headers,
+            timeout=timeout,
         )
         envelope = fast_envelope(response)
         if envelope is not None:
@@ -209,6 +222,7 @@ class ArcadeDBDatabase:
         params: dict[str, Any] | None = None,
         limit: int | None = None,
         query_tag: str | None = None,
+        timeout: CallTimeout = USE_CLIENT_DEFAULT,
     ) -> QueryEnvelope:
         """Executes a command and returns the whole result envelope - not just `result`.
 
@@ -226,6 +240,16 @@ class ArcadeDBDatabase:
         only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
+
+        `timeout` applies to THIS call only and replaces the client's timeout for it. A `float` sets
+        all four httpx phases (connect, write, read, pool) to that many seconds, an `httpx.Timeout`
+        sets them separately, `None` removes every timeout for the call, and omitting it keeps the
+        client's own timeout (the `timeout` given to the server object, which is no timeout when
+        that was omitted too). httpx counts a timeout per phase, not as a deadline for the whole
+        call: the read timeout is the longest single wait for response bytes, so a server that
+        keeps answering slowly is not cut off. A phase that runs out raises `httpx.TimeoutException`
+        (for example `httpx.ReadTimeout`), the same exception the client-level timeout raises; it
+        is not wrapped in `ArcadeDBError`.
         """
         http = self._client.get_httpx_client()
         response = http.request(
@@ -233,6 +257,7 @@ class ArcadeDBDatabase:
             self._urls.command(http, self.name),
             json=command_body(language=language, command=command, params=params, limit=limit),
             headers=request_headers(self._session_id, query_tag) if query_tag else self._request_headers,
+            timeout=timeout,
         )
         envelope = fast_envelope(response)
         if envelope is not None:
@@ -249,6 +274,7 @@ class ArcadeDBDatabase:
         params: dict[str, Any] | None = None,
         limit: int | None = None,
         query_tag: str | None = None,
+        timeout: CallTimeout = USE_CLIENT_DEFAULT,
     ) -> Generator[NdJsonQueryEvent, None, None]:
         """Streams `POST /api/v1/query/{database}` as `application/x-ndjson` instead of a single
         buffered `QueryEnvelope`, yielding one `NdJsonQueryEvent` per line.
@@ -284,6 +310,15 @@ class ArcadeDBDatabase:
 
         `query` itself is unaffected: it keeps returning `QueryEnvelope` and sending no `Accept`
         header. This is a separate method, not a mode.
+
+        `timeout` applies to THIS call only and replaces the client's timeout for it: a `float` sets
+        all four httpx phases (connect, write, read, pool), an `httpx.Timeout` sets them
+        separately, `None` removes every timeout for the call, and omitting it keeps the client's
+        own. httpx counts a timeout per phase, not as a deadline for the whole call, so a stream
+        that keeps delivering rows never trips the read timeout: it bounds each wait for the next
+        chunk, not the stream. A phase that runs out raises `httpx.TimeoutException` from the
+        iterator (for example `httpx.ReadTimeout`, possibly after rows were already yielded); it
+        is not wrapped in `ArcadeDBError`.
         """
         return stream_query(
             self._client,
@@ -294,6 +329,7 @@ class ArcadeDBDatabase:
             params=params,
             limit=limit,
             query_tag=query_tag,
+            timeout=timeout,
         )
 
     def command_stream(
@@ -304,6 +340,7 @@ class ArcadeDBDatabase:
         params: dict[str, Any] | None = None,
         limit: int | None = None,
         query_tag: str | None = None,
+        timeout: CallTimeout = USE_CLIENT_DEFAULT,
     ) -> Generator[NdJsonQueryEvent, None, None]:
         """Streams `POST /api/v1/command/{database}` as `application/x-ndjson` - the `command`
         twin of `query_stream`; see its docstring for what an event carries and why an in-band
@@ -321,6 +358,15 @@ class ArcadeDBDatabase:
         only drift from the first, and a 26.11.1-SNAPSHOT server was observed accepting a longer
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
+
+        `timeout` applies to THIS call only and replaces the client's timeout for it: a `float` sets
+        all four httpx phases (connect, write, read, pool), an `httpx.Timeout` sets them
+        separately, `None` removes every timeout for the call, and omitting it keeps the client's
+        own. httpx counts a timeout per phase, not as a deadline for the whole call, so a stream
+        that keeps delivering rows never trips the read timeout: it bounds each wait for the next
+        chunk, not the stream. A phase that runs out raises `httpx.TimeoutException` from the
+        iterator (for example `httpx.ReadTimeout`, possibly after rows were already yielded); it
+        is not wrapped in `ArcadeDBError`.
         """
         return stream_command(
             self._client,
@@ -331,6 +377,7 @@ class ArcadeDBDatabase:
             params=params,
             limit=limit,
             query_tag=query_tag,
+            timeout=timeout,
         )
 
     def batch_load(

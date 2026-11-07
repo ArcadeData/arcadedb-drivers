@@ -455,6 +455,19 @@ these facades wrap defaults its own timeout to `None` and forwards it the same w
 srv = ArcadeDBServer(base_url="http://localhost:2480", timeout=httpx.Timeout(5.0))
 ```
 
+`query`, `command`, `query_stream` and `command_stream` (sync and async) also take a per-call
+`timeout`, which replaces the client's timeout for that one call: a `float` (all four httpx phases),
+an `httpx.Timeout`, or `None` (no timeout for this call). Omitting it keeps the client's own.
+
+```python
+db = srv.db("mydb")
+db.query(language="sql", command="SELECT FROM Person", timeout=2.0)
+```
+
+httpx counts a timeout per phase (connect, write, read, pool), not as a deadline for the whole
+call, so a stream that keeps delivering rows never trips the read timeout. A phase that runs out
+raises `httpx.TimeoutException` (for example `httpx.ReadTimeout`), not `ArcadeDBError`.
+
 ## Transactions
 
 ```python

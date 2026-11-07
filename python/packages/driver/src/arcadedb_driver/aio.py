@@ -10,7 +10,7 @@ call style it uses. The duplication that remains is mechanical and deliberate;
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterable, Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from functools import cached_property
 from types import TracebackType
@@ -428,6 +428,7 @@ class AsyncArcadeDBDatabase:
         *,
         vertices: Iterable[VertexRow] = (),
         edges: Iterable[EdgeRow] = (),
+        lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None = None,
         options: BatchOptions | None = None,
         query_tag: str | None = None,
     ) -> dict[str, Any]:
@@ -443,13 +444,24 @@ class AsyncArcadeDBDatabase:
         committed rather than resuming cleanly. Use `batch_load_stream` when the caller needs to
         see how far a load got before it failed.
 
+        `lines` is the other way in, for a payload that should not be built in memory: an
+        iterable (an async iterable too, in the async functions and methods) of
+        already-serialized ndjson lines (`str` or `bytes`; a file opened with `"rb"`, or
+        `iter_rows(vertices, edges)`, which yields the lines of rows lazily) that replaces
+        `vertices` and `edges`. It is sent as the request body while it is read, with
+        `Transfer-Encoding: chunked`, and is never joined: at most one chunk of about 64 KiB is
+        held. A line without a trailing newline gets one and an empty line is skipped. Giving
+        `lines` together with `vertices` or `edges` raises `ValueError`. With `lines` the
+        ordering is the caller's: every vertex must come before any edge that names its
+        temporary id. The driver does not check the size of the body.
+
         `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header - never as a query
         parameter, unlike `options` - so `list queries` shows the load and
         `terminate queries tag <label>` can stop it. No header is sent when it is `None` or
         empty; its length and characters are not checked client-side.
         """
         return await abatch_load(
-            self._client, self.name, vertices=vertices, edges=edges, options=options, query_tag=query_tag
+            self._client, self.name, vertices=vertices, edges=edges, lines=lines, options=options, query_tag=query_tag
         )
 
     def batch_load_stream(
@@ -457,6 +469,7 @@ class AsyncArcadeDBDatabase:
         *,
         vertices: Iterable[VertexRow] = (),
         edges: Iterable[EdgeRow] = (),
+        lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None = None,
         options: BatchOptions | None = None,
         query_tag: str | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
@@ -475,13 +488,24 @@ class AsyncArcadeDBDatabase:
         `commit_index`. `commit_index` is a valid read-after barrier even here: feed it back as
         `X-ArcadeDB-Read-After` to read at least the state the load had committed.
 
+        `lines` is the other way in, for a payload that should not be built in memory: an
+        iterable (an async iterable too, in the async functions and methods) of
+        already-serialized ndjson lines (`str` or `bytes`; a file opened with `"rb"`, or
+        `iter_rows(vertices, edges)`, which yields the lines of rows lazily) that replaces
+        `vertices` and `edges`. It is sent as the request body while it is read, with
+        `Transfer-Encoding: chunked`, and is never joined: at most one chunk of about 64 KiB is
+        held. A line without a trailing newline gets one and an empty line is skipped. Giving
+        `lines` together with `vertices` or `edges` raises `ValueError`. With `lines` the
+        ordering is the caller's: every vertex must come before any edge that names its
+        temporary id. The driver does not check the size of the body.
+
         `query_tag` is sent as the `X-ArcadeDB-Query-Tag` request header - never as a query
         parameter, unlike `options` - so `list queries` shows the load and
         `terminate queries tag <label>` can stop it. No header is sent when it is `None` or
         empty; its length and characters are not checked client-side.
         """
         return abatch_load_stream(
-            self._client, self.name, vertices=vertices, edges=edges, options=options, query_tag=query_tag
+            self._client, self.name, vertices=vertices, edges=edges, lines=lines, options=options, query_tag=query_tag
         )
 
     def transaction(

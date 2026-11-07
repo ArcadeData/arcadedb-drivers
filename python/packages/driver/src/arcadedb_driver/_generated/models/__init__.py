@@ -89,6 +89,13 @@ from .execute_command_accept import ExecuteCommandAccept
 from .execute_query_get_accept import ExecuteQueryGetAccept
 from .execute_query_get_language import ExecuteQueryGetLanguage
 from .execute_query_post_accept import ExecuteQueryPostAccept
+from .facet_bucket import FacetBucket
+from .facet_result import FacetResult
+from .facet_result_source import FacetResultSource
+from .facet_result_type import FacetResultType
+from .facet_value_suggestion import FacetValueSuggestion
+from .facets import Facets
+from .facets_meta import FacetsMeta
 from .full_text_search_request import FullTextSearchRequest
 from .full_text_search_response import FullTextSearchResponse
 from .full_text_search_response_results_item import FullTextSearchResponseResultsItem
@@ -368,6 +375,13 @@ __all__ = (
     "ExecuteQueryGetAccept",
     "ExecuteQueryGetLanguage",
     "ExecuteQueryPostAccept",
+    "FacetBucket",
+    "FacetResult",
+    "FacetResultSource",
+    "FacetResultType",
+    "FacetValueSuggestion",
+    "Facets",
+    "FacetsMeta",
     "FullTextSearchRequest",
     "FullTextSearchResponse",
     "FullTextSearchResponseResultsItem",

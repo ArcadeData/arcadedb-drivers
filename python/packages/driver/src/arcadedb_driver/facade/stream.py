@@ -94,6 +94,7 @@ from urllib.parse import quote
 from .._generated.client import Client
 from .._generated.models.nd_json_query_event import NdJsonQueryEvent
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
+from .._internal.timeout import USE_CLIENT_DEFAULT, CallTimeout
 from ..errors import REQUEST_ID_HEADER, ArcadeDBError, _int_or_none, _status_or, _str_or_none
 from .data import SESSION_HEADER, QueryLanguage, build_command_request, build_query_request, query_tag_headers
 
@@ -141,10 +142,10 @@ def _parse_event(line: str, header_request_id: str | None) -> NdJsonQueryEvent:
 
 
 def _stream_events(
-    client: Client, url: str, body: dict[str, Any], session_id: str | None, query_tag: str | None
+    client: Client, url: str, body: dict[str, Any], session_id: str | None, query_tag: str | None, timeout: CallTimeout
 ) -> Generator[NdJsonQueryEvent, None, None]:
     headers = _headers(session_id, query_tag)
-    with client.get_httpx_client().stream("POST", url, json=body, headers=headers) as response:
+    with client.get_httpx_client().stream("POST", url, json=body, headers=headers, timeout=timeout) as response:
         raise_for_status(response)
         request_id = response.headers.get(REQUEST_ID_HEADER)
         for line in iter_ndjson_lines(response.iter_text()):
@@ -154,10 +155,12 @@ def _stream_events(
 
 
 async def _astream_events(
-    client: Client, url: str, body: dict[str, Any], session_id: str | None, query_tag: str | None
+    client: Client, url: str, body: dict[str, Any], session_id: str | None, query_tag: str | None, timeout: CallTimeout
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
     headers = _headers(session_id, query_tag)
-    async with client.get_async_httpx_client().stream("POST", url, json=body, headers=headers) as response:
+    async with client.get_async_httpx_client().stream(
+        "POST", url, json=body, headers=headers, timeout=timeout
+    ) as response:
         await araise_for_status(response)
         request_id = response.headers.get(REQUEST_ID_HEADER)
         async for line in aiter_ndjson_lines(response.aiter_text()):
@@ -176,11 +179,12 @@ def stream_query(
     params: dict[str, Any] | None = None,
     limit: int | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> Generator[NdJsonQueryEvent, None, None]:
     """Streams `POST /api/v1/query/{database}` as `application/x-ndjson`, one event per line - see
     the module docstring for what an event carries and why an in-band `error` raises."""
     body = build_query_request(language=language, command=command, params=params, limit=limit).to_dict()
-    return _stream_events(client, _query_url(database), body, session_id, query_tag)
+    return _stream_events(client, _query_url(database), body, session_id, query_tag, timeout)
 
 
 def stream_command(
@@ -193,13 +197,14 @@ def stream_command(
     params: dict[str, Any] | None = None,
     limit: int | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> Generator[NdJsonQueryEvent, None, None]:
     """Streams `POST /api/v1/command/{database}` as `application/x-ndjson`, one event per line -
     see the module docstring for what an event carries and why an in-band `error` raises. Only a
     read-only statement can stream; see `ArcadeDBDatabase.command_stream`'s docstring for why a
     mutating one is refused."""
     body = build_command_request(language=language, command=command, params=params, limit=limit).to_dict()
-    return _stream_events(client, _command_url(database), body, session_id, query_tag)
+    return _stream_events(client, _command_url(database), body, session_id, query_tag, timeout)
 
 
 def astream_query(
@@ -212,10 +217,11 @@ def astream_query(
     params: dict[str, Any] | None = None,
     limit: int | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
     """The async twin of `stream_query`."""
     body = build_query_request(language=language, command=command, params=params, limit=limit).to_dict()
-    return _astream_events(client, _query_url(database), body, session_id, query_tag)
+    return _astream_events(client, _query_url(database), body, session_id, query_tag, timeout)
 
 
 def astream_command(
@@ -228,7 +234,8 @@ def astream_command(
     params: dict[str, Any] | None = None,
     limit: int | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> AsyncGenerator[NdJsonQueryEvent, None]:
     """The async twin of `stream_command`."""
     body = build_command_request(language=language, command=command, params=params, limit=limit).to_dict()
-    return _astream_events(client, _command_url(database), body, session_id, query_tag)
+    return _astream_events(client, _command_url(database), body, session_id, query_tag, timeout)

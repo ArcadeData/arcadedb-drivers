@@ -89,6 +89,24 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+Both `create_client`s also take two optional channel arguments, passed straight to the grpc channel
+constructor: `options`, a sequence of `(key, value)` pairs, and `compression`, a `grpc.Compression`.
+Both default to `None`, which keeps grpc's own defaults, such as its 4 MiB receive message limit.
+The auth interceptors are still attached to the channel built from them.
+
+```python
+import grpc
+
+from arcadedb_driver_grpc import create_client
+
+client = create_client(
+    "localhost:50051",
+    insecure=True,
+    options=[("grpc.max_receive_message_length", 64 * 1024 * 1024), ("grpc.keepalive_time_ms", 30_000)],
+    compression=grpc.Compression.Gzip,
+)
+```
+
 The two `create_client`s are deliberately two functions rather than one function with a sync/async
 switch: `arcadedb_driver_grpc.create_client` returns `ArcadeDBGrpcClient`, `arcadedb_driver_grpc.aio.create_client`
 returns `AsyncArcadeDBGrpcClient`, and importing from `.aio` is the signal for which one you get.

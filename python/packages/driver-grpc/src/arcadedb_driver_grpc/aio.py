@@ -17,7 +17,7 @@ import dataclasses
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Iterable, Sequence
 from types import TracebackType
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import grpc
 
@@ -937,6 +937,8 @@ def create_client(
     auth: Auth | None = None,
     credentials: grpc.ChannelCredentials | None = None,
     insecure: bool = False,
+    options: Sequence[tuple[str, Any]] | None = None,
+    compression: grpc.Compression | None = None,
 ) -> AsyncArcadeDBGrpcClient:
     """Creates an async gRPC data-plane client.
 
@@ -956,6 +958,11 @@ def create_client(
     uses the same `credentials is not None or insecure` test this function applies to its
     own guard above, but unconditionally on `auth`: the admin hazard is credentials inside
     an admin RPC's request body, not anything an auth interceptor puts on the wire.
+
+    `options` is passed as the `options` argument of the grpc channel constructor, as a sequence
+    of `(key, value)` pairs such as `("grpc.max_receive_message_length", 64 * 1024 * 1024)` or
+    the keepalive settings, and `compression` as its `compression` argument. Both default to
+    `None`, which leaves grpc's own defaults (for example its 4 MiB receive limit) in place.
     """
     if credentials is None and not insecure and auth is not None and auth.sends_plaintext_password:
         raise InsecureChannelError(
@@ -969,8 +976,10 @@ def create_client(
     # already attached rather than wrapped afterwards.
     interceptors = async_interceptors(auth)
     channel = (
-        grpc.aio.insecure_channel(target, interceptors=interceptors)
+        grpc.aio.insecure_channel(target, options=options, compression=compression, interceptors=interceptors)
         if credentials is None
-        else grpc.aio.secure_channel(target, credentials, interceptors=interceptors)
+        else grpc.aio.secure_channel(
+            target, credentials, options=options, compression=compression, interceptors=interceptors
+        )
     )
     return AsyncArcadeDBGrpcClient(channel, allow_admin=credentials is not None or insecure)

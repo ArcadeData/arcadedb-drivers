@@ -15,8 +15,10 @@ The module is deliberately small and has no state beyond the connections:
 
 - Connections. A call takes an idle connection (the most recently used one) or opens a new one, owns
   it until the answer is read, and puts it back. One thread therefore reuses one connection, and
-  threads sharing a client each get their own, the guarantee httpx's pool gives. At most
-  `MAX_IDLE_CONNECTIONS` stay open between calls (httpx's default `max_keepalive_connections`);
+  threads sharing a client each get their own, the guarantee httpx's pool gives. About
+  `MAX_IDLE_CONNECTIONS` stay open between calls (httpx's default `max_keepalive_connections`): a
+  call checks the count when it puts its connection back without taking a lock, so calls that
+  return at the same instant can leave a few more than that until they are used or closed.
   `close()` closes the idle ones and every connection still in use when it comes back.
 - Errors. An exception from the socket layer becomes the httpx exception httpx itself raises for the
   same failure (`ConnectError`, `ConnectTimeout`, `ReadTimeout`, `WriteTimeout`,
@@ -343,6 +345,9 @@ class HttpClientTransport:
         else:
             slot.reused = True
             self._idle.append(slot)
+            if self._closed:
+                # `close()` ran between the check above and the append, so it never saw this connection.
+                self.close()
         return result
 
     def _new_slot(self) -> _Slot:

@@ -15,6 +15,7 @@ import re
 import socket
 import threading
 import time
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,7 +24,7 @@ from typing import Any, Literal
 import httpx
 import pytest
 from arcadedb_driver import ArcadeDBDatabase, ArcadeDBError, ArcadeDBServer, QueryEnvelope, basic_auth
-from arcadedb_driver._internal.http_client import HttpClientTransport, TransportName, encode_json
+from arcadedb_driver._internal.http_client import HttpClientTransport, TransportName, _Slot, encode_json
 
 ERROR_BODY = {
     "error": "Encountered an error",
@@ -595,6 +596,27 @@ def test_a_closed_server_refuses_calls_as_httpx_does(fake: FakeArcadeDB, transpo
     srv.close()
     with pytest.raises(RuntimeError, match="closed"):
         db.query(language="sql", command="SELECT 2")
+
+
+def test_a_connection_put_back_while_close_runs_is_not_left_open(fake: FakeArcadeDB) -> None:
+    """`close()` can run between a call's check of the closed flag and its putting its connection back.
+
+    The call has its answer by then and returns normally, but its connection must not stay idle in a
+    pool that `close()` has already drained.
+    """
+    srv = connect(fake, "http.client")
+    assert srv._transport is not None
+    transport: HttpClientTransport = srv._transport
+
+    class CloseBeforeAppend(deque[_Slot]):
+        def append(self, slot: _Slot) -> None:
+            transport.close()
+            super().append(slot)
+
+    transport._idle = CloseBeforeAppend()
+    assert srv.db("d").query(language="sql", command="SELECT 1").returned == 1
+    assert len(transport._idle) == 0
+    srv.close()
 
 
 def test_an_unknown_transport_is_refused() -> None:

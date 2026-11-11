@@ -31,6 +31,7 @@ EXPECTED_SURFACE = {
     "basic_auth",
     "bearer_auth",
     "is_query_terminated",
+    "iter_rows",
 }
 
 

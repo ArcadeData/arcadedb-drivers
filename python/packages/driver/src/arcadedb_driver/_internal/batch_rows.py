@@ -26,16 +26,17 @@ Two properties of `serialize_rows` are load-bearing rather than stylistic:
    retrying duplicates them. Vertices and edges arrive as separate arguments precisely so the
    wrong order cannot be expressed.
 
-The whole payload is materialized as one string. The request body is streamed to the server
-either way, so this costs a caller memory only for the payload they already hold; a caller whose
-payload does not fit in memory needs a different design, and should be told that rather than be
-handed a client that pretends otherwise.
+`serialize_rows` materializes the whole payload as one string, and the default `vertices=`/`edges=`
+path of `batch_load` sends that as one body with a `Content-Length`. A payload that does not fit in
+memory has a second way in: `iter_rows` yields the same lines one at a time, and `iter_body` /
+`aiter_body` (used by the `lines=` argument of the batch calls) pack any iterable of lines into
+bounded chunks, so the request body is generated while it is sent and is never held whole.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
 from typing import Any
 
 from typing_extensions import NotRequired, TypedDict
@@ -73,15 +74,79 @@ def _line(control: dict[str, str], properties: dict[str, Any] | None) -> str:
     return json.dumps({**control, **(properties or {})}) + "\n"
 
 
-def serialize_rows(vertices: Iterable[VertexRow], edges: Iterable[EdgeRow]) -> str:
-    """Serializes rows to the ndjson payload - vertices first, properties flattened."""
-    out = []
+def _row_lines(vertices: Iterable[VertexRow], edges: Iterable[EdgeRow]) -> Iterator[str]:
     for vertex in vertices:
         control = {"@type": "vertex", "@class": vertex["type"]}
         if vertex.get("id") is not None:
             control["@id"] = vertex["id"]
-        out.append(_line(control, vertex.get("properties")))
+        yield _line(control, vertex.get("properties"))
     for edge in edges:
         control = {"@type": "edge", "@class": edge["type"], "@from": edge["from_"], "@to": edge["to"]}
-        out.append(_line(control, edge.get("properties")))
-    return "".join(out)
+        yield _line(control, edge.get("properties"))
+
+
+def serialize_rows(vertices: Iterable[VertexRow], edges: Iterable[EdgeRow]) -> str:
+    """Serializes rows to the ndjson payload - vertices first, properties flattened."""
+    return "".join(_row_lines(vertices, edges))
+
+
+def iter_rows(vertices: Iterable[VertexRow], edges: Iterable[EdgeRow]) -> Iterator[bytes]:
+    """Yields the same ndjson lines `serialize_rows` joins, one UTF-8 encoded line at a time, so
+    the payload is never built whole: every vertex first, properties flattened, and each row is
+    pulled from `vertices`/`edges` only when the next line is asked for. Pass the result as the
+    `lines=` argument of a batch call to stream rows from a generator."""
+    for line in _row_lines(vertices, edges):
+        yield line.encode("utf-8")
+
+
+CHUNK_BYTES = 64 * 1024
+"""A streamed body is sent in chunks of about this many bytes (a chunk ends at the first line
+that reaches it), so one call to the transport carries many lines rather than one."""
+
+
+def _line_bytes(line: object) -> bytes:
+    """One line as UTF-8 bytes ending in a single newline, or `b""` for an empty line."""
+    if isinstance(line, str):
+        data = line.encode("utf-8")
+    elif isinstance(line, (bytes, bytearray, memoryview)):
+        data = bytes(line)
+    else:
+        raise TypeError(f"a line must be str or bytes, not {type(line).__name__}")
+    if data and not data.endswith(b"\n"):
+        data += b"\n"
+    return data
+
+
+def iter_body(lines: Iterable[str | bytes]) -> Iterator[bytes]:
+    """Packs ndjson lines into chunks of about `CHUNK_BYTES`, pulling `lines` lazily: no line is
+    taken before the transport asks for the chunk that holds it, and at most one chunk is held
+    at a time. A line without a trailing newline gets one; an empty line is dropped."""
+    buffer = bytearray()
+    for line in lines:
+        buffer += _line_bytes(line)
+        if len(buffer) >= CHUNK_BYTES:
+            yield bytes(buffer)
+            buffer.clear()
+    if buffer:
+        yield bytes(buffer)
+
+
+async def aiter_body(lines: Iterable[str | bytes] | AsyncIterable[str | bytes]) -> AsyncIterator[bytes]:
+    """The async twin of `iter_body`. A plain iterable (a list, a file object) is read on the
+    event loop thread, line by line, which suits a generator or an in-memory source; an
+    `AsyncIterable` is awaited between lines."""
+    buffer = bytearray()
+    if isinstance(lines, AsyncIterable):
+        async for line in lines:
+            buffer += _line_bytes(line)
+            if len(buffer) >= CHUNK_BYTES:
+                yield bytes(buffer)
+                buffer.clear()
+    else:
+        for line in lines:
+            buffer += _line_bytes(line)
+            if len(buffer) >= CHUNK_BYTES:
+                yield bytes(buffer)
+                buffer.clear()
+    if buffer:
+        yield bytes(buffer)

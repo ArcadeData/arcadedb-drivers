@@ -6,8 +6,9 @@ generated call this could ride even for the plain buffered body, let alone a str
 NOT hand-written is the transport: both the sync and async functions below reach for the generated
 `Client`'s own pooled `httpx.Client` / `httpx.AsyncClient` via `.stream()` - the same escape hatch
 `facade/timeseries.py`'s hand-written `write` already uses - so the base URL, auth headers and
-timeout come along for free instead of being reconstructed. A second transport is exactly what
-this milestone was designed to avoid; there is only one here to drift.
+timeout come along for free instead of being reconstructed; the timeout is the client's unless a
+call passes its own `timeout`, which `.stream()` takes per request. A second transport is exactly
+what this milestone was designed to avoid; there is only one here to drift.
 
 Three decisions, matching `queryStream`/`commandStream` in `@arcadedb/driver`:
 

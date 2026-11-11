@@ -17,7 +17,7 @@ keywords = ["arcadedb", "database", "graph-database", "multi-model", "grpc"]
 # next time it runs against a newer `grpcio-tools` - that linkage is exactly what let this
 # floor drift out of date in the first place.
 dependencies = [
-    "grpcio>=1.83.1",
+    "grpcio>=1.85.1",
     "protobuf>=7.35.1",
 ]
 

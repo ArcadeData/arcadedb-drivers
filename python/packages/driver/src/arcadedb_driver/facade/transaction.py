@@ -10,6 +10,7 @@ from .._generated.api.transaction import begin_transaction as begin_op
 from .._generated.api.transaction import commit_transaction as commit_op
 from .._generated.api.transaction import rollback_transaction as rollback_op
 from .._generated.client import Client
+from .._internal.http_client import HttpClientTransport
 from .._internal.unwrap import is_success, unwrap
 from ..errors import ArcadeDBError
 from .data import SESSION_HEADER, IsolationLevel, begin_request, query_tag_kwarg
@@ -19,7 +20,11 @@ if TYPE_CHECKING:
 
 
 def begin_transaction(
-    client: Client, database: str, query_tag: str | None = None, isolation_level: IsolationLevel | None = None
+    client: Client,
+    database: str,
+    query_tag: str | None = None,
+    isolation_level: IsolationLevel | None = None,
+    transport: HttpClientTransport | None = None,
 ) -> str:
     """Begins a transaction and returns its session id.
 
@@ -35,13 +40,25 @@ def begin_transaction(
     `isolation_level`, when set, is the request's only body (`{"isolationLevel": ...}`);
     with none there is no body and the server uses the database's default level. A
     value other than `READ_COMMITTED` or `REPEATABLE_READ` raises `ValueError` unsent.
+
+    `transport`, when given, is the server's `http.client` transport: the request is the same and is
+    sent over it instead of httpx.
     """
-    response = begin_op.sync_detailed(
-        database,
-        client=client,
-        body=begin_request(isolation_level),
-        x_arcade_db_query_tag=query_tag_kwarg(query_tag),
-    )
+    if transport is None:
+        response = begin_op.sync_detailed(
+            database,
+            client=client,
+            body=begin_request(isolation_level),
+            x_arcade_db_query_tag=query_tag_kwarg(query_tag),
+        )
+    else:
+        response = transport.call(
+            begin_op,
+            client,
+            database,
+            body=begin_request(isolation_level),
+            x_arcade_db_query_tag=query_tag_kwarg(query_tag),
+        )
     if not is_success(response):
         raise ArcadeDBError.from_response(response)
     session_id = response.headers.get(SESSION_HEADER)
@@ -53,14 +70,24 @@ def begin_transaction(
     return session_id
 
 
-def commit_transaction(client: Client, database: str, session_id: str) -> None:
+def commit_transaction(
+    client: Client, database: str, session_id: str, transport: HttpClientTransport | None = None
+) -> None:
     """Commits the transaction identified by `session_id`. The endpoint answers 204 with no body."""
-    unwrap(commit_op.sync_detailed(database, client=client, arcadedb_session_id=session_id))
+    if transport is None:
+        unwrap(commit_op.sync_detailed(database, client=client, arcadedb_session_id=session_id))
+    else:
+        unwrap(transport.call(commit_op, client, database, arcadedb_session_id=session_id))
 
 
-def rollback_transaction(client: Client, database: str, session_id: str) -> None:
+def rollback_transaction(
+    client: Client, database: str, session_id: str, transport: HttpClientTransport | None = None
+) -> None:
     """Rolls back the transaction identified by `session_id`. The endpoint answers 204 with no body."""
-    unwrap(rollback_op.sync_detailed(database, client=client, arcadedb_session_id=session_id))
+    if transport is None:
+        unwrap(rollback_op.sync_detailed(database, client=client, arcadedb_session_id=session_id))
+    else:
+        unwrap(transport.call(rollback_op, client, database, arcadedb_session_id=session_id))
 
 
 class Transaction:
@@ -115,9 +142,11 @@ class Transaction:
         database: str,
         query_tag: str | None = None,
         isolation_level: IsolationLevel | None = None,
+        transport: HttpClientTransport | None = None,
     ) -> None:
         begin_request(isolation_level)  # refuses an unsupported level now, before the block runs
         self._client = client
+        self._transport = transport
         self._database = database
         self._query_tag = query_tag
         self._isolation_level = isolation_level
@@ -126,8 +155,10 @@ class Transaction:
     def __enter__(self) -> ArcadeDBDatabase:
         from .. import ArcadeDBDatabase
 
-        self._session_id = begin_transaction(self._client, self._database, self._query_tag, self._isolation_level)
-        return ArcadeDBDatabase(self._client, self._database, self._session_id)
+        self._session_id = begin_transaction(
+            self._client, self._database, self._query_tag, self._isolation_level, self._transport
+        )
+        return ArcadeDBDatabase(self._client, self._database, self._session_id, transport=self._transport)
 
     def __exit__(
         self,
@@ -140,7 +171,7 @@ class Transaction:
 
         if exc is not None:
             try:
-                rollback_transaction(self._client, self._database, session_id)
+                rollback_transaction(self._client, self._database, session_id, self._transport)
             except Exception as rollback_err:
                 if exc.__cause__ is None:
                     # Some libraries intern frozen sentinel errors that cannot take a new
@@ -151,11 +182,11 @@ class Transaction:
             return False
 
         try:
-            commit_transaction(self._client, self._database, session_id)
+            commit_transaction(self._client, self._database, session_id, self._transport)
         except Exception:
             # Best-effort: the commit error is what the caller needs to see, so the
             # rollback's own failure is deliberately discarded rather than chained.
             with contextlib.suppress(Exception):
-                rollback_transaction(self._client, self._database, session_id)
+                rollback_transaction(self._client, self._database, session_id, self._transport)
             raise
         return False

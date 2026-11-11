@@ -36,6 +36,7 @@ from ._generated.models.query_response import QueryResponse
 from ._generated.models.server_info import ServerInfo
 from ._generated.types import Unset
 from ._internal.batch_rows import EdgeRow, VertexRow
+from ._internal.http_client import TRANSPORTS, BoundTransport, HttpClientTransport, TransportName, TransportResponse
 from ._internal.unwrap import is_success, unwrap
 from .aio import AsyncArcadeDBDatabase, AsyncArcadeDBServer, AsyncTransaction
 from .auth import basic_auth, bearer_auth
@@ -60,6 +61,7 @@ from .facade.data import (
     QueryLanguage,
     command_body,
     fast_envelope,
+    fast_envelope_from_bytes,
     query_body,
     request_headers,
     to_envelope,
@@ -152,12 +154,37 @@ class ArcadeDBDatabase:
     made through the outer database object do not take part in the transaction.
     """
 
-    def __init__(self, client: Client, name: str, session_id: str | None = None) -> None:
+    def __init__(
+        self,
+        client: Client,
+        name: str,
+        session_id: str | None = None,
+        *,
+        transport: HttpClientTransport | None = None,
+    ) -> None:
         self._client = client
         self.name = name
         self._session_id = session_id
         self._request_headers = request_headers(session_id)
         self._urls = DataUrls()
+        # The server's `http.client` transport, or `None` for httpx (the default). `query`, `command`
+        # and the transaction calls use it; every other call goes through `client` as always.
+        self._transport = transport
+        self._bound: BoundTransport | None = None if transport is None else transport.bind(session_id)
+
+    def _transport_envelope(self, build_response: Callable[..., Any], response: TransportResponse) -> QueryEnvelope:
+        """The envelope of an answer that came over the `http.client` transport.
+
+        The common answer is read straight from the bytes, as `fast_envelope` does for httpx; every
+        other one is turned into an `httpx.Response` and takes the generated parse, `unwrap` and
+        `to_envelope`, so an error or an `explain` result is what it is over httpx.
+        """
+        envelope = fast_envelope_from_bytes(response.status, response.content)
+        if envelope is not None:
+            return envelope
+        data = unwrap(build_response(client=self._client, response=response.as_httpx()))
+        assert isinstance(data, QueryResponse)
+        return to_envelope(data)
 
     def query(
         self,
@@ -185,6 +212,12 @@ class ArcadeDBDatabase:
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
         """
+        bound = self._bound
+        if bound is not None:
+            body = query_body(language=language, command=command, params=params, limit=limit)
+            return self._transport_envelope(
+                execute_query_post._build_response, bound.post("query", self.name, body, query_tag)
+            )
         http = self._client.get_httpx_client()
         response = http.request(
             "POST",
@@ -227,6 +260,12 @@ class ArcadeDBDatabase:
         tag - so do not count on a refusal either way. Inside a transaction a per-call tag overrides
         the label the transaction's begin request set.
         """
+        bound = self._bound
+        if bound is not None:
+            body = command_body(language=language, command=command, params=params, limit=limit)
+            return self._transport_envelope(
+                execute_command._build_response, bound.post("command", self.name, body, query_tag)
+            )
         http = self._client.get_httpx_client()
         response = http.request(
             "POST",
@@ -407,7 +446,9 @@ class ArcadeDBDatabase:
         body; `None` sends none, and the server begins at the database's default level. Any other
         value raises `ValueError` here, before anything is sent.
         """
-        return Transaction(self._client, self.name, query_tag=query_tag, isolation_level=isolation_level)
+        return Transaction(
+            self._client, self.name, query_tag=query_tag, isolation_level=isolation_level, transport=self._transport
+        )
 
     def insert_session(
         self,
@@ -522,6 +563,13 @@ class ArcadeDBServer:
     disagree against the same server; it also matches `@arcadedb/driver`, where
     `fetch` has no default timeout either. Pass an `httpx.Timeout` to bound
     requests.
+
+    `transport` chooses what carries `query`, `command` and the transaction calls (`begin`, `commit`,
+    `rollback`): `"httpx"` (the default, unchanged) or `"http.client"`, which keeps persistent
+    `http.client` connections instead and costs less per call; see the README's "The `http.client`
+    transport". The answers, the return types and the exceptions are the same for both. Every other
+    call, the streams and `batch_load` included, goes through httpx whichever is chosen. Any other
+    value raises `ValueError`.
     """
 
     def __init__(
@@ -532,13 +580,22 @@ class ArcadeDBServer:
         headers: Mapping[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         verify_ssl: bool = True,
+        transport: TransportName = "httpx",
     ) -> None:
+        if transport not in TRANSPORTS:
+            raise ValueError(f"unsupported transport {transport!r}: use 'httpx' or 'http.client'")
         merged: dict[str, str] = {**(auth or {}), **(headers or {})}
         # Kept for `with_token` and `logout`; `raw`'s own copies are private to the generator.
         self._base_url = base_url
         self._headers = merged
         self._timeout = timeout
         self._verify_ssl = verify_ssl
+        self._transport_name = transport
+        self._transport = (
+            HttpClientTransport(base_url=base_url, headers=merged, timeout=timeout, verify_ssl=verify_ssl)
+            if transport == "http.client"
+            else None
+        )
         #: The generated client this facade is built on. Its
         #: `raise_on_unexpected_status` is False, so it returns a `Response` and does
         #: NOT raise, unlike every method here. That asymmetry is deliberate: use
@@ -548,7 +605,7 @@ class ArcadeDBServer:
 
     def db(self, name: str) -> ArcadeDBDatabase:
         """Scopes subsequent calls to one database, reached through this server."""
-        return ArcadeDBDatabase(self.raw, name)
+        return ArcadeDBDatabase(self.raw, name, transport=self._transport)
 
     def list_databases(self) -> list[str]:
         """Lists the names of every database visible to the authenticated caller."""
@@ -842,6 +899,7 @@ class ArcadeDBServer:
             headers=with_authorization(self._headers, bearer_auth(token)["Authorization"]),
             timeout=self._timeout,
             verify_ssl=self._verify_ssl,
+            transport=self._transport_name,
         )
 
     def logout(self) -> None:
@@ -908,8 +966,13 @@ class ArcadeDBServer:
         unwrap(delete_api_token.sync_detailed(client=self.raw, token=token_hash))
 
     def close(self) -> None:
-        """Closes the underlying httpx client and its connection pool."""
-        self.raw.get_httpx_client().close()
+        """Closes the underlying httpx client and its connection pool, and the `http.client`
+        transport's connections when that transport is chosen."""
+        try:
+            self.raw.get_httpx_client().close()
+        finally:
+            if self._transport is not None:
+                self._transport.close()
 
     def __enter__(self) -> ArcadeDBServer:
         self.raw.__enter__()
@@ -921,4 +984,8 @@ class ArcadeDBServer:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        self.raw.__exit__(exc_type, exc, tb)
+        try:
+            self.raw.__exit__(exc_type, exc, tb)
+        finally:
+            if self._transport is not None:
+                self._transport.close()

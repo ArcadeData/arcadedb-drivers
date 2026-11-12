@@ -9,6 +9,7 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 if TYPE_CHECKING:
+    from ..models.facets import Facets
     from ..models.query_response_explain_plan import QueryResponseExplainPlan
     from ..models.query_response_result_type_0_item import QueryResponseResultType0Item
     from ..models.query_response_result_type_1 import QueryResponseResultType1
@@ -36,9 +37,15 @@ class QueryResponse:
             is the answer, and it is not also repeated as a row.
         explain_plan (QueryResponseExplainPlan | Unset): The same plan in structured form, for a caller that reads the
             steps rather than prints them. Present exactly when 'explain' is.
+        facets (Facets | Unset): The facets of a SELECT with a FACETS clause: one entry per facet alias, plus 'meta'.
+            Present only when the statement asked for facets. Facets cover the full WHERE match set, not the LIMIT page:
+            'returned' and 'truncated' describe the rows only, the facets always count every match. Inside a REPEATABLE_READ
+            transaction the facets count the latest committed data, corrected by patching for the records written since the
+            projection was applied (and for the transaction's own writes), not the transaction's snapshot.
         result (list[QueryResponseResultType0Item] | QueryResponseResultType1 | Unset): The rows, shaped by the
             'serializer' the request asked for: an array with the default 'record' serializer, and one {vertices, edges}
-            object - plus 'records' under 'studio' - with the two graph serializers.
+            object - plus 'records' under 'studio' - with the two graph serializers. The rows of SELECT
+            expand(facet.searchValues(...)) are FacetValueSuggestion objects (#/components/schemas/FacetValueSuggestion).
     """
 
     limit: int
@@ -46,6 +53,7 @@ class QueryResponse:
     truncated: bool
     explain: str | Unset = UNSET
     explain_plan: QueryResponseExplainPlan | Unset = UNSET
+    facets: Facets | Unset = UNSET
     result: list[QueryResponseResultType0Item] | QueryResponseResultType1 | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -61,6 +69,10 @@ class QueryResponse:
         explain_plan: dict[str, Any] | Unset = UNSET
         if not isinstance(self.explain_plan, Unset):
             explain_plan = self.explain_plan.to_dict()
+
+        facets: dict[str, Any] | Unset = UNSET
+        if not isinstance(self.facets, Unset):
+            facets = self.facets.to_dict()
 
         result: dict[str, Any] | list[dict[str, Any]] | Unset
         if isinstance(self.result, Unset):
@@ -87,6 +99,8 @@ class QueryResponse:
             field_dict["explain"] = explain
         if explain_plan is not UNSET:
             field_dict["explainPlan"] = explain_plan
+        if facets is not UNSET:
+            field_dict["facets"] = facets
         if result is not UNSET:
             field_dict["result"] = result
 
@@ -94,6 +108,7 @@ class QueryResponse:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.facets import Facets
         from ..models.query_response_explain_plan import QueryResponseExplainPlan
         from ..models.query_response_result_type_0_item import QueryResponseResultType0Item
         from ..models.query_response_result_type_1 import QueryResponseResultType1
@@ -113,6 +128,13 @@ class QueryResponse:
             explain_plan = UNSET
         else:
             explain_plan = QueryResponseExplainPlan.from_dict(_explain_plan)
+
+        _facets = d.pop("facets", UNSET)
+        facets: Facets | Unset
+        if isinstance(_facets, Unset):
+            facets = UNSET
+        else:
+            facets = Facets.from_dict(_facets)
 
         def _parse_result(data: object) -> list[QueryResponseResultType0Item] | QueryResponseResultType1 | Unset:
             if isinstance(data, Unset):
@@ -144,6 +166,7 @@ class QueryResponse:
             truncated=truncated,
             explain=explain,
             explain_plan=explain_plan,
+            facets=facets,
             result=result,
         )
 

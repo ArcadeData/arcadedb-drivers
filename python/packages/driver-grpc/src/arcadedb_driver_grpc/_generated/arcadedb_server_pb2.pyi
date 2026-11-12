@@ -682,11 +682,16 @@ class QueryResult(_message.Message):
     TOTAL_RECORDS_IN_BATCH_FIELD_NUMBER: _builtins.int
     RUNNING_TOTAL_EMITTED_FIELD_NUMBER: _builtins.int
     IS_LAST_BATCH_FIELD_NUMBER: _builtins.int
+    FACETS_FIELD_NUMBER: _builtins.int
     total_records_in_batch: _builtins.int
     running_total_emitted: _builtins.int
     is_last_batch: _builtins.bool
     @_builtins.property
     def records(self) -> _containers.RepeatedCompositeFieldContainer[Global___GrpcRecord]: ...
+    @_builtins.property
+    def facets(self) -> Global___GrpcFacets:
+        """FACETS queries only, on the terminal batch (is_last_batch=true)"""
+
     def __init__(
         self,
         *,
@@ -694,14 +699,212 @@ class QueryResult(_message.Message):
         total_records_in_batch: _builtins.int = ...,
         running_total_emitted: _builtins.int = ...,
         is_last_batch: _builtins.bool = ...,
+        facets: Global___GrpcFacets | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["facets", b"facets"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["is_last_batch", b"is_last_batch", "records", b"records", "running_total_emitted", b"running_total_emitted", "total_records_in_batch", b"total_records_in_batch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["facets", b"facets", "is_last_batch", b"is_last_batch", "records", b"records", "running_total_emitted", b"running_total_emitted", "total_records_in_batch", b"total_records_in_batch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___QueryResult: _TypeAlias = QueryResult  # noqa: Y015
+
+@_typing.final
+class GrpcFacetBucket(_message.Message):
+    """-----------------------------------------------------------------------------
+    Facets of a FACETS query: the HTTP "facets" object (FacetResults.toJSON) in typed form
+    -----------------------------------------------------------------------------
+    """
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    VALUE_FIELD_NUMBER: _builtins.int
+    KEY_FIELD_NUMBER: _builtins.int
+    FROM_FIELD_NUMBER: _builtins.int
+    TO_FIELD_NUMBER: _builtins.int
+    COUNT_FIELD_NUMBER: _builtins.int
+    MISSING_FIELD_NUMBER: _builtins.int
+    IS_DEFAULT_FIELD_NUMBER: _builtins.int
+    ATTRIBUTES_JSON_FIELD_NUMBER: _builtins.int
+    key: _builtins.str
+    """range/histogram key; unset for a terms bucket"""
+    count: _builtins.int
+    missing: _builtins.bool
+    """the bucket of the records without a value"""
+    is_default: _builtins.bool
+    """the range DEFAULT bucket"""
+    attributes_json: _builtins.str
+    """any other member of the bucket as a JSON object text; empty when none"""
+    @_builtins.property
+    def value(self) -> Global___GrpcValue:
+        """Facet values (value, from, to) are encoded as the values of a row of the same property: string, bool, int32/int64,
+        float/double (NaN included), timestamp with logical_type date or datetime, decimal_value. A client that meets another kind
+        (list, map, bytes, link) should treat that facet as unavailable rather than fail the response.
+        terms value; unset for a range/histogram bucket and for a null value
+        """
+
+    @_builtins.property
+    def to(self) -> Global___GrpcValue:
+        """upper bound; unset when unbounded or not a range/histogram bucket"""
+
+    def __init__(
+        self,
+        *,
+        value: Global___GrpcValue | None = ...,
+        key: _builtins.str | None = ...,
+        to: Global___GrpcValue | None = ...,
+        count: _builtins.int = ...,
+        missing: _builtins.bool = ...,
+        is_default: _builtins.bool = ...,
+        attributes_json: _builtins.str = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_key", b"_key", "from", b"from", "key", b"key", "to", b"to", "value", b"value"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_key", b"_key", "attributes_json", b"attributes_json", "count", b"count", "from", b"from", "is_default", b"is_default", "key", b"key", "missing", b"missing", "to", b"to", "value", b"value"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__key: _TypeAlias = _typing.Literal["key"]  # noqa: Y015
+    _WhichOneofArgType__key: _TypeAlias = _typing.Literal["_key", b"_key"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__key) -> _WhichOneofReturnType__key | None: ...
+
+Global___GrpcFacetBucket: _TypeAlias = GrpcFacetBucket  # noqa: Y015
+
+@_typing.final
+class GrpcFacetResult(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    TYPE_FIELD_NUMBER: _builtins.int
+    SOURCE_FIELD_NUMBER: _builtins.int
+    REASON_FIELD_NUMBER: _builtins.int
+    BUCKETS_FIELD_NUMBER: _builtins.int
+    OTHER_COUNT_FIELD_NUMBER: _builtins.int
+    MISSING_FIELD_NUMBER: _builtins.int
+    HAS_COUNTS_FIELD_NUMBER: _builtins.int
+    EXTENSIONS_JSON_FIELD_NUMBER: _builtins.int
+    AFTER_FIELD_NUMBER: _builtins.int
+    MIN_FIELD_NUMBER: _builtins.int
+    MAX_FIELD_NUMBER: _builtins.int
+    HAS_AFTER_FIELD_NUMBER: _builtins.int
+    SUM_FIELD_NUMBER: _builtins.int
+    AVG_FIELD_NUMBER: _builtins.int
+    type: _builtins.str
+    """terms, range, histogram, hierarchy, distinct, stats"""
+    source: _builtins.str
+    """index, scan, unavailable"""
+    reason: _builtins.str
+    """set when source is unavailable"""
+    other_count: _builtins.int
+    missing: _builtins.int
+    has_counts: _builtins.bool
+    """false for an unavailable facet, which carries no buckets or counts"""
+    extensions_json: _builtins.str
+    """any other member of the result (distinct value/exact, stats count) as JSON object text"""
+    has_after: _builtins.bool
+    """the result carries a cursor (after may still be unset: no value follows)"""
+    @_builtins.property
+    def buckets(self) -> _containers.RepeatedCompositeFieldContainer[Global___GrpcFacetBucket]: ...
+    @_builtins.property
+    def after(self) -> Global___GrpcValue:
+        """the cursor of the next page, encoded as a row's value; unset with has_after when no value follows"""
+
+    @_builtins.property
+    def min(self) -> Global___GrpcValue:
+        """a stats facet's min, encoded as a row's value of the property; unset when no record has a value"""
+
+    @_builtins.property
+    def max(self) -> Global___GrpcValue:
+        """a stats facet's max, likewise"""
+
+    @_builtins.property
+    def sum(self) -> Global___GrpcValue:
+        """a stats facet's sum, encoded as a row's value of its type (sum() gives it); unset when null"""
+
+    @_builtins.property
+    def avg(self) -> Global___GrpcValue:
+        """a stats facet's average, likewise"""
+
+    def __init__(
+        self,
+        *,
+        type: _builtins.str = ...,
+        source: _builtins.str = ...,
+        reason: _builtins.str | None = ...,
+        buckets: _abc.Iterable[Global___GrpcFacetBucket] | None = ...,
+        other_count: _builtins.int = ...,
+        missing: _builtins.int = ...,
+        has_counts: _builtins.bool = ...,
+        extensions_json: _builtins.str = ...,
+        after: Global___GrpcValue | None = ...,
+        min: Global___GrpcValue | None = ...,
+        max: Global___GrpcValue | None = ...,
+        has_after: _builtins.bool = ...,
+        sum: Global___GrpcValue | None = ...,
+        avg: Global___GrpcValue | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _typing.Literal["_reason", b"_reason", "after", b"after", "avg", b"avg", "max", b"max", "min", b"min", "reason", b"reason", "sum", b"sum"]  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_reason", b"_reason", "after", b"after", "avg", b"avg", "buckets", b"buckets", "extensions_json", b"extensions_json", "has_after", b"has_after", "has_counts", b"has_counts", "max", b"max", "min", b"min", "missing", b"missing", "other_count", b"other_count", "reason", b"reason", "source", b"source", "sum", b"sum", "type", b"type"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    _WhichOneofReturnType__reason: _TypeAlias = _typing.Literal["reason"]  # noqa: Y015
+    _WhichOneofArgType__reason: _TypeAlias = _typing.Literal["_reason", b"_reason"]  # noqa: Y015
+    def WhichOneof(self, oneof_group: _WhichOneofArgType__reason) -> _WhichOneofReturnType__reason | None: ...
+
+Global___GrpcFacetResult: _TypeAlias = GrpcFacetResult  # noqa: Y015
+
+@_typing.final
+class GrpcFacets(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    @_typing.final
+    class ResultsEntry(_message.Message):
+        DESCRIPTOR: _descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: _builtins.int
+        VALUE_FIELD_NUMBER: _builtins.int
+        key: _builtins.str
+        @_builtins.property
+        def value(self) -> Global___GrpcFacetResult: ...
+        def __init__(
+            self,
+            *,
+            key: _builtins.str = ...,
+            value: Global___GrpcFacetResult | None = ...,
+        ) -> None: ...
+        _HasFieldArgType: _TypeAlias = _typing.Literal["value", b"value"]  # noqa: Y015
+        def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+        _ClearFieldArgType: _TypeAlias = _typing.Literal["key", b"key", "value", b"value"]  # noqa: Y015
+        def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+        def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+    EXACT_FIELD_NUMBER: _builtins.int
+    PATCHED_FIELD_NUMBER: _builtins.int
+    LAG_MS_FIELD_NUMBER: _builtins.int
+    ALIASES_FIELD_NUMBER: _builtins.int
+    RESULTS_FIELD_NUMBER: _builtins.int
+    exact: _builtins.bool
+    patched: _builtins.int
+    lag_ms: _builtins.int
+    @_builtins.property
+    def aliases(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """declaration order, which the map does not keep"""
+
+    @_builtins.property
+    def results(self) -> _containers.MessageMap[_builtins.str, Global___GrpcFacetResult]: ...
+    def __init__(
+        self,
+        *,
+        exact: _builtins.bool = ...,
+        patched: _builtins.int = ...,
+        lag_ms: _builtins.int = ...,
+        aliases: _abc.Iterable[_builtins.str] | None = ...,
+        results: _abc.Mapping[_builtins.str, Global___GrpcFacetResult] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["aliases", b"aliases", "exact", b"exact", "lag_ms", b"lag_ms", "patched", b"patched", "results", b"results"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GrpcFacets: _TypeAlias = GrpcFacets  # noqa: Y015
 
 @_typing.final
 class VectorSearchRequest(_message.Message):
@@ -1494,6 +1697,7 @@ class ExecuteCommandResponse(_message.Message):
     EXECUTION_TIME_MS_FIELD_NUMBER: _builtins.int
     RECORDS_FIELD_NUMBER: _builtins.int
     STATS_FIELD_NUMBER: _builtins.int
+    FACETS_FIELD_NUMBER: _builtins.int
     success: _builtins.bool
     message: _builtins.str
     affected_records: _builtins.int
@@ -1507,6 +1711,10 @@ class ExecuteCommandResponse(_message.Message):
     def stats(self) -> Global___QueryUpdateStats:
         """present only for write commands that mutated data"""
 
+    @_builtins.property
+    def facets(self) -> Global___GrpcFacets:
+        """FACETS queries only"""
+
     def __init__(
         self,
         *,
@@ -1516,10 +1724,11 @@ class ExecuteCommandResponse(_message.Message):
         execution_time_ms: _builtins.int = ...,
         records: _abc.Iterable[Global___GrpcRecord] | None = ...,
         stats: Global___QueryUpdateStats | None = ...,
+        facets: Global___GrpcFacets | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["stats", b"stats"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["facets", b"facets", "stats", b"stats"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["affected_records", b"affected_records", "execution_time_ms", b"execution_time_ms", "message", b"message", "records", b"records", "stats", b"stats", "success", b"success"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["affected_records", b"affected_records", "execution_time_ms", b"execution_time_ms", "facets", b"facets", "message", b"message", "records", b"records", "stats", b"stats", "success", b"success"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1658,20 +1867,26 @@ class ExecuteQueryResponse(_message.Message):
     RESULTS_FIELD_NUMBER: _builtins.int
     EXECUTION_TIME_MS_FIELD_NUMBER: _builtins.int
     QUERY_PLAN_FIELD_NUMBER: _builtins.int
+    FACETS_FIELD_NUMBER: _builtins.int
     execution_time_ms: _builtins.int
     query_plan: _builtins.str
     @_builtins.property
     def results(self) -> _containers.RepeatedCompositeFieldContainer[Global___QueryResult]: ...
+    @_builtins.property
+    def facets(self) -> Global___GrpcFacets:
+        """FACETS queries only; covers every match, not only the rows the limit returned"""
+
     def __init__(
         self,
         *,
         results: _abc.Iterable[Global___QueryResult] | None = ...,
         execution_time_ms: _builtins.int = ...,
         query_plan: _builtins.str = ...,
+        facets: Global___GrpcFacets | None = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["facets", b"facets"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["execution_time_ms", b"execution_time_ms", "query_plan", b"query_plan", "results", b"results"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["execution_time_ms", b"execution_time_ms", "facets", b"facets", "query_plan", b"query_plan", "results", b"results"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

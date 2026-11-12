@@ -517,6 +517,27 @@ srv = ArcadeDBServer(base_url="http://localhost:2480", transport="http.client")
   store httpx uses, and `verify_ssl=False` turns it off. `Accept-Encoding: gzip, deflate` is sent, as httpx
   sends it, and a gzip or deflate answer is decoded.
 
+### Other httpx options
+
+Both constructors take an optional `httpx_args` mapping, forwarded as keyword arguments to the
+`httpx.Client` (sync) or `httpx.AsyncClient` (async) the facade owns. Use it for what the facade has
+no parameter for: connection pool `limits`, a `transport` such as `httpx.HTTPTransport(retries=3)`
+(connect-level retries only; requests are not retried), `http2`, `proxy` or `event_hooks`. It
+defaults to `None`, which changes nothing. Do not repeat `base_url`, `headers`, `timeout`, `verify` or
+`cookies` in it, since the facade already sets those. `with_token` carries it over to the new server.
+They configure the httpx client only: with `transport="http.client"` they do not apply to `query`, `command` and the transaction
+calls, which no longer go through httpx (see "The `http.client` transport" above).
+
+```python
+srv = ArcadeDBServer(
+    base_url="http://localhost:2480",
+    httpx_args={
+        "limits": httpx.Limits(max_connections=50, keepalive_expiry=30.0),
+        "transport": httpx.HTTPTransport(retries=3),
+    },
+)
+```
+
 ## Transactions
 
 ```python

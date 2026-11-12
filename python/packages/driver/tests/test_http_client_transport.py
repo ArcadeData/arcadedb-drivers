@@ -516,6 +516,20 @@ def test_a_per_call_timeout_replaces_the_clients(fake: FakeArcadeDB) -> None:
         assert transport.request("POST", path, headers, encode_json({"command": "x", "language": "sql"})).status == 200
 
 
+def test_the_per_call_timeout_of_query_and_command_reaches_both_transports(
+    fake: FakeArcadeDB, transport: TransportName
+) -> None:
+    fake.delay = 0.4
+    with connect(fake, transport, timeout=httpx.Timeout(10.0)) as srv:
+        db = srv.db("d")
+        for call in (db.query, db.command):
+            with pytest.raises(httpx.ReadTimeout):
+                call(language="sql", command="SLOW", timeout=0.1)
+            call(language="sql", command="SLOW", timeout=None)  # None: no timeout, the slow answer is waited for
+        # omitted: the client's own timeout, 10 s
+        assert db.query(language="sql", command="after").result[0]["echo"] == "after"
+
+
 def test_a_refused_connection_raises_httpx_connect_error(transport: TransportName) -> None:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

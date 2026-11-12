@@ -483,6 +483,19 @@ these facades wrap defaults its own timeout to `None` and forwards it the same w
 srv = ArcadeDBServer(base_url="http://localhost:2480", timeout=httpx.Timeout(5.0))
 ```
 
+`query`, `command`, `query_stream` and `command_stream` (sync and async) also take a per-call
+`timeout`, which replaces the client's timeout for that one call: a `float` (all four httpx phases),
+an `httpx.Timeout`, or `None` (no timeout for this call). Omitting it keeps the client's own.
+
+```python
+db = srv.db("mydb")
+db.query(language="sql", command="SELECT FROM Person", timeout=2.0)
+```
+
+httpx counts a timeout per phase (connect, write, read, pool), not as a deadline for the whole
+call, so a stream that keeps delivering rows never trips the read timeout. A phase that runs out
+raises `httpx.TimeoutException` (for example `httpx.ReadTimeout`), not `ArcadeDBError`.
+
 ### The `http.client` transport
 
 `ArcadeDBServer` takes `transport`: `"httpx"` (the default, unchanged) or `"http.client"`. With
@@ -506,7 +519,7 @@ srv = ArcadeDBServer(base_url="http://localhost:2480", transport="http.client")
   timeout, so the read timeout also bounds each send, and the write and pool timeouts have no effect of their
   own. A timeout, a refused connection and a dropped connection raise the httpx exceptions the httpx transport
   raises (`httpx.ReadTimeout`, `httpx.ConnectError`, `httpx.RemoteProtocolError`), and a connection that failed
-  is never reused.
+  is never reused. A per-call `timeout` of `query` or `command` replaces both for that call, as it does on httpx.
 - A server may close a connection that sat idle. If that is found out before the server's answer starts, the
   call is sent once more on a new connection, whatever its method. A failure while the answer is being read, a
   timeout, and a failure on a connection opened for that very call are never retried. The retry sends the

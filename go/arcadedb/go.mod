@@ -1,10 +1,10 @@
 module github.com/ArcadeData/arcadedb-drivers/go/arcadedb
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/coder/websocket v1.8.15
-	github.com/oapi-codegen/runtime v1.8.0
+	github.com/oapi-codegen/runtime v1.9.0
 )
 
 require (

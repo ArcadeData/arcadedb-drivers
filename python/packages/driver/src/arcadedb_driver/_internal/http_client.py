@@ -42,26 +42,17 @@ import json
 import zlib
 from collections import deque
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 from urllib.parse import quote, urlsplit
 
 import httpx
 
 from ..facade.data import request_headers
-
-if TYPE_CHECKING:
-    from httpx._client import UseClientDefault
-else:
-    UseClientDefault = type(httpx.USE_CLIENT_DEFAULT)
+from .timeout import USE_CLIENT_DEFAULT, CallTimeout, UseClientDefault
 
 #: The transports `ArcadeDBServer(transport=...)` accepts.
 TransportName = Literal["httpx", "http.client"]
 TRANSPORTS: tuple[TransportName, ...] = ("httpx", "http.client")
-
-#: A per-call timeout, as httpx takes one: seconds for every phase, an `httpx.Timeout`, `None` for no
-#: timeout, or `USE_CLIENT_DEFAULT` to keep the client's own.
-CallTimeout = float | httpx.Timeout | None | UseClientDefault
-USE_CLIENT_DEFAULT = httpx.USE_CLIENT_DEFAULT
 
 #: Idle connections kept open between calls; the same number httpx keeps by default.
 MAX_IDLE_CONNECTIONS = 20

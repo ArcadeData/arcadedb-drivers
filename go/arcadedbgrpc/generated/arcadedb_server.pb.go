@@ -268,7 +268,7 @@ type StreamQueryRequest_RetrievalMode int32
 const (
 	StreamQueryRequest_CURSOR          StreamQueryRequest_RetrievalMode = 0 // run once, stream as you iterate
 	StreamQueryRequest_MATERIALIZE_ALL StreamQueryRequest_RetrievalMode = 1 // load all then emit in batches
-	StreamQueryRequest_PAGED           StreamQueryRequest_RetrievalMode = 2 // re-issue with LIMIT/SKIP per batch
+	StreamQueryRequest_PAGED           StreamQueryRequest_RetrievalMode = 2 // same as CURSOR: one execution, batch_size rows per batch (it used to re-issue with LIMIT/SKIP per batch)
 )
 
 // Enum value maps for StreamQueryRequest_RetrievalMode.

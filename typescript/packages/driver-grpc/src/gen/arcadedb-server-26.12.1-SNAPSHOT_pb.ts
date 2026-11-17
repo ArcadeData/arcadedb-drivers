@@ -561,7 +561,7 @@ export enum StreamQueryRequest_RetrievalMode {
   MATERIALIZE_ALL = 1,
 
   /**
-   * re-issue with LIMIT/SKIP per batch
+   * same as CURSOR: one execution, batch_size rows per batch (it used to re-issue with LIMIT/SKIP per batch)
    *
    * @generated from enum value: PAGED = 2;
    */

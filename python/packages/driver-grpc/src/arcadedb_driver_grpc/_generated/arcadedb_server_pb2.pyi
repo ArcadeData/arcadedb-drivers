@@ -597,7 +597,7 @@ class StreamQueryRequest(_message.Message):
         MATERIALIZE_ALL: StreamQueryRequest._RetrievalMode.ValueType  # 1
         """load all then emit in batches"""
         PAGED: StreamQueryRequest._RetrievalMode.ValueType  # 2
-        """re-issue with LIMIT/SKIP per batch"""
+        """same as CURSOR: one execution, batch_size rows per batch (it used to re-issue with LIMIT/SKIP per batch)"""
 
     class RetrievalMode(_RetrievalMode, metaclass=_RetrievalModeEnumTypeWrapper): ...
     CURSOR: StreamQueryRequest.RetrievalMode.ValueType  # 0
@@ -605,7 +605,7 @@ class StreamQueryRequest(_message.Message):
     MATERIALIZE_ALL: StreamQueryRequest.RetrievalMode.ValueType  # 1
     """load all then emit in batches"""
     PAGED: StreamQueryRequest.RetrievalMode.ValueType  # 2
-    """re-issue with LIMIT/SKIP per batch"""
+    """same as CURSOR: one execution, batch_size rows per batch (it used to re-issue with LIMIT/SKIP per batch)"""
 
     @_typing.final
     class ParametersEntry(_message.Message):

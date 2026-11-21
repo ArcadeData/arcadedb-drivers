@@ -2302,7 +2302,7 @@ export interface components {
              * @example 100
              */
             limit?: number;
-            /** @description Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip). */
+            /** @description Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip), {"$date": "2024-01-15"} for a DATE, {"$rid": "#12:0"} for a link to a record rather than its text, {"$decimal": "0.10"} for a DECIMAL with its scale kept rather than a double, {"$datetime": 1700000000123} for a DATETIME from epoch milliseconds, {"$localDateTime": "2024-02-29T13:14:15"}, {"$instant": "2023-11-14T22:13:20.123Z"} and {"$zonedDateTime": "2024-01-01T10:00:00+01:00[Europe/Rome]"} for the date-time types, as ISO-8601 text. A marker that does not decode, or a '$decimal' beyond the limits of a JSON number (1000 characters, an exponent up to 1000), is refused with 400 before the statement runs. */
             params?: {
                 [key: string]: unknown;
             };
@@ -3140,7 +3140,7 @@ export interface components {
              * @example 100
              */
             limit?: number;
-            /** @description Query parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip). */
+            /** @description Query parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip), {"$date": "2024-01-15"} for a DATE, {"$rid": "#12:0"} for a link to a record rather than its text, {"$decimal": "0.10"} for a DECIMAL with its scale kept rather than a double, {"$datetime": 1700000000123} for a DATETIME from epoch milliseconds, {"$localDateTime": "2024-02-29T13:14:15"}, {"$instant": "2023-11-14T22:13:20.123Z"} and {"$zonedDateTime": "2024-01-01T10:00:00+01:00[Europe/Rome]"} for the date-time types, as ISO-8601 text. A marker that does not decode, or a '$decimal' beyond the limits of a JSON number (1000 characters, an exponent up to 1000), is refused with 400 before the statement runs. */
             params?: {
                 [key: string]: unknown;
             };
@@ -4768,7 +4768,7 @@ export interface operations {
                     "application/json": components["schemas"]["BatchError"];
                 };
             };
-            /** @description Concurrent modification: a page the load touched changed underneath it */
+            /** @description Concurrent modification: a page the load touched changed underneath it. Also another GraphBatch load already in progress on this database ('A GraphBatch load is already in progress on this database', exception com.arcadedb.exception.GraphBatchInProgressException): nothing of this load ran, send it again once the other one has finished */
             409: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
@@ -4800,6 +4800,16 @@ export interface operations {
             };
             /** @description Service unavailable: on a replicated database, no leader was reachable */
             503: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description On an HA follower the load is forwarded to the leader. 'Cannot connect' (no exception field): it did not reach the leader. With exception com.arcadedb.exception.TransactionOutcomeUnknownException: the connection to the leader was lost or the leader did not answer in time, and the load may have been applied in whole or in part. Check before sending it again */
+            504: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;
@@ -6256,6 +6266,20 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Transaction outcome unknown (exception com.arcadedb.exception.TransactionOutcomeUnknownException, or its HA subtype com.arcadedb.server.ha.raft.ReplicationDispatchedTimeoutException): in an HA cluster the write was handed to the replication, or forwarded by a follower to a leader that did not answer, and it may or may not have been applied. Check whether it landed before sending it again */
+            504: {
+                headers: {
+                    /** @description On a replicated (HA) database, the last Raft index this server had applied when it answered. Feed it back as 'X-ArcadeDB-Read-After' on the next request to get read-your-writes consistency from a follower. Sent on an error response too, once the request reached the database: it bookmarks what the server had applied when it refused, which is still a valid barrier for the next read. Absent on a standalone database, on a replicated one that has applied nothing yet, and on a failure that happens before the request reaches the database at all. */
+                    "X-ArcadeDB-Commit-Index"?: string;
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    /** @description Present, with the value 'true', only when this request ran inside a transaction named by 'arcadedb-session-id' AND that transaction published a commit while the request was executing - which is what a statement carrying an explicit 'BATCH n' boundary does. It says part of the caller's transaction is already durable and cannot be rolled back, so a client that retries its transaction block on a conflict must NOT replay it: the replay would apply the durable part a second time. Absent on every other response, including one from a request that ran outside a session. */
+                    "arcadedb-session-partial-commit"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     commitTransaction: {
@@ -6328,6 +6352,28 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The commit lost a race with a concurrent commit that changed the same records (ConcurrentModificationException in 'exception'), or another retryable refusal. Nothing was committed and the session is closed: begin a new transaction, read the records again and re-apply the change. The Retry-After header says how long to wait, 0 for a conflict, which clears as soon as the competing commit has landed */
+            503: {
+                headers: {
+                    /** @description Seconds to wait before retrying: 0 for a refusal that clears by itself (a conflict with a concurrent commit), 1 or more for a server too busy to start the request. It is a floor, not a schedule: a client that retries in a loop still backs off, with jitter, when the same refusal comes back */
+                    "Retry-After"?: string;
+                    "X-Request-Id": components["headers"]["RequestIdHeader"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Transaction outcome unknown (exception com.arcadedb.exception.TransactionOutcomeUnknownException, or its HA subtype com.arcadedb.server.ha.raft.ReplicationDispatchedTimeoutException): in an HA cluster the write was handed to the replication, or forwarded by a follower to a leader that did not answer, and it may or may not have been applied. Check whether it landed before sending it again */
+            504: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];
                     [name: string]: unknown;

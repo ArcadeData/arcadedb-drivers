@@ -1635,7 +1635,7 @@ type CommandRequest struct {
 	// Example: 100
 	Limit *int `json:"limit,omitempty"`
 
-	// Params Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip).
+	// Params Command parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip), {"$date": "2024-01-15"} for a DATE, {"$rid": "#12:0"} for a link to a record rather than its text, {"$decimal": "0.10"} for a DECIMAL with its scale kept rather than a double, {"$datetime": 1700000000123} for a DATETIME from epoch milliseconds, {"$localDateTime": "2024-02-29T13:14:15"}, {"$instant": "2023-11-14T22:13:20.123Z"} and {"$zonedDateTime": "2024-01-01T10:00:00+01:00[Europe/Rome]"} for the date-time types, as ISO-8601 text. A marker that does not decode, or a '$decimal' beyond the limits of a JSON number (1000 characters, an exponent up to 1000), is refused with 400 before the statement runs.
 	Params *map[string]interface{} `json:"params,omitempty"`
 
 	// Wait Server commands only (POST /api/v1/server): how long 'terminate query', 'terminate queries tag' and 'terminate transaction' wait for the work to end before answering, in milliseconds. 5000 when absent, at most 10000. Work still running when it is over is answered 'terminating'.
@@ -2679,7 +2679,7 @@ type QueryRequest struct {
 	// Example: 100
 	Limit *int `json:"limit,omitempty"`
 
-	// Params Query parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip).
+	// Params Query parameters. Values may be JSON primitives, arrays, or typed-marker objects: {"$bytes": "<base64>"} for byte[] (standard or URL-safe base64), {"$int8": [v0, v1, ...]} for byte[] from integers in [-128, 127] (used to send INT8-encoded vectors to LSM_VECTOR indexes without a float32 round-trip), {"$date": "2024-01-15"} for a DATE, {"$rid": "#12:0"} for a link to a record rather than its text, {"$decimal": "0.10"} for a DECIMAL with its scale kept rather than a double, {"$datetime": 1700000000123} for a DATETIME from epoch milliseconds, {"$localDateTime": "2024-02-29T13:14:15"}, {"$instant": "2023-11-14T22:13:20.123Z"} and {"$zonedDateTime": "2024-01-01T10:00:00+01:00[Europe/Rome]"} for the date-time types, as ISO-8601 text. A marker that does not decode, or a '$decimal' beyond the limits of a JSON number (1000 characters, an exponent up to 1000), is refused with 400 before the statement runs.
 	Params *map[string]interface{} `json:"params,omitempty"`
 
 	// Serializer Response serializer
@@ -17305,6 +17305,11 @@ type ExecuteBatchResp503Headers struct {
 	XRequestId *string
 }
 
+// ExecuteBatchResp504Headers the declared response headers of an HTTP 504 response for ExecuteBatch
+type ExecuteBatchResp504Headers struct {
+	XRequestId *string
+}
+
 type ExecuteBatchResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -17328,6 +17333,8 @@ type ExecuteBatchResp struct {
 	JSON500 *ErrorResponse
 	// JSON503 the response for an HTTP 503 `application/json` response
 	JSON503 *ErrorResponse
+	// JSON504 the response for an HTTP 504 `application/json` response
+	JSON504 *ErrorResponse
 	// Headers200 the parsed response headers for an HTTP 200 response
 	Headers200 *ExecuteBatchResp200Headers
 	// Headers400 the parsed response headers for an HTTP 400 response
@@ -17348,6 +17355,8 @@ type ExecuteBatchResp struct {
 	Headers500 *ExecuteBatchResp500Headers
 	// Headers503 the parsed response headers for an HTTP 503 response
 	Headers503 *ExecuteBatchResp503Headers
+	// Headers504 the parsed response headers for an HTTP 504 response
+	Headers504 *ExecuteBatchResp504Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -17398,6 +17407,11 @@ func (r ExecuteBatchResp) GetJSON500() *ErrorResponse {
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
 func (r ExecuteBatchResp) GetJSON503() *ErrorResponse {
 	return r.JSON503
+}
+
+// GetJSON504 returns the response for an HTTP 504 `application/json` response
+func (r ExecuteBatchResp) GetJSON504() *ErrorResponse {
+	return r.JSON504
 }
 
 // GetBody returns the raw response body bytes
@@ -19477,6 +19491,13 @@ type ExecuteCommandResp500Headers struct {
 	ArcadedbSessionPartialCommit *string
 }
 
+// ExecuteCommandResp504Headers the declared response headers of an HTTP 504 response for ExecuteCommand
+type ExecuteCommandResp504Headers struct {
+	XArcadeDBCommitIndex         *string
+	XRequestId                   *string
+	ArcadedbSessionPartialCommit *string
+}
+
 type ExecuteCommandResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -19494,6 +19515,8 @@ type ExecuteCommandResp struct {
 	JSON413 *ErrorResponse
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorResponse
+	// JSON504 the response for an HTTP 504 `application/json` response
+	JSON504 *ErrorResponse
 	// Headers200 the parsed response headers for an HTTP 200 response
 	Headers200 *ExecuteCommandResp200Headers
 	// Headers400 the parsed response headers for an HTTP 400 response
@@ -19508,6 +19531,8 @@ type ExecuteCommandResp struct {
 	Headers413 *ExecuteCommandResp413Headers
 	// Headers500 the parsed response headers for an HTTP 500 response
 	Headers500 *ExecuteCommandResp500Headers
+	// Headers504 the parsed response headers for an HTTP 504 response
+	Headers504 *ExecuteCommandResp504Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -19543,6 +19568,11 @@ func (r ExecuteCommandResp) GetJSON413() *ErrorResponse {
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r ExecuteCommandResp) GetJSON500() *ErrorResponse {
 	return r.JSON500
+}
+
+// GetJSON504 returns the response for an HTTP 504 `application/json` response
+func (r ExecuteCommandResp) GetJSON504() *ErrorResponse {
+	return r.JSON504
 }
 
 // GetBody returns the raw response body bytes
@@ -19606,6 +19636,17 @@ type CommitTransactionResp500Headers struct {
 	XRequestId *string
 }
 
+// CommitTransactionResp503Headers the declared response headers of an HTTP 503 response for CommitTransaction
+type CommitTransactionResp503Headers struct {
+	RetryAfter *string
+	XRequestId *string
+}
+
+// CommitTransactionResp504Headers the declared response headers of an HTTP 504 response for CommitTransaction
+type CommitTransactionResp504Headers struct {
+	XRequestId *string
+}
+
 type CommitTransactionResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -19619,6 +19660,10 @@ type CommitTransactionResp struct {
 	JSON409 *ErrorResponse
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorResponse
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *ErrorResponse
+	// JSON504 the response for an HTTP 504 `application/json` response
+	JSON504 *ErrorResponse
 	// Headers204 the parsed response headers for an HTTP 204 response
 	Headers204 *CommitTransactionResp204Headers
 	// Headers400 the parsed response headers for an HTTP 400 response
@@ -19631,6 +19676,10 @@ type CommitTransactionResp struct {
 	Headers409 *CommitTransactionResp409Headers
 	// Headers500 the parsed response headers for an HTTP 500 response
 	Headers500 *CommitTransactionResp500Headers
+	// Headers503 the parsed response headers for an HTTP 503 response
+	Headers503 *CommitTransactionResp503Headers
+	// Headers504 the parsed response headers for an HTTP 504 response
+	Headers504 *CommitTransactionResp504Headers
 }
 
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
@@ -19656,6 +19705,16 @@ func (r CommitTransactionResp) GetJSON409() *ErrorResponse {
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
 func (r CommitTransactionResp) GetJSON500() *ErrorResponse {
 	return r.JSON500
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CommitTransactionResp) GetJSON503() *ErrorResponse {
+	return r.JSON503
+}
+
+// GetJSON504 returns the response for an HTTP 504 `application/json` response
+func (r CommitTransactionResp) GetJSON504() *ErrorResponse {
+	return r.JSON504
 }
 
 // GetBody returns the raw response body bytes
@@ -31357,6 +31416,13 @@ func ParseExecuteBatchResp(rsp *http.Response) (*ExecuteBatchResp, error) {
 		}
 		response.JSON503 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
+
 	case rsp.StatusCode == 200:
 		// Content-type (application/x-ndjson) unsupported
 
@@ -31470,6 +31536,16 @@ func ParseExecuteBatchResp(rsp *http.Response) (*ExecuteBatchResp, error) {
 			headers.XRequestId = &value
 		}
 		response.Headers503 = &headers
+	case rsp.StatusCode == 504:
+		var headers ExecuteBatchResp504Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers504 = &headers
 	}
 
 	return response, nil
@@ -33762,6 +33838,13 @@ func ParseExecuteCommandResp(rsp *http.Response) (*ExecuteCommandResp, error) {
 		}
 		response.JSON500 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
+
 	case rsp.StatusCode == 200:
 		// Content-type (application/x-ndjson) unsupported
 
@@ -33915,6 +33998,30 @@ func ParseExecuteCommandResp(rsp *http.Response) (*ExecuteCommandResp, error) {
 			headers.ArcadedbSessionPartialCommit = &value
 		}
 		response.Headers500 = &headers
+	case rsp.StatusCode == 504:
+		var headers ExecuteCommandResp504Headers
+		if values := rsp.Header.Values("X-ArcadeDB-Commit-Index"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-ArcadeDB-Commit-Index", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XArcadeDBCommitIndex = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		if values := rsp.Header.Values("arcadedb-session-partial-commit"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "arcadedb-session-partial-commit", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ArcadedbSessionPartialCommit = &value
+		}
+		response.Headers504 = &headers
 	}
 
 	return response, nil
@@ -33971,6 +34078,20 @@ func ParseCommitTransactionResp(rsp *http.Response) (*CommitTransactionResp, err
 			return nil, err
 		}
 		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 504:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON504 = &dest
 
 	}
 
@@ -34049,6 +34170,33 @@ func ParseCommitTransactionResp(rsp *http.Response) (*CommitTransactionResp, err
 			headers.XRequestId = &value
 		}
 		response.Headers500 = &headers
+	case rsp.StatusCode == 503:
+		var headers CommitTransactionResp503Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers503 = &headers
+	case rsp.StatusCode == 504:
+		var headers CommitTransactionResp504Headers
+		if values := rsp.Header.Values("X-Request-Id"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-Id", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XRequestId = &value
+		}
+		response.Headers504 = &headers
 	}
 
 	return response, nil

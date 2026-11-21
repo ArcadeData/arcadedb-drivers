@@ -517,6 +517,11 @@ func (x *DatabaseCredentials) GetPassword() string {
 	return ""
 }
 
+// A transaction_id names a transaction opened with BeginTransaction, which the client ends with CommitTransaction or
+// RollbackTransaction. A statement that fails inside it ends it, as over HTTP, Postgres and Bolt: the transaction is rolled
+// back, every later statement sent to it fails with FAILED_PRECONDITION, CommitTransaction answers committed = false and
+// RollbackTransaction ends it. A LookupByRid, UpdateRecord or DeleteRecord of a record that does not exist answers NOT_FOUND
+// and leaves the transaction open.
 type TransactionContext struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TransactionId string                 `protobuf:"bytes,1,opt,name=transaction_id,json=transactionId,proto3" json:"transaction_id,omitempty"` // optional correlation
@@ -2862,11 +2867,13 @@ func (x *CommitTransactionRequest) GetCredentials() *DatabaseCredentials {
 }
 
 type CommitTransactionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Committed     bool                   `protobuf:"varint,2,opt,name=committed,proto3" json:"committed,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Success bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	// false when nothing was committed: the transaction is unknown (already ended, or reclaimed by the idle reaper) or a
+	// statement that failed in it rolled it back. message says which
+	Committed     bool   `protobuf:"varint,2,opt,name=committed,proto3" json:"committed,omitempty"`
+	Message       string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	Timestamp     int64  `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

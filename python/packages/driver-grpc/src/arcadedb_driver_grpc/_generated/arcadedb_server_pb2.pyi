@@ -153,6 +153,13 @@ Global___DatabaseCredentials: _TypeAlias = DatabaseCredentials  # noqa: Y015
 
 @_typing.final
 class TransactionContext(_message.Message):
+    """A transaction_id names a transaction opened with BeginTransaction, which the client ends with CommitTransaction or
+    RollbackTransaction. A statement that fails inside it ends it, as over HTTP, Postgres and Bolt: the transaction is rolled
+    back, every later statement sent to it fails with FAILED_PRECONDITION, CommitTransaction answers committed = false and
+    RollbackTransaction ends it. A LookupByRid, UpdateRecord or DeleteRecord of a record that does not exist answers NOT_FOUND
+    and leaves the transaction open.
+    """
+
     DESCRIPTOR: _descriptor.Descriptor
 
     TRANSACTION_ID_FIELD_NUMBER: _builtins.int
@@ -1479,6 +1486,9 @@ class CommitTransactionResponse(_message.Message):
     TIMESTAMP_FIELD_NUMBER: _builtins.int
     success: _builtins.bool
     committed: _builtins.bool
+    """false when nothing was committed: the transaction is unknown (already ended, or reclaimed by the idle reaper) or a
+    statement that failed in it rolled it back. message says which
+    """
     message: _builtins.str
     timestamp: _builtins.int
     def __init__(

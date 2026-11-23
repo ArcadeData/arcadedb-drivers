@@ -2,7 +2,7 @@ import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
 import { ArcadeDBError, inBandStatus, nonNegativeIntegerOrUndefined } from "../errors.js";
 import { decodeNdJson } from "../internal/ndjson.js";
-import { buildCommandBody, buildQueryBody, statementHeaders } from "../internal/request-body.js";
+import { buildCommandBody, buildQueryBody, callSignal, statementHeaders } from "../internal/request-body.js";
 import type { CommandOptions, QueryOptions } from "./data.js";
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
@@ -82,25 +82,34 @@ async function* streamEvents(
   path: "/api/v1/query/{database}" | "/api/v1/command/{database}",
   database: string,
   sessionId: string | undefined,
-  queryTag: string | undefined,
+  opts: CommandOptions,
   body: { command: string; language: string; params?: Record<string, never>; limit?: number },
 ): AsyncGenerator<NdJsonQueryEvent> {
-  const { data, error, response } = await client.POST(path, {
-    params: { path: { database }, header: statementHeaders(sessionId, queryTag) },
-    body,
-    headers: { Accept: "application/x-ndjson" },
-    parseAs: "stream",
-  });
-  if (!response.ok) {
-    throw ArcadeDBError.fromResponse(response, error);
+  const [signal, done] = callSignal(opts);
+  try {
+    const { data, error, response } = await client.POST(path, {
+      params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
+      body,
+      headers: { Accept: "application/x-ndjson" },
+      parseAs: "stream",
+      // Aborting it after the response has started also errors `response.body`, so `timeoutMs` bounds
+      // the reading of the stream as well as the request - see `CommandOptions.timeoutMs`. `done`
+      // therefore runs only once the stream is over: drained, failed, or left by the caller's `break`.
+      signal,
+    });
+    if (!response.ok) {
+      throw ArcadeDBError.fromResponse(response, error);
+    }
+    // `data` is `response.body`: `null` when the runtime reports no body (e.g. a genuinely empty
+    // response), and typed as possibly `undefined` only because it shares a discriminated union
+    // with the error branch already ruled out above by the `response.ok` check.
+    if (data === null || data === undefined) {
+      return;
+    }
+    yield* raiseOnErrorEvent(decodeNdJson<NdJsonQueryEvent>(data), response);
+  } finally {
+    done();
   }
-  // `data` is `response.body`: `null` when the runtime reports no body (e.g. a genuinely empty
-  // response), and typed as possibly `undefined` only because it shares a discriminated union
-  // with the error branch already ruled out above by the `response.ok` check.
-  if (data === null || data === undefined) {
-    return;
-  }
-  yield* raiseOnErrorEvent(decodeNdJson<NdJsonQueryEvent>(data), response);
 }
 
 /** Streams `POST /api/v1/query/{database}` as `application/x-ndjson`, yielding one event per line. */
@@ -110,7 +119,7 @@ export async function* queryStream(
   sessionId: string | undefined,
   opts: QueryOptions,
 ): AsyncGenerator<NdJsonQueryEvent> {
-  yield* streamEvents(client, "/api/v1/query/{database}", database, sessionId, opts.queryTag, buildQueryBody(opts));
+  yield* streamEvents(client, "/api/v1/query/{database}", database, sessionId, opts, buildQueryBody(opts));
 }
 
 /**
@@ -124,5 +133,5 @@ export async function* commandStream(
   sessionId: string | undefined,
   opts: CommandOptions,
 ): AsyncGenerator<NdJsonQueryEvent> {
-  yield* streamEvents(client, "/api/v1/command/{database}", database, sessionId, opts.queryTag, buildCommandBody(opts));
+  yield* streamEvents(client, "/api/v1/command/{database}", database, sessionId, opts, buildCommandBody(opts));
 }

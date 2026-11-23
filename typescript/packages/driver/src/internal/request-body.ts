@@ -54,6 +54,48 @@ export function statementHeaders(
 }
 
 /**
+ * The `signal` a `/query` or `/command` call is sent with: the caller's `signal` as it is when there
+ * is no `timeoutMs`, `undefined` when there is neither - the request then carries no signal at all,
+ * exactly as before these options existed - and otherwise a signal of this function's own that
+ * aborts when the caller's does or when `timeoutMs` runs out, whichever is first. Shared by the
+ * buffered and the streamed calls, for the reason `statementHeaders` is. See
+ * `CommandOptions.signal` and `CommandOptions.timeoutMs`.
+ *
+ * `AbortSignal.any` is deliberately not used: it needs Node 20.3, and `engines` allows any Node 20.
+ * Nor is `AbortSignal.timeout`, which Node keeps alive only through weak references; here the
+ * pending timer's callback holds the controller, so the signal lives as long as the deadline does.
+ * The timer is `unref`'d where the runtime has that, as `AbortSignal.timeout`'s is, so a pending
+ * deadline does not keep a process alive.
+ *
+ * Returns the signal and `done`, which the caller must run once the call has settled - in a
+ * `finally`, after the response body has been read, since `timeoutMs` bounds that too. `done` clears
+ * the timer and removes the listener on the caller's signal, so a long-lived signal shared by many
+ * calls holds a listener only for each call still running, not for each one whose deadline has not
+ * yet passed. Firing either side runs it as well.
+ */
+export function callSignal({ signal, timeoutMs }: CommandOptions): [AbortSignal | undefined, () => void] {
+  if (timeoutMs === undefined) return [signal, () => undefined];
+  const controller = new AbortController();
+  const done = (): void => {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+  };
+  const abort = (reason: unknown): void => {
+    done();
+    controller.abort(reason);
+  };
+  const onAbort = (): void => abort(signal?.reason);
+  const timer = setTimeout(
+    () => abort(new DOMException(`The operation timed out after ${timeoutMs}ms`, "TimeoutError")),
+    timeoutMs,
+  );
+  (timer as { unref?: () => void }).unref?.();
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort);
+  return [controller.signal, done];
+}
+
+/**
  * Builds the JSON body for `/command`. Only `params` is cast: it is typed `Record<string, never>`
  * in the generated schema (an openapi-typescript artifact for "untyped object", not a real
  * restriction), so a caller-supplied `Record<string, unknown>` needs a narrow cast to satisfy it.

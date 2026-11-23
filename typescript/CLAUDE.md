@@ -110,12 +110,17 @@ and the growth since then is not one module that a lazy import could take back. 
 `terminateTransaction` and `db.progress`) is lazy too, and its six methods share one module-level
 `loadRunning` loader rather than an `import()` each, which saved 175 of the 670 bytes they cost: the
 eager chunk measured 19,255 bytes before #124 and 19,750 after, and 19,814 once `transaction`'s
-`isolationLevel` body landed (#152). About 185 bytes of headroom remain, which is why that option
-is not checked client-side, so the next addition to `ArcadeDBServer` will need room made first (the
-same shared-loader change applied to the admin and session methods is the obvious source); raising
-the ceiling instead
-weakens what the test guards. `NotSessionTokenError` and `isQueryTerminated` live in `errors.ts`
-so exporting them does not pull `session.ts` or `running.ts` in. Three calls refuse locally, unsent: `logout` unless the
+`isolationLevel` body landed (#152), which is why that option is not checked client-side. #200's
+per-call `signal`/`timeoutMs` (`callSignal` in `internal/request-body.ts`) fit only once the session
+and admin methods got the same shared loaders, `loadSession` and `loadAdmin`, saving 349 bytes: the
+chunk is 19,950 bytes with both. `callSignal` costs more than `AbortSignal.timeout`/`AbortSignal.any`
+would, on purpose: `AbortSignal.any` needs Node 20.3, and `engines` allows any Node 20; and each
+call site releases the timer and listener in a `finally` once the call settles. Only about 50 bytes
+of headroom remain and there is no shared loader left to convert,
+so the next addition that does not fit will have to make room another way; raising the ceiling
+instead weakens what the test guards.
+`NotSessionTokenError` and `isQueryTerminated` live in `errors.ts` so exporting them does not pull
+`session.ts` or `running.ts` in. Three calls refuse locally, unsent: `logout` unless the
 `auth` middleware presents `Bearer AU-...` (read with `internal/authorization.ts`, the probe the
 insert session uses; the server answers 204 to a Basic or API-token logout and invalidates nothing),
 `deleteAPIToken` for anything but 64 lowercase hex characters (the error never repeats the
@@ -159,6 +164,11 @@ Points to preserve when editing:
   `InsertOptions.database` and report `inserted: 0` as a successful call); every supported server
   carries the fix, so the mirror was retired in 0.3.0. Do not reintroduce it. An empty `chunks`
   iterable is valid, not an error.
+- `transport` (#200) passes `createGrpcTransport` options through, minus `baseUrl` and
+  `sessionManager`, which are dropped at run time as well as by the type: a session manager
+  carries its own authority, so it could route calls away from the `baseUrl` the TLS guards
+  checked. Caller `interceptors` go **before** `auth`, so `auth` runs innermost and a caller's
+  interceptor never sees or strips the credentials.
 - `streamQuery` flattens batches into rows and nothing else; `retrievalMode` and `batchSize` stay
   the caller's choice.
 - `TransactionHandle.insertStream` is the client's own `insertStream` wrapped in the handle's

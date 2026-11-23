@@ -396,6 +396,35 @@ is the server's, and a copy here would drift from it - and the contract does not
 server does with a longer tag either (a 26.11.1-SNAPSHOT server accepted a 257-character one
 without complaint), so keep tags short rather than relying on a refusal.
 
+## Cancelling a call: `signal` and `timeoutMs`
+
+`query`, `command`, `queryStream` and `commandStream` take an optional `signal` (an
+`AbortSignal`) and `timeoutMs`, the per-call controls `server.raw` already had through `fetch`'s
+own `signal`:
+
+```ts
+const controller = new AbortController();
+await db.query({ language: "sql", command: "SELECT FROM Orders", signal: controller.signal });
+
+await db.command({ language: "sql", command: "SELECT FROM Orders", timeoutMs: 2_000 });
+```
+
+Both abort the call **on the client** and reject with the signal's reason - an `AbortError`
+`DOMException` for `controller.abort()`, a `TimeoutError` for `timeoutMs` - never with
+`ArcadeDBError`. Given together, whichever fires first wins. Omitting both leaves a call without a
+deadline, as before.
+
+`timeoutMs` is a deadline for the **whole** call, response body included. For
+`queryStream`/`commandStream` that means the whole stream, not the gap between two rows, counted
+from the first iteration of the generator, which is when the request goes out. This is not the
+Python client's per-call `timeout`: httpx counts each phase separately, so a Python stream that
+keeps delivering rows never times out, and this one does.
+
+The server is not told about either. A statement it has already started runs to its end, and
+inside `transaction()` the transaction stays open until the rejection reaches `transaction()`,
+which rolls it back. To stop the statement on the server as well, give it a `queryTag` and call
+`server.terminateQueriesByTag` (see "Labelling work" above).
+
 ## Duplex insert session: `db.insertSession`
 
 `db.insertSession()` opens the duplex insert session on the server's `/ws` endpoint. Where

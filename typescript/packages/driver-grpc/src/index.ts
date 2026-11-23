@@ -1,6 +1,7 @@
 import { createClient as createConnectClient } from "@connectrpc/connect";
 import type { Client, Interceptor } from "@connectrpc/connect";
 import { createGrpcTransport } from "@connectrpc/connect-node";
+import type { GrpcTransportOptions } from "@connectrpc/connect-node";
 import { ArcadeDbAdminService, ArcadeDbService } from "./gen/arcadedb-server-26.12.1-SNAPSHOT_pb.js";
 import { sendsPlaintextPassword } from "./auth.js";
 import { createInsertStream, createStreamQuery, createTimeSeriesQuery, createTimeSeriesWriteStream } from "./stream.js";
@@ -8,6 +9,7 @@ import { createTransaction } from "./transaction.js";
 
 export { bearerAuth, passwordAuth } from "./auth.js";
 export type { Interceptor } from "@connectrpc/connect";
+export type { GrpcTransportOptions } from "@connectrpc/connect-node";
 export type {
   InsertStreamRequest,
   StreamQueryRequestInit,
@@ -29,6 +31,14 @@ export * from "./gen/arcadedb-server-26.12.1-SNAPSHOT_pb.js";
 type RawClient = Client<typeof ArcadeDbService>;
 /** The generated Connect client for `com.arcadedb.grpc.ArcadeDbAdminService` (the control plane). */
 type RawAdminClient = Client<typeof ArcadeDbAdminService>;
+
+/**
+ * The `@connectrpc/connect-node` gRPC transport options {@link createClient} passes through:
+ * everything but `baseUrl` and `sessionManager`. `baseUrl` is `createClient`'s own option, and a
+ * `sessionManager` carries its own authority, so it could send every call to a server other than
+ * the `baseUrl` the TLS guards were checked against.
+ */
+export type TransportOptions = Omit<GrpcTransportOptions, "baseUrl" | "sessionManager">;
 
 /**
  * Options for {@link createClient}.
@@ -53,6 +63,20 @@ export interface CreateClientOptions {
    * Has no effect over a TLS `baseUrl`, and no effect on `raw` (the data plane) beyond guard 1.
    */
   insecure?: boolean;
+  /**
+   * Options handed to `createGrpcTransport`, for what this package does not configure itself:
+   * `nodeOptions` (a custom `ca` or a client certificate for TLS, as `http2.connect` takes them),
+   * `defaultTimeoutMs`, `idleConnectionTimeoutMs`, `pingIntervalMs`, compression, message size
+   * limits, and further `interceptors`. Omitted, the transport is built exactly as before.
+   *
+   * Three things stay `createClient`'s: `baseUrl` and `sessionManager` are not accepted (see
+   * {@link TransportOptions}), and `interceptors` here are added to `auth`, never in its place.
+   * `auth` runs last, innermost, so a caller's interceptor neither sees the credentials it puts on
+   * the request nor can remove them. Neither TLS guard reads anything here: `nodeOptions` with
+   * `rejectUnauthorized: false` is the caller's own decision, and an `http://` `baseUrl` is refused
+   * or allowed exactly as without this option.
+   */
+  transport?: TransportOptions;
 }
 
 /**
@@ -137,7 +161,7 @@ export interface ArcadeDBGrpcClient {
  * the admin guard fires only when `rawAdmin` is actually read.
  */
 export function createClient(opts: CreateClientOptions): ArcadeDBGrpcClient {
-  const { baseUrl, auth, insecure = false } = opts;
+  const { baseUrl, auth, insecure = false, transport: transportOptions } = opts;
 
   if (!insecure && sendsPlaintextPassword(auth) && new URL(baseUrl).protocol !== "https:") {
     throw new Error(
@@ -146,7 +170,17 @@ export function createClient(opts: CreateClientOptions): ArcadeDBGrpcClient {
     );
   }
 
-  const transport = createGrpcTransport({ baseUrl, interceptors: auth ? [auth] : [] });
+  // `baseUrl` and `sessionManager` are dropped at run time too, not only by the type: a caller in
+  // plain JavaScript, or one casting past `TransportOptions`, must not redirect the client away from
+  // the `baseUrl` checked above.
+  const passThrough: Partial<GrpcTransportOptions> = { ...transportOptions };
+  delete passThrough.baseUrl;
+  delete passThrough.sessionManager;
+  const transport = createGrpcTransport({
+    ...passThrough,
+    baseUrl,
+    interceptors: [...(passThrough.interceptors ?? []), ...(auth ? [auth] : [])],
+  });
   const raw = createConnectClient(ArcadeDbService, transport);
   const rawAdminClient = createConnectClient(ArcadeDbAdminService, transport);
 

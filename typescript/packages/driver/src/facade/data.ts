@@ -2,7 +2,7 @@ import type { Client } from "openapi-fetch";
 import type { components, paths } from "../generated/schema.js";
 import { ArcadeDBError } from "../errors.js";
 import { unwrap } from "../internal/unwrap.js";
-import { SESSION_HEADER, buildCommandBody, buildQueryBody, queryTagHeader, statementHeaders } from "../internal/request-body.js";
+import { SESSION_HEADER, buildCommandBody, buildQueryBody, callSignal, queryTagHeader, statementHeaders } from "../internal/request-body.js";
 
 /** The unwrapped openapi-fetch client, typed against ArcadeDB's OpenAPI schema. */
 type RawClient = Client<paths>;
@@ -40,6 +40,25 @@ export interface CommandOptions {
    * overrides it for this statement.
    */
   queryTag?: string;
+  /**
+   * Aborts this call when it fires. The request is cancelled on the client: the `fetch` (and, for
+   * `queryStream`/`commandStream`, the reading of the stream) rejects with the signal's `reason` -
+   * an `AbortError` `DOMException` by default - not with an `ArcadeDBError`. The server is not told:
+   * a statement it has already started runs on to its end, and inside `transaction()` the
+   * transaction stays open until `transaction()` itself rolls it back. To stop the statement on the
+   * server too, label it with `queryTag` and call `terminateQueriesByTag`.
+   */
+  signal?: AbortSignal;
+  /**
+   * Aborts this call after this many milliseconds, rejecting with a `TimeoutError`
+   * `DOMException`, as `AbortSignal.timeout(timeoutMs)` would. It is a
+   * deadline for the whole call, response body included: for `queryStream`/`commandStream` it
+   * bounds the entire stream, not the gap between two rows, and starts when the generator is first
+   * iterated, which is when the request is sent. Given with `signal`, whichever fires first aborts
+   * the call. Omitted, a call has no deadline of
+   * its own, as before. The server is not told; see `signal`.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -185,13 +204,19 @@ export async function executeQuery<T = unknown>(
   sessionId: string | undefined,
   opts: QueryOptions,
 ): Promise<QueryEnvelope<T>> {
-  const data = await unwrap(
-    client.POST("/api/v1/query/{database}", {
-      params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
-      body: buildQueryBody(opts),
-    }),
-  );
-  return toEnvelope<T>(asQueryResponse(data));
+  const [signal, done] = callSignal(opts);
+  try {
+    const data = await unwrap(
+      client.POST("/api/v1/query/{database}", {
+        params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
+        body: buildQueryBody(opts),
+        signal,
+      }),
+    );
+    return toEnvelope<T>(asQueryResponse(data));
+  } finally {
+    done();
+  }
 }
 
 /**
@@ -207,13 +232,19 @@ export async function executeCommand<T = unknown>(
   sessionId: string | undefined,
   opts: CommandOptions,
 ): Promise<QueryEnvelope<T>> {
-  const data = await unwrap(
-    client.POST("/api/v1/command/{database}", {
-      params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
-      body: buildCommandBody(opts),
-    }),
-  );
-  return toEnvelope<T>(asQueryResponse(data));
+  const [signal, done] = callSignal(opts);
+  try {
+    const data = await unwrap(
+      client.POST("/api/v1/command/{database}", {
+        params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
+        body: buildCommandBody(opts),
+        signal,
+      }),
+    );
+    return toEnvelope<T>(asQueryResponse(data));
+  } finally {
+    done();
+  }
 }
 
 /**

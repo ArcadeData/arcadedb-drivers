@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArcadeDBError, createClient } from "../src/index.js";
 
 /**
@@ -11,6 +11,22 @@ import { ArcadeDBError, createClient } from "../src/index.js";
 
 const ENVELOPE = { result: [], limit: 100, returned: 0, truncated: false };
 
+/**
+ * Every request a mock below has received and not answered, held from module scope.
+ *
+ * A real `fetch` keeps an in-flight request alive through its socket. These mocks have no socket:
+ * a request that hangs until its signal fires is reachable only through that signal's abort
+ * listener, and undici links a `Request`'s own signal to the one it was built from through a
+ * `WeakRef`. On Node 20 a GC could then collect the request, its signal and the pending promise
+ * together, so the abort never arrived and the test hung until vitest's 5s timeout - the first
+ * `timeoutMs` test did exactly that in CI, twice, while passing on newer Node. Holding the requests
+ * here gives them the root a socket would.
+ */
+const inflight: Request[] = [];
+afterEach(() => {
+  inflight.length = 0;
+});
+
 /** A fetch that never answers until `request.signal` aborts it. */
 function hangingFetch() {
   const seen: Request[] = [];
@@ -18,6 +34,7 @@ function hangingFetch() {
     (request: Request) =>
       new Promise<Response>((_resolve, reject) => {
         seen.push(request);
+        inflight.push(request);
         const { signal } = request;
         if (signal.aborted) reject(signal.reason);
         signal.addEventListener("abort", () => reject(signal.reason), { once: true });
@@ -32,6 +49,7 @@ function hangingFetch() {
  */
 function openStreamFetch() {
   const fetchMock = vi.fn(async (request: Request) => {
+    inflight.push(request);
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(JSON.stringify({ record: { n: 1 } }) + "\n"));

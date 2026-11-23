@@ -113,8 +113,10 @@ eager chunk measured 19,255 bytes before #124 and 19,750 after, and 19,814 once 
 `isolationLevel` body landed (#152), which is why that option is not checked client-side. #200's
 per-call `signal`/`timeoutMs` (`callSignal` in `internal/request-body.ts`) fit only once the session
 and admin methods got the same shared loaders, `loadSession` and `loadAdmin`, saving 349 bytes: the
-chunk is 19,835 bytes with both. `callSignal` costs more than `AbortSignal.timeout`/`AbortSignal.any`
-would, on purpose: `AbortSignal.any` needs Node 20.3, and `engines` allows any Node 20. About 165 bytes of headroom remain and there is no shared loader left to convert,
+chunk is 19,950 bytes with both. `callSignal` costs more than `AbortSignal.timeout`/`AbortSignal.any`
+would, on purpose: `AbortSignal.any` needs Node 20.3, and `engines` allows any Node 20; and each
+call site releases the timer and listener in a `finally` once the call settles. Only about 50 bytes
+of headroom remain and there is no shared loader left to convert,
 so the next addition that does not fit will have to make room another way; raising the ceiling
 instead weakens what the test guards.
 `NotSessionTokenError` and `isQueryTerminated` live in `errors.ts` so exporting them does not pull

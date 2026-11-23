@@ -65,16 +65,23 @@ export function statementHeaders(
  * Nor is `AbortSignal.timeout`, which Node keeps alive only through weak references; here the
  * pending timer's callback holds the controller, so the signal lives as long as the deadline does.
  * The timer is `unref`'d where the runtime has that, as `AbortSignal.timeout`'s is, so a pending
- * deadline does not keep a process alive, and the
- * listener on the caller's signal is removed when either side fires, so a long-lived signal shared
- * by many calls does not collect one listener per call.
+ * deadline does not keep a process alive.
+ *
+ * Returns the signal and `done`, which the caller must run once the call has settled - in a
+ * `finally`, after the response body has been read, since `timeoutMs` bounds that too. `done` clears
+ * the timer and removes the listener on the caller's signal, so a long-lived signal shared by many
+ * calls holds a listener only for each call still running, not for each one whose deadline has not
+ * yet passed. Firing either side runs it as well.
  */
-export function callSignal({ signal, timeoutMs }: CommandOptions): AbortSignal | undefined {
-  if (timeoutMs === undefined) return signal;
+export function callSignal({ signal, timeoutMs }: CommandOptions): [AbortSignal | undefined, () => void] {
+  if (timeoutMs === undefined) return [signal, () => undefined];
   const controller = new AbortController();
-  const abort = (reason: unknown): void => {
+  const done = (): void => {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
+  };
+  const abort = (reason: unknown): void => {
+    done();
     controller.abort(reason);
   };
   const onAbort = (): void => abort(signal?.reason);
@@ -85,7 +92,7 @@ export function callSignal({ signal, timeoutMs }: CommandOptions): AbortSignal |
   (timer as { unref?: () => void }).unref?.();
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort);
-  return controller.signal;
+  return [controller.signal, done];
 }
 
 /**

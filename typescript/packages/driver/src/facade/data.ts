@@ -204,14 +204,19 @@ export async function executeQuery<T = unknown>(
   sessionId: string | undefined,
   opts: QueryOptions,
 ): Promise<QueryEnvelope<T>> {
-  const data = await unwrap(
-    client.POST("/api/v1/query/{database}", {
-      params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
-      body: buildQueryBody(opts),
-      signal: callSignal(opts),
-    }),
-  );
-  return toEnvelope<T>(asQueryResponse(data));
+  const [signal, done] = callSignal(opts);
+  try {
+    const data = await unwrap(
+      client.POST("/api/v1/query/{database}", {
+        params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
+        body: buildQueryBody(opts),
+        signal,
+      }),
+    );
+    return toEnvelope<T>(asQueryResponse(data));
+  } finally {
+    done();
+  }
 }
 
 /**
@@ -227,14 +232,19 @@ export async function executeCommand<T = unknown>(
   sessionId: string | undefined,
   opts: CommandOptions,
 ): Promise<QueryEnvelope<T>> {
-  const data = await unwrap(
-    client.POST("/api/v1/command/{database}", {
-      params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
-      body: buildCommandBody(opts),
-      signal: callSignal(opts),
-    }),
-  );
-  return toEnvelope<T>(asQueryResponse(data));
+  const [signal, done] = callSignal(opts);
+  try {
+    const data = await unwrap(
+      client.POST("/api/v1/command/{database}", {
+        params: { path: { database }, header: statementHeaders(sessionId, opts.queryTag) },
+        body: buildCommandBody(opts),
+        signal,
+      }),
+    );
+    return toEnvelope<T>(asQueryResponse(data));
+  } finally {
+    done();
+  }
 }
 
 /**

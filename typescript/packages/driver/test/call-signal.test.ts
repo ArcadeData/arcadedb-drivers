@@ -162,6 +162,45 @@ describe("per-call signal and timeoutMs", () => {
     expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
   });
 
+  it("releases the caller's signal and the timer when a call succeeds before its deadline", async () => {
+    // Review of #201: without this, every successful call kept its listener and timer until its
+    // deadline passed, so a long-lived signal shared by many quick calls collected one per call.
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify(ENVELOPE), { status: 200, headers: { "content-type": "application/json" } }),
+    );
+    const db = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch }).db("mydb");
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, "addEventListener");
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const clear = vi.spyOn(globalThis, "clearTimeout");
+
+    try {
+      await db.query({ language: "sql", command: "SELECT 1", signal: controller.signal, timeoutMs: 600_000 });
+
+      expect(add).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith("abort", add.mock.calls[0][1]);
+      expect(clear).toHaveBeenCalled();
+    } finally {
+      clear.mockRestore();
+    }
+  });
+
+  it("releases the caller's signal once a stream is drained, not when it opens", async () => {
+    const body = JSON.stringify({ record: { n: 1 } }) + "\n";
+    const fetchMock = vi.fn(
+      async () => new Response(body, { status: 200, headers: { "content-type": "application/x-ndjson" } }),
+    );
+    const db = createClient({ baseUrl: "https://example.com", fetch: fetchMock as unknown as typeof fetch }).db("mydb");
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const stream = db.queryStream({ language: "sql", command: "SELECT 1", signal: controller.signal, timeoutMs: 600_000 });
+
+    await expect(stream.next()).resolves.toEqual({ done: false, value: { record: { n: 1 } } });
+    expect(remove).not.toHaveBeenCalled();
+    await expect(stream.next()).resolves.toEqual({ done: true, value: undefined });
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
   for (const method of ["queryStream", "commandStream"] as const) {
     it(`${method}: timeoutMs bounds the whole stream, not just the request`, async () => {
       const db = createClient({ baseUrl: "https://example.com", fetch: openStreamFetch() }).db("mydb");

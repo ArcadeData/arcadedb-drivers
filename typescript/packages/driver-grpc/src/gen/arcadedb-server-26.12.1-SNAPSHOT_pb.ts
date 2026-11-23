@@ -53,6 +53,12 @@ export const DatabaseCredentialsSchema: GenMessage<DatabaseCredentials> = /*@__P
   messageDesc(file_arcadedb_server_26_12_1_SNAPSHOT, 0);
 
 /**
+ * A transaction_id names a transaction opened with BeginTransaction, which the client ends with CommitTransaction or
+ * RollbackTransaction. A statement that fails inside it ends it, as over HTTP, Postgres and Bolt: the transaction is rolled
+ * back, every later statement sent to it fails with FAILED_PRECONDITION, CommitTransaction answers committed = false and
+ * RollbackTransaction ends it. A LookupByRid, UpdateRecord or DeleteRecord of a record that does not exist answers NOT_FOUND
+ * and leaves the transaction open.
+ *
  * @generated from message com.arcadedb.grpc.TransactionContext
  */
 export type TransactionContext = Message<"com.arcadedb.grpc.TransactionContext"> & {
@@ -1417,6 +1423,9 @@ export type CommitTransactionResponse = Message<"com.arcadedb.grpc.CommitTransac
   success: boolean;
 
   /**
+   * false when nothing was committed: the transaction is unknown (already ended, or reclaimed by the idle reaper) or a
+   * statement that failed in it rolled it back. message says which
+   *
    * @generated from field: bool committed = 2;
    */
   committed: boolean;

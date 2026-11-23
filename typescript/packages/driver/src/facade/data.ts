@@ -50,12 +50,12 @@ export interface CommandOptions {
    */
   signal?: AbortSignal;
   /**
-   * Aborts this call after this many milliseconds, as `signal` would with
-   * `AbortSignal.timeout(timeoutMs)`, rejecting with a `TimeoutError` `DOMException`. It is a
+   * Aborts this call after this many milliseconds, rejecting with a `TimeoutError`
+   * `DOMException`, as `AbortSignal.timeout(timeoutMs)` would. It is a
    * deadline for the whole call, response body included: for `queryStream`/`commandStream` it
    * bounds the entire stream, not the gap between two rows, and starts when the generator is first
    * iterated, which is when the request is sent. Given with `signal`, whichever fires first aborts
-   * the call (this needs `AbortSignal.any`: Node 20.3 or later). Omitted, a call has no deadline of
+   * the call. Omitted, a call has no deadline of
    * its own, as before. The server is not told; see `signal`.
    */
   timeoutMs?: number;

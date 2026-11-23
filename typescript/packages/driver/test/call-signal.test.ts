@@ -122,6 +122,28 @@ describe("per-call signal and timeoutMs", () => {
     await expect(db.query({ language: "sql", command: "SELECT 1", signal: AbortSignal.abort(reason) })).rejects.toBe(reason);
   });
 
+  it("an already-aborted signal wins over timeoutMs, with the signal's reason", async () => {
+    const { fetch } = hangingFetch();
+    const db = createClient({ baseUrl: "https://example.com", fetch }).db("mydb");
+    const reason = new Error("already");
+
+    await expect(
+      db.command({ language: "sql", command: "SELECT 1", signal: AbortSignal.abort(reason), timeoutMs: 60_000 }),
+    ).rejects.toBe(reason);
+  });
+
+  it("removes its listener from the caller's signal once the timeout fires", async () => {
+    // A long-lived signal shared by many calls must not collect one listener per call.
+    const { fetch } = hangingFetch();
+    const db = createClient({ baseUrl: "https://example.com", fetch }).db("mydb");
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+
+    await db.query({ language: "sql", command: "SELECT 1", signal: controller.signal, timeoutMs: 20 }).catch(() => undefined);
+
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
   for (const method of ["queryStream", "commandStream"] as const) {
     it(`${method}: timeoutMs bounds the whole stream, not just the request`, async () => {
       const db = createClient({ baseUrl: "https://example.com", fetch: openStreamFetch() }).db("mydb");

@@ -111,12 +111,15 @@ and the growth since then is not one module that a lazy import could take back. 
 `loadRunning` loader rather than an `import()` each, which saved 175 of the 670 bytes they cost: the
 eager chunk measured 19,255 bytes before #124 and 19,750 after, and 19,814 once `transaction`'s
 `isolationLevel` body landed (#152), which is why that option is not checked client-side. #200's
-per-call `signal`/`timeoutMs` (`callSignal` in `internal/request-body.ts`) cost 151 bytes, which
-fit only once the session and admin methods got the same shared loaders, `loadSession` and
-`loadAdmin`, saving 349: the chunk went 19,814 → 19,965 → 19,616, so about 380 bytes of headroom
-remain. There is no shared loader left to convert, so the next addition that does not fit will
-have to make room another way; raising the ceiling instead weakens what the test guards. `NotSessionTokenError` and `isQueryTerminated` live in `errors.ts`
-so exporting them does not pull `session.ts` or `running.ts` in. Three calls refuse locally, unsent: `logout` unless the
+per-call `signal`/`timeoutMs` (`callSignal` in `internal/request-body.ts`) fit only once the session
+and admin methods got the same shared loaders, `loadSession` and `loadAdmin`, saving 349 bytes: the
+chunk is 19,835 bytes with both. `callSignal` costs more than `AbortSignal.timeout`/`AbortSignal.any`
+would, on purpose (its doc comment says why: on Node 20 a timeout signal can be garbage-collected
+before it fires). About 165 bytes of headroom remain and there is no shared loader left to convert,
+so the next addition that does not fit will have to make room another way; raising the ceiling
+instead weakens what the test guards.
+`NotSessionTokenError` and `isQueryTerminated` live in `errors.ts` so exporting them does not pull
+`session.ts` or `running.ts` in. Three calls refuse locally, unsent: `logout` unless the
 `auth` middleware presents `Bearer AU-...` (read with `internal/authorization.ts`, the probe the
 insert session uses; the server answers 204 to a Basic or API-token logout and invalidates nothing),
 `deleteAPIToken` for anything but 64 lowercase hex characters (the error never repeats the

@@ -411,8 +411,8 @@ await db.command({ language: "sql", command: "SELECT FROM Orders", timeoutMs: 2_
 
 Both abort the call **on the client** and reject with the signal's reason - an `AbortError`
 `DOMException` for `controller.abort()`, a `TimeoutError` for `timeoutMs` - never with
-`ArcadeDBError`. Given together, whichever fires first wins; combining them needs
-`AbortSignal.any` (Node 20.3 or later). Omitting both leaves a call without a deadline, as before.
+`ArcadeDBError`. Given together, whichever fires first wins. Omitting both leaves a call without a
+deadline, as before.
 
 `timeoutMs` is a deadline for the **whole** call, response body included. For
 `queryStream`/`commandStream` that means the whole stream, not the gap between two rows, counted

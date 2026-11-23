@@ -61,13 +61,11 @@ export function statementHeaders(
  * buffered and the streamed calls, for the reason `statementHeaders` is. See
  * `CommandOptions.signal` and `CommandOptions.timeoutMs`.
  *
- * `AbortSignal.timeout` and `AbortSignal.any` are deliberately not used. On Node 20, the floor
- * `engines` allows, the signal a `Request` follows is held only weakly, so an
- * `AbortSignal.timeout` nothing else references can be garbage-collected before it fires, and the
- * call then never times out; CI's Node 20 job caught exactly that on this PR's first version. Here
- * the pending timer's callback holds the controller, so the signal lives as long as the deadline
- * does. `AbortSignal.any` would also need Node 20.3. The timer is `unref`'d where the runtime has
- * that, as `AbortSignal.timeout`'s is, so a pending deadline does not keep a process alive, and the
+ * `AbortSignal.any` is deliberately not used: it needs Node 20.3, and `engines` allows any Node 20.
+ * Nor is `AbortSignal.timeout`, which Node keeps alive only through weak references; here the
+ * pending timer's callback holds the controller, so the signal lives as long as the deadline does.
+ * The timer is `unref`'d where the runtime has that, as `AbortSignal.timeout`'s is, so a pending
+ * deadline does not keep a process alive, and the
  * listener on the caller's signal is removed when either side fires, so a long-lived signal shared
  * by many calls does not collect one listener per call.
  */

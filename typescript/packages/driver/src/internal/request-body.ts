@@ -54,6 +54,19 @@ export function statementHeaders(
 }
 
 /**
+ * The `signal` a `/query` or `/command` call is sent with: the caller's `signal`, a
+ * `AbortSignal.timeout(timeoutMs)`, both combined with `AbortSignal.any` so the first to fire
+ * aborts, or `undefined` when neither is given - in which case the request carries no signal at
+ * all, exactly as before these options existed. Shared by the buffered and the streamed calls, for
+ * the reason `statementHeaders` is. See `CommandOptions.signal` and `CommandOptions.timeoutMs`.
+ */
+export function callSignal({ signal, timeoutMs }: CommandOptions): AbortSignal | undefined {
+  if (timeoutMs === undefined) return signal;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+/**
  * Builds the JSON body for `/command`. Only `params` is cast: it is typed `Record<string, never>`
  * in the generated schema (an openapi-typescript artifact for "untyped object", not a real
  * restriction), so a caller-supplied `Record<string, unknown>` needs a narrow cast to satisfy it.

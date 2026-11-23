@@ -105,6 +105,42 @@ plaintext underneath. A hand-rolled interceptor that sets `x-arcade-password` di
 caught either. This check is a safety net for callers who pass `passwordAuth(...)` straight
 through as `auth`, not a general scan of outgoing metadata.
 
+Add a logging or retry interceptor through `transport.interceptors` (below) rather than by
+wrapping `passwordAuth(...)`: the guard then still sees the real `passwordAuth` value.
+
+## Transport options: `transport`
+
+`createClient` builds its transport with `@connectrpc/connect-node`'s `createGrpcTransport`, and
+`transport` passes options through to it - for example a custom CA or a client certificate for a
+server whose certificate is not in Node's trust store, a default deadline for every call, or keepalive:
+
+```ts
+import { readFileSync } from "node:fs";
+
+const grpc = createClient({
+  baseUrl: "https://arcadedb.internal:50051",
+  auth: bearerAuth(token),
+  transport: {
+    nodeOptions: { ca: readFileSync("ca.pem") },
+    defaultTimeoutMs: 10_000,
+    pingIntervalMs: 30_000,
+    interceptors: [logging],
+  },
+});
+```
+
+Its type is `TransportOptions`: `GrpcTransportOptions` without two keys that stay
+`createClient`'s. `baseUrl` is `createClient`'s own option, and `sessionManager` is refused
+because a session manager carries its own server address, so it could send every call
+somewhere other than the `baseUrl` the TLS guards were checked against. Both are also dropped at
+run time, so a cast cannot bring them back.
+
+`transport.interceptors` are added to `auth`, never in its place. `auth` runs last, so your
+interceptors neither see the credentials it adds nor can remove them. Neither TLS guard reads
+`transport`: an `http://` `baseUrl` is refused or allowed exactly as without it, and
+`nodeOptions: { rejectUnauthorized: false }` is passed on like any other option, which makes it your
+decision.
+
 ## Streaming queries: `streamQuery`
 
 ```ts

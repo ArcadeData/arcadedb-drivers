@@ -606,6 +606,30 @@ the bound is enforced **server-side**. Neither `raw` nor the handle validates th
 out-of-range value surfaces as a `grpc.RpcError` from the server's response, not as a client-side
 exception before the request is ever sent.
 
+### Packed vectors: `float_array_value` / `double_array_value`
+
+A `float[]` / `double[]` can travel as one packed run of 4 or 8 bytes per element instead of a
+`list_value` holding one `GrpcValue` per element
+([ArcadeData/arcadedb#11714](https://github.com/ArcadeData/arcadedb/issues/11714)):
+
+```python
+vec = messages.GrpcValue(float_array_value=messages.GrpcFloatArray(values=embedding))  # stored as float32
+
+client.raw.ExecuteQuery(request, metadata=(("x-arcade-packed-arrays", "true"),))
+# results: float[] / double[] arrive as float_array_value / double_array_value
+```
+
+Both directions are negotiated, and this package does neither half for you:
+
+- **Results are opt-in per call.** The server packs a `float[]` / `double[]` result only for a call
+  that sent `x-arcade-packed-arrays: true`; without it they stay `list_value`, exactly as before. The
+  header is not sent by default because code reading `.list_value` would then see an unset field.
+- **Send packed values only to a server that announced it.** A server that decodes them returns
+  `x-arcade-packed-arrays: true` in the headers and trailers of every response. An older server
+  reads an unknown `oneof` member as an unset value and stores `null`, so check the announcement
+  (for example from `call.initial_metadata()` of a `with_call`) before sending packed parameters,
+  and send `list_value` otherwise.
+
 ## The control plane: `raw_admin`
 
 The `.proto` contract declares a second service beside `ArcadeDbService`: `ArcadeDbAdminService`,

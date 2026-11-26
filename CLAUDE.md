@@ -318,8 +318,9 @@ a `oneOf` with no discriminator, so both generated `As...` accessors "succeed" o
   template ships with is dropped. The job also skips when the actor is `dependabot[bot]`:
   Dependabot runs see no `CLAUDE_CODE_OAUTH_TOKEN`, and the action rejects bot actors since
   v1.0.233, so without the skip every Dependabot PR carries a red check that
-  `dependabot-auto-merge.yml` refuses to merge past. The steps, pins and allow-list are
-  arcadedb's unchanged.
+  `dependabot-auto-merge.yml` refuses to merge past. It skips `github-actions[bot]` too, the
+  actor behind `contract-watch.yml`'s refresh PR, which the action rejects the same way. The
+  steps, pins and allow-list are arcadedb's unchanged.
 - `classify-issue.yml` — byte-identical to arcadedb's, two jobs in one file. One labels an issue
   opened by an ArcadeData GitHub Sponsor `high_priority`, creating that label on first use. The
   other asks Claude which of the repository's **existing** labels fit a newly opened issue, and a

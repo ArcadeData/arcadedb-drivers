@@ -10,7 +10,11 @@ jobs:
     # Dependabot secrets), and claude-code-action >= v1.0.233 rejects bot actors outright, so
     # the job could only ever fail on its PRs. Skipped, not failed: dependabot-auto-merge.yml
     # refuses a red check but lets a skipped one through.
-    if: github.actor != 'dependabot[bot]'
+    # github-actions[bot] is skipped for the second reason alone: contract-watch.yml's refresh
+    # PR (chore/contract-refresh) is pushed by it, and the action fails every such run with
+    # "Workflow initiated by non-human actor" (#203). That PR is generated output reviewed
+    # against its contract-changed issue, so a skip loses no review a human was relying on.
+    if: github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read

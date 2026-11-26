@@ -139,7 +139,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          go-version: '1.27'
+          # go.work's floor, not '1.27': the generators format their output with the go/format of
+          # the toolchain that builds them, and that formatting moves between releases (Go 1.27
+          # writes a doc-comment list unindented, 1.26.7 indents it). The drift gate in ci-go.yml
+          # regenerates on this floor, so a refresh generated on anything else fails it - which is
+          # how #203 went red on the packed-array comments of ArcadeData/arcadedb#11714. The Go
+          # e2e suite below runs on the floor too; ci-go.yml's e2e job still covers 1.27.
+          go-version-file: go/go.work
           cache-dependency-path: |
             go/arcadedb/go.sum
             go/arcadedbgrpc/go.sum

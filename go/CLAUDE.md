@@ -87,6 +87,14 @@ floor reads `go-version-file: go/go.work` rather than a literal `"1.26"`: a bare
 `GOTOOLCHAIN=local` and silently downloads 1.26.7 otherwise. CI runs unit, lint and drift gate on
 that floor and e2e on 1.27, the floor-and-current split `ci.yml` and `ci-python.yml` use.
 
+**Generate on the floor, too.** Generated output depends on the Go toolchain, not just on the
+contract and the pinned generators: buf's plugins and oapi-codegen format what they write with the
+`go/format` they were built with, and that moves between releases (1.27 writes a doc-comment list
+unindented where 1.26.7 indents it). The drift gate regenerates on 1.26.7, so output generated on
+1.27 fails it whenever the contract carries such a comment. `contract-watch.yml` therefore reads
+`go-version-file: go/go.work` like the drift gate does, and locally on a newer Go, generate with
+`GOTOOLCHAIN=go1.26.7 ./scripts/generate-grpc.sh` (and `generate.sh`).
+
 **Never run `go work sync`.** It pushes the workspace's resolved versions down into every module's
 `go.mod`, which bumps `arcadedbgrpc`'s `go` line to `1.26.7` (raising the floor every consumer sees)
 and raises the published modules' dependency versions to whatever the tools module needs. Tidy each

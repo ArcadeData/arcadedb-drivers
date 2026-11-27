@@ -11527,7 +11527,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Samples rejected, with the counts written and dropped */
+            /** @description Samples rejected, with the counts written and dropped. A request refused before any sample is read carries only 'error': an empty body, or a 'precision' that is none of ns, us (or u), ms and s in any case, where 'error' names the accepted values */
             400: {
                 headers: {
                     "X-Request-Id": components["headers"]["RequestIdHeader"];

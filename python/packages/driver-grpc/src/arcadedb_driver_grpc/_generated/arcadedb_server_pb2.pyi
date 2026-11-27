@@ -305,6 +305,8 @@ class GrpcValue(_message.Message):
     EMBEDDED_VALUE_FIELD_NUMBER: _builtins.int
     LINK_VALUE_FIELD_NUMBER: _builtins.int
     DECIMAL_VALUE_FIELD_NUMBER: _builtins.int
+    FLOAT_ARRAY_VALUE_FIELD_NUMBER: _builtins.int
+    DOUBLE_ARRAY_VALUE_FIELD_NUMBER: _builtins.int
     LOGICAL_TYPE_FIELD_NUMBER: _builtins.int
     bool_value: _builtins.bool
     int32_value: _builtins.int
@@ -320,6 +322,8 @@ class GrpcValue(_message.Message):
     A value that holds more than an instant travels as ISO text in string_value: "zoned_datetime"
     (ISO_ZONED_DATE_TIME, zone id kept), "offset_time" (ISO_OFFSET_TIME), "local_time" (ISO_LOCAL_TIME), "duration" (ISO 8601
     duration: months, days, seconds and nanoseconds kept apart).
+    A list_value that is a primitive numeric array (ARRAY_OF_SHORTS/INTEGERS/LONGS/FLOATS/DOUBLES) carries the Java class of
+    the array: "short[]", "int[]", "long[]", "float[]" or "double[]". A client that does not know the tag reads a plain list.
     """
     @_builtins.property
     def timestamp_value(self) -> _timestamp_pb2.Timestamp:
@@ -345,6 +349,22 @@ class GrpcValue(_message.Message):
     def decimal_value(self) -> Global___GrpcDecimal:
         """exact decimal"""
 
+    @_builtins.property
+    def float_array_value(self) -> Global___GrpcFloatArray:
+        """Packed vectors (issue #11714): one length-delimited run of little-endian IEEE 754 values instead of a GrpcList of one
+        GrpcValue per element. Decoded to float[] / double[], so a float_array_value bound to an ARRAY_OF_FLOATS property or
+        to a vector function arrives as the array it is. Negotiated with the metadata header "x-arcade-packed-arrays: true",
+        because a peer built from an older copy of this file reads an unknown oneof member as an unset value, a null:
+        - every response of a server that decodes them carries the header (in its headers, and in its trailers): send them
+          only to a server that announced it, and list_value otherwise;
+        - a RESPONSE carries them only to a call that sent the header; without it float[] / double[] results stay list_value.
+        float[], ARRAY_OF_FLOATS
+        """
+
+    @_builtins.property
+    def double_array_value(self) -> Global___GrpcDoubleArray:
+        """double[], ARRAY_OF_DOUBLES"""
+
     def __init__(
         self,
         *,
@@ -361,13 +381,15 @@ class GrpcValue(_message.Message):
         embedded_value: Global___GrpcEmbedded | None = ...,
         link_value: Global___GrpcLink | None = ...,
         decimal_value: Global___GrpcDecimal | None = ...,
+        float_array_value: Global___GrpcFloatArray | None = ...,
+        double_array_value: Global___GrpcDoubleArray | None = ...,
         logical_type: _builtins.str = ...,
     ) -> None: ...
-    _HasFieldArgType: _TypeAlias = _typing.Literal["bool_value", b"bool_value", "bytes_value", b"bytes_value", "decimal_value", b"decimal_value", "double_value", b"double_value", "embedded_value", b"embedded_value", "float_value", b"float_value", "int32_value", b"int32_value", "int64_value", b"int64_value", "kind", b"kind", "link_value", b"link_value", "list_value", b"list_value", "map_value", b"map_value", "string_value", b"string_value", "timestamp_value", b"timestamp_value"]  # noqa: Y015
+    _HasFieldArgType: _TypeAlias = _typing.Literal["bool_value", b"bool_value", "bytes_value", b"bytes_value", "decimal_value", b"decimal_value", "double_array_value", b"double_array_value", "double_value", b"double_value", "embedded_value", b"embedded_value", "float_array_value", b"float_array_value", "float_value", b"float_value", "int32_value", b"int32_value", "int64_value", b"int64_value", "kind", b"kind", "link_value", b"link_value", "list_value", b"list_value", "map_value", b"map_value", "string_value", b"string_value", "timestamp_value", b"timestamp_value"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["bool_value", b"bool_value", "bytes_value", b"bytes_value", "decimal_value", b"decimal_value", "double_value", b"double_value", "embedded_value", b"embedded_value", "float_value", b"float_value", "int32_value", b"int32_value", "int64_value", b"int64_value", "kind", b"kind", "link_value", b"link_value", "list_value", b"list_value", "logical_type", b"logical_type", "map_value", b"map_value", "string_value", b"string_value", "timestamp_value", b"timestamp_value"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["bool_value", b"bool_value", "bytes_value", b"bytes_value", "decimal_value", b"decimal_value", "double_array_value", b"double_array_value", "double_value", b"double_value", "embedded_value", b"embedded_value", "float_array_value", b"float_array_value", "float_value", b"float_value", "int32_value", b"int32_value", "int64_value", b"int64_value", "kind", b"kind", "link_value", b"link_value", "list_value", b"list_value", "logical_type", b"logical_type", "map_value", b"map_value", "string_value", b"string_value", "timestamp_value", b"timestamp_value"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
-    _WhichOneofReturnType_kind: _TypeAlias = _typing.Literal["bool_value", "int32_value", "int64_value", "float_value", "double_value", "string_value", "bytes_value", "timestamp_value", "list_value", "map_value", "embedded_value", "link_value", "decimal_value"]  # noqa: Y015
+    _WhichOneofReturnType_kind: _TypeAlias = _typing.Literal["bool_value", "int32_value", "int64_value", "float_value", "double_value", "string_value", "bytes_value", "timestamp_value", "list_value", "map_value", "embedded_value", "link_value", "decimal_value", "float_array_value", "double_array_value"]  # noqa: Y015
     _WhichOneofArgType_kind: _TypeAlias = _typing.Literal["kind", b"kind"]  # noqa: Y015
     def WhichOneof(self, oneof_group: _WhichOneofArgType_kind) -> _WhichOneofReturnType_kind | None: ...
 
@@ -480,6 +502,48 @@ class GrpcEmbedded(_message.Message):
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
 Global___GrpcEmbedded: _TypeAlias = GrpcEmbedded  # noqa: Y015
+
+@_typing.final
+class GrpcFloatArray(_message.Message):
+    """Packed primitive arrays (proto3 packs repeated scalars by default): 4 or 8 bytes per element, NaN payloads and -0.0 kept"""
+
+    DESCRIPTOR: _descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def values(self) -> _containers.RepeatedScalarFieldContainer[_builtins.float]: ...
+    def __init__(
+        self,
+        *,
+        values: _abc.Iterable[_builtins.float] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GrpcFloatArray: _TypeAlias = GrpcFloatArray  # noqa: Y015
+
+@_typing.final
+class GrpcDoubleArray(_message.Message):
+    DESCRIPTOR: _descriptor.Descriptor
+
+    VALUES_FIELD_NUMBER: _builtins.int
+    @_builtins.property
+    def values(self) -> _containers.RepeatedScalarFieldContainer[_builtins.float]: ...
+    def __init__(
+        self,
+        *,
+        values: _abc.Iterable[_builtins.float] | None = ...,
+    ) -> None: ...
+    _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
+    def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["values", b"values"]  # noqa: Y015
+    def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
+    def WhichOneof(self, oneof_group: _Never) -> None: ...
+
+Global___GrpcDoubleArray: _TypeAlias = GrpcDoubleArray  # noqa: Y015
 
 @_typing.final
 class GrpcLink(_message.Message):

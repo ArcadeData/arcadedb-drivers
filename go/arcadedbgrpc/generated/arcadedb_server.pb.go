@@ -260,7 +260,7 @@ func (x ProjectionSettings_ProjectionEncoding) Number() protoreflect.EnumNumber 
 
 // Deprecated: Use ProjectionSettings_ProjectionEncoding.Descriptor instead.
 func (ProjectionSettings_ProjectionEncoding) EnumDescriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{10, 0}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{12, 0}
 }
 
 type StreamQueryRequest_RetrievalMode int32
@@ -309,7 +309,7 @@ func (x StreamQueryRequest_RetrievalMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use StreamQueryRequest_RetrievalMode.Descriptor instead.
 func (StreamQueryRequest_RetrievalMode) EnumDescriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{11, 0}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{13, 0}
 }
 
 type InsertOptions_ConflictMode int32
@@ -361,7 +361,7 @@ func (x InsertOptions_ConflictMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InsertOptions_ConflictMode.Descriptor instead.
 func (InsertOptions_ConflictMode) EnumDescriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{46, 0}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{48, 0}
 }
 
 type InsertOptions_TransactionMode int32
@@ -416,7 +416,7 @@ func (x InsertOptions_TransactionMode) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use InsertOptions_TransactionMode.Descriptor instead.
 func (InsertOptions_TransactionMode) EnumDescriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{46, 1}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{48, 1}
 }
 
 type GraphBatchRecord_Kind int32
@@ -462,7 +462,7 @@ func (x GraphBatchRecord_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use GraphBatchRecord_Kind.Descriptor instead.
 func (GraphBatchRecord_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{57, 0}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{59, 0}
 }
 
 type DatabaseCredentials struct {
@@ -761,11 +761,15 @@ type GrpcValue struct {
 	//	*GrpcValue_EmbeddedValue
 	//	*GrpcValue_LinkValue
 	//	*GrpcValue_DecimalValue
+	//	*GrpcValue_FloatArrayValue
+	//	*GrpcValue_DoubleArrayValue
 	Kind isGrpcValue_Kind `protobuf_oneof:"kind"`
 	// Optional semantic hint (non-breaking): "date", "datetime", "rid", "decimal(38,9)", etc.
 	// A value that holds more than an instant travels as ISO text in string_value: "zoned_datetime"
 	// (ISO_ZONED_DATE_TIME, zone id kept), "offset_time" (ISO_OFFSET_TIME), "local_time" (ISO_LOCAL_TIME), "duration" (ISO 8601
 	// duration: months, days, seconds and nanoseconds kept apart).
+	// A list_value that is a primitive numeric array (ARRAY_OF_SHORTS/INTEGERS/LONGS/FLOATS/DOUBLES) carries the Java class of
+	// the array: "short[]", "int[]", "long[]", "float[]" or "double[]". A client that does not know the tag reads a plain list.
 	LogicalType   string `protobuf:"bytes,14,opt,name=logical_type,json=logicalType,proto3" json:"logical_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -925,6 +929,24 @@ func (x *GrpcValue) GetDecimalValue() *GrpcDecimal {
 	return nil
 }
 
+func (x *GrpcValue) GetFloatArrayValue() *GrpcFloatArray {
+	if x != nil {
+		if x, ok := x.Kind.(*GrpcValue_FloatArrayValue); ok {
+			return x.FloatArrayValue
+		}
+	}
+	return nil
+}
+
+func (x *GrpcValue) GetDoubleArrayValue() *GrpcDoubleArray {
+	if x != nil {
+		if x, ok := x.Kind.(*GrpcValue_DoubleArrayValue); ok {
+			return x.DoubleArrayValue
+		}
+	}
+	return nil
+}
+
 func (x *GrpcValue) GetLogicalType() string {
 	if x != nil {
 		return x.LogicalType
@@ -988,6 +1010,21 @@ type GrpcValue_DecimalValue struct {
 	DecimalValue *GrpcDecimal `protobuf:"bytes,13,opt,name=decimal_value,json=decimalValue,proto3,oneof"` // exact decimal
 }
 
+type GrpcValue_FloatArrayValue struct {
+	// Packed vectors (issue #11714): one length-delimited run of little-endian IEEE 754 values instead of a GrpcList of one
+	// GrpcValue per element. Decoded to float[] / double[], so a float_array_value bound to an ARRAY_OF_FLOATS property or
+	// to a vector function arrives as the array it is. Negotiated with the metadata header "x-arcade-packed-arrays: true",
+	// because a peer built from an older copy of this file reads an unknown oneof member as an unset value, a null:
+	//   - every response of a server that decodes them carries the header (in its headers, and in its trailers): send them
+	//     only to a server that announced it, and list_value otherwise;
+	//   - a RESPONSE carries them only to a call that sent the header; without it float[] / double[] results stay list_value.
+	FloatArrayValue *GrpcFloatArray `protobuf:"bytes,15,opt,name=float_array_value,json=floatArrayValue,proto3,oneof"` // float[], ARRAY_OF_FLOATS
+}
+
+type GrpcValue_DoubleArrayValue struct {
+	DoubleArrayValue *GrpcDoubleArray `protobuf:"bytes,16,opt,name=double_array_value,json=doubleArrayValue,proto3,oneof"` // double[], ARRAY_OF_DOUBLES
+}
+
 func (*GrpcValue_BoolValue) isGrpcValue_Kind() {}
 
 func (*GrpcValue_Int32Value) isGrpcValue_Kind() {}
@@ -1013,6 +1050,10 @@ func (*GrpcValue_EmbeddedValue) isGrpcValue_Kind() {}
 func (*GrpcValue_LinkValue) isGrpcValue_Kind() {}
 
 func (*GrpcValue_DecimalValue) isGrpcValue_Kind() {}
+
+func (*GrpcValue_FloatArrayValue) isGrpcValue_Kind() {}
+
+func (*GrpcValue_DoubleArrayValue) isGrpcValue_Kind() {}
 
 // Containers
 type GrpcList struct {
@@ -1155,6 +1196,95 @@ func (x *GrpcEmbedded) GetFields() map[string]*GrpcValue {
 	return nil
 }
 
+// Packed primitive arrays (proto3 packs repeated scalars by default): 4 or 8 bytes per element, NaN payloads and -0.0 kept
+type GrpcFloatArray struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []float32              `protobuf:"fixed32,1,rep,packed,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrpcFloatArray) Reset() {
+	*x = GrpcFloatArray{}
+	mi := &file_arcadedb_server_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrpcFloatArray) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrpcFloatArray) ProtoMessage() {}
+
+func (x *GrpcFloatArray) ProtoReflect() protoreflect.Message {
+	mi := &file_arcadedb_server_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GrpcFloatArray.ProtoReflect.Descriptor instead.
+func (*GrpcFloatArray) Descriptor() ([]byte, []int) {
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *GrpcFloatArray) GetValues() []float32 {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+type GrpcDoubleArray struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []float64              `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GrpcDoubleArray) Reset() {
+	*x = GrpcDoubleArray{}
+	mi := &file_arcadedb_server_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrpcDoubleArray) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrpcDoubleArray) ProtoMessage() {}
+
+func (x *GrpcDoubleArray) ProtoReflect() protoreflect.Message {
+	mi := &file_arcadedb_server_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GrpcDoubleArray.ProtoReflect.Descriptor instead.
+func (*GrpcDoubleArray) Descriptor() ([]byte, []int) {
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GrpcDoubleArray) GetValues() []float64 {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 // RID link
 type GrpcLink struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1166,7 +1296,7 @@ type GrpcLink struct {
 
 func (x *GrpcLink) Reset() {
 	*x = GrpcLink{}
-	mi := &file_arcadedb_server_proto_msgTypes[8]
+	mi := &file_arcadedb_server_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1178,7 +1308,7 @@ func (x *GrpcLink) String() string {
 func (*GrpcLink) ProtoMessage() {}
 
 func (x *GrpcLink) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[8]
+	mi := &file_arcadedb_server_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1191,7 +1321,7 @@ func (x *GrpcLink) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrpcLink.ProtoReflect.Descriptor instead.
 func (*GrpcLink) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{8}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GrpcLink) GetRid() string {
@@ -1220,7 +1350,7 @@ type GrpcDecimal struct {
 
 func (x *GrpcDecimal) Reset() {
 	*x = GrpcDecimal{}
-	mi := &file_arcadedb_server_proto_msgTypes[9]
+	mi := &file_arcadedb_server_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1232,7 +1362,7 @@ func (x *GrpcDecimal) String() string {
 func (*GrpcDecimal) ProtoMessage() {}
 
 func (x *GrpcDecimal) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[9]
+	mi := &file_arcadedb_server_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1245,7 +1375,7 @@ func (x *GrpcDecimal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrpcDecimal.ProtoReflect.Descriptor instead.
 func (*GrpcDecimal) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{9}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GrpcDecimal) GetUnscaled() int64 {
@@ -1280,7 +1410,7 @@ type ProjectionSettings struct {
 
 func (x *ProjectionSettings) Reset() {
 	*x = ProjectionSettings{}
-	mi := &file_arcadedb_server_proto_msgTypes[10]
+	mi := &file_arcadedb_server_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1292,7 +1422,7 @@ func (x *ProjectionSettings) String() string {
 func (*ProjectionSettings) ProtoMessage() {}
 
 func (x *ProjectionSettings) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[10]
+	mi := &file_arcadedb_server_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1305,7 +1435,7 @@ func (x *ProjectionSettings) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectionSettings.ProtoReflect.Descriptor instead.
 func (*ProjectionSettings) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{10}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ProjectionSettings) GetIncludeProjections() bool {
@@ -1346,7 +1476,7 @@ type StreamQueryRequest struct {
 
 func (x *StreamQueryRequest) Reset() {
 	*x = StreamQueryRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[11]
+	mi := &file_arcadedb_server_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1358,7 +1488,7 @@ func (x *StreamQueryRequest) String() string {
 func (*StreamQueryRequest) ProtoMessage() {}
 
 func (x *StreamQueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[11]
+	mi := &file_arcadedb_server_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1371,7 +1501,7 @@ func (x *StreamQueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamQueryRequest.ProtoReflect.Descriptor instead.
 func (*StreamQueryRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{11}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *StreamQueryRequest) GetDatabase() string {
@@ -1450,7 +1580,7 @@ type QueryResult struct {
 
 func (x *QueryResult) Reset() {
 	*x = QueryResult{}
-	mi := &file_arcadedb_server_proto_msgTypes[12]
+	mi := &file_arcadedb_server_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1462,7 +1592,7 @@ func (x *QueryResult) String() string {
 func (*QueryResult) ProtoMessage() {}
 
 func (x *QueryResult) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[12]
+	mi := &file_arcadedb_server_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1475,7 +1605,7 @@ func (x *QueryResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryResult.ProtoReflect.Descriptor instead.
 func (*QueryResult) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{12}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *QueryResult) GetRecords() []*GrpcRecord {
@@ -1532,7 +1662,7 @@ type GrpcFacetBucket struct {
 
 func (x *GrpcFacetBucket) Reset() {
 	*x = GrpcFacetBucket{}
-	mi := &file_arcadedb_server_proto_msgTypes[13]
+	mi := &file_arcadedb_server_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1544,7 +1674,7 @@ func (x *GrpcFacetBucket) String() string {
 func (*GrpcFacetBucket) ProtoMessage() {}
 
 func (x *GrpcFacetBucket) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[13]
+	mi := &file_arcadedb_server_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1557,7 +1687,7 @@ func (x *GrpcFacetBucket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrpcFacetBucket.ProtoReflect.Descriptor instead.
 func (*GrpcFacetBucket) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{13}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GrpcFacetBucket) GetValue() *GrpcValue {
@@ -1638,7 +1768,7 @@ type GrpcFacetResult struct {
 
 func (x *GrpcFacetResult) Reset() {
 	*x = GrpcFacetResult{}
-	mi := &file_arcadedb_server_proto_msgTypes[14]
+	mi := &file_arcadedb_server_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1650,7 +1780,7 @@ func (x *GrpcFacetResult) String() string {
 func (*GrpcFacetResult) ProtoMessage() {}
 
 func (x *GrpcFacetResult) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[14]
+	mi := &file_arcadedb_server_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1663,7 +1793,7 @@ func (x *GrpcFacetResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrpcFacetResult.ProtoReflect.Descriptor instead.
 func (*GrpcFacetResult) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{14}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GrpcFacetResult) GetType() string {
@@ -1777,7 +1907,7 @@ type GrpcFacets struct {
 
 func (x *GrpcFacets) Reset() {
 	*x = GrpcFacets{}
-	mi := &file_arcadedb_server_proto_msgTypes[15]
+	mi := &file_arcadedb_server_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1789,7 +1919,7 @@ func (x *GrpcFacets) String() string {
 func (*GrpcFacets) ProtoMessage() {}
 
 func (x *GrpcFacets) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[15]
+	mi := &file_arcadedb_server_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1802,7 +1932,7 @@ func (x *GrpcFacets) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrpcFacets.ProtoReflect.Descriptor instead.
 func (*GrpcFacets) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{15}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GrpcFacets) GetExact() bool {
@@ -1871,7 +2001,7 @@ type VectorSearchRequest struct {
 
 func (x *VectorSearchRequest) Reset() {
 	*x = VectorSearchRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[16]
+	mi := &file_arcadedb_server_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1883,7 +2013,7 @@ func (x *VectorSearchRequest) String() string {
 func (*VectorSearchRequest) ProtoMessage() {}
 
 func (x *VectorSearchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[16]
+	mi := &file_arcadedb_server_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1896,7 +2026,7 @@ func (x *VectorSearchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VectorSearchRequest.ProtoReflect.Descriptor instead.
 func (*VectorSearchRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{16}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *VectorSearchRequest) GetDatabase() string {
@@ -1992,7 +2122,7 @@ type SearchHit struct {
 
 func (x *SearchHit) Reset() {
 	*x = SearchHit{}
-	mi := &file_arcadedb_server_proto_msgTypes[17]
+	mi := &file_arcadedb_server_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2004,7 +2134,7 @@ func (x *SearchHit) String() string {
 func (*SearchHit) ProtoMessage() {}
 
 func (x *SearchHit) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[17]
+	mi := &file_arcadedb_server_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2017,7 +2147,7 @@ func (x *SearchHit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchHit.ProtoReflect.Descriptor instead.
 func (*SearchHit) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{17}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SearchHit) GetRid() string {
@@ -2088,7 +2218,7 @@ type VectorSearchResponse struct {
 
 func (x *VectorSearchResponse) Reset() {
 	*x = VectorSearchResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[18]
+	mi := &file_arcadedb_server_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2100,7 +2230,7 @@ func (x *VectorSearchResponse) String() string {
 func (*VectorSearchResponse) ProtoMessage() {}
 
 func (x *VectorSearchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[18]
+	mi := &file_arcadedb_server_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2113,7 +2243,7 @@ func (x *VectorSearchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VectorSearchResponse.ProtoReflect.Descriptor instead.
 func (*VectorSearchResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{18}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *VectorSearchResponse) GetIndexName() string {
@@ -2176,7 +2306,7 @@ type HybridExpand struct {
 
 func (x *HybridExpand) Reset() {
 	*x = HybridExpand{}
-	mi := &file_arcadedb_server_proto_msgTypes[19]
+	mi := &file_arcadedb_server_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2188,7 +2318,7 @@ func (x *HybridExpand) String() string {
 func (*HybridExpand) ProtoMessage() {}
 
 func (x *HybridExpand) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[19]
+	mi := &file_arcadedb_server_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2201,7 +2331,7 @@ func (x *HybridExpand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HybridExpand.ProtoReflect.Descriptor instead.
 func (*HybridExpand) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{19}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *HybridExpand) GetEdgeTypes() []string {
@@ -2260,7 +2390,7 @@ type HybridSearchRequest struct {
 
 func (x *HybridSearchRequest) Reset() {
 	*x = HybridSearchRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[20]
+	mi := &file_arcadedb_server_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2272,7 +2402,7 @@ func (x *HybridSearchRequest) String() string {
 func (*HybridSearchRequest) ProtoMessage() {}
 
 func (x *HybridSearchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[20]
+	mi := &file_arcadedb_server_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2285,7 +2415,7 @@ func (x *HybridSearchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HybridSearchRequest.ProtoReflect.Descriptor instead.
 func (*HybridSearchRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{20}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *HybridSearchRequest) GetDatabase() string {
@@ -2416,7 +2546,7 @@ type HybridSearchResponse struct {
 
 func (x *HybridSearchResponse) Reset() {
 	*x = HybridSearchResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[21]
+	mi := &file_arcadedb_server_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2428,7 +2558,7 @@ func (x *HybridSearchResponse) String() string {
 func (*HybridSearchResponse) ProtoMessage() {}
 
 func (x *HybridSearchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[21]
+	mi := &file_arcadedb_server_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2441,7 +2571,7 @@ func (x *HybridSearchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HybridSearchResponse.ProtoReflect.Descriptor instead.
 func (*HybridSearchResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{21}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *HybridSearchResponse) GetVectorIndexName() string {
@@ -2538,7 +2668,7 @@ type FullTextSearchRequest struct {
 
 func (x *FullTextSearchRequest) Reset() {
 	*x = FullTextSearchRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[22]
+	mi := &file_arcadedb_server_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2550,7 +2680,7 @@ func (x *FullTextSearchRequest) String() string {
 func (*FullTextSearchRequest) ProtoMessage() {}
 
 func (x *FullTextSearchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[22]
+	mi := &file_arcadedb_server_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2563,7 +2693,7 @@ func (x *FullTextSearchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullTextSearchRequest.ProtoReflect.Descriptor instead.
 func (*FullTextSearchRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{22}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *FullTextSearchRequest) GetDatabase() string {
@@ -2634,7 +2764,7 @@ type FullTextSearchResponse struct {
 
 func (x *FullTextSearchResponse) Reset() {
 	*x = FullTextSearchResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[23]
+	mi := &file_arcadedb_server_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2646,7 +2776,7 @@ func (x *FullTextSearchResponse) String() string {
 func (*FullTextSearchResponse) ProtoMessage() {}
 
 func (x *FullTextSearchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[23]
+	mi := &file_arcadedb_server_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2659,7 +2789,7 @@ func (x *FullTextSearchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FullTextSearchResponse.ProtoReflect.Descriptor instead.
 func (*FullTextSearchResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{23}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *FullTextSearchResponse) GetIndexName() string {
@@ -2701,7 +2831,7 @@ type BeginTransactionRequest struct {
 
 func (x *BeginTransactionRequest) Reset() {
 	*x = BeginTransactionRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[24]
+	mi := &file_arcadedb_server_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2713,7 +2843,7 @@ func (x *BeginTransactionRequest) String() string {
 func (*BeginTransactionRequest) ProtoMessage() {}
 
 func (x *BeginTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[24]
+	mi := &file_arcadedb_server_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2726,7 +2856,7 @@ func (x *BeginTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginTransactionRequest.ProtoReflect.Descriptor instead.
 func (*BeginTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{24}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *BeginTransactionRequest) GetDatabase() string {
@@ -2765,7 +2895,7 @@ type BeginTransactionResponse struct {
 
 func (x *BeginTransactionResponse) Reset() {
 	*x = BeginTransactionResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[25]
+	mi := &file_arcadedb_server_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2777,7 +2907,7 @@ func (x *BeginTransactionResponse) String() string {
 func (*BeginTransactionResponse) ProtoMessage() {}
 
 func (x *BeginTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[25]
+	mi := &file_arcadedb_server_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2790,7 +2920,7 @@ func (x *BeginTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginTransactionResponse.ProtoReflect.Descriptor instead.
 func (*BeginTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{25}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BeginTransactionResponse) GetTransactionId() string {
@@ -2824,7 +2954,7 @@ type CommitTransactionRequest struct {
 
 func (x *CommitTransactionRequest) Reset() {
 	*x = CommitTransactionRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[26]
+	mi := &file_arcadedb_server_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2836,7 +2966,7 @@ func (x *CommitTransactionRequest) String() string {
 func (*CommitTransactionRequest) ProtoMessage() {}
 
 func (x *CommitTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[26]
+	mi := &file_arcadedb_server_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2849,7 +2979,7 @@ func (x *CommitTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitTransactionRequest.ProtoReflect.Descriptor instead.
 func (*CommitTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{26}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *CommitTransactionRequest) GetTransaction() *TransactionContext {
@@ -2880,7 +3010,7 @@ type CommitTransactionResponse struct {
 
 func (x *CommitTransactionResponse) Reset() {
 	*x = CommitTransactionResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[27]
+	mi := &file_arcadedb_server_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2892,7 +3022,7 @@ func (x *CommitTransactionResponse) String() string {
 func (*CommitTransactionResponse) ProtoMessage() {}
 
 func (x *CommitTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[27]
+	mi := &file_arcadedb_server_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2905,7 +3035,7 @@ func (x *CommitTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommitTransactionResponse.ProtoReflect.Descriptor instead.
 func (*CommitTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{27}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CommitTransactionResponse) GetSuccess() bool {
@@ -2946,7 +3076,7 @@ type RollbackTransactionRequest struct {
 
 func (x *RollbackTransactionRequest) Reset() {
 	*x = RollbackTransactionRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[28]
+	mi := &file_arcadedb_server_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2958,7 +3088,7 @@ func (x *RollbackTransactionRequest) String() string {
 func (*RollbackTransactionRequest) ProtoMessage() {}
 
 func (x *RollbackTransactionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[28]
+	mi := &file_arcadedb_server_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2971,7 +3101,7 @@ func (x *RollbackTransactionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackTransactionRequest.ProtoReflect.Descriptor instead.
 func (*RollbackTransactionRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{28}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *RollbackTransactionRequest) GetTransaction() *TransactionContext {
@@ -2999,7 +3129,7 @@ type RollbackTransactionResponse struct {
 
 func (x *RollbackTransactionResponse) Reset() {
 	*x = RollbackTransactionResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[29]
+	mi := &file_arcadedb_server_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3011,7 +3141,7 @@ func (x *RollbackTransactionResponse) String() string {
 func (*RollbackTransactionResponse) ProtoMessage() {}
 
 func (x *RollbackTransactionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[29]
+	mi := &file_arcadedb_server_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3024,7 +3154,7 @@ func (x *RollbackTransactionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackTransactionResponse.ProtoReflect.Descriptor instead.
 func (*RollbackTransactionResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{29}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *RollbackTransactionResponse) GetSuccess() bool {
@@ -3060,7 +3190,7 @@ type DeleteRecordRequest struct {
 
 func (x *DeleteRecordRequest) Reset() {
 	*x = DeleteRecordRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[30]
+	mi := &file_arcadedb_server_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3072,7 +3202,7 @@ func (x *DeleteRecordRequest) String() string {
 func (*DeleteRecordRequest) ProtoMessage() {}
 
 func (x *DeleteRecordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[30]
+	mi := &file_arcadedb_server_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3085,7 +3215,7 @@ func (x *DeleteRecordRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRecordRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRecordRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{30}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *DeleteRecordRequest) GetDatabase() string {
@@ -3127,7 +3257,7 @@ type DeleteRecordResponse struct {
 
 func (x *DeleteRecordResponse) Reset() {
 	*x = DeleteRecordResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[31]
+	mi := &file_arcadedb_server_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3139,7 +3269,7 @@ func (x *DeleteRecordResponse) String() string {
 func (*DeleteRecordResponse) ProtoMessage() {}
 
 func (x *DeleteRecordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[31]
+	mi := &file_arcadedb_server_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3152,7 +3282,7 @@ func (x *DeleteRecordResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRecordResponse.ProtoReflect.Descriptor instead.
 func (*DeleteRecordResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{31}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *DeleteRecordResponse) GetSuccess() bool {
@@ -3193,7 +3323,7 @@ type ExecuteCommandRequest struct {
 
 func (x *ExecuteCommandRequest) Reset() {
 	*x = ExecuteCommandRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[32]
+	mi := &file_arcadedb_server_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3205,7 +3335,7 @@ func (x *ExecuteCommandRequest) String() string {
 func (*ExecuteCommandRequest) ProtoMessage() {}
 
 func (x *ExecuteCommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[32]
+	mi := &file_arcadedb_server_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3218,7 +3348,7 @@ func (x *ExecuteCommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteCommandRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteCommandRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{32}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ExecuteCommandRequest) GetDatabase() string {
@@ -3299,7 +3429,7 @@ type ExecuteCommandResponse struct {
 
 func (x *ExecuteCommandResponse) Reset() {
 	*x = ExecuteCommandResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[33]
+	mi := &file_arcadedb_server_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3311,7 +3441,7 @@ func (x *ExecuteCommandResponse) String() string {
 func (*ExecuteCommandResponse) ProtoMessage() {}
 
 func (x *ExecuteCommandResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[33]
+	mi := &file_arcadedb_server_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3324,7 +3454,7 @@ func (x *ExecuteCommandResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteCommandResponse.ProtoReflect.Descriptor instead.
 func (*ExecuteCommandResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{33}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ExecuteCommandResponse) GetSuccess() bool {
@@ -3396,7 +3526,7 @@ type QueryUpdateStats struct {
 
 func (x *QueryUpdateStats) Reset() {
 	*x = QueryUpdateStats{}
-	mi := &file_arcadedb_server_proto_msgTypes[34]
+	mi := &file_arcadedb_server_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3408,7 +3538,7 @@ func (x *QueryUpdateStats) String() string {
 func (*QueryUpdateStats) ProtoMessage() {}
 
 func (x *QueryUpdateStats) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[34]
+	mi := &file_arcadedb_server_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3421,7 +3551,7 @@ func (x *QueryUpdateStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryUpdateStats.ProtoReflect.Descriptor instead.
 func (*QueryUpdateStats) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{34}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *QueryUpdateStats) GetNodesCreated() int32 {
@@ -3525,7 +3655,7 @@ type ExecuteQueryRequest struct {
 
 func (x *ExecuteQueryRequest) Reset() {
 	*x = ExecuteQueryRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[35]
+	mi := &file_arcadedb_server_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3537,7 +3667,7 @@ func (x *ExecuteQueryRequest) String() string {
 func (*ExecuteQueryRequest) ProtoMessage() {}
 
 func (x *ExecuteQueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[35]
+	mi := &file_arcadedb_server_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3550,7 +3680,7 @@ func (x *ExecuteQueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteQueryRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteQueryRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{35}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *ExecuteQueryRequest) GetDatabase() string {
@@ -3628,7 +3758,7 @@ type ExecuteQueryResponse struct {
 
 func (x *ExecuteQueryResponse) Reset() {
 	*x = ExecuteQueryResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[36]
+	mi := &file_arcadedb_server_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3640,7 +3770,7 @@ func (x *ExecuteQueryResponse) String() string {
 func (*ExecuteQueryResponse) ProtoMessage() {}
 
 func (x *ExecuteQueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[36]
+	mi := &file_arcadedb_server_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3653,7 +3783,7 @@ func (x *ExecuteQueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteQueryResponse.ProtoReflect.Descriptor instead.
 func (*ExecuteQueryResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{36}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *ExecuteQueryResponse) GetResults() []*QueryResult {
@@ -3697,7 +3827,7 @@ type CreateRecordRequest struct {
 
 func (x *CreateRecordRequest) Reset() {
 	*x = CreateRecordRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[37]
+	mi := &file_arcadedb_server_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3709,7 +3839,7 @@ func (x *CreateRecordRequest) String() string {
 func (*CreateRecordRequest) ProtoMessage() {}
 
 func (x *CreateRecordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[37]
+	mi := &file_arcadedb_server_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3722,7 +3852,7 @@ func (x *CreateRecordRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRecordRequest.ProtoReflect.Descriptor instead.
 func (*CreateRecordRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{37}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *CreateRecordRequest) GetDatabase() string {
@@ -3769,7 +3899,7 @@ type CreateRecordResponse struct {
 
 func (x *CreateRecordResponse) Reset() {
 	*x = CreateRecordResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[38]
+	mi := &file_arcadedb_server_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3781,7 +3911,7 @@ func (x *CreateRecordResponse) String() string {
 func (*CreateRecordResponse) ProtoMessage() {}
 
 func (x *CreateRecordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[38]
+	mi := &file_arcadedb_server_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3794,7 +3924,7 @@ func (x *CreateRecordResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateRecordResponse.ProtoReflect.Descriptor instead.
 func (*CreateRecordResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{38}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *CreateRecordResponse) GetRid() string {
@@ -3814,7 +3944,7 @@ type PropertiesUpdate struct {
 
 func (x *PropertiesUpdate) Reset() {
 	*x = PropertiesUpdate{}
-	mi := &file_arcadedb_server_proto_msgTypes[39]
+	mi := &file_arcadedb_server_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3826,7 +3956,7 @@ func (x *PropertiesUpdate) String() string {
 func (*PropertiesUpdate) ProtoMessage() {}
 
 func (x *PropertiesUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[39]
+	mi := &file_arcadedb_server_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3839,7 +3969,7 @@ func (x *PropertiesUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertiesUpdate.ProtoReflect.Descriptor instead.
 func (*PropertiesUpdate) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{39}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *PropertiesUpdate) GetProperties() map[string]*GrpcValue {
@@ -3866,7 +3996,7 @@ type UpdateRecordRequest struct {
 
 func (x *UpdateRecordRequest) Reset() {
 	*x = UpdateRecordRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[40]
+	mi := &file_arcadedb_server_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3878,7 +4008,7 @@ func (x *UpdateRecordRequest) String() string {
 func (*UpdateRecordRequest) ProtoMessage() {}
 
 func (x *UpdateRecordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[40]
+	mi := &file_arcadedb_server_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3891,7 +4021,7 @@ func (x *UpdateRecordRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRecordRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRecordRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{40}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *UpdateRecordRequest) GetDatabase() string {
@@ -3973,7 +4103,7 @@ type UpdateRecordResponse struct {
 
 func (x *UpdateRecordResponse) Reset() {
 	*x = UpdateRecordResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[41]
+	mi := &file_arcadedb_server_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3985,7 +4115,7 @@ func (x *UpdateRecordResponse) String() string {
 func (*UpdateRecordResponse) ProtoMessage() {}
 
 func (x *UpdateRecordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[41]
+	mi := &file_arcadedb_server_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3998,7 +4128,7 @@ func (x *UpdateRecordResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRecordResponse.ProtoReflect.Descriptor instead.
 func (*UpdateRecordResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{41}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *UpdateRecordResponse) GetSuccess() bool {
@@ -4027,7 +4157,7 @@ type LookupByRidRequest struct {
 
 func (x *LookupByRidRequest) Reset() {
 	*x = LookupByRidRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[42]
+	mi := &file_arcadedb_server_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4039,7 +4169,7 @@ func (x *LookupByRidRequest) String() string {
 func (*LookupByRidRequest) ProtoMessage() {}
 
 func (x *LookupByRidRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[42]
+	mi := &file_arcadedb_server_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4052,7 +4182,7 @@ func (x *LookupByRidRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LookupByRidRequest.ProtoReflect.Descriptor instead.
 func (*LookupByRidRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{42}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *LookupByRidRequest) GetDatabase() string {
@@ -4093,7 +4223,7 @@ type LookupByRidResponse struct {
 
 func (x *LookupByRidResponse) Reset() {
 	*x = LookupByRidResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[43]
+	mi := &file_arcadedb_server_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4105,7 +4235,7 @@ func (x *LookupByRidResponse) String() string {
 func (*LookupByRidResponse) ProtoMessage() {}
 
 func (x *LookupByRidResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[43]
+	mi := &file_arcadedb_server_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4118,7 +4248,7 @@ func (x *LookupByRidResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LookupByRidResponse.ProtoReflect.Descriptor instead.
 func (*LookupByRidResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{43}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *LookupByRidResponse) GetFound() bool {
@@ -4150,7 +4280,7 @@ type InsertError struct {
 
 func (x *InsertError) Reset() {
 	*x = InsertError{}
-	mi := &file_arcadedb_server_proto_msgTypes[44]
+	mi := &file_arcadedb_server_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4162,7 +4292,7 @@ func (x *InsertError) String() string {
 func (*InsertError) ProtoMessage() {}
 
 func (x *InsertError) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[44]
+	mi := &file_arcadedb_server_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4175,7 +4305,7 @@ func (x *InsertError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertError.ProtoReflect.Descriptor instead.
 func (*InsertError) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{44}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *InsertError) GetMessage() string {
@@ -4230,7 +4360,7 @@ type InsertSummary struct {
 
 func (x *InsertSummary) Reset() {
 	*x = InsertSummary{}
-	mi := &file_arcadedb_server_proto_msgTypes[45]
+	mi := &file_arcadedb_server_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4242,7 +4372,7 @@ func (x *InsertSummary) String() string {
 func (*InsertSummary) ProtoMessage() {}
 
 func (x *InsertSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[45]
+	mi := &file_arcadedb_server_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4255,7 +4385,7 @@ func (x *InsertSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertSummary.ProtoReflect.Descriptor instead.
 func (*InsertSummary) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{45}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *InsertSummary) GetReceived() int64 {
@@ -4343,7 +4473,7 @@ type InsertOptions struct {
 
 func (x *InsertOptions) Reset() {
 	*x = InsertOptions{}
-	mi := &file_arcadedb_server_proto_msgTypes[46]
+	mi := &file_arcadedb_server_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4355,7 +4485,7 @@ func (x *InsertOptions) String() string {
 func (*InsertOptions) ProtoMessage() {}
 
 func (x *InsertOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[46]
+	mi := &file_arcadedb_server_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4368,7 +4498,7 @@ func (x *InsertOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertOptions.ProtoReflect.Descriptor instead.
 func (*InsertOptions) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{46}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *InsertOptions) GetTargetClass() string {
@@ -4447,7 +4577,7 @@ type BulkInsertRequest struct {
 
 func (x *BulkInsertRequest) Reset() {
 	*x = BulkInsertRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[47]
+	mi := &file_arcadedb_server_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4459,7 +4589,7 @@ func (x *BulkInsertRequest) String() string {
 func (*BulkInsertRequest) ProtoMessage() {}
 
 func (x *BulkInsertRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[47]
+	mi := &file_arcadedb_server_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4472,7 +4602,7 @@ func (x *BulkInsertRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BulkInsertRequest.ProtoReflect.Descriptor instead.
 func (*BulkInsertRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{47}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *BulkInsertRequest) GetDatabase() string {
@@ -4530,7 +4660,7 @@ type InsertChunk struct {
 
 func (x *InsertChunk) Reset() {
 	*x = InsertChunk{}
-	mi := &file_arcadedb_server_proto_msgTypes[48]
+	mi := &file_arcadedb_server_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4542,7 +4672,7 @@ func (x *InsertChunk) String() string {
 func (*InsertChunk) ProtoMessage() {}
 
 func (x *InsertChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[48]
+	mi := &file_arcadedb_server_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4555,7 +4685,7 @@ func (x *InsertChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertChunk.ProtoReflect.Descriptor instead.
 func (*InsertChunk) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{48}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *InsertChunk) GetDatabase() string {
@@ -4628,7 +4758,7 @@ type InsertRequest struct {
 
 func (x *InsertRequest) Reset() {
 	*x = InsertRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[49]
+	mi := &file_arcadedb_server_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4640,7 +4770,7 @@ func (x *InsertRequest) String() string {
 func (*InsertRequest) ProtoMessage() {}
 
 func (x *InsertRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[49]
+	mi := &file_arcadedb_server_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4653,7 +4783,7 @@ func (x *InsertRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertRequest.ProtoReflect.Descriptor instead.
 func (*InsertRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{49}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *InsertRequest) GetMsg() isInsertRequest_Msg {
@@ -4725,7 +4855,7 @@ type Start struct {
 
 func (x *Start) Reset() {
 	*x = Start{}
-	mi := &file_arcadedb_server_proto_msgTypes[50]
+	mi := &file_arcadedb_server_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4737,7 +4867,7 @@ func (x *Start) String() string {
 func (*Start) ProtoMessage() {}
 
 func (x *Start) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[50]
+	mi := &file_arcadedb_server_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4750,7 +4880,7 @@ func (x *Start) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Start.ProtoReflect.Descriptor instead.
 func (*Start) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{50}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *Start) GetDatabase() string {
@@ -4799,7 +4929,7 @@ type Commit struct {
 
 func (x *Commit) Reset() {
 	*x = Commit{}
-	mi := &file_arcadedb_server_proto_msgTypes[51]
+	mi := &file_arcadedb_server_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4811,7 +4941,7 @@ func (x *Commit) String() string {
 func (*Commit) ProtoMessage() {}
 
 func (x *Commit) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[51]
+	mi := &file_arcadedb_server_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4824,7 +4954,7 @@ func (x *Commit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Commit.ProtoReflect.Descriptor instead.
 func (*Commit) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{51}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *Commit) GetSessionId() string {
@@ -4863,7 +4993,7 @@ type InsertResponse struct {
 
 func (x *InsertResponse) Reset() {
 	*x = InsertResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[52]
+	mi := &file_arcadedb_server_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4875,7 +5005,7 @@ func (x *InsertResponse) String() string {
 func (*InsertResponse) ProtoMessage() {}
 
 func (x *InsertResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[52]
+	mi := &file_arcadedb_server_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4888,7 +5018,7 @@ func (x *InsertResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InsertResponse.ProtoReflect.Descriptor instead.
 func (*InsertResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{52}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *InsertResponse) GetMsg() isInsertResponse_Msg {
@@ -4971,7 +5101,7 @@ type Started struct {
 
 func (x *Started) Reset() {
 	*x = Started{}
-	mi := &file_arcadedb_server_proto_msgTypes[53]
+	mi := &file_arcadedb_server_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4983,7 +5113,7 @@ func (x *Started) String() string {
 func (*Started) ProtoMessage() {}
 
 func (x *Started) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[53]
+	mi := &file_arcadedb_server_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4996,7 +5126,7 @@ func (x *Started) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Started.ProtoReflect.Descriptor instead.
 func (*Started) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{53}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *Started) GetSessionId() string {
@@ -5022,7 +5152,7 @@ type BatchAck struct {
 
 func (x *BatchAck) Reset() {
 	*x = BatchAck{}
-	mi := &file_arcadedb_server_proto_msgTypes[54]
+	mi := &file_arcadedb_server_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5034,7 +5164,7 @@ func (x *BatchAck) String() string {
 func (*BatchAck) ProtoMessage() {}
 
 func (x *BatchAck) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[54]
+	mi := &file_arcadedb_server_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5047,7 +5177,7 @@ func (x *BatchAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchAck.ProtoReflect.Descriptor instead.
 func (*BatchAck) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{54}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *BatchAck) GetSessionId() string {
@@ -5108,7 +5238,7 @@ type Committed struct {
 
 func (x *Committed) Reset() {
 	*x = Committed{}
-	mi := &file_arcadedb_server_proto_msgTypes[55]
+	mi := &file_arcadedb_server_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5120,7 +5250,7 @@ func (x *Committed) String() string {
 func (*Committed) ProtoMessage() {}
 
 func (x *Committed) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[55]
+	mi := &file_arcadedb_server_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5133,7 +5263,7 @@ func (x *Committed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Committed.ProtoReflect.Descriptor instead.
 func (*Committed) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{55}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *Committed) GetSummary() *InsertSummary {
@@ -5176,7 +5306,7 @@ type GraphBatchOptions struct {
 
 func (x *GraphBatchOptions) Reset() {
 	*x = GraphBatchOptions{}
-	mi := &file_arcadedb_server_proto_msgTypes[56]
+	mi := &file_arcadedb_server_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5188,7 +5318,7 @@ func (x *GraphBatchOptions) String() string {
 func (*GraphBatchOptions) ProtoMessage() {}
 
 func (x *GraphBatchOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[56]
+	mi := &file_arcadedb_server_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5201,7 +5331,7 @@ func (x *GraphBatchOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GraphBatchOptions.ProtoReflect.Descriptor instead.
 func (*GraphBatchOptions) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{56}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *GraphBatchOptions) GetBatchSize() int32 {
@@ -5309,7 +5439,7 @@ type GraphBatchRecord struct {
 
 func (x *GraphBatchRecord) Reset() {
 	*x = GraphBatchRecord{}
-	mi := &file_arcadedb_server_proto_msgTypes[57]
+	mi := &file_arcadedb_server_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5321,7 +5451,7 @@ func (x *GraphBatchRecord) String() string {
 func (*GraphBatchRecord) ProtoMessage() {}
 
 func (x *GraphBatchRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[57]
+	mi := &file_arcadedb_server_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5334,7 +5464,7 @@ func (x *GraphBatchRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GraphBatchRecord.ProtoReflect.Descriptor instead.
 func (*GraphBatchRecord) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{57}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *GraphBatchRecord) GetKind() GraphBatchRecord_Kind {
@@ -5393,7 +5523,7 @@ type GraphBatchChunk struct {
 
 func (x *GraphBatchChunk) Reset() {
 	*x = GraphBatchChunk{}
-	mi := &file_arcadedb_server_proto_msgTypes[58]
+	mi := &file_arcadedb_server_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5405,7 +5535,7 @@ func (x *GraphBatchChunk) String() string {
 func (*GraphBatchChunk) ProtoMessage() {}
 
 func (x *GraphBatchChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[58]
+	mi := &file_arcadedb_server_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5418,7 +5548,7 @@ func (x *GraphBatchChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GraphBatchChunk.ProtoReflect.Descriptor instead.
 func (*GraphBatchChunk) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{58}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GraphBatchChunk) GetDatabase() string {
@@ -5479,7 +5609,7 @@ type GraphBatchResult struct {
 
 func (x *GraphBatchResult) Reset() {
 	*x = GraphBatchResult{}
-	mi := &file_arcadedb_server_proto_msgTypes[59]
+	mi := &file_arcadedb_server_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5491,7 +5621,7 @@ func (x *GraphBatchResult) String() string {
 func (*GraphBatchResult) ProtoMessage() {}
 
 func (x *GraphBatchResult) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[59]
+	mi := &file_arcadedb_server_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5504,7 +5634,7 @@ func (x *GraphBatchResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GraphBatchResult.ProtoReflect.Descriptor instead.
 func (*GraphBatchResult) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{59}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *GraphBatchResult) GetVerticesCreated() int64 {
@@ -5574,7 +5704,7 @@ type TimeSeriesPoint struct {
 
 func (x *TimeSeriesPoint) Reset() {
 	*x = TimeSeriesPoint{}
-	mi := &file_arcadedb_server_proto_msgTypes[60]
+	mi := &file_arcadedb_server_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5586,7 +5716,7 @@ func (x *TimeSeriesPoint) String() string {
 func (*TimeSeriesPoint) ProtoMessage() {}
 
 func (x *TimeSeriesPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[60]
+	mi := &file_arcadedb_server_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5599,7 +5729,7 @@ func (x *TimeSeriesPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesPoint.ProtoReflect.Descriptor instead.
 func (*TimeSeriesPoint) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{60}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *TimeSeriesPoint) GetType() string {
@@ -5644,7 +5774,7 @@ type TimeSeriesWriteRequest struct {
 
 func (x *TimeSeriesWriteRequest) Reset() {
 	*x = TimeSeriesWriteRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[61]
+	mi := &file_arcadedb_server_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5656,7 +5786,7 @@ func (x *TimeSeriesWriteRequest) String() string {
 func (*TimeSeriesWriteRequest) ProtoMessage() {}
 
 func (x *TimeSeriesWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[61]
+	mi := &file_arcadedb_server_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5669,7 +5799,7 @@ func (x *TimeSeriesWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesWriteRequest.ProtoReflect.Descriptor instead.
 func (*TimeSeriesWriteRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{61}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *TimeSeriesWriteRequest) GetDatabase() string {
@@ -5723,7 +5853,7 @@ type TimeSeriesWriteChunk struct {
 
 func (x *TimeSeriesWriteChunk) Reset() {
 	*x = TimeSeriesWriteChunk{}
-	mi := &file_arcadedb_server_proto_msgTypes[62]
+	mi := &file_arcadedb_server_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5735,7 +5865,7 @@ func (x *TimeSeriesWriteChunk) String() string {
 func (*TimeSeriesWriteChunk) ProtoMessage() {}
 
 func (x *TimeSeriesWriteChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[62]
+	mi := &file_arcadedb_server_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5748,7 +5878,7 @@ func (x *TimeSeriesWriteChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesWriteChunk.ProtoReflect.Descriptor instead.
 func (*TimeSeriesWriteChunk) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{62}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *TimeSeriesWriteChunk) GetDatabase() string {
@@ -5816,7 +5946,7 @@ type TimeSeriesWriteSummary struct {
 
 func (x *TimeSeriesWriteSummary) Reset() {
 	*x = TimeSeriesWriteSummary{}
-	mi := &file_arcadedb_server_proto_msgTypes[63]
+	mi := &file_arcadedb_server_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5828,7 +5958,7 @@ func (x *TimeSeriesWriteSummary) String() string {
 func (*TimeSeriesWriteSummary) ProtoMessage() {}
 
 func (x *TimeSeriesWriteSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[63]
+	mi := &file_arcadedb_server_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5841,7 +5971,7 @@ func (x *TimeSeriesWriteSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesWriteSummary.ProtoReflect.Descriptor instead.
 func (*TimeSeriesWriteSummary) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{63}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *TimeSeriesWriteSummary) GetReceived() int64 {
@@ -5921,7 +6051,7 @@ type TimeSeriesTagFilter struct {
 
 func (x *TimeSeriesTagFilter) Reset() {
 	*x = TimeSeriesTagFilter{}
-	mi := &file_arcadedb_server_proto_msgTypes[64]
+	mi := &file_arcadedb_server_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5933,7 +6063,7 @@ func (x *TimeSeriesTagFilter) String() string {
 func (*TimeSeriesTagFilter) ProtoMessage() {}
 
 func (x *TimeSeriesTagFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[64]
+	mi := &file_arcadedb_server_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5946,7 +6076,7 @@ func (x *TimeSeriesTagFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesTagFilter.ProtoReflect.Descriptor instead.
 func (*TimeSeriesTagFilter) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{64}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *TimeSeriesTagFilter) GetEquals() map[string]*GrpcValue {
@@ -5968,7 +6098,7 @@ type TimeSeriesAggregationRequest struct {
 
 func (x *TimeSeriesAggregationRequest) Reset() {
 	*x = TimeSeriesAggregationRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[65]
+	mi := &file_arcadedb_server_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5980,7 +6110,7 @@ func (x *TimeSeriesAggregationRequest) String() string {
 func (*TimeSeriesAggregationRequest) ProtoMessage() {}
 
 func (x *TimeSeriesAggregationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[65]
+	mi := &file_arcadedb_server_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5993,7 +6123,7 @@ func (x *TimeSeriesAggregationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesAggregationRequest.ProtoReflect.Descriptor instead.
 func (*TimeSeriesAggregationRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{65}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *TimeSeriesAggregationRequest) GetField() string {
@@ -6036,7 +6166,7 @@ type TimeSeriesAggregation struct {
 
 func (x *TimeSeriesAggregation) Reset() {
 	*x = TimeSeriesAggregation{}
-	mi := &file_arcadedb_server_proto_msgTypes[66]
+	mi := &file_arcadedb_server_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6048,7 +6178,7 @@ func (x *TimeSeriesAggregation) String() string {
 func (*TimeSeriesAggregation) ProtoMessage() {}
 
 func (x *TimeSeriesAggregation) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[66]
+	mi := &file_arcadedb_server_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6061,7 +6191,7 @@ func (x *TimeSeriesAggregation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesAggregation.ProtoReflect.Descriptor instead.
 func (*TimeSeriesAggregation) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{66}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *TimeSeriesAggregation) GetBucketIntervalMs() int64 {
@@ -6121,7 +6251,7 @@ type TimeSeriesQueryRequest struct {
 
 func (x *TimeSeriesQueryRequest) Reset() {
 	*x = TimeSeriesQueryRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[67]
+	mi := &file_arcadedb_server_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6133,7 +6263,7 @@ func (x *TimeSeriesQueryRequest) String() string {
 func (*TimeSeriesQueryRequest) ProtoMessage() {}
 
 func (x *TimeSeriesQueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[67]
+	mi := &file_arcadedb_server_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6146,7 +6276,7 @@ func (x *TimeSeriesQueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesQueryRequest.ProtoReflect.Descriptor instead.
 func (*TimeSeriesQueryRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{67}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *TimeSeriesQueryRequest) GetDatabase() string {
@@ -6238,7 +6368,7 @@ type TimeSeriesRow struct {
 
 func (x *TimeSeriesRow) Reset() {
 	*x = TimeSeriesRow{}
-	mi := &file_arcadedb_server_proto_msgTypes[68]
+	mi := &file_arcadedb_server_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6250,7 +6380,7 @@ func (x *TimeSeriesRow) String() string {
 func (*TimeSeriesRow) ProtoMessage() {}
 
 func (x *TimeSeriesRow) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[68]
+	mi := &file_arcadedb_server_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6263,7 +6393,7 @@ func (x *TimeSeriesRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesRow.ProtoReflect.Descriptor instead.
 func (*TimeSeriesRow) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{68}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *TimeSeriesRow) GetValues() []*GrpcValue {
@@ -6283,7 +6413,7 @@ type TimeSeriesBucket struct {
 
 func (x *TimeSeriesBucket) Reset() {
 	*x = TimeSeriesBucket{}
-	mi := &file_arcadedb_server_proto_msgTypes[69]
+	mi := &file_arcadedb_server_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6295,7 +6425,7 @@ func (x *TimeSeriesBucket) String() string {
 func (*TimeSeriesBucket) ProtoMessage() {}
 
 func (x *TimeSeriesBucket) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[69]
+	mi := &file_arcadedb_server_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6308,7 +6438,7 @@ func (x *TimeSeriesBucket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesBucket.ProtoReflect.Descriptor instead.
 func (*TimeSeriesBucket) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{69}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *TimeSeriesBucket) GetTimestamp() int64 {
@@ -6347,7 +6477,7 @@ type TimeSeriesQueryResult struct {
 
 func (x *TimeSeriesQueryResult) Reset() {
 	*x = TimeSeriesQueryResult{}
-	mi := &file_arcadedb_server_proto_msgTypes[70]
+	mi := &file_arcadedb_server_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6359,7 +6489,7 @@ func (x *TimeSeriesQueryResult) String() string {
 func (*TimeSeriesQueryResult) ProtoMessage() {}
 
 func (x *TimeSeriesQueryResult) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[70]
+	mi := &file_arcadedb_server_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6372,7 +6502,7 @@ func (x *TimeSeriesQueryResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesQueryResult.ProtoReflect.Descriptor instead.
 func (*TimeSeriesQueryResult) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{70}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *TimeSeriesQueryResult) GetType() string {
@@ -6446,7 +6576,7 @@ type TimeSeriesLatestRequest struct {
 
 func (x *TimeSeriesLatestRequest) Reset() {
 	*x = TimeSeriesLatestRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[71]
+	mi := &file_arcadedb_server_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6458,7 +6588,7 @@ func (x *TimeSeriesLatestRequest) String() string {
 func (*TimeSeriesLatestRequest) ProtoMessage() {}
 
 func (x *TimeSeriesLatestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[71]
+	mi := &file_arcadedb_server_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6471,7 +6601,7 @@ func (x *TimeSeriesLatestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesLatestRequest.ProtoReflect.Descriptor instead.
 func (*TimeSeriesLatestRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{71}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *TimeSeriesLatestRequest) GetDatabase() string {
@@ -6522,7 +6652,7 @@ type TimeSeriesLatestResponse struct {
 
 func (x *TimeSeriesLatestResponse) Reset() {
 	*x = TimeSeriesLatestResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[72]
+	mi := &file_arcadedb_server_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6534,7 +6664,7 @@ func (x *TimeSeriesLatestResponse) String() string {
 func (*TimeSeriesLatestResponse) ProtoMessage() {}
 
 func (x *TimeSeriesLatestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[72]
+	mi := &file_arcadedb_server_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6547,7 +6677,7 @@ func (x *TimeSeriesLatestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSeriesLatestResponse.ProtoReflect.Descriptor instead.
 func (*TimeSeriesLatestResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{72}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *TimeSeriesLatestResponse) GetType() string {
@@ -6587,7 +6717,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[73]
+	mi := &file_arcadedb_server_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6599,7 +6729,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[73]
+	mi := &file_arcadedb_server_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6612,7 +6742,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{73}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *PingRequest) GetCredentials() *DatabaseCredentials {
@@ -6632,7 +6762,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[74]
+	mi := &file_arcadedb_server_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6644,7 +6774,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[74]
+	mi := &file_arcadedb_server_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6657,7 +6787,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{74}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *PingResponse) GetOk() bool {
@@ -6683,7 +6813,7 @@ type GetServerInfoRequest struct {
 
 func (x *GetServerInfoRequest) Reset() {
 	*x = GetServerInfoRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[75]
+	mi := &file_arcadedb_server_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6695,7 +6825,7 @@ func (x *GetServerInfoRequest) String() string {
 func (*GetServerInfoRequest) ProtoMessage() {}
 
 func (x *GetServerInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[75]
+	mi := &file_arcadedb_server_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6708,7 +6838,7 @@ func (x *GetServerInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetServerInfoRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{75}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *GetServerInfoRequest) GetCredentials() *DatabaseCredentials {
@@ -6735,7 +6865,7 @@ type GetServerInfoResponse struct {
 
 func (x *GetServerInfoResponse) Reset() {
 	*x = GetServerInfoResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[76]
+	mi := &file_arcadedb_server_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6747,7 +6877,7 @@ func (x *GetServerInfoResponse) String() string {
 func (*GetServerInfoResponse) ProtoMessage() {}
 
 func (x *GetServerInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[76]
+	mi := &file_arcadedb_server_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6760,7 +6890,7 @@ func (x *GetServerInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerInfoResponse.ProtoReflect.Descriptor instead.
 func (*GetServerInfoResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{76}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{78}
 }
 
 func (x *GetServerInfoResponse) GetVersion() string {
@@ -6835,7 +6965,7 @@ type ListDatabasesRequest struct {
 
 func (x *ListDatabasesRequest) Reset() {
 	*x = ListDatabasesRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[77]
+	mi := &file_arcadedb_server_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6847,7 +6977,7 @@ func (x *ListDatabasesRequest) String() string {
 func (*ListDatabasesRequest) ProtoMessage() {}
 
 func (x *ListDatabasesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[77]
+	mi := &file_arcadedb_server_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6860,7 +6990,7 @@ func (x *ListDatabasesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDatabasesRequest.ProtoReflect.Descriptor instead.
 func (*ListDatabasesRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{77}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{79}
 }
 
 func (x *ListDatabasesRequest) GetCredentials() *DatabaseCredentials {
@@ -6879,7 +7009,7 @@ type ListDatabasesResponse struct {
 
 func (x *ListDatabasesResponse) Reset() {
 	*x = ListDatabasesResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[78]
+	mi := &file_arcadedb_server_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6891,7 +7021,7 @@ func (x *ListDatabasesResponse) String() string {
 func (*ListDatabasesResponse) ProtoMessage() {}
 
 func (x *ListDatabasesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[78]
+	mi := &file_arcadedb_server_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6904,7 +7034,7 @@ func (x *ListDatabasesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListDatabasesResponse.ProtoReflect.Descriptor instead.
 func (*ListDatabasesResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{78}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{80}
 }
 
 func (x *ListDatabasesResponse) GetDatabases() []string {
@@ -6924,7 +7054,7 @@ type ExistsDatabaseRequest struct {
 
 func (x *ExistsDatabaseRequest) Reset() {
 	*x = ExistsDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[79]
+	mi := &file_arcadedb_server_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6936,7 +7066,7 @@ func (x *ExistsDatabaseRequest) String() string {
 func (*ExistsDatabaseRequest) ProtoMessage() {}
 
 func (x *ExistsDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[79]
+	mi := &file_arcadedb_server_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6949,7 +7079,7 @@ func (x *ExistsDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExistsDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*ExistsDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{79}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{81}
 }
 
 func (x *ExistsDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -6975,7 +7105,7 @@ type ExistsDatabaseResponse struct {
 
 func (x *ExistsDatabaseResponse) Reset() {
 	*x = ExistsDatabaseResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[80]
+	mi := &file_arcadedb_server_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6987,7 +7117,7 @@ func (x *ExistsDatabaseResponse) String() string {
 func (*ExistsDatabaseResponse) ProtoMessage() {}
 
 func (x *ExistsDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[80]
+	mi := &file_arcadedb_server_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7000,7 +7130,7 @@ func (x *ExistsDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExistsDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*ExistsDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{80}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{82}
 }
 
 func (x *ExistsDatabaseResponse) GetExists() bool {
@@ -7025,7 +7155,7 @@ type CreateDatabaseRequest struct {
 
 func (x *CreateDatabaseRequest) Reset() {
 	*x = CreateDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[81]
+	mi := &file_arcadedb_server_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7037,7 +7167,7 @@ func (x *CreateDatabaseRequest) String() string {
 func (*CreateDatabaseRequest) ProtoMessage() {}
 
 func (x *CreateDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[81]
+	mi := &file_arcadedb_server_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7050,7 +7180,7 @@ func (x *CreateDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*CreateDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{81}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{83}
 }
 
 func (x *CreateDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -7090,7 +7220,7 @@ type CreateDatabaseResponse struct {
 
 func (x *CreateDatabaseResponse) Reset() {
 	*x = CreateDatabaseResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[82]
+	mi := &file_arcadedb_server_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7102,7 +7232,7 @@ func (x *CreateDatabaseResponse) String() string {
 func (*CreateDatabaseResponse) ProtoMessage() {}
 
 func (x *CreateDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[82]
+	mi := &file_arcadedb_server_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7115,7 +7245,7 @@ func (x *CreateDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*CreateDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{82}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{84}
 }
 
 func (x *CreateDatabaseResponse) GetCreated() bool {
@@ -7138,7 +7268,7 @@ type DropDatabaseRequest struct {
 
 func (x *DropDatabaseRequest) Reset() {
 	*x = DropDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[83]
+	mi := &file_arcadedb_server_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7150,7 +7280,7 @@ func (x *DropDatabaseRequest) String() string {
 func (*DropDatabaseRequest) ProtoMessage() {}
 
 func (x *DropDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[83]
+	mi := &file_arcadedb_server_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7163,7 +7293,7 @@ func (x *DropDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*DropDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{83}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{85}
 }
 
 func (x *DropDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -7196,7 +7326,7 @@ type DropDatabaseResponse struct {
 
 func (x *DropDatabaseResponse) Reset() {
 	*x = DropDatabaseResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[84]
+	mi := &file_arcadedb_server_proto_msgTypes[86]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7208,7 +7338,7 @@ func (x *DropDatabaseResponse) String() string {
 func (*DropDatabaseResponse) ProtoMessage() {}
 
 func (x *DropDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[84]
+	mi := &file_arcadedb_server_proto_msgTypes[86]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7221,7 +7351,7 @@ func (x *DropDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DropDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*DropDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{84}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{86}
 }
 
 func (x *DropDatabaseResponse) GetDropped() bool {
@@ -7241,7 +7371,7 @@ type GetDatabaseInfoRequest struct {
 
 func (x *GetDatabaseInfoRequest) Reset() {
 	*x = GetDatabaseInfoRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[85]
+	mi := &file_arcadedb_server_proto_msgTypes[87]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7253,7 +7383,7 @@ func (x *GetDatabaseInfoRequest) String() string {
 func (*GetDatabaseInfoRequest) ProtoMessage() {}
 
 func (x *GetDatabaseInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[85]
+	mi := &file_arcadedb_server_proto_msgTypes[87]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7266,7 +7396,7 @@ func (x *GetDatabaseInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDatabaseInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetDatabaseInfoRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{85}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{87}
 }
 
 func (x *GetDatabaseInfoRequest) GetCredentials() *DatabaseCredentials {
@@ -7301,7 +7431,7 @@ type GetDatabaseInfoResponse struct {
 
 func (x *GetDatabaseInfoResponse) Reset() {
 	*x = GetDatabaseInfoResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[86]
+	mi := &file_arcadedb_server_proto_msgTypes[88]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7313,7 +7443,7 @@ func (x *GetDatabaseInfoResponse) String() string {
 func (*GetDatabaseInfoResponse) ProtoMessage() {}
 
 func (x *GetDatabaseInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[86]
+	mi := &file_arcadedb_server_proto_msgTypes[88]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7326,7 +7456,7 @@ func (x *GetDatabaseInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDatabaseInfoResponse.ProtoReflect.Descriptor instead.
 func (*GetDatabaseInfoResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{86}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{88}
 }
 
 func (x *GetDatabaseInfoResponse) GetDatabase() string {
@@ -7406,7 +7536,7 @@ type CreateUserRequest struct {
 
 func (x *CreateUserRequest) Reset() {
 	*x = CreateUserRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[87]
+	mi := &file_arcadedb_server_proto_msgTypes[89]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7418,7 +7548,7 @@ func (x *CreateUserRequest) String() string {
 func (*CreateUserRequest) ProtoMessage() {}
 
 func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[87]
+	mi := &file_arcadedb_server_proto_msgTypes[89]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7431,7 +7561,7 @@ func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUserRequest.ProtoReflect.Descriptor instead.
 func (*CreateUserRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{87}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{89}
 }
 
 func (x *CreateUserRequest) GetCredentials() *DatabaseCredentials {
@@ -7480,7 +7610,7 @@ type CreateUserResponse struct {
 
 func (x *CreateUserResponse) Reset() {
 	*x = CreateUserResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[88]
+	mi := &file_arcadedb_server_proto_msgTypes[90]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7492,7 +7622,7 @@ func (x *CreateUserResponse) String() string {
 func (*CreateUserResponse) ProtoMessage() {}
 
 func (x *CreateUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[88]
+	mi := &file_arcadedb_server_proto_msgTypes[90]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7505,7 +7635,7 @@ func (x *CreateUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUserResponse.ProtoReflect.Descriptor instead.
 func (*CreateUserResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{88}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{90}
 }
 
 func (x *CreateUserResponse) GetSuccess() bool {
@@ -7532,7 +7662,7 @@ type DeleteUserRequest struct {
 
 func (x *DeleteUserRequest) Reset() {
 	*x = DeleteUserRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[89]
+	mi := &file_arcadedb_server_proto_msgTypes[91]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7544,7 +7674,7 @@ func (x *DeleteUserRequest) String() string {
 func (*DeleteUserRequest) ProtoMessage() {}
 
 func (x *DeleteUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[89]
+	mi := &file_arcadedb_server_proto_msgTypes[91]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7557,7 +7687,7 @@ func (x *DeleteUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteUserRequest.ProtoReflect.Descriptor instead.
 func (*DeleteUserRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{89}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{91}
 }
 
 func (x *DeleteUserRequest) GetCredentials() *DatabaseCredentials {
@@ -7584,7 +7714,7 @@ type DeleteUserResponse struct {
 
 func (x *DeleteUserResponse) Reset() {
 	*x = DeleteUserResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[90]
+	mi := &file_arcadedb_server_proto_msgTypes[92]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7596,7 +7726,7 @@ func (x *DeleteUserResponse) String() string {
 func (*DeleteUserResponse) ProtoMessage() {}
 
 func (x *DeleteUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[90]
+	mi := &file_arcadedb_server_proto_msgTypes[92]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7609,7 +7739,7 @@ func (x *DeleteUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteUserResponse.ProtoReflect.Descriptor instead.
 func (*DeleteUserResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{90}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{92}
 }
 
 func (x *DeleteUserResponse) GetSuccess() bool {
@@ -7636,7 +7766,7 @@ type OpenDatabaseRequest struct {
 
 func (x *OpenDatabaseRequest) Reset() {
 	*x = OpenDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[91]
+	mi := &file_arcadedb_server_proto_msgTypes[93]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7648,7 +7778,7 @@ func (x *OpenDatabaseRequest) String() string {
 func (*OpenDatabaseRequest) ProtoMessage() {}
 
 func (x *OpenDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[91]
+	mi := &file_arcadedb_server_proto_msgTypes[93]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7661,7 +7791,7 @@ func (x *OpenDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*OpenDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{91}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{93}
 }
 
 func (x *OpenDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -7686,7 +7816,7 @@ type OpenDatabaseResponse struct {
 
 func (x *OpenDatabaseResponse) Reset() {
 	*x = OpenDatabaseResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[92]
+	mi := &file_arcadedb_server_proto_msgTypes[94]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7698,7 +7828,7 @@ func (x *OpenDatabaseResponse) String() string {
 func (*OpenDatabaseResponse) ProtoMessage() {}
 
 func (x *OpenDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[92]
+	mi := &file_arcadedb_server_proto_msgTypes[94]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7711,7 +7841,7 @@ func (x *OpenDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*OpenDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{92}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{94}
 }
 
 type CloseDatabaseRequest struct {
@@ -7724,7 +7854,7 @@ type CloseDatabaseRequest struct {
 
 func (x *CloseDatabaseRequest) Reset() {
 	*x = CloseDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[93]
+	mi := &file_arcadedb_server_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7736,7 +7866,7 @@ func (x *CloseDatabaseRequest) String() string {
 func (*CloseDatabaseRequest) ProtoMessage() {}
 
 func (x *CloseDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[93]
+	mi := &file_arcadedb_server_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7749,7 +7879,7 @@ func (x *CloseDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*CloseDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{93}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *CloseDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -7774,7 +7904,7 @@ type CloseDatabaseResponse struct {
 
 func (x *CloseDatabaseResponse) Reset() {
 	*x = CloseDatabaseResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[94]
+	mi := &file_arcadedb_server_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7786,7 +7916,7 @@ func (x *CloseDatabaseResponse) String() string {
 func (*CloseDatabaseResponse) ProtoMessage() {}
 
 func (x *CloseDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[94]
+	mi := &file_arcadedb_server_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7799,7 +7929,7 @@ func (x *CloseDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*CloseDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{94}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{96}
 }
 
 type AlignDatabaseRequest struct {
@@ -7812,7 +7942,7 @@ type AlignDatabaseRequest struct {
 
 func (x *AlignDatabaseRequest) Reset() {
 	*x = AlignDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[95]
+	mi := &file_arcadedb_server_proto_msgTypes[97]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7824,7 +7954,7 @@ func (x *AlignDatabaseRequest) String() string {
 func (*AlignDatabaseRequest) ProtoMessage() {}
 
 func (x *AlignDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[95]
+	mi := &file_arcadedb_server_proto_msgTypes[97]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7837,7 +7967,7 @@ func (x *AlignDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AlignDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*AlignDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{95}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{97}
 }
 
 func (x *AlignDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -7862,7 +7992,7 @@ type AlignDatabaseResponse struct {
 
 func (x *AlignDatabaseResponse) Reset() {
 	*x = AlignDatabaseResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[96]
+	mi := &file_arcadedb_server_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7874,7 +8004,7 @@ func (x *AlignDatabaseResponse) String() string {
 func (*AlignDatabaseResponse) ProtoMessage() {}
 
 func (x *AlignDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[96]
+	mi := &file_arcadedb_server_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7887,7 +8017,7 @@ func (x *AlignDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AlignDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*AlignDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{96}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{98}
 }
 
 // key and value are separate fields here, so - unlike the HTTP "set server setting <key> <value>"
@@ -7905,7 +8035,7 @@ type SetServerSettingRequest struct {
 
 func (x *SetServerSettingRequest) Reset() {
 	*x = SetServerSettingRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[97]
+	mi := &file_arcadedb_server_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7917,7 +8047,7 @@ func (x *SetServerSettingRequest) String() string {
 func (*SetServerSettingRequest) ProtoMessage() {}
 
 func (x *SetServerSettingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[97]
+	mi := &file_arcadedb_server_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7930,7 +8060,7 @@ func (x *SetServerSettingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetServerSettingRequest.ProtoReflect.Descriptor instead.
 func (*SetServerSettingRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{97}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *SetServerSettingRequest) GetCredentials() *DatabaseCredentials {
@@ -7962,7 +8092,7 @@ type SetServerSettingResponse struct {
 
 func (x *SetServerSettingResponse) Reset() {
 	*x = SetServerSettingResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[98]
+	mi := &file_arcadedb_server_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7974,7 +8104,7 @@ func (x *SetServerSettingResponse) String() string {
 func (*SetServerSettingResponse) ProtoMessage() {}
 
 func (x *SetServerSettingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[98]
+	mi := &file_arcadedb_server_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7987,7 +8117,7 @@ func (x *SetServerSettingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetServerSettingResponse.ProtoReflect.Descriptor instead.
 func (*SetServerSettingResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{98}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{100}
 }
 
 type SetDatabaseSettingRequest struct {
@@ -8002,7 +8132,7 @@ type SetDatabaseSettingRequest struct {
 
 func (x *SetDatabaseSettingRequest) Reset() {
 	*x = SetDatabaseSettingRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[99]
+	mi := &file_arcadedb_server_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8014,7 +8144,7 @@ func (x *SetDatabaseSettingRequest) String() string {
 func (*SetDatabaseSettingRequest) ProtoMessage() {}
 
 func (x *SetDatabaseSettingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[99]
+	mi := &file_arcadedb_server_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8027,7 +8157,7 @@ func (x *SetDatabaseSettingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetDatabaseSettingRequest.ProtoReflect.Descriptor instead.
 func (*SetDatabaseSettingRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{99}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *SetDatabaseSettingRequest) GetCredentials() *DatabaseCredentials {
@@ -8066,7 +8196,7 @@ type SetDatabaseSettingResponse struct {
 
 func (x *SetDatabaseSettingResponse) Reset() {
 	*x = SetDatabaseSettingResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[100]
+	mi := &file_arcadedb_server_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8078,7 +8208,7 @@ func (x *SetDatabaseSettingResponse) String() string {
 func (*SetDatabaseSettingResponse) ProtoMessage() {}
 
 func (x *SetDatabaseSettingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[100]
+	mi := &file_arcadedb_server_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8091,7 +8221,7 @@ func (x *SetDatabaseSettingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetDatabaseSettingResponse.ProtoReflect.Descriptor instead.
 func (*SetDatabaseSettingResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{100}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{102}
 }
 
 // The groups a user holds on one database.
@@ -8104,7 +8234,7 @@ type UserGroups struct {
 
 func (x *UserGroups) Reset() {
 	*x = UserGroups{}
-	mi := &file_arcadedb_server_proto_msgTypes[101]
+	mi := &file_arcadedb_server_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8116,7 +8246,7 @@ func (x *UserGroups) String() string {
 func (*UserGroups) ProtoMessage() {}
 
 func (x *UserGroups) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[101]
+	mi := &file_arcadedb_server_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8129,7 +8259,7 @@ func (x *UserGroups) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserGroups.ProtoReflect.Descriptor instead.
 func (*UserGroups) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{101}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *UserGroups) GetGroups() []string {
@@ -8150,7 +8280,7 @@ type UserInfo struct {
 
 func (x *UserInfo) Reset() {
 	*x = UserInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[102]
+	mi := &file_arcadedb_server_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8162,7 +8292,7 @@ func (x *UserInfo) String() string {
 func (*UserInfo) ProtoMessage() {}
 
 func (x *UserInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[102]
+	mi := &file_arcadedb_server_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8175,7 +8305,7 @@ func (x *UserInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserInfo.ProtoReflect.Descriptor instead.
 func (*UserInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{102}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *UserInfo) GetName() string {
@@ -8201,7 +8331,7 @@ type ListUsersRequest struct {
 
 func (x *ListUsersRequest) Reset() {
 	*x = ListUsersRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[103]
+	mi := &file_arcadedb_server_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8213,7 +8343,7 @@ func (x *ListUsersRequest) String() string {
 func (*ListUsersRequest) ProtoMessage() {}
 
 func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[103]
+	mi := &file_arcadedb_server_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8226,7 +8356,7 @@ func (x *ListUsersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersRequest.ProtoReflect.Descriptor instead.
 func (*ListUsersRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{103}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *ListUsersRequest) GetCredentials() *DatabaseCredentials {
@@ -8245,7 +8375,7 @@ type ListUsersResponse struct {
 
 func (x *ListUsersResponse) Reset() {
 	*x = ListUsersResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[104]
+	mi := &file_arcadedb_server_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8257,7 +8387,7 @@ func (x *ListUsersResponse) String() string {
 func (*ListUsersResponse) ProtoMessage() {}
 
 func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[104]
+	mi := &file_arcadedb_server_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8270,7 +8400,7 @@ func (x *ListUsersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListUsersResponse.ProtoReflect.Descriptor instead.
 func (*ListUsersResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{104}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *ListUsersResponse) GetUsers() []*UserInfo {
@@ -8293,7 +8423,7 @@ type UserDatabases struct {
 
 func (x *UserDatabases) Reset() {
 	*x = UserDatabases{}
-	mi := &file_arcadedb_server_proto_msgTypes[105]
+	mi := &file_arcadedb_server_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8305,7 +8435,7 @@ func (x *UserDatabases) String() string {
 func (*UserDatabases) ProtoMessage() {}
 
 func (x *UserDatabases) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[105]
+	mi := &file_arcadedb_server_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8318,7 +8448,7 @@ func (x *UserDatabases) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserDatabases.ProtoReflect.Descriptor instead.
 func (*UserDatabases) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{105}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *UserDatabases) GetDatabases() map[string]*UserGroups {
@@ -8347,7 +8477,7 @@ type UpdateUserRequest struct {
 
 func (x *UpdateUserRequest) Reset() {
 	*x = UpdateUserRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[106]
+	mi := &file_arcadedb_server_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8359,7 +8489,7 @@ func (x *UpdateUserRequest) String() string {
 func (*UpdateUserRequest) ProtoMessage() {}
 
 func (x *UpdateUserRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[106]
+	mi := &file_arcadedb_server_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8372,7 +8502,7 @@ func (x *UpdateUserRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserRequest.ProtoReflect.Descriptor instead.
 func (*UpdateUserRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{106}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *UpdateUserRequest) GetCredentials() *DatabaseCredentials {
@@ -8413,7 +8543,7 @@ type UpdateUserResponse struct {
 
 func (x *UpdateUserResponse) Reset() {
 	*x = UpdateUserResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[107]
+	mi := &file_arcadedb_server_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8425,7 +8555,7 @@ func (x *UpdateUserResponse) String() string {
 func (*UpdateUserResponse) ProtoMessage() {}
 
 func (x *UpdateUserResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[107]
+	mi := &file_arcadedb_server_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8438,7 +8568,7 @@ func (x *UpdateUserResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateUserResponse.ProtoReflect.Descriptor instead.
 func (*UpdateUserResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{107}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *UpdateUserResponse) GetSuccess() bool {
@@ -8464,7 +8594,7 @@ type ListGroupsRequest struct {
 
 func (x *ListGroupsRequest) Reset() {
 	*x = ListGroupsRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[108]
+	mi := &file_arcadedb_server_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8476,7 +8606,7 @@ func (x *ListGroupsRequest) String() string {
 func (*ListGroupsRequest) ProtoMessage() {}
 
 func (x *ListGroupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[108]
+	mi := &file_arcadedb_server_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8489,7 +8619,7 @@ func (x *ListGroupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGroupsRequest.ProtoReflect.Descriptor instead.
 func (*ListGroupsRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{108}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *ListGroupsRequest) GetCredentials() *DatabaseCredentials {
@@ -8512,7 +8642,7 @@ type ListGroupsResponse struct {
 
 func (x *ListGroupsResponse) Reset() {
 	*x = ListGroupsResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[109]
+	mi := &file_arcadedb_server_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8524,7 +8654,7 @@ func (x *ListGroupsResponse) String() string {
 func (*ListGroupsResponse) ProtoMessage() {}
 
 func (x *ListGroupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[109]
+	mi := &file_arcadedb_server_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8537,7 +8667,7 @@ func (x *ListGroupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListGroupsResponse.ProtoReflect.Descriptor instead.
 func (*ListGroupsResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{109}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *ListGroupsResponse) GetGroupsJson() string {
@@ -8565,7 +8695,7 @@ type SaveGroupRequest struct {
 
 func (x *SaveGroupRequest) Reset() {
 	*x = SaveGroupRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[110]
+	mi := &file_arcadedb_server_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8577,7 +8707,7 @@ func (x *SaveGroupRequest) String() string {
 func (*SaveGroupRequest) ProtoMessage() {}
 
 func (x *SaveGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[110]
+	mi := &file_arcadedb_server_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8590,7 +8720,7 @@ func (x *SaveGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveGroupRequest.ProtoReflect.Descriptor instead.
 func (*SaveGroupRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{110}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *SaveGroupRequest) GetCredentials() *DatabaseCredentials {
@@ -8631,7 +8761,7 @@ type SaveGroupResponse struct {
 
 func (x *SaveGroupResponse) Reset() {
 	*x = SaveGroupResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[111]
+	mi := &file_arcadedb_server_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8643,7 +8773,7 @@ func (x *SaveGroupResponse) String() string {
 func (*SaveGroupResponse) ProtoMessage() {}
 
 func (x *SaveGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[111]
+	mi := &file_arcadedb_server_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8656,7 +8786,7 @@ func (x *SaveGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveGroupResponse.ProtoReflect.Descriptor instead.
 func (*SaveGroupResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{111}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *SaveGroupResponse) GetSuccess() bool {
@@ -8684,7 +8814,7 @@ type DeleteGroupRequest struct {
 
 func (x *DeleteGroupRequest) Reset() {
 	*x = DeleteGroupRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[112]
+	mi := &file_arcadedb_server_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8696,7 +8826,7 @@ func (x *DeleteGroupRequest) String() string {
 func (*DeleteGroupRequest) ProtoMessage() {}
 
 func (x *DeleteGroupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[112]
+	mi := &file_arcadedb_server_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8709,7 +8839,7 @@ func (x *DeleteGroupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGroupRequest.ProtoReflect.Descriptor instead.
 func (*DeleteGroupRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{112}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *DeleteGroupRequest) GetCredentials() *DatabaseCredentials {
@@ -8743,7 +8873,7 @@ type DeleteGroupResponse struct {
 
 func (x *DeleteGroupResponse) Reset() {
 	*x = DeleteGroupResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[113]
+	mi := &file_arcadedb_server_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8755,7 +8885,7 @@ func (x *DeleteGroupResponse) String() string {
 func (*DeleteGroupResponse) ProtoMessage() {}
 
 func (x *DeleteGroupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[113]
+	mi := &file_arcadedb_server_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8768,7 +8898,7 @@ func (x *DeleteGroupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteGroupResponse.ProtoReflect.Descriptor instead.
 func (*DeleteGroupResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{113}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *DeleteGroupResponse) GetSuccess() bool {
@@ -8809,7 +8939,7 @@ type ApiTokenInfo struct {
 
 func (x *ApiTokenInfo) Reset() {
 	*x = ApiTokenInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[114]
+	mi := &file_arcadedb_server_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8821,7 +8951,7 @@ func (x *ApiTokenInfo) String() string {
 func (*ApiTokenInfo) ProtoMessage() {}
 
 func (x *ApiTokenInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[114]
+	mi := &file_arcadedb_server_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8834,7 +8964,7 @@ func (x *ApiTokenInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApiTokenInfo.ProtoReflect.Descriptor instead.
 func (*ApiTokenInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{114}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *ApiTokenInfo) GetName() string {
@@ -8902,7 +9032,7 @@ type ListApiTokensRequest struct {
 
 func (x *ListApiTokensRequest) Reset() {
 	*x = ListApiTokensRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[115]
+	mi := &file_arcadedb_server_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8914,7 +9044,7 @@ func (x *ListApiTokensRequest) String() string {
 func (*ListApiTokensRequest) ProtoMessage() {}
 
 func (x *ListApiTokensRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[115]
+	mi := &file_arcadedb_server_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8927,7 +9057,7 @@ func (x *ListApiTokensRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListApiTokensRequest.ProtoReflect.Descriptor instead.
 func (*ListApiTokensRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{115}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *ListApiTokensRequest) GetCredentials() *DatabaseCredentials {
@@ -8946,7 +9076,7 @@ type ListApiTokensResponse struct {
 
 func (x *ListApiTokensResponse) Reset() {
 	*x = ListApiTokensResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[116]
+	mi := &file_arcadedb_server_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8958,7 +9088,7 @@ func (x *ListApiTokensResponse) String() string {
 func (*ListApiTokensResponse) ProtoMessage() {}
 
 func (x *ListApiTokensResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[116]
+	mi := &file_arcadedb_server_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8971,7 +9101,7 @@ func (x *ListApiTokensResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListApiTokensResponse.ProtoReflect.Descriptor instead.
 func (*ListApiTokensResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{116}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *ListApiTokensResponse) GetTokens() []*ApiTokenInfo {
@@ -8996,7 +9126,7 @@ type CreateApiTokenRequest struct {
 
 func (x *CreateApiTokenRequest) Reset() {
 	*x = CreateApiTokenRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[117]
+	mi := &file_arcadedb_server_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9008,7 +9138,7 @@ func (x *CreateApiTokenRequest) String() string {
 func (*CreateApiTokenRequest) ProtoMessage() {}
 
 func (x *CreateApiTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[117]
+	mi := &file_arcadedb_server_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9021,7 +9151,7 @@ func (x *CreateApiTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApiTokenRequest.ProtoReflect.Descriptor instead.
 func (*CreateApiTokenRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{117}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *CreateApiTokenRequest) GetCredentials() *DatabaseCredentials {
@@ -9083,7 +9213,7 @@ type CreateApiTokenResponse struct {
 
 func (x *CreateApiTokenResponse) Reset() {
 	*x = CreateApiTokenResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[118]
+	mi := &file_arcadedb_server_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9095,7 +9225,7 @@ func (x *CreateApiTokenResponse) String() string {
 func (*CreateApiTokenResponse) ProtoMessage() {}
 
 func (x *CreateApiTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[118]
+	mi := &file_arcadedb_server_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9108,7 +9238,7 @@ func (x *CreateApiTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateApiTokenResponse.ProtoReflect.Descriptor instead.
 func (*CreateApiTokenResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{118}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *CreateApiTokenResponse) GetToken() string {
@@ -9137,7 +9267,7 @@ type DeleteApiTokenRequest struct {
 
 func (x *DeleteApiTokenRequest) Reset() {
 	*x = DeleteApiTokenRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[119]
+	mi := &file_arcadedb_server_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9149,7 +9279,7 @@ func (x *DeleteApiTokenRequest) String() string {
 func (*DeleteApiTokenRequest) ProtoMessage() {}
 
 func (x *DeleteApiTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[119]
+	mi := &file_arcadedb_server_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9162,7 +9292,7 @@ func (x *DeleteApiTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteApiTokenRequest.ProtoReflect.Descriptor instead.
 func (*DeleteApiTokenRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{119}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *DeleteApiTokenRequest) GetCredentials() *DatabaseCredentials {
@@ -9189,7 +9319,7 @@ type DeleteApiTokenResponse struct {
 
 func (x *DeleteApiTokenResponse) Reset() {
 	*x = DeleteApiTokenResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[120]
+	mi := &file_arcadedb_server_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9201,7 +9331,7 @@ func (x *DeleteApiTokenResponse) String() string {
 func (*DeleteApiTokenResponse) ProtoMessage() {}
 
 func (x *DeleteApiTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[120]
+	mi := &file_arcadedb_server_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9214,7 +9344,7 @@ func (x *DeleteApiTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteApiTokenResponse.ProtoReflect.Descriptor instead.
 func (*DeleteApiTokenResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{120}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *DeleteApiTokenResponse) GetSuccess() bool {
@@ -9240,7 +9370,7 @@ type GetBackupConfigRequest struct {
 
 func (x *GetBackupConfigRequest) Reset() {
 	*x = GetBackupConfigRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[121]
+	mi := &file_arcadedb_server_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9252,7 +9382,7 @@ func (x *GetBackupConfigRequest) String() string {
 func (*GetBackupConfigRequest) ProtoMessage() {}
 
 func (x *GetBackupConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[121]
+	mi := &file_arcadedb_server_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9265,7 +9395,7 @@ func (x *GetBackupConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackupConfigRequest.ProtoReflect.Descriptor instead.
 func (*GetBackupConfigRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{121}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{123}
 }
 
 func (x *GetBackupConfigRequest) GetCredentials() *DatabaseCredentials {
@@ -9291,7 +9421,7 @@ type GetBackupConfigResponse struct {
 
 func (x *GetBackupConfigResponse) Reset() {
 	*x = GetBackupConfigResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[122]
+	mi := &file_arcadedb_server_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9303,7 +9433,7 @@ func (x *GetBackupConfigResponse) String() string {
 func (*GetBackupConfigResponse) ProtoMessage() {}
 
 func (x *GetBackupConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[122]
+	mi := &file_arcadedb_server_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9316,7 +9446,7 @@ func (x *GetBackupConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBackupConfigResponse.ProtoReflect.Descriptor instead.
 func (*GetBackupConfigResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{122}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *GetBackupConfigResponse) GetEnabled() bool {
@@ -9351,7 +9481,7 @@ type SetBackupConfigRequest struct {
 
 func (x *SetBackupConfigRequest) Reset() {
 	*x = SetBackupConfigRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[123]
+	mi := &file_arcadedb_server_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9363,7 +9493,7 @@ func (x *SetBackupConfigRequest) String() string {
 func (*SetBackupConfigRequest) ProtoMessage() {}
 
 func (x *SetBackupConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[123]
+	mi := &file_arcadedb_server_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9376,7 +9506,7 @@ func (x *SetBackupConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetBackupConfigRequest.ProtoReflect.Descriptor instead.
 func (*SetBackupConfigRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{123}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *SetBackupConfigRequest) GetCredentials() *DatabaseCredentials {
@@ -9401,7 +9531,7 @@ type SetBackupConfigResponse struct {
 
 func (x *SetBackupConfigResponse) Reset() {
 	*x = SetBackupConfigResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[124]
+	mi := &file_arcadedb_server_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9413,7 +9543,7 @@ func (x *SetBackupConfigResponse) String() string {
 func (*SetBackupConfigResponse) ProtoMessage() {}
 
 func (x *SetBackupConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[124]
+	mi := &file_arcadedb_server_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9426,7 +9556,7 @@ func (x *SetBackupConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetBackupConfigResponse.ProtoReflect.Descriptor instead.
 func (*SetBackupConfigResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{124}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{126}
 }
 
 type BackupInfo struct {
@@ -9442,7 +9572,7 @@ type BackupInfo struct {
 
 func (x *BackupInfo) Reset() {
 	*x = BackupInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[125]
+	mi := &file_arcadedb_server_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9454,7 +9584,7 @@ func (x *BackupInfo) String() string {
 func (*BackupInfo) ProtoMessage() {}
 
 func (x *BackupInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[125]
+	mi := &file_arcadedb_server_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9467,7 +9597,7 @@ func (x *BackupInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackupInfo.ProtoReflect.Descriptor instead.
 func (*BackupInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{125}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *BackupInfo) GetFileName() string {
@@ -9508,7 +9638,7 @@ type ListBackupsRequest struct {
 
 func (x *ListBackupsRequest) Reset() {
 	*x = ListBackupsRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[126]
+	mi := &file_arcadedb_server_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9520,7 +9650,7 @@ func (x *ListBackupsRequest) String() string {
 func (*ListBackupsRequest) ProtoMessage() {}
 
 func (x *ListBackupsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[126]
+	mi := &file_arcadedb_server_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9533,7 +9663,7 @@ func (x *ListBackupsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBackupsRequest.ProtoReflect.Descriptor instead.
 func (*ListBackupsRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{126}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *ListBackupsRequest) GetCredentials() *DatabaseCredentials {
@@ -9563,7 +9693,7 @@ type ListBackupsResponse struct {
 
 func (x *ListBackupsResponse) Reset() {
 	*x = ListBackupsResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[127]
+	mi := &file_arcadedb_server_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9575,7 +9705,7 @@ func (x *ListBackupsResponse) String() string {
 func (*ListBackupsResponse) ProtoMessage() {}
 
 func (x *ListBackupsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[127]
+	mi := &file_arcadedb_server_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9588,7 +9718,7 @@ func (x *ListBackupsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBackupsResponse.ProtoReflect.Descriptor instead.
 func (*ListBackupsResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{127}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *ListBackupsResponse) GetDatabase() string {
@@ -9629,7 +9759,7 @@ type TriggerBackupRequest struct {
 
 func (x *TriggerBackupRequest) Reset() {
 	*x = TriggerBackupRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[128]
+	mi := &file_arcadedb_server_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9641,7 +9771,7 @@ func (x *TriggerBackupRequest) String() string {
 func (*TriggerBackupRequest) ProtoMessage() {}
 
 func (x *TriggerBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[128]
+	mi := &file_arcadedb_server_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9654,7 +9784,7 @@ func (x *TriggerBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerBackupRequest.ProtoReflect.Descriptor instead.
 func (*TriggerBackupRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{128}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *TriggerBackupRequest) GetCredentials() *DatabaseCredentials {
@@ -9681,7 +9811,7 @@ type TriggerBackupResponse struct {
 
 func (x *TriggerBackupResponse) Reset() {
 	*x = TriggerBackupResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[129]
+	mi := &file_arcadedb_server_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9693,7 +9823,7 @@ func (x *TriggerBackupResponse) String() string {
 func (*TriggerBackupResponse) ProtoMessage() {}
 
 func (x *TriggerBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[129]
+	mi := &file_arcadedb_server_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9706,7 +9836,7 @@ func (x *TriggerBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerBackupResponse.ProtoReflect.Descriptor instead.
 func (*TriggerBackupResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{129}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *TriggerBackupResponse) GetBackupFile() string {
@@ -9729,7 +9859,7 @@ type DeleteBackupRequest struct {
 
 func (x *DeleteBackupRequest) Reset() {
 	*x = DeleteBackupRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[130]
+	mi := &file_arcadedb_server_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9741,7 +9871,7 @@ func (x *DeleteBackupRequest) String() string {
 func (*DeleteBackupRequest) ProtoMessage() {}
 
 func (x *DeleteBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[130]
+	mi := &file_arcadedb_server_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9754,7 +9884,7 @@ func (x *DeleteBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteBackupRequest.ProtoReflect.Descriptor instead.
 func (*DeleteBackupRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{130}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{132}
 }
 
 func (x *DeleteBackupRequest) GetCredentials() *DatabaseCredentials {
@@ -9786,7 +9916,7 @@ type DeleteBackupResponse struct {
 
 func (x *DeleteBackupResponse) Reset() {
 	*x = DeleteBackupResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[131]
+	mi := &file_arcadedb_server_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9798,7 +9928,7 @@ func (x *DeleteBackupResponse) String() string {
 func (*DeleteBackupResponse) ProtoMessage() {}
 
 func (x *DeleteBackupResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[131]
+	mi := &file_arcadedb_server_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9811,7 +9941,7 @@ func (x *DeleteBackupResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteBackupResponse.ProtoReflect.Descriptor instead.
 func (*DeleteBackupResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{131}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{133}
 }
 
 type ProfilerStartRequest struct {
@@ -9828,7 +9958,7 @@ type ProfilerStartRequest struct {
 
 func (x *ProfilerStartRequest) Reset() {
 	*x = ProfilerStartRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[132]
+	mi := &file_arcadedb_server_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9840,7 +9970,7 @@ func (x *ProfilerStartRequest) String() string {
 func (*ProfilerStartRequest) ProtoMessage() {}
 
 func (x *ProfilerStartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[132]
+	mi := &file_arcadedb_server_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9853,7 +9983,7 @@ func (x *ProfilerStartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerStartRequest.ProtoReflect.Descriptor instead.
 func (*ProfilerStartRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{132}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *ProfilerStartRequest) GetCredentials() *DatabaseCredentials {
@@ -9879,7 +10009,7 @@ type ProfilerStopRequest struct {
 
 func (x *ProfilerStopRequest) Reset() {
 	*x = ProfilerStopRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[133]
+	mi := &file_arcadedb_server_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9891,7 +10021,7 @@ func (x *ProfilerStopRequest) String() string {
 func (*ProfilerStopRequest) ProtoMessage() {}
 
 func (x *ProfilerStopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[133]
+	mi := &file_arcadedb_server_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9904,7 +10034,7 @@ func (x *ProfilerStopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerStopRequest.ProtoReflect.Descriptor instead.
 func (*ProfilerStopRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{133}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *ProfilerStopRequest) GetCredentials() *DatabaseCredentials {
@@ -9923,7 +10053,7 @@ type ProfilerResetRequest struct {
 
 func (x *ProfilerResetRequest) Reset() {
 	*x = ProfilerResetRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[134]
+	mi := &file_arcadedb_server_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9935,7 +10065,7 @@ func (x *ProfilerResetRequest) String() string {
 func (*ProfilerResetRequest) ProtoMessage() {}
 
 func (x *ProfilerResetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[134]
+	mi := &file_arcadedb_server_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9948,7 +10078,7 @@ func (x *ProfilerResetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerResetRequest.ProtoReflect.Descriptor instead.
 func (*ProfilerResetRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{134}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *ProfilerResetRequest) GetCredentials() *DatabaseCredentials {
@@ -9967,7 +10097,7 @@ type ProfilerResultsRequest struct {
 
 func (x *ProfilerResultsRequest) Reset() {
 	*x = ProfilerResultsRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[135]
+	mi := &file_arcadedb_server_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9979,7 +10109,7 @@ func (x *ProfilerResultsRequest) String() string {
 func (*ProfilerResultsRequest) ProtoMessage() {}
 
 func (x *ProfilerResultsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[135]
+	mi := &file_arcadedb_server_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9992,7 +10122,7 @@ func (x *ProfilerResultsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerResultsRequest.ProtoReflect.Descriptor instead.
 func (*ProfilerResultsRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{135}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *ProfilerResultsRequest) GetCredentials() *DatabaseCredentials {
@@ -10011,7 +10141,7 @@ type ProfilerListRequest struct {
 
 func (x *ProfilerListRequest) Reset() {
 	*x = ProfilerListRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[136]
+	mi := &file_arcadedb_server_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10023,7 +10153,7 @@ func (x *ProfilerListRequest) String() string {
 func (*ProfilerListRequest) ProtoMessage() {}
 
 func (x *ProfilerListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[136]
+	mi := &file_arcadedb_server_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10036,7 +10166,7 @@ func (x *ProfilerListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerListRequest.ProtoReflect.Descriptor instead.
 func (*ProfilerListRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{136}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{138}
 }
 
 func (x *ProfilerListRequest) GetCredentials() *DatabaseCredentials {
@@ -10056,7 +10186,7 @@ type ProfilerLoadRequest struct {
 
 func (x *ProfilerLoadRequest) Reset() {
 	*x = ProfilerLoadRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[137]
+	mi := &file_arcadedb_server_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10068,7 +10198,7 @@ func (x *ProfilerLoadRequest) String() string {
 func (*ProfilerLoadRequest) ProtoMessage() {}
 
 func (x *ProfilerLoadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[137]
+	mi := &file_arcadedb_server_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10081,7 +10211,7 @@ func (x *ProfilerLoadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerLoadRequest.ProtoReflect.Descriptor instead.
 func (*ProfilerLoadRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{137}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *ProfilerLoadRequest) GetCredentials() *DatabaseCredentials {
@@ -10111,7 +10241,7 @@ type ProfilerStateResponse struct {
 
 func (x *ProfilerStateResponse) Reset() {
 	*x = ProfilerStateResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[138]
+	mi := &file_arcadedb_server_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10123,7 +10253,7 @@ func (x *ProfilerStateResponse) String() string {
 func (*ProfilerStateResponse) ProtoMessage() {}
 
 func (x *ProfilerStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[138]
+	mi := &file_arcadedb_server_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10136,7 +10266,7 @@ func (x *ProfilerStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerStateResponse.ProtoReflect.Descriptor instead.
 func (*ProfilerStateResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{138}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *ProfilerStateResponse) GetRecording() bool {
@@ -10164,7 +10294,7 @@ type ProfilerDocumentResponse struct {
 
 func (x *ProfilerDocumentResponse) Reset() {
 	*x = ProfilerDocumentResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[139]
+	mi := &file_arcadedb_server_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10176,7 +10306,7 @@ func (x *ProfilerDocumentResponse) String() string {
 func (*ProfilerDocumentResponse) ProtoMessage() {}
 
 func (x *ProfilerDocumentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[139]
+	mi := &file_arcadedb_server_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10189,7 +10319,7 @@ func (x *ProfilerDocumentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerDocumentResponse.ProtoReflect.Descriptor instead.
 func (*ProfilerDocumentResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{139}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *ProfilerDocumentResponse) GetResultsJson() string {
@@ -10211,7 +10341,7 @@ type ProfilerRunInfo struct {
 
 func (x *ProfilerRunInfo) Reset() {
 	*x = ProfilerRunInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[140]
+	mi := &file_arcadedb_server_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10223,7 +10353,7 @@ func (x *ProfilerRunInfo) String() string {
 func (*ProfilerRunInfo) ProtoMessage() {}
 
 func (x *ProfilerRunInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[140]
+	mi := &file_arcadedb_server_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10236,7 +10366,7 @@ func (x *ProfilerRunInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerRunInfo.ProtoReflect.Descriptor instead.
 func (*ProfilerRunInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{140}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{142}
 }
 
 func (x *ProfilerRunInfo) GetFileName() string {
@@ -10270,7 +10400,7 @@ type ProfilerListResponse struct {
 
 func (x *ProfilerListResponse) Reset() {
 	*x = ProfilerListResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[141]
+	mi := &file_arcadedb_server_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10282,7 +10412,7 @@ func (x *ProfilerListResponse) String() string {
 func (*ProfilerListResponse) ProtoMessage() {}
 
 func (x *ProfilerListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[141]
+	mi := &file_arcadedb_server_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10295,7 +10425,7 @@ func (x *ProfilerListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProfilerListResponse.ProtoReflect.Descriptor instead.
 func (*ProfilerListResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{141}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *ProfilerListResponse) GetRuns() []*ProfilerRunInfo {
@@ -10325,7 +10455,7 @@ type RestoreBackupRequest struct {
 
 func (x *RestoreBackupRequest) Reset() {
 	*x = RestoreBackupRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[142]
+	mi := &file_arcadedb_server_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10337,7 +10467,7 @@ func (x *RestoreBackupRequest) String() string {
 func (*RestoreBackupRequest) ProtoMessage() {}
 
 func (x *RestoreBackupRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[142]
+	mi := &file_arcadedb_server_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10350,7 +10480,7 @@ func (x *RestoreBackupRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreBackupRequest.ProtoReflect.Descriptor instead.
 func (*RestoreBackupRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{142}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *RestoreBackupRequest) GetCredentials() *DatabaseCredentials {
@@ -10403,7 +10533,7 @@ type RestoreDatabaseRequest struct {
 
 func (x *RestoreDatabaseRequest) Reset() {
 	*x = RestoreDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[143]
+	mi := &file_arcadedb_server_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10415,7 +10545,7 @@ func (x *RestoreDatabaseRequest) String() string {
 func (*RestoreDatabaseRequest) ProtoMessage() {}
 
 func (x *RestoreDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[143]
+	mi := &file_arcadedb_server_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10428,7 +10558,7 @@ func (x *RestoreDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*RestoreDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{143}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *RestoreDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -10465,7 +10595,7 @@ type ImportDatabaseRequest struct {
 
 func (x *ImportDatabaseRequest) Reset() {
 	*x = ImportDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[144]
+	mi := &file_arcadedb_server_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10477,7 +10607,7 @@ func (x *ImportDatabaseRequest) String() string {
 func (*ImportDatabaseRequest) ProtoMessage() {}
 
 func (x *ImportDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[144]
+	mi := &file_arcadedb_server_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10490,7 +10620,7 @@ func (x *ImportDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*ImportDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{144}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *ImportDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -10526,7 +10656,7 @@ type RestoreProgress struct {
 
 func (x *RestoreProgress) Reset() {
 	*x = RestoreProgress{}
-	mi := &file_arcadedb_server_proto_msgTypes[145]
+	mi := &file_arcadedb_server_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10538,7 +10668,7 @@ func (x *RestoreProgress) String() string {
 func (*RestoreProgress) ProtoMessage() {}
 
 func (x *RestoreProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[145]
+	mi := &file_arcadedb_server_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10551,7 +10681,7 @@ func (x *RestoreProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreProgress.ProtoReflect.Descriptor instead.
 func (*RestoreProgress) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{145}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *RestoreProgress) GetCompleted() bool {
@@ -10588,7 +10718,7 @@ type ImportProgress struct {
 
 func (x *ImportProgress) Reset() {
 	*x = ImportProgress{}
-	mi := &file_arcadedb_server_proto_msgTypes[146]
+	mi := &file_arcadedb_server_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10600,7 +10730,7 @@ func (x *ImportProgress) String() string {
 func (*ImportProgress) ProtoMessage() {}
 
 func (x *ImportProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[146]
+	mi := &file_arcadedb_server_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10613,7 +10743,7 @@ func (x *ImportProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportProgress.ProtoReflect.Descriptor instead.
 func (*ImportProgress) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{146}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *ImportProgress) GetCompleted() bool {
@@ -10669,7 +10799,7 @@ type GetServerEventsRequest struct {
 
 func (x *GetServerEventsRequest) Reset() {
 	*x = GetServerEventsRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[147]
+	mi := &file_arcadedb_server_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10681,7 +10811,7 @@ func (x *GetServerEventsRequest) String() string {
 func (*GetServerEventsRequest) ProtoMessage() {}
 
 func (x *GetServerEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[147]
+	mi := &file_arcadedb_server_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10694,7 +10824,7 @@ func (x *GetServerEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerEventsRequest.ProtoReflect.Descriptor instead.
 func (*GetServerEventsRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{147}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{149}
 }
 
 func (x *GetServerEventsRequest) GetCredentials() *DatabaseCredentials {
@@ -10722,7 +10852,7 @@ type GetServerEventsResponse struct {
 
 func (x *GetServerEventsResponse) Reset() {
 	*x = GetServerEventsResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[148]
+	mi := &file_arcadedb_server_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10734,7 +10864,7 @@ func (x *GetServerEventsResponse) String() string {
 func (*GetServerEventsResponse) ProtoMessage() {}
 
 func (x *GetServerEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[148]
+	mi := &file_arcadedb_server_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10747,7 +10877,7 @@ func (x *GetServerEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerEventsResponse.ProtoReflect.Descriptor instead.
 func (*GetServerEventsResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{148}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{150}
 }
 
 func (x *GetServerEventsResponse) GetEventsJson() string {
@@ -10775,7 +10905,7 @@ type ShutdownRequest struct {
 
 func (x *ShutdownRequest) Reset() {
 	*x = ShutdownRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[149]
+	mi := &file_arcadedb_server_proto_msgTypes[151]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10787,7 +10917,7 @@ func (x *ShutdownRequest) String() string {
 func (*ShutdownRequest) ProtoMessage() {}
 
 func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[149]
+	mi := &file_arcadedb_server_proto_msgTypes[151]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10800,7 +10930,7 @@ func (x *ShutdownRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShutdownRequest.ProtoReflect.Descriptor instead.
 func (*ShutdownRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{149}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *ShutdownRequest) GetCredentials() *DatabaseCredentials {
@@ -10825,7 +10955,7 @@ type ShutdownResponse struct {
 
 func (x *ShutdownResponse) Reset() {
 	*x = ShutdownResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[150]
+	mi := &file_arcadedb_server_proto_msgTypes[152]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10837,7 +10967,7 @@ func (x *ShutdownResponse) String() string {
 func (*ShutdownResponse) ProtoMessage() {}
 
 func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[150]
+	mi := &file_arcadedb_server_proto_msgTypes[152]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10850,7 +10980,7 @@ func (x *ShutdownResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ShutdownResponse.ProtoReflect.Descriptor instead.
 func (*ShutdownResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{150}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{152}
 }
 
 type DisconnectClusterRequest struct {
@@ -10862,7 +10992,7 @@ type DisconnectClusterRequest struct {
 
 func (x *DisconnectClusterRequest) Reset() {
 	*x = DisconnectClusterRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[151]
+	mi := &file_arcadedb_server_proto_msgTypes[153]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10874,7 +11004,7 @@ func (x *DisconnectClusterRequest) String() string {
 func (*DisconnectClusterRequest) ProtoMessage() {}
 
 func (x *DisconnectClusterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[151]
+	mi := &file_arcadedb_server_proto_msgTypes[153]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10887,7 +11017,7 @@ func (x *DisconnectClusterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisconnectClusterRequest.ProtoReflect.Descriptor instead.
 func (*DisconnectClusterRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{151}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{153}
 }
 
 func (x *DisconnectClusterRequest) GetCredentials() *DatabaseCredentials {
@@ -10905,7 +11035,7 @@ type DisconnectClusterResponse struct {
 
 func (x *DisconnectClusterResponse) Reset() {
 	*x = DisconnectClusterResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[152]
+	mi := &file_arcadedb_server_proto_msgTypes[154]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10917,7 +11047,7 @@ func (x *DisconnectClusterResponse) String() string {
 func (*DisconnectClusterResponse) ProtoMessage() {}
 
 func (x *DisconnectClusterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[152]
+	mi := &file_arcadedb_server_proto_msgTypes[154]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10930,7 +11060,7 @@ func (x *DisconnectClusterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DisconnectClusterResponse.ProtoReflect.Descriptor instead.
 func (*DisconnectClusterResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{152}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{154}
 }
 
 type ConnectClusterRequest struct {
@@ -10949,7 +11079,7 @@ type ConnectClusterRequest struct {
 
 func (x *ConnectClusterRequest) Reset() {
 	*x = ConnectClusterRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[153]
+	mi := &file_arcadedb_server_proto_msgTypes[155]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10961,7 +11091,7 @@ func (x *ConnectClusterRequest) String() string {
 func (*ConnectClusterRequest) ProtoMessage() {}
 
 func (x *ConnectClusterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[153]
+	mi := &file_arcadedb_server_proto_msgTypes[155]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10974,7 +11104,7 @@ func (x *ConnectClusterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectClusterRequest.ProtoReflect.Descriptor instead.
 func (*ConnectClusterRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{153}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{155}
 }
 
 func (x *ConnectClusterRequest) GetCredentials() *DatabaseCredentials {
@@ -10999,7 +11129,7 @@ type ConnectClusterResponse struct {
 
 func (x *ConnectClusterResponse) Reset() {
 	*x = ConnectClusterResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[154]
+	mi := &file_arcadedb_server_proto_msgTypes[156]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11011,7 +11141,7 @@ func (x *ConnectClusterResponse) String() string {
 func (*ConnectClusterResponse) ProtoMessage() {}
 
 func (x *ConnectClusterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[154]
+	mi := &file_arcadedb_server_proto_msgTypes[156]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11024,7 +11154,7 @@ func (x *ConnectClusterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectClusterResponse.ProtoReflect.Descriptor instead.
 func (*ConnectClusterResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{154}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{156}
 }
 
 type AcceptDivergedDatabaseRequest struct {
@@ -11037,7 +11167,7 @@ type AcceptDivergedDatabaseRequest struct {
 
 func (x *AcceptDivergedDatabaseRequest) Reset() {
 	*x = AcceptDivergedDatabaseRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[155]
+	mi := &file_arcadedb_server_proto_msgTypes[157]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11049,7 +11179,7 @@ func (x *AcceptDivergedDatabaseRequest) String() string {
 func (*AcceptDivergedDatabaseRequest) ProtoMessage() {}
 
 func (x *AcceptDivergedDatabaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[155]
+	mi := &file_arcadedb_server_proto_msgTypes[157]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11062,7 +11192,7 @@ func (x *AcceptDivergedDatabaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptDivergedDatabaseRequest.ProtoReflect.Descriptor instead.
 func (*AcceptDivergedDatabaseRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{155}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *AcceptDivergedDatabaseRequest) GetCredentials() *DatabaseCredentials {
@@ -11096,7 +11226,7 @@ type AcceptDivergedDatabaseResponse struct {
 
 func (x *AcceptDivergedDatabaseResponse) Reset() {
 	*x = AcceptDivergedDatabaseResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[156]
+	mi := &file_arcadedb_server_proto_msgTypes[158]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11108,7 +11238,7 @@ func (x *AcceptDivergedDatabaseResponse) String() string {
 func (*AcceptDivergedDatabaseResponse) ProtoMessage() {}
 
 func (x *AcceptDivergedDatabaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[156]
+	mi := &file_arcadedb_server_proto_msgTypes[158]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11121,7 +11251,7 @@ func (x *AcceptDivergedDatabaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptDivergedDatabaseResponse.ProtoReflect.Descriptor instead.
 func (*AcceptDivergedDatabaseResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{156}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *AcceptDivergedDatabaseResponse) GetDatabase() string {
@@ -11168,7 +11298,7 @@ type AcceptStaleSnapshotRequest struct {
 
 func (x *AcceptStaleSnapshotRequest) Reset() {
 	*x = AcceptStaleSnapshotRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[157]
+	mi := &file_arcadedb_server_proto_msgTypes[159]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11180,7 +11310,7 @@ func (x *AcceptStaleSnapshotRequest) String() string {
 func (*AcceptStaleSnapshotRequest) ProtoMessage() {}
 
 func (x *AcceptStaleSnapshotRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[157]
+	mi := &file_arcadedb_server_proto_msgTypes[159]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11193,7 +11323,7 @@ func (x *AcceptStaleSnapshotRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptStaleSnapshotRequest.ProtoReflect.Descriptor instead.
 func (*AcceptStaleSnapshotRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{157}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{159}
 }
 
 func (x *AcceptStaleSnapshotRequest) GetCredentials() *DatabaseCredentials {
@@ -11219,7 +11349,7 @@ type AcceptStaleSnapshotResponse struct {
 
 func (x *AcceptStaleSnapshotResponse) Reset() {
 	*x = AcceptStaleSnapshotResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[158]
+	mi := &file_arcadedb_server_proto_msgTypes[160]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11231,7 +11361,7 @@ func (x *AcceptStaleSnapshotResponse) String() string {
 func (*AcceptStaleSnapshotResponse) ProtoMessage() {}
 
 func (x *AcceptStaleSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[158]
+	mi := &file_arcadedb_server_proto_msgTypes[160]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11244,7 +11374,7 @@ func (x *AcceptStaleSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcceptStaleSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*AcceptStaleSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{158}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *AcceptStaleSnapshotResponse) GetLocalServer() string {
@@ -11297,7 +11427,7 @@ type OperationProgressInfo struct {
 
 func (x *OperationProgressInfo) Reset() {
 	*x = OperationProgressInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[159]
+	mi := &file_arcadedb_server_proto_msgTypes[161]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11309,7 +11439,7 @@ func (x *OperationProgressInfo) String() string {
 func (*OperationProgressInfo) ProtoMessage() {}
 
 func (x *OperationProgressInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[159]
+	mi := &file_arcadedb_server_proto_msgTypes[161]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11322,7 +11452,7 @@ func (x *OperationProgressInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OperationProgressInfo.ProtoReflect.Descriptor instead.
 func (*OperationProgressInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{159}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *OperationProgressInfo) GetId() int64 {
@@ -11412,7 +11542,7 @@ type GetProgressRequest struct {
 
 func (x *GetProgressRequest) Reset() {
 	*x = GetProgressRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[160]
+	mi := &file_arcadedb_server_proto_msgTypes[162]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11424,7 +11554,7 @@ func (x *GetProgressRequest) String() string {
 func (*GetProgressRequest) ProtoMessage() {}
 
 func (x *GetProgressRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[160]
+	mi := &file_arcadedb_server_proto_msgTypes[162]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11437,7 +11567,7 @@ func (x *GetProgressRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProgressRequest.ProtoReflect.Descriptor instead.
 func (*GetProgressRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{160}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{162}
 }
 
 func (x *GetProgressRequest) GetCredentials() *DatabaseCredentials {
@@ -11470,7 +11600,7 @@ type GetProgressResponse struct {
 
 func (x *GetProgressResponse) Reset() {
 	*x = GetProgressResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[161]
+	mi := &file_arcadedb_server_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11482,7 +11612,7 @@ func (x *GetProgressResponse) String() string {
 func (*GetProgressResponse) ProtoMessage() {}
 
 func (x *GetProgressResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[161]
+	mi := &file_arcadedb_server_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11495,7 +11625,7 @@ func (x *GetProgressResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetProgressResponse.ProtoReflect.Descriptor instead.
 func (*GetProgressResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{161}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *GetProgressResponse) GetOperations() []*OperationProgressInfo {
@@ -11531,7 +11661,7 @@ type SessionInfo struct {
 
 func (x *SessionInfo) Reset() {
 	*x = SessionInfo{}
-	mi := &file_arcadedb_server_proto_msgTypes[162]
+	mi := &file_arcadedb_server_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11543,7 +11673,7 @@ func (x *SessionInfo) String() string {
 func (*SessionInfo) ProtoMessage() {}
 
 func (x *SessionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[162]
+	mi := &file_arcadedb_server_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11556,7 +11686,7 @@ func (x *SessionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionInfo.ProtoReflect.Descriptor instead.
 func (*SessionInfo) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{162}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{164}
 }
 
 func (x *SessionInfo) GetToken() string {
@@ -11631,7 +11761,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[163]
+	mi := &file_arcadedb_server_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11643,7 +11773,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[163]
+	mi := &file_arcadedb_server_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11656,7 +11786,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{163}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *ListSessionsRequest) GetCredentials() *DatabaseCredentials {
@@ -11678,7 +11808,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[164]
+	mi := &file_arcadedb_server_proto_msgTypes[166]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11690,7 +11820,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[164]
+	mi := &file_arcadedb_server_proto_msgTypes[166]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11703,7 +11833,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{164}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{166}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*SessionInfo {
@@ -11732,7 +11862,7 @@ type HealthRequest struct {
 
 func (x *HealthRequest) Reset() {
 	*x = HealthRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[165]
+	mi := &file_arcadedb_server_proto_msgTypes[167]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11744,7 +11874,7 @@ func (x *HealthRequest) String() string {
 func (*HealthRequest) ProtoMessage() {}
 
 func (x *HealthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[165]
+	mi := &file_arcadedb_server_proto_msgTypes[167]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11757,7 +11887,7 @@ func (x *HealthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthRequest.ProtoReflect.Descriptor instead.
 func (*HealthRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{165}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{167}
 }
 
 type HealthResponse struct {
@@ -11769,7 +11899,7 @@ type HealthResponse struct {
 
 func (x *HealthResponse) Reset() {
 	*x = HealthResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[166]
+	mi := &file_arcadedb_server_proto_msgTypes[168]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11781,7 +11911,7 @@ func (x *HealthResponse) String() string {
 func (*HealthResponse) ProtoMessage() {}
 
 func (x *HealthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[166]
+	mi := &file_arcadedb_server_proto_msgTypes[168]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11794,7 +11924,7 @@ func (x *HealthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HealthResponse.ProtoReflect.Descriptor instead.
 func (*HealthResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{166}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{168}
 }
 
 func (x *HealthResponse) GetOk() bool {
@@ -11813,7 +11943,7 @@ type ReadyRequest struct {
 
 func (x *ReadyRequest) Reset() {
 	*x = ReadyRequest{}
-	mi := &file_arcadedb_server_proto_msgTypes[167]
+	mi := &file_arcadedb_server_proto_msgTypes[169]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11825,7 +11955,7 @@ func (x *ReadyRequest) String() string {
 func (*ReadyRequest) ProtoMessage() {}
 
 func (x *ReadyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[167]
+	mi := &file_arcadedb_server_proto_msgTypes[169]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11838,7 +11968,7 @@ func (x *ReadyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadyRequest.ProtoReflect.Descriptor instead.
 func (*ReadyRequest) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{167}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{169}
 }
 
 type ReadyResponse struct {
@@ -11852,7 +11982,7 @@ type ReadyResponse struct {
 
 func (x *ReadyResponse) Reset() {
 	*x = ReadyResponse{}
-	mi := &file_arcadedb_server_proto_msgTypes[168]
+	mi := &file_arcadedb_server_proto_msgTypes[170]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11864,7 +11994,7 @@ func (x *ReadyResponse) String() string {
 func (*ReadyResponse) ProtoMessage() {}
 
 func (x *ReadyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_arcadedb_server_proto_msgTypes[168]
+	mi := &file_arcadedb_server_proto_msgTypes[170]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11877,7 +12007,7 @@ func (x *ReadyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReadyResponse.ProtoReflect.Descriptor instead.
 func (*ReadyResponse) Descriptor() ([]byte, []int) {
-	return file_arcadedb_server_proto_rawDescGZIP(), []int{168}
+	return file_arcadedb_server_proto_rawDescGZIP(), []int{170}
 }
 
 func (x *ReadyResponse) GetReady() bool {
@@ -11925,7 +12055,7 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"properties\x1a[\n" +
 	"\x0fPropertiesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x122\n" +
-	"\x05value\x18\x02 \x01(\v2\x1c.com.arcadedb.grpc.GrpcValueR\x05value:\x028\x01\"\xbc\x05\n" +
+	"\x05value\x18\x02 \x01(\v2\x1c.com.arcadedb.grpc.GrpcValueR\x05value:\x028\x01\"\xe1\x06\n" +
 	"\tGrpcValue\x12\x1f\n" +
 	"\n" +
 	"bool_value\x18\x01 \x01(\bH\x00R\tboolValue\x12!\n" +
@@ -11947,7 +12077,9 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x0eembedded_value\x18\v \x01(\v2\x1f.com.arcadedb.grpc.GrpcEmbeddedH\x00R\rembeddedValue\x12<\n" +
 	"\n" +
 	"link_value\x18\f \x01(\v2\x1b.com.arcadedb.grpc.GrpcLinkH\x00R\tlinkValue\x12E\n" +
-	"\rdecimal_value\x18\r \x01(\v2\x1e.com.arcadedb.grpc.GrpcDecimalH\x00R\fdecimalValue\x12!\n" +
+	"\rdecimal_value\x18\r \x01(\v2\x1e.com.arcadedb.grpc.GrpcDecimalH\x00R\fdecimalValue\x12O\n" +
+	"\x11float_array_value\x18\x0f \x01(\v2!.com.arcadedb.grpc.GrpcFloatArrayH\x00R\x0ffloatArrayValue\x12R\n" +
+	"\x12double_array_value\x18\x10 \x01(\v2\".com.arcadedb.grpc.GrpcDoubleArrayH\x00R\x10doubleArrayValue\x12!\n" +
 	"\flogical_type\x18\x0e \x01(\tR\vlogicalTypeB\x06\n" +
 	"\x04kind\"@\n" +
 	"\bGrpcList\x124\n" +
@@ -11962,7 +12094,11 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x06fields\x18\x02 \x03(\v2+.com.arcadedb.grpc.GrpcEmbedded.FieldsEntryR\x06fields\x1aW\n" +
 	"\vFieldsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x122\n" +
-	"\x05value\x18\x02 \x01(\v2\x1c.com.arcadedb.grpc.GrpcValueR\x05value:\x028\x01\"0\n" +
+	"\x05value\x18\x02 \x01(\v2\x1c.com.arcadedb.grpc.GrpcValueR\x05value:\x028\x01\"(\n" +
+	"\x0eGrpcFloatArray\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\x02R\x06values\")\n" +
+	"\x0fGrpcDoubleArray\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\x01R\x06values\"0\n" +
 	"\bGrpcLink\x12\x10\n" +
 	"\x03rid\x18\x01 \x01(\tR\x03rid\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\"f\n" +
@@ -12983,7 +13119,7 @@ func file_arcadedb_server_proto_rawDescGZIP() []byte {
 }
 
 var file_arcadedb_server_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_arcadedb_server_proto_msgTypes = make([]protoimpl.MessageInfo, 189)
+var file_arcadedb_server_proto_msgTypes = make([]protoimpl.MessageInfo, 191)
 var file_arcadedb_server_proto_goTypes = []any{
 	(TransactionIsolation)(0),                  // 0: com.arcadedb.grpc.TransactionIsolation
 	(TimeSeriesPrecision)(0),                   // 1: com.arcadedb.grpc.TimeSeriesPrecision
@@ -13001,533 +13137,537 @@ var file_arcadedb_server_proto_goTypes = []any{
 	(*GrpcList)(nil),                           // 13: com.arcadedb.grpc.GrpcList
 	(*GrpcMap)(nil),                            // 14: com.arcadedb.grpc.GrpcMap
 	(*GrpcEmbedded)(nil),                       // 15: com.arcadedb.grpc.GrpcEmbedded
-	(*GrpcLink)(nil),                           // 16: com.arcadedb.grpc.GrpcLink
-	(*GrpcDecimal)(nil),                        // 17: com.arcadedb.grpc.GrpcDecimal
-	(*ProjectionSettings)(nil),                 // 18: com.arcadedb.grpc.ProjectionSettings
-	(*StreamQueryRequest)(nil),                 // 19: com.arcadedb.grpc.StreamQueryRequest
-	(*QueryResult)(nil),                        // 20: com.arcadedb.grpc.QueryResult
-	(*GrpcFacetBucket)(nil),                    // 21: com.arcadedb.grpc.GrpcFacetBucket
-	(*GrpcFacetResult)(nil),                    // 22: com.arcadedb.grpc.GrpcFacetResult
-	(*GrpcFacets)(nil),                         // 23: com.arcadedb.grpc.GrpcFacets
-	(*VectorSearchRequest)(nil),                // 24: com.arcadedb.grpc.VectorSearchRequest
-	(*SearchHit)(nil),                          // 25: com.arcadedb.grpc.SearchHit
-	(*VectorSearchResponse)(nil),               // 26: com.arcadedb.grpc.VectorSearchResponse
-	(*HybridExpand)(nil),                       // 27: com.arcadedb.grpc.HybridExpand
-	(*HybridSearchRequest)(nil),                // 28: com.arcadedb.grpc.HybridSearchRequest
-	(*HybridSearchResponse)(nil),               // 29: com.arcadedb.grpc.HybridSearchResponse
-	(*FullTextSearchRequest)(nil),              // 30: com.arcadedb.grpc.FullTextSearchRequest
-	(*FullTextSearchResponse)(nil),             // 31: com.arcadedb.grpc.FullTextSearchResponse
-	(*BeginTransactionRequest)(nil),            // 32: com.arcadedb.grpc.BeginTransactionRequest
-	(*BeginTransactionResponse)(nil),           // 33: com.arcadedb.grpc.BeginTransactionResponse
-	(*CommitTransactionRequest)(nil),           // 34: com.arcadedb.grpc.CommitTransactionRequest
-	(*CommitTransactionResponse)(nil),          // 35: com.arcadedb.grpc.CommitTransactionResponse
-	(*RollbackTransactionRequest)(nil),         // 36: com.arcadedb.grpc.RollbackTransactionRequest
-	(*RollbackTransactionResponse)(nil),        // 37: com.arcadedb.grpc.RollbackTransactionResponse
-	(*DeleteRecordRequest)(nil),                // 38: com.arcadedb.grpc.DeleteRecordRequest
-	(*DeleteRecordResponse)(nil),               // 39: com.arcadedb.grpc.DeleteRecordResponse
-	(*ExecuteCommandRequest)(nil),              // 40: com.arcadedb.grpc.ExecuteCommandRequest
-	(*ExecuteCommandResponse)(nil),             // 41: com.arcadedb.grpc.ExecuteCommandResponse
-	(*QueryUpdateStats)(nil),                   // 42: com.arcadedb.grpc.QueryUpdateStats
-	(*ExecuteQueryRequest)(nil),                // 43: com.arcadedb.grpc.ExecuteQueryRequest
-	(*ExecuteQueryResponse)(nil),               // 44: com.arcadedb.grpc.ExecuteQueryResponse
-	(*CreateRecordRequest)(nil),                // 45: com.arcadedb.grpc.CreateRecordRequest
-	(*CreateRecordResponse)(nil),               // 46: com.arcadedb.grpc.CreateRecordResponse
-	(*PropertiesUpdate)(nil),                   // 47: com.arcadedb.grpc.PropertiesUpdate
-	(*UpdateRecordRequest)(nil),                // 48: com.arcadedb.grpc.UpdateRecordRequest
-	(*UpdateRecordResponse)(nil),               // 49: com.arcadedb.grpc.UpdateRecordResponse
-	(*LookupByRidRequest)(nil),                 // 50: com.arcadedb.grpc.LookupByRidRequest
-	(*LookupByRidResponse)(nil),                // 51: com.arcadedb.grpc.LookupByRidResponse
-	(*InsertError)(nil),                        // 52: com.arcadedb.grpc.InsertError
-	(*InsertSummary)(nil),                      // 53: com.arcadedb.grpc.InsertSummary
-	(*InsertOptions)(nil),                      // 54: com.arcadedb.grpc.InsertOptions
-	(*BulkInsertRequest)(nil),                  // 55: com.arcadedb.grpc.BulkInsertRequest
-	(*InsertChunk)(nil),                        // 56: com.arcadedb.grpc.InsertChunk
-	(*InsertRequest)(nil),                      // 57: com.arcadedb.grpc.InsertRequest
-	(*Start)(nil),                              // 58: com.arcadedb.grpc.Start
-	(*Commit)(nil),                             // 59: com.arcadedb.grpc.Commit
-	(*InsertResponse)(nil),                     // 60: com.arcadedb.grpc.InsertResponse
-	(*Started)(nil),                            // 61: com.arcadedb.grpc.Started
-	(*BatchAck)(nil),                           // 62: com.arcadedb.grpc.BatchAck
-	(*Committed)(nil),                          // 63: com.arcadedb.grpc.Committed
-	(*GraphBatchOptions)(nil),                  // 64: com.arcadedb.grpc.GraphBatchOptions
-	(*GraphBatchRecord)(nil),                   // 65: com.arcadedb.grpc.GraphBatchRecord
-	(*GraphBatchChunk)(nil),                    // 66: com.arcadedb.grpc.GraphBatchChunk
-	(*GraphBatchResult)(nil),                   // 67: com.arcadedb.grpc.GraphBatchResult
-	(*TimeSeriesPoint)(nil),                    // 68: com.arcadedb.grpc.TimeSeriesPoint
-	(*TimeSeriesWriteRequest)(nil),             // 69: com.arcadedb.grpc.TimeSeriesWriteRequest
-	(*TimeSeriesWriteChunk)(nil),               // 70: com.arcadedb.grpc.TimeSeriesWriteChunk
-	(*TimeSeriesWriteSummary)(nil),             // 71: com.arcadedb.grpc.TimeSeriesWriteSummary
-	(*TimeSeriesTagFilter)(nil),                // 72: com.arcadedb.grpc.TimeSeriesTagFilter
-	(*TimeSeriesAggregationRequest)(nil),       // 73: com.arcadedb.grpc.TimeSeriesAggregationRequest
-	(*TimeSeriesAggregation)(nil),              // 74: com.arcadedb.grpc.TimeSeriesAggregation
-	(*TimeSeriesQueryRequest)(nil),             // 75: com.arcadedb.grpc.TimeSeriesQueryRequest
-	(*TimeSeriesRow)(nil),                      // 76: com.arcadedb.grpc.TimeSeriesRow
-	(*TimeSeriesBucket)(nil),                   // 77: com.arcadedb.grpc.TimeSeriesBucket
-	(*TimeSeriesQueryResult)(nil),              // 78: com.arcadedb.grpc.TimeSeriesQueryResult
-	(*TimeSeriesLatestRequest)(nil),            // 79: com.arcadedb.grpc.TimeSeriesLatestRequest
-	(*TimeSeriesLatestResponse)(nil),           // 80: com.arcadedb.grpc.TimeSeriesLatestResponse
-	(*PingRequest)(nil),                        // 81: com.arcadedb.grpc.PingRequest
-	(*PingResponse)(nil),                       // 82: com.arcadedb.grpc.PingResponse
-	(*GetServerInfoRequest)(nil),               // 83: com.arcadedb.grpc.GetServerInfoRequest
-	(*GetServerInfoResponse)(nil),              // 84: com.arcadedb.grpc.GetServerInfoResponse
-	(*ListDatabasesRequest)(nil),               // 85: com.arcadedb.grpc.ListDatabasesRequest
-	(*ListDatabasesResponse)(nil),              // 86: com.arcadedb.grpc.ListDatabasesResponse
-	(*ExistsDatabaseRequest)(nil),              // 87: com.arcadedb.grpc.ExistsDatabaseRequest
-	(*ExistsDatabaseResponse)(nil),             // 88: com.arcadedb.grpc.ExistsDatabaseResponse
-	(*CreateDatabaseRequest)(nil),              // 89: com.arcadedb.grpc.CreateDatabaseRequest
-	(*CreateDatabaseResponse)(nil),             // 90: com.arcadedb.grpc.CreateDatabaseResponse
-	(*DropDatabaseRequest)(nil),                // 91: com.arcadedb.grpc.DropDatabaseRequest
-	(*DropDatabaseResponse)(nil),               // 92: com.arcadedb.grpc.DropDatabaseResponse
-	(*GetDatabaseInfoRequest)(nil),             // 93: com.arcadedb.grpc.GetDatabaseInfoRequest
-	(*GetDatabaseInfoResponse)(nil),            // 94: com.arcadedb.grpc.GetDatabaseInfoResponse
-	(*CreateUserRequest)(nil),                  // 95: com.arcadedb.grpc.CreateUserRequest
-	(*CreateUserResponse)(nil),                 // 96: com.arcadedb.grpc.CreateUserResponse
-	(*DeleteUserRequest)(nil),                  // 97: com.arcadedb.grpc.DeleteUserRequest
-	(*DeleteUserResponse)(nil),                 // 98: com.arcadedb.grpc.DeleteUserResponse
-	(*OpenDatabaseRequest)(nil),                // 99: com.arcadedb.grpc.OpenDatabaseRequest
-	(*OpenDatabaseResponse)(nil),               // 100: com.arcadedb.grpc.OpenDatabaseResponse
-	(*CloseDatabaseRequest)(nil),               // 101: com.arcadedb.grpc.CloseDatabaseRequest
-	(*CloseDatabaseResponse)(nil),              // 102: com.arcadedb.grpc.CloseDatabaseResponse
-	(*AlignDatabaseRequest)(nil),               // 103: com.arcadedb.grpc.AlignDatabaseRequest
-	(*AlignDatabaseResponse)(nil),              // 104: com.arcadedb.grpc.AlignDatabaseResponse
-	(*SetServerSettingRequest)(nil),            // 105: com.arcadedb.grpc.SetServerSettingRequest
-	(*SetServerSettingResponse)(nil),           // 106: com.arcadedb.grpc.SetServerSettingResponse
-	(*SetDatabaseSettingRequest)(nil),          // 107: com.arcadedb.grpc.SetDatabaseSettingRequest
-	(*SetDatabaseSettingResponse)(nil),         // 108: com.arcadedb.grpc.SetDatabaseSettingResponse
-	(*UserGroups)(nil),                         // 109: com.arcadedb.grpc.UserGroups
-	(*UserInfo)(nil),                           // 110: com.arcadedb.grpc.UserInfo
-	(*ListUsersRequest)(nil),                   // 111: com.arcadedb.grpc.ListUsersRequest
-	(*ListUsersResponse)(nil),                  // 112: com.arcadedb.grpc.ListUsersResponse
-	(*UserDatabases)(nil),                      // 113: com.arcadedb.grpc.UserDatabases
-	(*UpdateUserRequest)(nil),                  // 114: com.arcadedb.grpc.UpdateUserRequest
-	(*UpdateUserResponse)(nil),                 // 115: com.arcadedb.grpc.UpdateUserResponse
-	(*ListGroupsRequest)(nil),                  // 116: com.arcadedb.grpc.ListGroupsRequest
-	(*ListGroupsResponse)(nil),                 // 117: com.arcadedb.grpc.ListGroupsResponse
-	(*SaveGroupRequest)(nil),                   // 118: com.arcadedb.grpc.SaveGroupRequest
-	(*SaveGroupResponse)(nil),                  // 119: com.arcadedb.grpc.SaveGroupResponse
-	(*DeleteGroupRequest)(nil),                 // 120: com.arcadedb.grpc.DeleteGroupRequest
-	(*DeleteGroupResponse)(nil),                // 121: com.arcadedb.grpc.DeleteGroupResponse
-	(*ApiTokenInfo)(nil),                       // 122: com.arcadedb.grpc.ApiTokenInfo
-	(*ListApiTokensRequest)(nil),               // 123: com.arcadedb.grpc.ListApiTokensRequest
-	(*ListApiTokensResponse)(nil),              // 124: com.arcadedb.grpc.ListApiTokensResponse
-	(*CreateApiTokenRequest)(nil),              // 125: com.arcadedb.grpc.CreateApiTokenRequest
-	(*CreateApiTokenResponse)(nil),             // 126: com.arcadedb.grpc.CreateApiTokenResponse
-	(*DeleteApiTokenRequest)(nil),              // 127: com.arcadedb.grpc.DeleteApiTokenRequest
-	(*DeleteApiTokenResponse)(nil),             // 128: com.arcadedb.grpc.DeleteApiTokenResponse
-	(*GetBackupConfigRequest)(nil),             // 129: com.arcadedb.grpc.GetBackupConfigRequest
-	(*GetBackupConfigResponse)(nil),            // 130: com.arcadedb.grpc.GetBackupConfigResponse
-	(*SetBackupConfigRequest)(nil),             // 131: com.arcadedb.grpc.SetBackupConfigRequest
-	(*SetBackupConfigResponse)(nil),            // 132: com.arcadedb.grpc.SetBackupConfigResponse
-	(*BackupInfo)(nil),                         // 133: com.arcadedb.grpc.BackupInfo
-	(*ListBackupsRequest)(nil),                 // 134: com.arcadedb.grpc.ListBackupsRequest
-	(*ListBackupsResponse)(nil),                // 135: com.arcadedb.grpc.ListBackupsResponse
-	(*TriggerBackupRequest)(nil),               // 136: com.arcadedb.grpc.TriggerBackupRequest
-	(*TriggerBackupResponse)(nil),              // 137: com.arcadedb.grpc.TriggerBackupResponse
-	(*DeleteBackupRequest)(nil),                // 138: com.arcadedb.grpc.DeleteBackupRequest
-	(*DeleteBackupResponse)(nil),               // 139: com.arcadedb.grpc.DeleteBackupResponse
-	(*ProfilerStartRequest)(nil),               // 140: com.arcadedb.grpc.ProfilerStartRequest
-	(*ProfilerStopRequest)(nil),                // 141: com.arcadedb.grpc.ProfilerStopRequest
-	(*ProfilerResetRequest)(nil),               // 142: com.arcadedb.grpc.ProfilerResetRequest
-	(*ProfilerResultsRequest)(nil),             // 143: com.arcadedb.grpc.ProfilerResultsRequest
-	(*ProfilerListRequest)(nil),                // 144: com.arcadedb.grpc.ProfilerListRequest
-	(*ProfilerLoadRequest)(nil),                // 145: com.arcadedb.grpc.ProfilerLoadRequest
-	(*ProfilerStateResponse)(nil),              // 146: com.arcadedb.grpc.ProfilerStateResponse
-	(*ProfilerDocumentResponse)(nil),           // 147: com.arcadedb.grpc.ProfilerDocumentResponse
-	(*ProfilerRunInfo)(nil),                    // 148: com.arcadedb.grpc.ProfilerRunInfo
-	(*ProfilerListResponse)(nil),               // 149: com.arcadedb.grpc.ProfilerListResponse
-	(*RestoreBackupRequest)(nil),               // 150: com.arcadedb.grpc.RestoreBackupRequest
-	(*RestoreDatabaseRequest)(nil),             // 151: com.arcadedb.grpc.RestoreDatabaseRequest
-	(*ImportDatabaseRequest)(nil),              // 152: com.arcadedb.grpc.ImportDatabaseRequest
-	(*RestoreProgress)(nil),                    // 153: com.arcadedb.grpc.RestoreProgress
-	(*ImportProgress)(nil),                     // 154: com.arcadedb.grpc.ImportProgress
-	(*GetServerEventsRequest)(nil),             // 155: com.arcadedb.grpc.GetServerEventsRequest
-	(*GetServerEventsResponse)(nil),            // 156: com.arcadedb.grpc.GetServerEventsResponse
-	(*ShutdownRequest)(nil),                    // 157: com.arcadedb.grpc.ShutdownRequest
-	(*ShutdownResponse)(nil),                   // 158: com.arcadedb.grpc.ShutdownResponse
-	(*DisconnectClusterRequest)(nil),           // 159: com.arcadedb.grpc.DisconnectClusterRequest
-	(*DisconnectClusterResponse)(nil),          // 160: com.arcadedb.grpc.DisconnectClusterResponse
-	(*ConnectClusterRequest)(nil),              // 161: com.arcadedb.grpc.ConnectClusterRequest
-	(*ConnectClusterResponse)(nil),             // 162: com.arcadedb.grpc.ConnectClusterResponse
-	(*AcceptDivergedDatabaseRequest)(nil),      // 163: com.arcadedb.grpc.AcceptDivergedDatabaseRequest
-	(*AcceptDivergedDatabaseResponse)(nil),     // 164: com.arcadedb.grpc.AcceptDivergedDatabaseResponse
-	(*AcceptStaleSnapshotRequest)(nil),         // 165: com.arcadedb.grpc.AcceptStaleSnapshotRequest
-	(*AcceptStaleSnapshotResponse)(nil),        // 166: com.arcadedb.grpc.AcceptStaleSnapshotResponse
-	(*OperationProgressInfo)(nil),              // 167: com.arcadedb.grpc.OperationProgressInfo
-	(*GetProgressRequest)(nil),                 // 168: com.arcadedb.grpc.GetProgressRequest
-	(*GetProgressResponse)(nil),                // 169: com.arcadedb.grpc.GetProgressResponse
-	(*SessionInfo)(nil),                        // 170: com.arcadedb.grpc.SessionInfo
-	(*ListSessionsRequest)(nil),                // 171: com.arcadedb.grpc.ListSessionsRequest
-	(*ListSessionsResponse)(nil),               // 172: com.arcadedb.grpc.ListSessionsResponse
-	(*HealthRequest)(nil),                      // 173: com.arcadedb.grpc.HealthRequest
-	(*HealthResponse)(nil),                     // 174: com.arcadedb.grpc.HealthResponse
-	(*ReadyRequest)(nil),                       // 175: com.arcadedb.grpc.ReadyRequest
-	(*ReadyResponse)(nil),                      // 176: com.arcadedb.grpc.ReadyResponse
-	nil,                                        // 177: com.arcadedb.grpc.GrpcRecord.PropertiesEntry
-	nil,                                        // 178: com.arcadedb.grpc.GrpcMap.EntriesEntry
-	nil,                                        // 179: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
-	nil,                                        // 180: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
-	nil,                                        // 181: com.arcadedb.grpc.GrpcFacets.ResultsEntry
-	nil,                                        // 182: com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
-	nil,                                        // 183: com.arcadedb.grpc.HybridSearchResponse.LegsEntry
-	nil,                                        // 184: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
-	nil,                                        // 185: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
-	nil,                                        // 186: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
-	nil,                                        // 187: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
-	nil,                                        // 188: com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
-	nil,                                        // 189: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
-	nil,                                        // 190: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
-	nil,                                        // 191: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
-	nil,                                        // 192: com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
-	nil,                                        // 193: com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
-	nil,                                        // 194: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
-	nil,                                        // 195: com.arcadedb.grpc.UserInfo.DatabasesEntry
-	nil,                                        // 196: com.arcadedb.grpc.UserDatabases.DatabasesEntry
-	(*timestamppb.Timestamp)(nil),              // 197: google.protobuf.Timestamp
-	(*wrapperspb.Int32Value)(nil),              // 198: google.protobuf.Int32Value
+	(*GrpcFloatArray)(nil),                     // 16: com.arcadedb.grpc.GrpcFloatArray
+	(*GrpcDoubleArray)(nil),                    // 17: com.arcadedb.grpc.GrpcDoubleArray
+	(*GrpcLink)(nil),                           // 18: com.arcadedb.grpc.GrpcLink
+	(*GrpcDecimal)(nil),                        // 19: com.arcadedb.grpc.GrpcDecimal
+	(*ProjectionSettings)(nil),                 // 20: com.arcadedb.grpc.ProjectionSettings
+	(*StreamQueryRequest)(nil),                 // 21: com.arcadedb.grpc.StreamQueryRequest
+	(*QueryResult)(nil),                        // 22: com.arcadedb.grpc.QueryResult
+	(*GrpcFacetBucket)(nil),                    // 23: com.arcadedb.grpc.GrpcFacetBucket
+	(*GrpcFacetResult)(nil),                    // 24: com.arcadedb.grpc.GrpcFacetResult
+	(*GrpcFacets)(nil),                         // 25: com.arcadedb.grpc.GrpcFacets
+	(*VectorSearchRequest)(nil),                // 26: com.arcadedb.grpc.VectorSearchRequest
+	(*SearchHit)(nil),                          // 27: com.arcadedb.grpc.SearchHit
+	(*VectorSearchResponse)(nil),               // 28: com.arcadedb.grpc.VectorSearchResponse
+	(*HybridExpand)(nil),                       // 29: com.arcadedb.grpc.HybridExpand
+	(*HybridSearchRequest)(nil),                // 30: com.arcadedb.grpc.HybridSearchRequest
+	(*HybridSearchResponse)(nil),               // 31: com.arcadedb.grpc.HybridSearchResponse
+	(*FullTextSearchRequest)(nil),              // 32: com.arcadedb.grpc.FullTextSearchRequest
+	(*FullTextSearchResponse)(nil),             // 33: com.arcadedb.grpc.FullTextSearchResponse
+	(*BeginTransactionRequest)(nil),            // 34: com.arcadedb.grpc.BeginTransactionRequest
+	(*BeginTransactionResponse)(nil),           // 35: com.arcadedb.grpc.BeginTransactionResponse
+	(*CommitTransactionRequest)(nil),           // 36: com.arcadedb.grpc.CommitTransactionRequest
+	(*CommitTransactionResponse)(nil),          // 37: com.arcadedb.grpc.CommitTransactionResponse
+	(*RollbackTransactionRequest)(nil),         // 38: com.arcadedb.grpc.RollbackTransactionRequest
+	(*RollbackTransactionResponse)(nil),        // 39: com.arcadedb.grpc.RollbackTransactionResponse
+	(*DeleteRecordRequest)(nil),                // 40: com.arcadedb.grpc.DeleteRecordRequest
+	(*DeleteRecordResponse)(nil),               // 41: com.arcadedb.grpc.DeleteRecordResponse
+	(*ExecuteCommandRequest)(nil),              // 42: com.arcadedb.grpc.ExecuteCommandRequest
+	(*ExecuteCommandResponse)(nil),             // 43: com.arcadedb.grpc.ExecuteCommandResponse
+	(*QueryUpdateStats)(nil),                   // 44: com.arcadedb.grpc.QueryUpdateStats
+	(*ExecuteQueryRequest)(nil),                // 45: com.arcadedb.grpc.ExecuteQueryRequest
+	(*ExecuteQueryResponse)(nil),               // 46: com.arcadedb.grpc.ExecuteQueryResponse
+	(*CreateRecordRequest)(nil),                // 47: com.arcadedb.grpc.CreateRecordRequest
+	(*CreateRecordResponse)(nil),               // 48: com.arcadedb.grpc.CreateRecordResponse
+	(*PropertiesUpdate)(nil),                   // 49: com.arcadedb.grpc.PropertiesUpdate
+	(*UpdateRecordRequest)(nil),                // 50: com.arcadedb.grpc.UpdateRecordRequest
+	(*UpdateRecordResponse)(nil),               // 51: com.arcadedb.grpc.UpdateRecordResponse
+	(*LookupByRidRequest)(nil),                 // 52: com.arcadedb.grpc.LookupByRidRequest
+	(*LookupByRidResponse)(nil),                // 53: com.arcadedb.grpc.LookupByRidResponse
+	(*InsertError)(nil),                        // 54: com.arcadedb.grpc.InsertError
+	(*InsertSummary)(nil),                      // 55: com.arcadedb.grpc.InsertSummary
+	(*InsertOptions)(nil),                      // 56: com.arcadedb.grpc.InsertOptions
+	(*BulkInsertRequest)(nil),                  // 57: com.arcadedb.grpc.BulkInsertRequest
+	(*InsertChunk)(nil),                        // 58: com.arcadedb.grpc.InsertChunk
+	(*InsertRequest)(nil),                      // 59: com.arcadedb.grpc.InsertRequest
+	(*Start)(nil),                              // 60: com.arcadedb.grpc.Start
+	(*Commit)(nil),                             // 61: com.arcadedb.grpc.Commit
+	(*InsertResponse)(nil),                     // 62: com.arcadedb.grpc.InsertResponse
+	(*Started)(nil),                            // 63: com.arcadedb.grpc.Started
+	(*BatchAck)(nil),                           // 64: com.arcadedb.grpc.BatchAck
+	(*Committed)(nil),                          // 65: com.arcadedb.grpc.Committed
+	(*GraphBatchOptions)(nil),                  // 66: com.arcadedb.grpc.GraphBatchOptions
+	(*GraphBatchRecord)(nil),                   // 67: com.arcadedb.grpc.GraphBatchRecord
+	(*GraphBatchChunk)(nil),                    // 68: com.arcadedb.grpc.GraphBatchChunk
+	(*GraphBatchResult)(nil),                   // 69: com.arcadedb.grpc.GraphBatchResult
+	(*TimeSeriesPoint)(nil),                    // 70: com.arcadedb.grpc.TimeSeriesPoint
+	(*TimeSeriesWriteRequest)(nil),             // 71: com.arcadedb.grpc.TimeSeriesWriteRequest
+	(*TimeSeriesWriteChunk)(nil),               // 72: com.arcadedb.grpc.TimeSeriesWriteChunk
+	(*TimeSeriesWriteSummary)(nil),             // 73: com.arcadedb.grpc.TimeSeriesWriteSummary
+	(*TimeSeriesTagFilter)(nil),                // 74: com.arcadedb.grpc.TimeSeriesTagFilter
+	(*TimeSeriesAggregationRequest)(nil),       // 75: com.arcadedb.grpc.TimeSeriesAggregationRequest
+	(*TimeSeriesAggregation)(nil),              // 76: com.arcadedb.grpc.TimeSeriesAggregation
+	(*TimeSeriesQueryRequest)(nil),             // 77: com.arcadedb.grpc.TimeSeriesQueryRequest
+	(*TimeSeriesRow)(nil),                      // 78: com.arcadedb.grpc.TimeSeriesRow
+	(*TimeSeriesBucket)(nil),                   // 79: com.arcadedb.grpc.TimeSeriesBucket
+	(*TimeSeriesQueryResult)(nil),              // 80: com.arcadedb.grpc.TimeSeriesQueryResult
+	(*TimeSeriesLatestRequest)(nil),            // 81: com.arcadedb.grpc.TimeSeriesLatestRequest
+	(*TimeSeriesLatestResponse)(nil),           // 82: com.arcadedb.grpc.TimeSeriesLatestResponse
+	(*PingRequest)(nil),                        // 83: com.arcadedb.grpc.PingRequest
+	(*PingResponse)(nil),                       // 84: com.arcadedb.grpc.PingResponse
+	(*GetServerInfoRequest)(nil),               // 85: com.arcadedb.grpc.GetServerInfoRequest
+	(*GetServerInfoResponse)(nil),              // 86: com.arcadedb.grpc.GetServerInfoResponse
+	(*ListDatabasesRequest)(nil),               // 87: com.arcadedb.grpc.ListDatabasesRequest
+	(*ListDatabasesResponse)(nil),              // 88: com.arcadedb.grpc.ListDatabasesResponse
+	(*ExistsDatabaseRequest)(nil),              // 89: com.arcadedb.grpc.ExistsDatabaseRequest
+	(*ExistsDatabaseResponse)(nil),             // 90: com.arcadedb.grpc.ExistsDatabaseResponse
+	(*CreateDatabaseRequest)(nil),              // 91: com.arcadedb.grpc.CreateDatabaseRequest
+	(*CreateDatabaseResponse)(nil),             // 92: com.arcadedb.grpc.CreateDatabaseResponse
+	(*DropDatabaseRequest)(nil),                // 93: com.arcadedb.grpc.DropDatabaseRequest
+	(*DropDatabaseResponse)(nil),               // 94: com.arcadedb.grpc.DropDatabaseResponse
+	(*GetDatabaseInfoRequest)(nil),             // 95: com.arcadedb.grpc.GetDatabaseInfoRequest
+	(*GetDatabaseInfoResponse)(nil),            // 96: com.arcadedb.grpc.GetDatabaseInfoResponse
+	(*CreateUserRequest)(nil),                  // 97: com.arcadedb.grpc.CreateUserRequest
+	(*CreateUserResponse)(nil),                 // 98: com.arcadedb.grpc.CreateUserResponse
+	(*DeleteUserRequest)(nil),                  // 99: com.arcadedb.grpc.DeleteUserRequest
+	(*DeleteUserResponse)(nil),                 // 100: com.arcadedb.grpc.DeleteUserResponse
+	(*OpenDatabaseRequest)(nil),                // 101: com.arcadedb.grpc.OpenDatabaseRequest
+	(*OpenDatabaseResponse)(nil),               // 102: com.arcadedb.grpc.OpenDatabaseResponse
+	(*CloseDatabaseRequest)(nil),               // 103: com.arcadedb.grpc.CloseDatabaseRequest
+	(*CloseDatabaseResponse)(nil),              // 104: com.arcadedb.grpc.CloseDatabaseResponse
+	(*AlignDatabaseRequest)(nil),               // 105: com.arcadedb.grpc.AlignDatabaseRequest
+	(*AlignDatabaseResponse)(nil),              // 106: com.arcadedb.grpc.AlignDatabaseResponse
+	(*SetServerSettingRequest)(nil),            // 107: com.arcadedb.grpc.SetServerSettingRequest
+	(*SetServerSettingResponse)(nil),           // 108: com.arcadedb.grpc.SetServerSettingResponse
+	(*SetDatabaseSettingRequest)(nil),          // 109: com.arcadedb.grpc.SetDatabaseSettingRequest
+	(*SetDatabaseSettingResponse)(nil),         // 110: com.arcadedb.grpc.SetDatabaseSettingResponse
+	(*UserGroups)(nil),                         // 111: com.arcadedb.grpc.UserGroups
+	(*UserInfo)(nil),                           // 112: com.arcadedb.grpc.UserInfo
+	(*ListUsersRequest)(nil),                   // 113: com.arcadedb.grpc.ListUsersRequest
+	(*ListUsersResponse)(nil),                  // 114: com.arcadedb.grpc.ListUsersResponse
+	(*UserDatabases)(nil),                      // 115: com.arcadedb.grpc.UserDatabases
+	(*UpdateUserRequest)(nil),                  // 116: com.arcadedb.grpc.UpdateUserRequest
+	(*UpdateUserResponse)(nil),                 // 117: com.arcadedb.grpc.UpdateUserResponse
+	(*ListGroupsRequest)(nil),                  // 118: com.arcadedb.grpc.ListGroupsRequest
+	(*ListGroupsResponse)(nil),                 // 119: com.arcadedb.grpc.ListGroupsResponse
+	(*SaveGroupRequest)(nil),                   // 120: com.arcadedb.grpc.SaveGroupRequest
+	(*SaveGroupResponse)(nil),                  // 121: com.arcadedb.grpc.SaveGroupResponse
+	(*DeleteGroupRequest)(nil),                 // 122: com.arcadedb.grpc.DeleteGroupRequest
+	(*DeleteGroupResponse)(nil),                // 123: com.arcadedb.grpc.DeleteGroupResponse
+	(*ApiTokenInfo)(nil),                       // 124: com.arcadedb.grpc.ApiTokenInfo
+	(*ListApiTokensRequest)(nil),               // 125: com.arcadedb.grpc.ListApiTokensRequest
+	(*ListApiTokensResponse)(nil),              // 126: com.arcadedb.grpc.ListApiTokensResponse
+	(*CreateApiTokenRequest)(nil),              // 127: com.arcadedb.grpc.CreateApiTokenRequest
+	(*CreateApiTokenResponse)(nil),             // 128: com.arcadedb.grpc.CreateApiTokenResponse
+	(*DeleteApiTokenRequest)(nil),              // 129: com.arcadedb.grpc.DeleteApiTokenRequest
+	(*DeleteApiTokenResponse)(nil),             // 130: com.arcadedb.grpc.DeleteApiTokenResponse
+	(*GetBackupConfigRequest)(nil),             // 131: com.arcadedb.grpc.GetBackupConfigRequest
+	(*GetBackupConfigResponse)(nil),            // 132: com.arcadedb.grpc.GetBackupConfigResponse
+	(*SetBackupConfigRequest)(nil),             // 133: com.arcadedb.grpc.SetBackupConfigRequest
+	(*SetBackupConfigResponse)(nil),            // 134: com.arcadedb.grpc.SetBackupConfigResponse
+	(*BackupInfo)(nil),                         // 135: com.arcadedb.grpc.BackupInfo
+	(*ListBackupsRequest)(nil),                 // 136: com.arcadedb.grpc.ListBackupsRequest
+	(*ListBackupsResponse)(nil),                // 137: com.arcadedb.grpc.ListBackupsResponse
+	(*TriggerBackupRequest)(nil),               // 138: com.arcadedb.grpc.TriggerBackupRequest
+	(*TriggerBackupResponse)(nil),              // 139: com.arcadedb.grpc.TriggerBackupResponse
+	(*DeleteBackupRequest)(nil),                // 140: com.arcadedb.grpc.DeleteBackupRequest
+	(*DeleteBackupResponse)(nil),               // 141: com.arcadedb.grpc.DeleteBackupResponse
+	(*ProfilerStartRequest)(nil),               // 142: com.arcadedb.grpc.ProfilerStartRequest
+	(*ProfilerStopRequest)(nil),                // 143: com.arcadedb.grpc.ProfilerStopRequest
+	(*ProfilerResetRequest)(nil),               // 144: com.arcadedb.grpc.ProfilerResetRequest
+	(*ProfilerResultsRequest)(nil),             // 145: com.arcadedb.grpc.ProfilerResultsRequest
+	(*ProfilerListRequest)(nil),                // 146: com.arcadedb.grpc.ProfilerListRequest
+	(*ProfilerLoadRequest)(nil),                // 147: com.arcadedb.grpc.ProfilerLoadRequest
+	(*ProfilerStateResponse)(nil),              // 148: com.arcadedb.grpc.ProfilerStateResponse
+	(*ProfilerDocumentResponse)(nil),           // 149: com.arcadedb.grpc.ProfilerDocumentResponse
+	(*ProfilerRunInfo)(nil),                    // 150: com.arcadedb.grpc.ProfilerRunInfo
+	(*ProfilerListResponse)(nil),               // 151: com.arcadedb.grpc.ProfilerListResponse
+	(*RestoreBackupRequest)(nil),               // 152: com.arcadedb.grpc.RestoreBackupRequest
+	(*RestoreDatabaseRequest)(nil),             // 153: com.arcadedb.grpc.RestoreDatabaseRequest
+	(*ImportDatabaseRequest)(nil),              // 154: com.arcadedb.grpc.ImportDatabaseRequest
+	(*RestoreProgress)(nil),                    // 155: com.arcadedb.grpc.RestoreProgress
+	(*ImportProgress)(nil),                     // 156: com.arcadedb.grpc.ImportProgress
+	(*GetServerEventsRequest)(nil),             // 157: com.arcadedb.grpc.GetServerEventsRequest
+	(*GetServerEventsResponse)(nil),            // 158: com.arcadedb.grpc.GetServerEventsResponse
+	(*ShutdownRequest)(nil),                    // 159: com.arcadedb.grpc.ShutdownRequest
+	(*ShutdownResponse)(nil),                   // 160: com.arcadedb.grpc.ShutdownResponse
+	(*DisconnectClusterRequest)(nil),           // 161: com.arcadedb.grpc.DisconnectClusterRequest
+	(*DisconnectClusterResponse)(nil),          // 162: com.arcadedb.grpc.DisconnectClusterResponse
+	(*ConnectClusterRequest)(nil),              // 163: com.arcadedb.grpc.ConnectClusterRequest
+	(*ConnectClusterResponse)(nil),             // 164: com.arcadedb.grpc.ConnectClusterResponse
+	(*AcceptDivergedDatabaseRequest)(nil),      // 165: com.arcadedb.grpc.AcceptDivergedDatabaseRequest
+	(*AcceptDivergedDatabaseResponse)(nil),     // 166: com.arcadedb.grpc.AcceptDivergedDatabaseResponse
+	(*AcceptStaleSnapshotRequest)(nil),         // 167: com.arcadedb.grpc.AcceptStaleSnapshotRequest
+	(*AcceptStaleSnapshotResponse)(nil),        // 168: com.arcadedb.grpc.AcceptStaleSnapshotResponse
+	(*OperationProgressInfo)(nil),              // 169: com.arcadedb.grpc.OperationProgressInfo
+	(*GetProgressRequest)(nil),                 // 170: com.arcadedb.grpc.GetProgressRequest
+	(*GetProgressResponse)(nil),                // 171: com.arcadedb.grpc.GetProgressResponse
+	(*SessionInfo)(nil),                        // 172: com.arcadedb.grpc.SessionInfo
+	(*ListSessionsRequest)(nil),                // 173: com.arcadedb.grpc.ListSessionsRequest
+	(*ListSessionsResponse)(nil),               // 174: com.arcadedb.grpc.ListSessionsResponse
+	(*HealthRequest)(nil),                      // 175: com.arcadedb.grpc.HealthRequest
+	(*HealthResponse)(nil),                     // 176: com.arcadedb.grpc.HealthResponse
+	(*ReadyRequest)(nil),                       // 177: com.arcadedb.grpc.ReadyRequest
+	(*ReadyResponse)(nil),                      // 178: com.arcadedb.grpc.ReadyResponse
+	nil,                                        // 179: com.arcadedb.grpc.GrpcRecord.PropertiesEntry
+	nil,                                        // 180: com.arcadedb.grpc.GrpcMap.EntriesEntry
+	nil,                                        // 181: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
+	nil,                                        // 182: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
+	nil,                                        // 183: com.arcadedb.grpc.GrpcFacets.ResultsEntry
+	nil,                                        // 184: com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
+	nil,                                        // 185: com.arcadedb.grpc.HybridSearchResponse.LegsEntry
+	nil,                                        // 186: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
+	nil,                                        // 187: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
+	nil,                                        // 188: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
+	nil,                                        // 189: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
+	nil,                                        // 190: com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
+	nil,                                        // 191: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
+	nil,                                        // 192: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
+	nil,                                        // 193: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
+	nil,                                        // 194: com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
+	nil,                                        // 195: com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
+	nil,                                        // 196: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
+	nil,                                        // 197: com.arcadedb.grpc.UserInfo.DatabasesEntry
+	nil,                                        // 198: com.arcadedb.grpc.UserDatabases.DatabasesEntry
+	(*timestamppb.Timestamp)(nil),              // 199: google.protobuf.Timestamp
+	(*wrapperspb.Int32Value)(nil),              // 200: google.protobuf.Int32Value
 }
 var file_arcadedb_server_proto_depIdxs = []int32{
-	177, // 0: com.arcadedb.grpc.GrpcRecord.properties:type_name -> com.arcadedb.grpc.GrpcRecord.PropertiesEntry
-	197, // 1: com.arcadedb.grpc.GrpcValue.timestamp_value:type_name -> google.protobuf.Timestamp
+	179, // 0: com.arcadedb.grpc.GrpcRecord.properties:type_name -> com.arcadedb.grpc.GrpcRecord.PropertiesEntry
+	199, // 1: com.arcadedb.grpc.GrpcValue.timestamp_value:type_name -> google.protobuf.Timestamp
 	13,  // 2: com.arcadedb.grpc.GrpcValue.list_value:type_name -> com.arcadedb.grpc.GrpcList
 	14,  // 3: com.arcadedb.grpc.GrpcValue.map_value:type_name -> com.arcadedb.grpc.GrpcMap
 	15,  // 4: com.arcadedb.grpc.GrpcValue.embedded_value:type_name -> com.arcadedb.grpc.GrpcEmbedded
-	16,  // 5: com.arcadedb.grpc.GrpcValue.link_value:type_name -> com.arcadedb.grpc.GrpcLink
-	17,  // 6: com.arcadedb.grpc.GrpcValue.decimal_value:type_name -> com.arcadedb.grpc.GrpcDecimal
-	12,  // 7: com.arcadedb.grpc.GrpcList.values:type_name -> com.arcadedb.grpc.GrpcValue
-	178, // 8: com.arcadedb.grpc.GrpcMap.entries:type_name -> com.arcadedb.grpc.GrpcMap.EntriesEntry
-	179, // 9: com.arcadedb.grpc.GrpcEmbedded.fields:type_name -> com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
-	3,   // 10: com.arcadedb.grpc.ProjectionSettings.projection_encoding:type_name -> com.arcadedb.grpc.ProjectionSettings.ProjectionEncoding
-	198, // 11: com.arcadedb.grpc.ProjectionSettings.soft_limit_bytes:type_name -> google.protobuf.Int32Value
-	180, // 12: com.arcadedb.grpc.StreamQueryRequest.parameters:type_name -> com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
-	8,   // 13: com.arcadedb.grpc.StreamQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	4,   // 14: com.arcadedb.grpc.StreamQueryRequest.retrieval_mode:type_name -> com.arcadedb.grpc.StreamQueryRequest.RetrievalMode
-	9,   // 15: com.arcadedb.grpc.StreamQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	18,  // 16: com.arcadedb.grpc.StreamQueryRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
-	11,  // 17: com.arcadedb.grpc.QueryResult.records:type_name -> com.arcadedb.grpc.GrpcRecord
-	23,  // 18: com.arcadedb.grpc.QueryResult.facets:type_name -> com.arcadedb.grpc.GrpcFacets
-	12,  // 19: com.arcadedb.grpc.GrpcFacetBucket.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 20: com.arcadedb.grpc.GrpcFacetBucket.from:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 21: com.arcadedb.grpc.GrpcFacetBucket.to:type_name -> com.arcadedb.grpc.GrpcValue
-	21,  // 22: com.arcadedb.grpc.GrpcFacetResult.buckets:type_name -> com.arcadedb.grpc.GrpcFacetBucket
-	12,  // 23: com.arcadedb.grpc.GrpcFacetResult.after:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 24: com.arcadedb.grpc.GrpcFacetResult.min:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 25: com.arcadedb.grpc.GrpcFacetResult.max:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 26: com.arcadedb.grpc.GrpcFacetResult.sum:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 27: com.arcadedb.grpc.GrpcFacetResult.avg:type_name -> com.arcadedb.grpc.GrpcValue
-	181, // 28: com.arcadedb.grpc.GrpcFacets.results:type_name -> com.arcadedb.grpc.GrpcFacets.ResultsEntry
-	8,   // 29: com.arcadedb.grpc.VectorSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 30: com.arcadedb.grpc.VectorSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	11,  // 31: com.arcadedb.grpc.SearchHit.record:type_name -> com.arcadedb.grpc.GrpcRecord
-	25,  // 32: com.arcadedb.grpc.VectorSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
-	8,   // 33: com.arcadedb.grpc.HybridSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	182, // 34: com.arcadedb.grpc.HybridSearchRequest.weights:type_name -> com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
-	27,  // 35: com.arcadedb.grpc.HybridSearchRequest.expand:type_name -> com.arcadedb.grpc.HybridExpand
-	9,   // 36: com.arcadedb.grpc.HybridSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	25,  // 37: com.arcadedb.grpc.HybridSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
-	183, // 38: com.arcadedb.grpc.HybridSearchResponse.legs:type_name -> com.arcadedb.grpc.HybridSearchResponse.LegsEntry
-	8,   // 39: com.arcadedb.grpc.FullTextSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 40: com.arcadedb.grpc.FullTextSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	25,  // 41: com.arcadedb.grpc.FullTextSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
-	8,   // 42: com.arcadedb.grpc.BeginTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	0,   // 43: com.arcadedb.grpc.BeginTransactionRequest.isolation:type_name -> com.arcadedb.grpc.TransactionIsolation
-	0,   // 44: com.arcadedb.grpc.BeginTransactionResponse.effective_isolation:type_name -> com.arcadedb.grpc.TransactionIsolation
-	9,   // 45: com.arcadedb.grpc.CommitTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 46: com.arcadedb.grpc.CommitTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 47: com.arcadedb.grpc.RollbackTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 48: com.arcadedb.grpc.RollbackTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 49: com.arcadedb.grpc.DeleteRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 50: com.arcadedb.grpc.DeleteRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	184, // 51: com.arcadedb.grpc.ExecuteCommandRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
-	8,   // 52: com.arcadedb.grpc.ExecuteCommandRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 53: com.arcadedb.grpc.ExecuteCommandRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	18,  // 54: com.arcadedb.grpc.ExecuteCommandRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
-	11,  // 55: com.arcadedb.grpc.ExecuteCommandResponse.records:type_name -> com.arcadedb.grpc.GrpcRecord
-	42,  // 56: com.arcadedb.grpc.ExecuteCommandResponse.stats:type_name -> com.arcadedb.grpc.QueryUpdateStats
-	23,  // 57: com.arcadedb.grpc.ExecuteCommandResponse.facets:type_name -> com.arcadedb.grpc.GrpcFacets
-	185, // 58: com.arcadedb.grpc.ExecuteQueryRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
-	8,   // 59: com.arcadedb.grpc.ExecuteQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 60: com.arcadedb.grpc.ExecuteQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	18,  // 61: com.arcadedb.grpc.ExecuteQueryRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
-	20,  // 62: com.arcadedb.grpc.ExecuteQueryResponse.results:type_name -> com.arcadedb.grpc.QueryResult
-	23,  // 63: com.arcadedb.grpc.ExecuteQueryResponse.facets:type_name -> com.arcadedb.grpc.GrpcFacets
-	8,   // 64: com.arcadedb.grpc.CreateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	11,  // 65: com.arcadedb.grpc.CreateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
-	9,   // 66: com.arcadedb.grpc.CreateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	186, // 67: com.arcadedb.grpc.PropertiesUpdate.properties:type_name -> com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
-	8,   // 68: com.arcadedb.grpc.UpdateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	11,  // 69: com.arcadedb.grpc.UpdateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
-	47,  // 70: com.arcadedb.grpc.UpdateRecordRequest.partial:type_name -> com.arcadedb.grpc.PropertiesUpdate
-	9,   // 71: com.arcadedb.grpc.UpdateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 72: com.arcadedb.grpc.LookupByRidRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	9,   // 73: com.arcadedb.grpc.LookupByRidRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	11,  // 74: com.arcadedb.grpc.LookupByRidResponse.record:type_name -> com.arcadedb.grpc.GrpcRecord
-	52,  // 75: com.arcadedb.grpc.InsertSummary.errors:type_name -> com.arcadedb.grpc.InsertError
-	197, // 76: com.arcadedb.grpc.InsertSummary.started_at:type_name -> google.protobuf.Timestamp
-	197, // 77: com.arcadedb.grpc.InsertSummary.finished_at:type_name -> google.protobuf.Timestamp
-	5,   // 78: com.arcadedb.grpc.InsertOptions.conflict_mode:type_name -> com.arcadedb.grpc.InsertOptions.ConflictMode
-	6,   // 79: com.arcadedb.grpc.InsertOptions.transaction_mode:type_name -> com.arcadedb.grpc.InsertOptions.TransactionMode
-	8,   // 80: com.arcadedb.grpc.InsertOptions.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 81: com.arcadedb.grpc.BulkInsertRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	54,  // 82: com.arcadedb.grpc.BulkInsertRequest.options:type_name -> com.arcadedb.grpc.InsertOptions
-	11,  // 83: com.arcadedb.grpc.BulkInsertRequest.rows:type_name -> com.arcadedb.grpc.GrpcRecord
-	9,   // 84: com.arcadedb.grpc.BulkInsertRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	8,   // 85: com.arcadedb.grpc.InsertChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	54,  // 86: com.arcadedb.grpc.InsertChunk.options:type_name -> com.arcadedb.grpc.InsertOptions
-	9,   // 87: com.arcadedb.grpc.InsertChunk.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	11,  // 88: com.arcadedb.grpc.InsertChunk.rows:type_name -> com.arcadedb.grpc.GrpcRecord
-	58,  // 89: com.arcadedb.grpc.InsertRequest.start:type_name -> com.arcadedb.grpc.Start
-	56,  // 90: com.arcadedb.grpc.InsertRequest.chunk:type_name -> com.arcadedb.grpc.InsertChunk
-	59,  // 91: com.arcadedb.grpc.InsertRequest.commit:type_name -> com.arcadedb.grpc.Commit
-	8,   // 92: com.arcadedb.grpc.Start.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	54,  // 93: com.arcadedb.grpc.Start.options:type_name -> com.arcadedb.grpc.InsertOptions
-	9,   // 94: com.arcadedb.grpc.Start.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	61,  // 95: com.arcadedb.grpc.InsertResponse.started:type_name -> com.arcadedb.grpc.Started
-	62,  // 96: com.arcadedb.grpc.InsertResponse.batch_ack:type_name -> com.arcadedb.grpc.BatchAck
-	63,  // 97: com.arcadedb.grpc.InsertResponse.committed:type_name -> com.arcadedb.grpc.Committed
-	52,  // 98: com.arcadedb.grpc.InsertResponse.error:type_name -> com.arcadedb.grpc.InsertError
-	52,  // 99: com.arcadedb.grpc.BatchAck.errors:type_name -> com.arcadedb.grpc.InsertError
-	53,  // 100: com.arcadedb.grpc.Committed.summary:type_name -> com.arcadedb.grpc.InsertSummary
-	7,   // 101: com.arcadedb.grpc.GraphBatchRecord.kind:type_name -> com.arcadedb.grpc.GraphBatchRecord.Kind
-	187, // 102: com.arcadedb.grpc.GraphBatchRecord.properties:type_name -> com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
-	8,   // 103: com.arcadedb.grpc.GraphBatchChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	64,  // 104: com.arcadedb.grpc.GraphBatchChunk.options:type_name -> com.arcadedb.grpc.GraphBatchOptions
-	65,  // 105: com.arcadedb.grpc.GraphBatchChunk.records:type_name -> com.arcadedb.grpc.GraphBatchRecord
-	188, // 106: com.arcadedb.grpc.GraphBatchResult.id_mapping:type_name -> com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
-	189, // 107: com.arcadedb.grpc.TimeSeriesPoint.tags:type_name -> com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
-	190, // 108: com.arcadedb.grpc.TimeSeriesPoint.fields:type_name -> com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
-	8,   // 109: com.arcadedb.grpc.TimeSeriesWriteRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	1,   // 110: com.arcadedb.grpc.TimeSeriesWriteRequest.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
-	68,  // 111: com.arcadedb.grpc.TimeSeriesWriteRequest.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
-	8,   // 112: com.arcadedb.grpc.TimeSeriesWriteChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	1,   // 113: com.arcadedb.grpc.TimeSeriesWriteChunk.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
-	68,  // 114: com.arcadedb.grpc.TimeSeriesWriteChunk.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
-	191, // 115: com.arcadedb.grpc.TimeSeriesTagFilter.equals:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
-	2,   // 116: com.arcadedb.grpc.TimeSeriesAggregationRequest.type:type_name -> com.arcadedb.grpc.TimeSeriesAggregationType
-	73,  // 117: com.arcadedb.grpc.TimeSeriesAggregation.requests:type_name -> com.arcadedb.grpc.TimeSeriesAggregationRequest
-	8,   // 118: com.arcadedb.grpc.TimeSeriesQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	72,  // 119: com.arcadedb.grpc.TimeSeriesQueryRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
-	74,  // 120: com.arcadedb.grpc.TimeSeriesQueryRequest.aggregation:type_name -> com.arcadedb.grpc.TimeSeriesAggregation
-	9,   // 121: com.arcadedb.grpc.TimeSeriesQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	12,  // 122: com.arcadedb.grpc.TimeSeriesRow.values:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 123: com.arcadedb.grpc.TimeSeriesBucket.values:type_name -> com.arcadedb.grpc.GrpcValue
-	76,  // 124: com.arcadedb.grpc.TimeSeriesQueryResult.rows:type_name -> com.arcadedb.grpc.TimeSeriesRow
-	77,  // 125: com.arcadedb.grpc.TimeSeriesQueryResult.buckets:type_name -> com.arcadedb.grpc.TimeSeriesBucket
-	8,   // 126: com.arcadedb.grpc.TimeSeriesLatestRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	72,  // 127: com.arcadedb.grpc.TimeSeriesLatestRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
-	9,   // 128: com.arcadedb.grpc.TimeSeriesLatestRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
-	76,  // 129: com.arcadedb.grpc.TimeSeriesLatestResponse.latest:type_name -> com.arcadedb.grpc.TimeSeriesRow
-	8,   // 130: com.arcadedb.grpc.PingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 131: com.arcadedb.grpc.GetServerInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	192, // 132: com.arcadedb.grpc.GetServerInfoResponse.features:type_name -> com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
-	8,   // 133: com.arcadedb.grpc.ListDatabasesRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 134: com.arcadedb.grpc.ExistsDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 135: com.arcadedb.grpc.CreateDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 136: com.arcadedb.grpc.DropDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 137: com.arcadedb.grpc.GetDatabaseInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	193, // 138: com.arcadedb.grpc.GetDatabaseInfoResponse.properties:type_name -> com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
-	8,   // 139: com.arcadedb.grpc.CreateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	194, // 140: com.arcadedb.grpc.CreateUserRequest.databases:type_name -> com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
-	8,   // 141: com.arcadedb.grpc.DeleteUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 142: com.arcadedb.grpc.OpenDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 143: com.arcadedb.grpc.CloseDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 144: com.arcadedb.grpc.AlignDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 145: com.arcadedb.grpc.SetServerSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 146: com.arcadedb.grpc.SetDatabaseSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	195, // 147: com.arcadedb.grpc.UserInfo.databases:type_name -> com.arcadedb.grpc.UserInfo.DatabasesEntry
-	8,   // 148: com.arcadedb.grpc.ListUsersRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	110, // 149: com.arcadedb.grpc.ListUsersResponse.users:type_name -> com.arcadedb.grpc.UserInfo
-	196, // 150: com.arcadedb.grpc.UserDatabases.databases:type_name -> com.arcadedb.grpc.UserDatabases.DatabasesEntry
-	8,   // 151: com.arcadedb.grpc.UpdateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	113, // 152: com.arcadedb.grpc.UpdateUserRequest.databases:type_name -> com.arcadedb.grpc.UserDatabases
-	8,   // 153: com.arcadedb.grpc.ListGroupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 154: com.arcadedb.grpc.SaveGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 155: com.arcadedb.grpc.DeleteGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 156: com.arcadedb.grpc.ListApiTokensRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	122, // 157: com.arcadedb.grpc.ListApiTokensResponse.tokens:type_name -> com.arcadedb.grpc.ApiTokenInfo
-	8,   // 158: com.arcadedb.grpc.CreateApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	122, // 159: com.arcadedb.grpc.CreateApiTokenResponse.info:type_name -> com.arcadedb.grpc.ApiTokenInfo
-	8,   // 160: com.arcadedb.grpc.DeleteApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 161: com.arcadedb.grpc.GetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 162: com.arcadedb.grpc.SetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 163: com.arcadedb.grpc.ListBackupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	133, // 164: com.arcadedb.grpc.ListBackupsResponse.backups:type_name -> com.arcadedb.grpc.BackupInfo
-	8,   // 165: com.arcadedb.grpc.TriggerBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 166: com.arcadedb.grpc.DeleteBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 167: com.arcadedb.grpc.ProfilerStartRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 168: com.arcadedb.grpc.ProfilerStopRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 169: com.arcadedb.grpc.ProfilerResetRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 170: com.arcadedb.grpc.ProfilerResultsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 171: com.arcadedb.grpc.ProfilerListRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 172: com.arcadedb.grpc.ProfilerLoadRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	148, // 173: com.arcadedb.grpc.ProfilerListResponse.runs:type_name -> com.arcadedb.grpc.ProfilerRunInfo
-	8,   // 174: com.arcadedb.grpc.RestoreBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 175: com.arcadedb.grpc.RestoreDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 176: com.arcadedb.grpc.ImportDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 177: com.arcadedb.grpc.GetServerEventsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 178: com.arcadedb.grpc.ShutdownRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 179: com.arcadedb.grpc.DisconnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 180: com.arcadedb.grpc.ConnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 181: com.arcadedb.grpc.AcceptDivergedDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 182: com.arcadedb.grpc.AcceptStaleSnapshotRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	8,   // 183: com.arcadedb.grpc.GetProgressRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	167, // 184: com.arcadedb.grpc.GetProgressResponse.operations:type_name -> com.arcadedb.grpc.OperationProgressInfo
-	8,   // 185: com.arcadedb.grpc.ListSessionsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
-	170, // 186: com.arcadedb.grpc.ListSessionsResponse.sessions:type_name -> com.arcadedb.grpc.SessionInfo
-	12,  // 187: com.arcadedb.grpc.GrpcRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 188: com.arcadedb.grpc.GrpcMap.EntriesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 189: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 190: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	22,  // 191: com.arcadedb.grpc.GrpcFacets.ResultsEntry.value:type_name -> com.arcadedb.grpc.GrpcFacetResult
-	12,  // 192: com.arcadedb.grpc.HybridSearchResponse.LegsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 193: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 194: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 195: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 196: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 197: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 198: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	12,  // 199: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
-	109, // 200: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	109, // 201: com.arcadedb.grpc.UserInfo.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	109, // 202: com.arcadedb.grpc.UserDatabases.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
-	19,  // 203: com.arcadedb.grpc.ArcadeDbService.StreamQuery:input_type -> com.arcadedb.grpc.StreamQueryRequest
-	40,  // 204: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:input_type -> com.arcadedb.grpc.ExecuteCommandRequest
-	43,  // 205: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:input_type -> com.arcadedb.grpc.ExecuteQueryRequest
-	45,  // 206: com.arcadedb.grpc.ArcadeDbService.CreateRecord:input_type -> com.arcadedb.grpc.CreateRecordRequest
-	48,  // 207: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:input_type -> com.arcadedb.grpc.UpdateRecordRequest
-	50,  // 208: com.arcadedb.grpc.ArcadeDbService.LookupByRid:input_type -> com.arcadedb.grpc.LookupByRidRequest
-	38,  // 209: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:input_type -> com.arcadedb.grpc.DeleteRecordRequest
-	55,  // 210: com.arcadedb.grpc.ArcadeDbService.BulkInsert:input_type -> com.arcadedb.grpc.BulkInsertRequest
-	56,  // 211: com.arcadedb.grpc.ArcadeDbService.InsertStream:input_type -> com.arcadedb.grpc.InsertChunk
-	57,  // 212: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:input_type -> com.arcadedb.grpc.InsertRequest
-	32,  // 213: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:input_type -> com.arcadedb.grpc.BeginTransactionRequest
-	34,  // 214: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:input_type -> com.arcadedb.grpc.CommitTransactionRequest
-	36,  // 215: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:input_type -> com.arcadedb.grpc.RollbackTransactionRequest
-	66,  // 216: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:input_type -> com.arcadedb.grpc.GraphBatchChunk
-	24,  // 217: com.arcadedb.grpc.ArcadeDbService.VectorSearch:input_type -> com.arcadedb.grpc.VectorSearchRequest
-	28,  // 218: com.arcadedb.grpc.ArcadeDbService.HybridSearch:input_type -> com.arcadedb.grpc.HybridSearchRequest
-	30,  // 219: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:input_type -> com.arcadedb.grpc.FullTextSearchRequest
-	69,  // 220: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:input_type -> com.arcadedb.grpc.TimeSeriesWriteRequest
-	70,  // 221: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:input_type -> com.arcadedb.grpc.TimeSeriesWriteChunk
-	75,  // 222: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:input_type -> com.arcadedb.grpc.TimeSeriesQueryRequest
-	79,  // 223: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:input_type -> com.arcadedb.grpc.TimeSeriesLatestRequest
-	81,  // 224: com.arcadedb.grpc.ArcadeDbAdminService.Ping:input_type -> com.arcadedb.grpc.PingRequest
-	83,  // 225: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:input_type -> com.arcadedb.grpc.GetServerInfoRequest
-	85,  // 226: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:input_type -> com.arcadedb.grpc.ListDatabasesRequest
-	87,  // 227: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:input_type -> com.arcadedb.grpc.ExistsDatabaseRequest
-	89,  // 228: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:input_type -> com.arcadedb.grpc.CreateDatabaseRequest
-	91,  // 229: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:input_type -> com.arcadedb.grpc.DropDatabaseRequest
-	99,  // 230: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:input_type -> com.arcadedb.grpc.OpenDatabaseRequest
-	101, // 231: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:input_type -> com.arcadedb.grpc.CloseDatabaseRequest
-	103, // 232: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:input_type -> com.arcadedb.grpc.AlignDatabaseRequest
-	93,  // 233: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:input_type -> com.arcadedb.grpc.GetDatabaseInfoRequest
-	168, // 234: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:input_type -> com.arcadedb.grpc.GetProgressRequest
-	95,  // 235: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:input_type -> com.arcadedb.grpc.CreateUserRequest
-	114, // 236: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:input_type -> com.arcadedb.grpc.UpdateUserRequest
-	97,  // 237: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:input_type -> com.arcadedb.grpc.DeleteUserRequest
-	111, // 238: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:input_type -> com.arcadedb.grpc.ListUsersRequest
-	116, // 239: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:input_type -> com.arcadedb.grpc.ListGroupsRequest
-	118, // 240: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:input_type -> com.arcadedb.grpc.SaveGroupRequest
-	120, // 241: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:input_type -> com.arcadedb.grpc.DeleteGroupRequest
-	123, // 242: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:input_type -> com.arcadedb.grpc.ListApiTokensRequest
-	125, // 243: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:input_type -> com.arcadedb.grpc.CreateApiTokenRequest
-	127, // 244: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:input_type -> com.arcadedb.grpc.DeleteApiTokenRequest
-	105, // 245: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:input_type -> com.arcadedb.grpc.SetServerSettingRequest
-	107, // 246: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:input_type -> com.arcadedb.grpc.SetDatabaseSettingRequest
-	129, // 247: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:input_type -> com.arcadedb.grpc.GetBackupConfigRequest
-	131, // 248: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:input_type -> com.arcadedb.grpc.SetBackupConfigRequest
-	134, // 249: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:input_type -> com.arcadedb.grpc.ListBackupsRequest
-	136, // 250: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:input_type -> com.arcadedb.grpc.TriggerBackupRequest
-	138, // 251: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:input_type -> com.arcadedb.grpc.DeleteBackupRequest
-	140, // 252: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:input_type -> com.arcadedb.grpc.ProfilerStartRequest
-	141, // 253: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:input_type -> com.arcadedb.grpc.ProfilerStopRequest
-	142, // 254: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:input_type -> com.arcadedb.grpc.ProfilerResetRequest
-	143, // 255: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:input_type -> com.arcadedb.grpc.ProfilerResultsRequest
-	144, // 256: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:input_type -> com.arcadedb.grpc.ProfilerListRequest
-	145, // 257: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:input_type -> com.arcadedb.grpc.ProfilerLoadRequest
-	150, // 258: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:input_type -> com.arcadedb.grpc.RestoreBackupRequest
-	151, // 259: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:input_type -> com.arcadedb.grpc.RestoreDatabaseRequest
-	152, // 260: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:input_type -> com.arcadedb.grpc.ImportDatabaseRequest
-	155, // 261: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:input_type -> com.arcadedb.grpc.GetServerEventsRequest
-	157, // 262: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:input_type -> com.arcadedb.grpc.ShutdownRequest
-	159, // 263: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:input_type -> com.arcadedb.grpc.DisconnectClusterRequest
-	161, // 264: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:input_type -> com.arcadedb.grpc.ConnectClusterRequest
-	163, // 265: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:input_type -> com.arcadedb.grpc.AcceptDivergedDatabaseRequest
-	165, // 266: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:input_type -> com.arcadedb.grpc.AcceptStaleSnapshotRequest
-	171, // 267: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:input_type -> com.arcadedb.grpc.ListSessionsRequest
-	173, // 268: com.arcadedb.grpc.ArcadeDbAdminService.Health:input_type -> com.arcadedb.grpc.HealthRequest
-	175, // 269: com.arcadedb.grpc.ArcadeDbAdminService.Ready:input_type -> com.arcadedb.grpc.ReadyRequest
-	20,  // 270: com.arcadedb.grpc.ArcadeDbService.StreamQuery:output_type -> com.arcadedb.grpc.QueryResult
-	41,  // 271: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:output_type -> com.arcadedb.grpc.ExecuteCommandResponse
-	44,  // 272: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:output_type -> com.arcadedb.grpc.ExecuteQueryResponse
-	46,  // 273: com.arcadedb.grpc.ArcadeDbService.CreateRecord:output_type -> com.arcadedb.grpc.CreateRecordResponse
-	49,  // 274: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:output_type -> com.arcadedb.grpc.UpdateRecordResponse
-	51,  // 275: com.arcadedb.grpc.ArcadeDbService.LookupByRid:output_type -> com.arcadedb.grpc.LookupByRidResponse
-	39,  // 276: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:output_type -> com.arcadedb.grpc.DeleteRecordResponse
-	53,  // 277: com.arcadedb.grpc.ArcadeDbService.BulkInsert:output_type -> com.arcadedb.grpc.InsertSummary
-	53,  // 278: com.arcadedb.grpc.ArcadeDbService.InsertStream:output_type -> com.arcadedb.grpc.InsertSummary
-	60,  // 279: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:output_type -> com.arcadedb.grpc.InsertResponse
-	33,  // 280: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:output_type -> com.arcadedb.grpc.BeginTransactionResponse
-	35,  // 281: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:output_type -> com.arcadedb.grpc.CommitTransactionResponse
-	37,  // 282: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:output_type -> com.arcadedb.grpc.RollbackTransactionResponse
-	67,  // 283: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:output_type -> com.arcadedb.grpc.GraphBatchResult
-	26,  // 284: com.arcadedb.grpc.ArcadeDbService.VectorSearch:output_type -> com.arcadedb.grpc.VectorSearchResponse
-	29,  // 285: com.arcadedb.grpc.ArcadeDbService.HybridSearch:output_type -> com.arcadedb.grpc.HybridSearchResponse
-	31,  // 286: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:output_type -> com.arcadedb.grpc.FullTextSearchResponse
-	71,  // 287: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
-	71,  // 288: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
-	78,  // 289: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:output_type -> com.arcadedb.grpc.TimeSeriesQueryResult
-	80,  // 290: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:output_type -> com.arcadedb.grpc.TimeSeriesLatestResponse
-	82,  // 291: com.arcadedb.grpc.ArcadeDbAdminService.Ping:output_type -> com.arcadedb.grpc.PingResponse
-	84,  // 292: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:output_type -> com.arcadedb.grpc.GetServerInfoResponse
-	86,  // 293: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:output_type -> com.arcadedb.grpc.ListDatabasesResponse
-	88,  // 294: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:output_type -> com.arcadedb.grpc.ExistsDatabaseResponse
-	90,  // 295: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:output_type -> com.arcadedb.grpc.CreateDatabaseResponse
-	92,  // 296: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:output_type -> com.arcadedb.grpc.DropDatabaseResponse
-	100, // 297: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:output_type -> com.arcadedb.grpc.OpenDatabaseResponse
-	102, // 298: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:output_type -> com.arcadedb.grpc.CloseDatabaseResponse
-	104, // 299: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:output_type -> com.arcadedb.grpc.AlignDatabaseResponse
-	94,  // 300: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:output_type -> com.arcadedb.grpc.GetDatabaseInfoResponse
-	169, // 301: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:output_type -> com.arcadedb.grpc.GetProgressResponse
-	96,  // 302: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:output_type -> com.arcadedb.grpc.CreateUserResponse
-	115, // 303: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:output_type -> com.arcadedb.grpc.UpdateUserResponse
-	98,  // 304: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:output_type -> com.arcadedb.grpc.DeleteUserResponse
-	112, // 305: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:output_type -> com.arcadedb.grpc.ListUsersResponse
-	117, // 306: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:output_type -> com.arcadedb.grpc.ListGroupsResponse
-	119, // 307: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:output_type -> com.arcadedb.grpc.SaveGroupResponse
-	121, // 308: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:output_type -> com.arcadedb.grpc.DeleteGroupResponse
-	124, // 309: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:output_type -> com.arcadedb.grpc.ListApiTokensResponse
-	126, // 310: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:output_type -> com.arcadedb.grpc.CreateApiTokenResponse
-	128, // 311: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:output_type -> com.arcadedb.grpc.DeleteApiTokenResponse
-	106, // 312: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:output_type -> com.arcadedb.grpc.SetServerSettingResponse
-	108, // 313: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:output_type -> com.arcadedb.grpc.SetDatabaseSettingResponse
-	130, // 314: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:output_type -> com.arcadedb.grpc.GetBackupConfigResponse
-	132, // 315: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:output_type -> com.arcadedb.grpc.SetBackupConfigResponse
-	135, // 316: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:output_type -> com.arcadedb.grpc.ListBackupsResponse
-	137, // 317: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:output_type -> com.arcadedb.grpc.TriggerBackupResponse
-	139, // 318: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:output_type -> com.arcadedb.grpc.DeleteBackupResponse
-	146, // 319: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:output_type -> com.arcadedb.grpc.ProfilerStateResponse
-	147, // 320: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	146, // 321: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:output_type -> com.arcadedb.grpc.ProfilerStateResponse
-	147, // 322: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	149, // 323: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:output_type -> com.arcadedb.grpc.ProfilerListResponse
-	147, // 324: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
-	153, // 325: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:output_type -> com.arcadedb.grpc.RestoreProgress
-	153, // 326: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:output_type -> com.arcadedb.grpc.RestoreProgress
-	154, // 327: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:output_type -> com.arcadedb.grpc.ImportProgress
-	156, // 328: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:output_type -> com.arcadedb.grpc.GetServerEventsResponse
-	158, // 329: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:output_type -> com.arcadedb.grpc.ShutdownResponse
-	160, // 330: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:output_type -> com.arcadedb.grpc.DisconnectClusterResponse
-	162, // 331: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:output_type -> com.arcadedb.grpc.ConnectClusterResponse
-	164, // 332: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:output_type -> com.arcadedb.grpc.AcceptDivergedDatabaseResponse
-	166, // 333: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:output_type -> com.arcadedb.grpc.AcceptStaleSnapshotResponse
-	172, // 334: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:output_type -> com.arcadedb.grpc.ListSessionsResponse
-	174, // 335: com.arcadedb.grpc.ArcadeDbAdminService.Health:output_type -> com.arcadedb.grpc.HealthResponse
-	176, // 336: com.arcadedb.grpc.ArcadeDbAdminService.Ready:output_type -> com.arcadedb.grpc.ReadyResponse
-	270, // [270:337] is the sub-list for method output_type
-	203, // [203:270] is the sub-list for method input_type
-	203, // [203:203] is the sub-list for extension type_name
-	203, // [203:203] is the sub-list for extension extendee
-	0,   // [0:203] is the sub-list for field type_name
+	18,  // 5: com.arcadedb.grpc.GrpcValue.link_value:type_name -> com.arcadedb.grpc.GrpcLink
+	19,  // 6: com.arcadedb.grpc.GrpcValue.decimal_value:type_name -> com.arcadedb.grpc.GrpcDecimal
+	16,  // 7: com.arcadedb.grpc.GrpcValue.float_array_value:type_name -> com.arcadedb.grpc.GrpcFloatArray
+	17,  // 8: com.arcadedb.grpc.GrpcValue.double_array_value:type_name -> com.arcadedb.grpc.GrpcDoubleArray
+	12,  // 9: com.arcadedb.grpc.GrpcList.values:type_name -> com.arcadedb.grpc.GrpcValue
+	180, // 10: com.arcadedb.grpc.GrpcMap.entries:type_name -> com.arcadedb.grpc.GrpcMap.EntriesEntry
+	181, // 11: com.arcadedb.grpc.GrpcEmbedded.fields:type_name -> com.arcadedb.grpc.GrpcEmbedded.FieldsEntry
+	3,   // 12: com.arcadedb.grpc.ProjectionSettings.projection_encoding:type_name -> com.arcadedb.grpc.ProjectionSettings.ProjectionEncoding
+	200, // 13: com.arcadedb.grpc.ProjectionSettings.soft_limit_bytes:type_name -> google.protobuf.Int32Value
+	182, // 14: com.arcadedb.grpc.StreamQueryRequest.parameters:type_name -> com.arcadedb.grpc.StreamQueryRequest.ParametersEntry
+	8,   // 15: com.arcadedb.grpc.StreamQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	4,   // 16: com.arcadedb.grpc.StreamQueryRequest.retrieval_mode:type_name -> com.arcadedb.grpc.StreamQueryRequest.RetrievalMode
+	9,   // 17: com.arcadedb.grpc.StreamQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	20,  // 18: com.arcadedb.grpc.StreamQueryRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
+	11,  // 19: com.arcadedb.grpc.QueryResult.records:type_name -> com.arcadedb.grpc.GrpcRecord
+	25,  // 20: com.arcadedb.grpc.QueryResult.facets:type_name -> com.arcadedb.grpc.GrpcFacets
+	12,  // 21: com.arcadedb.grpc.GrpcFacetBucket.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 22: com.arcadedb.grpc.GrpcFacetBucket.from:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 23: com.arcadedb.grpc.GrpcFacetBucket.to:type_name -> com.arcadedb.grpc.GrpcValue
+	23,  // 24: com.arcadedb.grpc.GrpcFacetResult.buckets:type_name -> com.arcadedb.grpc.GrpcFacetBucket
+	12,  // 25: com.arcadedb.grpc.GrpcFacetResult.after:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 26: com.arcadedb.grpc.GrpcFacetResult.min:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 27: com.arcadedb.grpc.GrpcFacetResult.max:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 28: com.arcadedb.grpc.GrpcFacetResult.sum:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 29: com.arcadedb.grpc.GrpcFacetResult.avg:type_name -> com.arcadedb.grpc.GrpcValue
+	183, // 30: com.arcadedb.grpc.GrpcFacets.results:type_name -> com.arcadedb.grpc.GrpcFacets.ResultsEntry
+	8,   // 31: com.arcadedb.grpc.VectorSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 32: com.arcadedb.grpc.VectorSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	11,  // 33: com.arcadedb.grpc.SearchHit.record:type_name -> com.arcadedb.grpc.GrpcRecord
+	27,  // 34: com.arcadedb.grpc.VectorSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
+	8,   // 35: com.arcadedb.grpc.HybridSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	184, // 36: com.arcadedb.grpc.HybridSearchRequest.weights:type_name -> com.arcadedb.grpc.HybridSearchRequest.WeightsEntry
+	29,  // 37: com.arcadedb.grpc.HybridSearchRequest.expand:type_name -> com.arcadedb.grpc.HybridExpand
+	9,   // 38: com.arcadedb.grpc.HybridSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	27,  // 39: com.arcadedb.grpc.HybridSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
+	185, // 40: com.arcadedb.grpc.HybridSearchResponse.legs:type_name -> com.arcadedb.grpc.HybridSearchResponse.LegsEntry
+	8,   // 41: com.arcadedb.grpc.FullTextSearchRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 42: com.arcadedb.grpc.FullTextSearchRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	27,  // 43: com.arcadedb.grpc.FullTextSearchResponse.results:type_name -> com.arcadedb.grpc.SearchHit
+	8,   // 44: com.arcadedb.grpc.BeginTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	0,   // 45: com.arcadedb.grpc.BeginTransactionRequest.isolation:type_name -> com.arcadedb.grpc.TransactionIsolation
+	0,   // 46: com.arcadedb.grpc.BeginTransactionResponse.effective_isolation:type_name -> com.arcadedb.grpc.TransactionIsolation
+	9,   // 47: com.arcadedb.grpc.CommitTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 48: com.arcadedb.grpc.CommitTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 49: com.arcadedb.grpc.RollbackTransactionRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 50: com.arcadedb.grpc.RollbackTransactionRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 51: com.arcadedb.grpc.DeleteRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 52: com.arcadedb.grpc.DeleteRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	186, // 53: com.arcadedb.grpc.ExecuteCommandRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry
+	8,   // 54: com.arcadedb.grpc.ExecuteCommandRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 55: com.arcadedb.grpc.ExecuteCommandRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	20,  // 56: com.arcadedb.grpc.ExecuteCommandRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
+	11,  // 57: com.arcadedb.grpc.ExecuteCommandResponse.records:type_name -> com.arcadedb.grpc.GrpcRecord
+	44,  // 58: com.arcadedb.grpc.ExecuteCommandResponse.stats:type_name -> com.arcadedb.grpc.QueryUpdateStats
+	25,  // 59: com.arcadedb.grpc.ExecuteCommandResponse.facets:type_name -> com.arcadedb.grpc.GrpcFacets
+	187, // 60: com.arcadedb.grpc.ExecuteQueryRequest.parameters:type_name -> com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry
+	8,   // 61: com.arcadedb.grpc.ExecuteQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 62: com.arcadedb.grpc.ExecuteQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	20,  // 63: com.arcadedb.grpc.ExecuteQueryRequest.projectionSettings:type_name -> com.arcadedb.grpc.ProjectionSettings
+	22,  // 64: com.arcadedb.grpc.ExecuteQueryResponse.results:type_name -> com.arcadedb.grpc.QueryResult
+	25,  // 65: com.arcadedb.grpc.ExecuteQueryResponse.facets:type_name -> com.arcadedb.grpc.GrpcFacets
+	8,   // 66: com.arcadedb.grpc.CreateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	11,  // 67: com.arcadedb.grpc.CreateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
+	9,   // 68: com.arcadedb.grpc.CreateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	188, // 69: com.arcadedb.grpc.PropertiesUpdate.properties:type_name -> com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry
+	8,   // 70: com.arcadedb.grpc.UpdateRecordRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	11,  // 71: com.arcadedb.grpc.UpdateRecordRequest.record:type_name -> com.arcadedb.grpc.GrpcRecord
+	49,  // 72: com.arcadedb.grpc.UpdateRecordRequest.partial:type_name -> com.arcadedb.grpc.PropertiesUpdate
+	9,   // 73: com.arcadedb.grpc.UpdateRecordRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 74: com.arcadedb.grpc.LookupByRidRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	9,   // 75: com.arcadedb.grpc.LookupByRidRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	11,  // 76: com.arcadedb.grpc.LookupByRidResponse.record:type_name -> com.arcadedb.grpc.GrpcRecord
+	54,  // 77: com.arcadedb.grpc.InsertSummary.errors:type_name -> com.arcadedb.grpc.InsertError
+	199, // 78: com.arcadedb.grpc.InsertSummary.started_at:type_name -> google.protobuf.Timestamp
+	199, // 79: com.arcadedb.grpc.InsertSummary.finished_at:type_name -> google.protobuf.Timestamp
+	5,   // 80: com.arcadedb.grpc.InsertOptions.conflict_mode:type_name -> com.arcadedb.grpc.InsertOptions.ConflictMode
+	6,   // 81: com.arcadedb.grpc.InsertOptions.transaction_mode:type_name -> com.arcadedb.grpc.InsertOptions.TransactionMode
+	8,   // 82: com.arcadedb.grpc.InsertOptions.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 83: com.arcadedb.grpc.BulkInsertRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	56,  // 84: com.arcadedb.grpc.BulkInsertRequest.options:type_name -> com.arcadedb.grpc.InsertOptions
+	11,  // 85: com.arcadedb.grpc.BulkInsertRequest.rows:type_name -> com.arcadedb.grpc.GrpcRecord
+	9,   // 86: com.arcadedb.grpc.BulkInsertRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	8,   // 87: com.arcadedb.grpc.InsertChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	56,  // 88: com.arcadedb.grpc.InsertChunk.options:type_name -> com.arcadedb.grpc.InsertOptions
+	9,   // 89: com.arcadedb.grpc.InsertChunk.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	11,  // 90: com.arcadedb.grpc.InsertChunk.rows:type_name -> com.arcadedb.grpc.GrpcRecord
+	60,  // 91: com.arcadedb.grpc.InsertRequest.start:type_name -> com.arcadedb.grpc.Start
+	58,  // 92: com.arcadedb.grpc.InsertRequest.chunk:type_name -> com.arcadedb.grpc.InsertChunk
+	61,  // 93: com.arcadedb.grpc.InsertRequest.commit:type_name -> com.arcadedb.grpc.Commit
+	8,   // 94: com.arcadedb.grpc.Start.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	56,  // 95: com.arcadedb.grpc.Start.options:type_name -> com.arcadedb.grpc.InsertOptions
+	9,   // 96: com.arcadedb.grpc.Start.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	63,  // 97: com.arcadedb.grpc.InsertResponse.started:type_name -> com.arcadedb.grpc.Started
+	64,  // 98: com.arcadedb.grpc.InsertResponse.batch_ack:type_name -> com.arcadedb.grpc.BatchAck
+	65,  // 99: com.arcadedb.grpc.InsertResponse.committed:type_name -> com.arcadedb.grpc.Committed
+	54,  // 100: com.arcadedb.grpc.InsertResponse.error:type_name -> com.arcadedb.grpc.InsertError
+	54,  // 101: com.arcadedb.grpc.BatchAck.errors:type_name -> com.arcadedb.grpc.InsertError
+	55,  // 102: com.arcadedb.grpc.Committed.summary:type_name -> com.arcadedb.grpc.InsertSummary
+	7,   // 103: com.arcadedb.grpc.GraphBatchRecord.kind:type_name -> com.arcadedb.grpc.GraphBatchRecord.Kind
+	189, // 104: com.arcadedb.grpc.GraphBatchRecord.properties:type_name -> com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry
+	8,   // 105: com.arcadedb.grpc.GraphBatchChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	66,  // 106: com.arcadedb.grpc.GraphBatchChunk.options:type_name -> com.arcadedb.grpc.GraphBatchOptions
+	67,  // 107: com.arcadedb.grpc.GraphBatchChunk.records:type_name -> com.arcadedb.grpc.GraphBatchRecord
+	190, // 108: com.arcadedb.grpc.GraphBatchResult.id_mapping:type_name -> com.arcadedb.grpc.GraphBatchResult.IdMappingEntry
+	191, // 109: com.arcadedb.grpc.TimeSeriesPoint.tags:type_name -> com.arcadedb.grpc.TimeSeriesPoint.TagsEntry
+	192, // 110: com.arcadedb.grpc.TimeSeriesPoint.fields:type_name -> com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry
+	8,   // 111: com.arcadedb.grpc.TimeSeriesWriteRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	1,   // 112: com.arcadedb.grpc.TimeSeriesWriteRequest.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
+	70,  // 113: com.arcadedb.grpc.TimeSeriesWriteRequest.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
+	8,   // 114: com.arcadedb.grpc.TimeSeriesWriteChunk.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	1,   // 115: com.arcadedb.grpc.TimeSeriesWriteChunk.precision:type_name -> com.arcadedb.grpc.TimeSeriesPrecision
+	70,  // 116: com.arcadedb.grpc.TimeSeriesWriteChunk.points:type_name -> com.arcadedb.grpc.TimeSeriesPoint
+	193, // 117: com.arcadedb.grpc.TimeSeriesTagFilter.equals:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry
+	2,   // 118: com.arcadedb.grpc.TimeSeriesAggregationRequest.type:type_name -> com.arcadedb.grpc.TimeSeriesAggregationType
+	75,  // 119: com.arcadedb.grpc.TimeSeriesAggregation.requests:type_name -> com.arcadedb.grpc.TimeSeriesAggregationRequest
+	8,   // 120: com.arcadedb.grpc.TimeSeriesQueryRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	74,  // 121: com.arcadedb.grpc.TimeSeriesQueryRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
+	76,  // 122: com.arcadedb.grpc.TimeSeriesQueryRequest.aggregation:type_name -> com.arcadedb.grpc.TimeSeriesAggregation
+	9,   // 123: com.arcadedb.grpc.TimeSeriesQueryRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	12,  // 124: com.arcadedb.grpc.TimeSeriesRow.values:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 125: com.arcadedb.grpc.TimeSeriesBucket.values:type_name -> com.arcadedb.grpc.GrpcValue
+	78,  // 126: com.arcadedb.grpc.TimeSeriesQueryResult.rows:type_name -> com.arcadedb.grpc.TimeSeriesRow
+	79,  // 127: com.arcadedb.grpc.TimeSeriesQueryResult.buckets:type_name -> com.arcadedb.grpc.TimeSeriesBucket
+	8,   // 128: com.arcadedb.grpc.TimeSeriesLatestRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	74,  // 129: com.arcadedb.grpc.TimeSeriesLatestRequest.tags:type_name -> com.arcadedb.grpc.TimeSeriesTagFilter
+	9,   // 130: com.arcadedb.grpc.TimeSeriesLatestRequest.transaction:type_name -> com.arcadedb.grpc.TransactionContext
+	78,  // 131: com.arcadedb.grpc.TimeSeriesLatestResponse.latest:type_name -> com.arcadedb.grpc.TimeSeriesRow
+	8,   // 132: com.arcadedb.grpc.PingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 133: com.arcadedb.grpc.GetServerInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	194, // 134: com.arcadedb.grpc.GetServerInfoResponse.features:type_name -> com.arcadedb.grpc.GetServerInfoResponse.FeaturesEntry
+	8,   // 135: com.arcadedb.grpc.ListDatabasesRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 136: com.arcadedb.grpc.ExistsDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 137: com.arcadedb.grpc.CreateDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 138: com.arcadedb.grpc.DropDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 139: com.arcadedb.grpc.GetDatabaseInfoRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	195, // 140: com.arcadedb.grpc.GetDatabaseInfoResponse.properties:type_name -> com.arcadedb.grpc.GetDatabaseInfoResponse.PropertiesEntry
+	8,   // 141: com.arcadedb.grpc.CreateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	196, // 142: com.arcadedb.grpc.CreateUserRequest.databases:type_name -> com.arcadedb.grpc.CreateUserRequest.DatabasesEntry
+	8,   // 143: com.arcadedb.grpc.DeleteUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 144: com.arcadedb.grpc.OpenDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 145: com.arcadedb.grpc.CloseDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 146: com.arcadedb.grpc.AlignDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 147: com.arcadedb.grpc.SetServerSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 148: com.arcadedb.grpc.SetDatabaseSettingRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	197, // 149: com.arcadedb.grpc.UserInfo.databases:type_name -> com.arcadedb.grpc.UserInfo.DatabasesEntry
+	8,   // 150: com.arcadedb.grpc.ListUsersRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	112, // 151: com.arcadedb.grpc.ListUsersResponse.users:type_name -> com.arcadedb.grpc.UserInfo
+	198, // 152: com.arcadedb.grpc.UserDatabases.databases:type_name -> com.arcadedb.grpc.UserDatabases.DatabasesEntry
+	8,   // 153: com.arcadedb.grpc.UpdateUserRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	115, // 154: com.arcadedb.grpc.UpdateUserRequest.databases:type_name -> com.arcadedb.grpc.UserDatabases
+	8,   // 155: com.arcadedb.grpc.ListGroupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 156: com.arcadedb.grpc.SaveGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 157: com.arcadedb.grpc.DeleteGroupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 158: com.arcadedb.grpc.ListApiTokensRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	124, // 159: com.arcadedb.grpc.ListApiTokensResponse.tokens:type_name -> com.arcadedb.grpc.ApiTokenInfo
+	8,   // 160: com.arcadedb.grpc.CreateApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	124, // 161: com.arcadedb.grpc.CreateApiTokenResponse.info:type_name -> com.arcadedb.grpc.ApiTokenInfo
+	8,   // 162: com.arcadedb.grpc.DeleteApiTokenRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 163: com.arcadedb.grpc.GetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 164: com.arcadedb.grpc.SetBackupConfigRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 165: com.arcadedb.grpc.ListBackupsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	135, // 166: com.arcadedb.grpc.ListBackupsResponse.backups:type_name -> com.arcadedb.grpc.BackupInfo
+	8,   // 167: com.arcadedb.grpc.TriggerBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 168: com.arcadedb.grpc.DeleteBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 169: com.arcadedb.grpc.ProfilerStartRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 170: com.arcadedb.grpc.ProfilerStopRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 171: com.arcadedb.grpc.ProfilerResetRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 172: com.arcadedb.grpc.ProfilerResultsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 173: com.arcadedb.grpc.ProfilerListRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 174: com.arcadedb.grpc.ProfilerLoadRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	150, // 175: com.arcadedb.grpc.ProfilerListResponse.runs:type_name -> com.arcadedb.grpc.ProfilerRunInfo
+	8,   // 176: com.arcadedb.grpc.RestoreBackupRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 177: com.arcadedb.grpc.RestoreDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 178: com.arcadedb.grpc.ImportDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 179: com.arcadedb.grpc.GetServerEventsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 180: com.arcadedb.grpc.ShutdownRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 181: com.arcadedb.grpc.DisconnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 182: com.arcadedb.grpc.ConnectClusterRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 183: com.arcadedb.grpc.AcceptDivergedDatabaseRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 184: com.arcadedb.grpc.AcceptStaleSnapshotRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	8,   // 185: com.arcadedb.grpc.GetProgressRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	169, // 186: com.arcadedb.grpc.GetProgressResponse.operations:type_name -> com.arcadedb.grpc.OperationProgressInfo
+	8,   // 187: com.arcadedb.grpc.ListSessionsRequest.credentials:type_name -> com.arcadedb.grpc.DatabaseCredentials
+	172, // 188: com.arcadedb.grpc.ListSessionsResponse.sessions:type_name -> com.arcadedb.grpc.SessionInfo
+	12,  // 189: com.arcadedb.grpc.GrpcRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 190: com.arcadedb.grpc.GrpcMap.EntriesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 191: com.arcadedb.grpc.GrpcEmbedded.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 192: com.arcadedb.grpc.StreamQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	24,  // 193: com.arcadedb.grpc.GrpcFacets.ResultsEntry.value:type_name -> com.arcadedb.grpc.GrpcFacetResult
+	12,  // 194: com.arcadedb.grpc.HybridSearchResponse.LegsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 195: com.arcadedb.grpc.ExecuteCommandRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 196: com.arcadedb.grpc.ExecuteQueryRequest.ParametersEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 197: com.arcadedb.grpc.PropertiesUpdate.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 198: com.arcadedb.grpc.GraphBatchRecord.PropertiesEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 199: com.arcadedb.grpc.TimeSeriesPoint.TagsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 200: com.arcadedb.grpc.TimeSeriesPoint.FieldsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	12,  // 201: com.arcadedb.grpc.TimeSeriesTagFilter.EqualsEntry.value:type_name -> com.arcadedb.grpc.GrpcValue
+	111, // 202: com.arcadedb.grpc.CreateUserRequest.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	111, // 203: com.arcadedb.grpc.UserInfo.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	111, // 204: com.arcadedb.grpc.UserDatabases.DatabasesEntry.value:type_name -> com.arcadedb.grpc.UserGroups
+	21,  // 205: com.arcadedb.grpc.ArcadeDbService.StreamQuery:input_type -> com.arcadedb.grpc.StreamQueryRequest
+	42,  // 206: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:input_type -> com.arcadedb.grpc.ExecuteCommandRequest
+	45,  // 207: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:input_type -> com.arcadedb.grpc.ExecuteQueryRequest
+	47,  // 208: com.arcadedb.grpc.ArcadeDbService.CreateRecord:input_type -> com.arcadedb.grpc.CreateRecordRequest
+	50,  // 209: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:input_type -> com.arcadedb.grpc.UpdateRecordRequest
+	52,  // 210: com.arcadedb.grpc.ArcadeDbService.LookupByRid:input_type -> com.arcadedb.grpc.LookupByRidRequest
+	40,  // 211: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:input_type -> com.arcadedb.grpc.DeleteRecordRequest
+	57,  // 212: com.arcadedb.grpc.ArcadeDbService.BulkInsert:input_type -> com.arcadedb.grpc.BulkInsertRequest
+	58,  // 213: com.arcadedb.grpc.ArcadeDbService.InsertStream:input_type -> com.arcadedb.grpc.InsertChunk
+	59,  // 214: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:input_type -> com.arcadedb.grpc.InsertRequest
+	34,  // 215: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:input_type -> com.arcadedb.grpc.BeginTransactionRequest
+	36,  // 216: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:input_type -> com.arcadedb.grpc.CommitTransactionRequest
+	38,  // 217: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:input_type -> com.arcadedb.grpc.RollbackTransactionRequest
+	68,  // 218: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:input_type -> com.arcadedb.grpc.GraphBatchChunk
+	26,  // 219: com.arcadedb.grpc.ArcadeDbService.VectorSearch:input_type -> com.arcadedb.grpc.VectorSearchRequest
+	30,  // 220: com.arcadedb.grpc.ArcadeDbService.HybridSearch:input_type -> com.arcadedb.grpc.HybridSearchRequest
+	32,  // 221: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:input_type -> com.arcadedb.grpc.FullTextSearchRequest
+	71,  // 222: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:input_type -> com.arcadedb.grpc.TimeSeriesWriteRequest
+	72,  // 223: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:input_type -> com.arcadedb.grpc.TimeSeriesWriteChunk
+	77,  // 224: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:input_type -> com.arcadedb.grpc.TimeSeriesQueryRequest
+	81,  // 225: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:input_type -> com.arcadedb.grpc.TimeSeriesLatestRequest
+	83,  // 226: com.arcadedb.grpc.ArcadeDbAdminService.Ping:input_type -> com.arcadedb.grpc.PingRequest
+	85,  // 227: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:input_type -> com.arcadedb.grpc.GetServerInfoRequest
+	87,  // 228: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:input_type -> com.arcadedb.grpc.ListDatabasesRequest
+	89,  // 229: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:input_type -> com.arcadedb.grpc.ExistsDatabaseRequest
+	91,  // 230: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:input_type -> com.arcadedb.grpc.CreateDatabaseRequest
+	93,  // 231: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:input_type -> com.arcadedb.grpc.DropDatabaseRequest
+	101, // 232: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:input_type -> com.arcadedb.grpc.OpenDatabaseRequest
+	103, // 233: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:input_type -> com.arcadedb.grpc.CloseDatabaseRequest
+	105, // 234: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:input_type -> com.arcadedb.grpc.AlignDatabaseRequest
+	95,  // 235: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:input_type -> com.arcadedb.grpc.GetDatabaseInfoRequest
+	170, // 236: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:input_type -> com.arcadedb.grpc.GetProgressRequest
+	97,  // 237: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:input_type -> com.arcadedb.grpc.CreateUserRequest
+	116, // 238: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:input_type -> com.arcadedb.grpc.UpdateUserRequest
+	99,  // 239: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:input_type -> com.arcadedb.grpc.DeleteUserRequest
+	113, // 240: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:input_type -> com.arcadedb.grpc.ListUsersRequest
+	118, // 241: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:input_type -> com.arcadedb.grpc.ListGroupsRequest
+	120, // 242: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:input_type -> com.arcadedb.grpc.SaveGroupRequest
+	122, // 243: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:input_type -> com.arcadedb.grpc.DeleteGroupRequest
+	125, // 244: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:input_type -> com.arcadedb.grpc.ListApiTokensRequest
+	127, // 245: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:input_type -> com.arcadedb.grpc.CreateApiTokenRequest
+	129, // 246: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:input_type -> com.arcadedb.grpc.DeleteApiTokenRequest
+	107, // 247: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:input_type -> com.arcadedb.grpc.SetServerSettingRequest
+	109, // 248: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:input_type -> com.arcadedb.grpc.SetDatabaseSettingRequest
+	131, // 249: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:input_type -> com.arcadedb.grpc.GetBackupConfigRequest
+	133, // 250: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:input_type -> com.arcadedb.grpc.SetBackupConfigRequest
+	136, // 251: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:input_type -> com.arcadedb.grpc.ListBackupsRequest
+	138, // 252: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:input_type -> com.arcadedb.grpc.TriggerBackupRequest
+	140, // 253: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:input_type -> com.arcadedb.grpc.DeleteBackupRequest
+	142, // 254: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:input_type -> com.arcadedb.grpc.ProfilerStartRequest
+	143, // 255: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:input_type -> com.arcadedb.grpc.ProfilerStopRequest
+	144, // 256: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:input_type -> com.arcadedb.grpc.ProfilerResetRequest
+	145, // 257: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:input_type -> com.arcadedb.grpc.ProfilerResultsRequest
+	146, // 258: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:input_type -> com.arcadedb.grpc.ProfilerListRequest
+	147, // 259: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:input_type -> com.arcadedb.grpc.ProfilerLoadRequest
+	152, // 260: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:input_type -> com.arcadedb.grpc.RestoreBackupRequest
+	153, // 261: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:input_type -> com.arcadedb.grpc.RestoreDatabaseRequest
+	154, // 262: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:input_type -> com.arcadedb.grpc.ImportDatabaseRequest
+	157, // 263: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:input_type -> com.arcadedb.grpc.GetServerEventsRequest
+	159, // 264: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:input_type -> com.arcadedb.grpc.ShutdownRequest
+	161, // 265: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:input_type -> com.arcadedb.grpc.DisconnectClusterRequest
+	163, // 266: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:input_type -> com.arcadedb.grpc.ConnectClusterRequest
+	165, // 267: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:input_type -> com.arcadedb.grpc.AcceptDivergedDatabaseRequest
+	167, // 268: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:input_type -> com.arcadedb.grpc.AcceptStaleSnapshotRequest
+	173, // 269: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:input_type -> com.arcadedb.grpc.ListSessionsRequest
+	175, // 270: com.arcadedb.grpc.ArcadeDbAdminService.Health:input_type -> com.arcadedb.grpc.HealthRequest
+	177, // 271: com.arcadedb.grpc.ArcadeDbAdminService.Ready:input_type -> com.arcadedb.grpc.ReadyRequest
+	22,  // 272: com.arcadedb.grpc.ArcadeDbService.StreamQuery:output_type -> com.arcadedb.grpc.QueryResult
+	43,  // 273: com.arcadedb.grpc.ArcadeDbService.ExecuteCommand:output_type -> com.arcadedb.grpc.ExecuteCommandResponse
+	46,  // 274: com.arcadedb.grpc.ArcadeDbService.ExecuteQuery:output_type -> com.arcadedb.grpc.ExecuteQueryResponse
+	48,  // 275: com.arcadedb.grpc.ArcadeDbService.CreateRecord:output_type -> com.arcadedb.grpc.CreateRecordResponse
+	51,  // 276: com.arcadedb.grpc.ArcadeDbService.UpdateRecord:output_type -> com.arcadedb.grpc.UpdateRecordResponse
+	53,  // 277: com.arcadedb.grpc.ArcadeDbService.LookupByRid:output_type -> com.arcadedb.grpc.LookupByRidResponse
+	41,  // 278: com.arcadedb.grpc.ArcadeDbService.DeleteRecord:output_type -> com.arcadedb.grpc.DeleteRecordResponse
+	55,  // 279: com.arcadedb.grpc.ArcadeDbService.BulkInsert:output_type -> com.arcadedb.grpc.InsertSummary
+	55,  // 280: com.arcadedb.grpc.ArcadeDbService.InsertStream:output_type -> com.arcadedb.grpc.InsertSummary
+	62,  // 281: com.arcadedb.grpc.ArcadeDbService.InsertBidirectional:output_type -> com.arcadedb.grpc.InsertResponse
+	35,  // 282: com.arcadedb.grpc.ArcadeDbService.BeginTransaction:output_type -> com.arcadedb.grpc.BeginTransactionResponse
+	37,  // 283: com.arcadedb.grpc.ArcadeDbService.CommitTransaction:output_type -> com.arcadedb.grpc.CommitTransactionResponse
+	39,  // 284: com.arcadedb.grpc.ArcadeDbService.RollbackTransaction:output_type -> com.arcadedb.grpc.RollbackTransactionResponse
+	69,  // 285: com.arcadedb.grpc.ArcadeDbService.GraphBatchLoad:output_type -> com.arcadedb.grpc.GraphBatchResult
+	28,  // 286: com.arcadedb.grpc.ArcadeDbService.VectorSearch:output_type -> com.arcadedb.grpc.VectorSearchResponse
+	31,  // 287: com.arcadedb.grpc.ArcadeDbService.HybridSearch:output_type -> com.arcadedb.grpc.HybridSearchResponse
+	33,  // 288: com.arcadedb.grpc.ArcadeDbService.FullTextSearch:output_type -> com.arcadedb.grpc.FullTextSearchResponse
+	73,  // 289: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWrite:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
+	73,  // 290: com.arcadedb.grpc.ArcadeDbService.TimeSeriesWriteStream:output_type -> com.arcadedb.grpc.TimeSeriesWriteSummary
+	80,  // 291: com.arcadedb.grpc.ArcadeDbService.TimeSeriesQuery:output_type -> com.arcadedb.grpc.TimeSeriesQueryResult
+	82,  // 292: com.arcadedb.grpc.ArcadeDbService.TimeSeriesLatest:output_type -> com.arcadedb.grpc.TimeSeriesLatestResponse
+	84,  // 293: com.arcadedb.grpc.ArcadeDbAdminService.Ping:output_type -> com.arcadedb.grpc.PingResponse
+	86,  // 294: com.arcadedb.grpc.ArcadeDbAdminService.GetServerInfo:output_type -> com.arcadedb.grpc.GetServerInfoResponse
+	88,  // 295: com.arcadedb.grpc.ArcadeDbAdminService.ListDatabases:output_type -> com.arcadedb.grpc.ListDatabasesResponse
+	90,  // 296: com.arcadedb.grpc.ArcadeDbAdminService.ExistsDatabase:output_type -> com.arcadedb.grpc.ExistsDatabaseResponse
+	92,  // 297: com.arcadedb.grpc.ArcadeDbAdminService.CreateDatabase:output_type -> com.arcadedb.grpc.CreateDatabaseResponse
+	94,  // 298: com.arcadedb.grpc.ArcadeDbAdminService.DropDatabase:output_type -> com.arcadedb.grpc.DropDatabaseResponse
+	102, // 299: com.arcadedb.grpc.ArcadeDbAdminService.OpenDatabase:output_type -> com.arcadedb.grpc.OpenDatabaseResponse
+	104, // 300: com.arcadedb.grpc.ArcadeDbAdminService.CloseDatabase:output_type -> com.arcadedb.grpc.CloseDatabaseResponse
+	106, // 301: com.arcadedb.grpc.ArcadeDbAdminService.AlignDatabase:output_type -> com.arcadedb.grpc.AlignDatabaseResponse
+	96,  // 302: com.arcadedb.grpc.ArcadeDbAdminService.GetDatabaseInfo:output_type -> com.arcadedb.grpc.GetDatabaseInfoResponse
+	171, // 303: com.arcadedb.grpc.ArcadeDbAdminService.GetProgress:output_type -> com.arcadedb.grpc.GetProgressResponse
+	98,  // 304: com.arcadedb.grpc.ArcadeDbAdminService.CreateUser:output_type -> com.arcadedb.grpc.CreateUserResponse
+	117, // 305: com.arcadedb.grpc.ArcadeDbAdminService.UpdateUser:output_type -> com.arcadedb.grpc.UpdateUserResponse
+	100, // 306: com.arcadedb.grpc.ArcadeDbAdminService.DeleteUser:output_type -> com.arcadedb.grpc.DeleteUserResponse
+	114, // 307: com.arcadedb.grpc.ArcadeDbAdminService.ListUsers:output_type -> com.arcadedb.grpc.ListUsersResponse
+	119, // 308: com.arcadedb.grpc.ArcadeDbAdminService.ListGroups:output_type -> com.arcadedb.grpc.ListGroupsResponse
+	121, // 309: com.arcadedb.grpc.ArcadeDbAdminService.SaveGroup:output_type -> com.arcadedb.grpc.SaveGroupResponse
+	123, // 310: com.arcadedb.grpc.ArcadeDbAdminService.DeleteGroup:output_type -> com.arcadedb.grpc.DeleteGroupResponse
+	126, // 311: com.arcadedb.grpc.ArcadeDbAdminService.ListApiTokens:output_type -> com.arcadedb.grpc.ListApiTokensResponse
+	128, // 312: com.arcadedb.grpc.ArcadeDbAdminService.CreateApiToken:output_type -> com.arcadedb.grpc.CreateApiTokenResponse
+	130, // 313: com.arcadedb.grpc.ArcadeDbAdminService.DeleteApiToken:output_type -> com.arcadedb.grpc.DeleteApiTokenResponse
+	108, // 314: com.arcadedb.grpc.ArcadeDbAdminService.SetServerSetting:output_type -> com.arcadedb.grpc.SetServerSettingResponse
+	110, // 315: com.arcadedb.grpc.ArcadeDbAdminService.SetDatabaseSetting:output_type -> com.arcadedb.grpc.SetDatabaseSettingResponse
+	132, // 316: com.arcadedb.grpc.ArcadeDbAdminService.GetBackupConfig:output_type -> com.arcadedb.grpc.GetBackupConfigResponse
+	134, // 317: com.arcadedb.grpc.ArcadeDbAdminService.SetBackupConfig:output_type -> com.arcadedb.grpc.SetBackupConfigResponse
+	137, // 318: com.arcadedb.grpc.ArcadeDbAdminService.ListBackups:output_type -> com.arcadedb.grpc.ListBackupsResponse
+	139, // 319: com.arcadedb.grpc.ArcadeDbAdminService.TriggerBackup:output_type -> com.arcadedb.grpc.TriggerBackupResponse
+	141, // 320: com.arcadedb.grpc.ArcadeDbAdminService.DeleteBackup:output_type -> com.arcadedb.grpc.DeleteBackupResponse
+	148, // 321: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStart:output_type -> com.arcadedb.grpc.ProfilerStateResponse
+	149, // 322: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerStop:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	148, // 323: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerReset:output_type -> com.arcadedb.grpc.ProfilerStateResponse
+	149, // 324: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerResults:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	151, // 325: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerList:output_type -> com.arcadedb.grpc.ProfilerListResponse
+	149, // 326: com.arcadedb.grpc.ArcadeDbAdminService.ProfilerLoad:output_type -> com.arcadedb.grpc.ProfilerDocumentResponse
+	155, // 327: com.arcadedb.grpc.ArcadeDbAdminService.RestoreBackup:output_type -> com.arcadedb.grpc.RestoreProgress
+	155, // 328: com.arcadedb.grpc.ArcadeDbAdminService.RestoreDatabase:output_type -> com.arcadedb.grpc.RestoreProgress
+	156, // 329: com.arcadedb.grpc.ArcadeDbAdminService.ImportDatabase:output_type -> com.arcadedb.grpc.ImportProgress
+	158, // 330: com.arcadedb.grpc.ArcadeDbAdminService.GetServerEvents:output_type -> com.arcadedb.grpc.GetServerEventsResponse
+	160, // 331: com.arcadedb.grpc.ArcadeDbAdminService.Shutdown:output_type -> com.arcadedb.grpc.ShutdownResponse
+	162, // 332: com.arcadedb.grpc.ArcadeDbAdminService.DisconnectCluster:output_type -> com.arcadedb.grpc.DisconnectClusterResponse
+	164, // 333: com.arcadedb.grpc.ArcadeDbAdminService.ConnectCluster:output_type -> com.arcadedb.grpc.ConnectClusterResponse
+	166, // 334: com.arcadedb.grpc.ArcadeDbAdminService.AcceptDivergedDatabase:output_type -> com.arcadedb.grpc.AcceptDivergedDatabaseResponse
+	168, // 335: com.arcadedb.grpc.ArcadeDbAdminService.AcceptStaleSnapshot:output_type -> com.arcadedb.grpc.AcceptStaleSnapshotResponse
+	174, // 336: com.arcadedb.grpc.ArcadeDbAdminService.ListSessions:output_type -> com.arcadedb.grpc.ListSessionsResponse
+	176, // 337: com.arcadedb.grpc.ArcadeDbAdminService.Health:output_type -> com.arcadedb.grpc.HealthResponse
+	178, // 338: com.arcadedb.grpc.ArcadeDbAdminService.Ready:output_type -> com.arcadedb.grpc.ReadyResponse
+	272, // [272:339] is the sub-list for method output_type
+	205, // [205:272] is the sub-list for method input_type
+	205, // [205:205] is the sub-list for extension type_name
+	205, // [205:205] is the sub-list for extension extendee
+	0,   // [0:205] is the sub-list for field type_name
 }
 
 func init() { file_arcadedb_server_proto_init() }
@@ -13549,38 +13689,40 @@ func file_arcadedb_server_proto_init() {
 		(*GrpcValue_EmbeddedValue)(nil),
 		(*GrpcValue_LinkValue)(nil),
 		(*GrpcValue_DecimalValue)(nil),
+		(*GrpcValue_FloatArrayValue)(nil),
+		(*GrpcValue_DoubleArrayValue)(nil),
 	}
-	file_arcadedb_server_proto_msgTypes[10].OneofWrappers = []any{}
-	file_arcadedb_server_proto_msgTypes[13].OneofWrappers = []any{}
-	file_arcadedb_server_proto_msgTypes[14].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[12].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[15].OneofWrappers = []any{}
 	file_arcadedb_server_proto_msgTypes[16].OneofWrappers = []any{}
-	file_arcadedb_server_proto_msgTypes[17].OneofWrappers = []any{}
-	file_arcadedb_server_proto_msgTypes[20].OneofWrappers = []any{}
-	file_arcadedb_server_proto_msgTypes[40].OneofWrappers = []any{
+	file_arcadedb_server_proto_msgTypes[18].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[19].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[22].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[42].OneofWrappers = []any{
 		(*UpdateRecordRequest_Record)(nil),
 		(*UpdateRecordRequest_Partial)(nil),
 	}
-	file_arcadedb_server_proto_msgTypes[49].OneofWrappers = []any{
+	file_arcadedb_server_proto_msgTypes[51].OneofWrappers = []any{
 		(*InsertRequest_Start)(nil),
 		(*InsertRequest_Chunk)(nil),
 		(*InsertRequest_Commit)(nil),
 	}
-	file_arcadedb_server_proto_msgTypes[52].OneofWrappers = []any{
+	file_arcadedb_server_proto_msgTypes[54].OneofWrappers = []any{
 		(*InsertResponse_Started)(nil),
 		(*InsertResponse_BatchAck)(nil),
 		(*InsertResponse_Committed)(nil),
 		(*InsertResponse_Error)(nil),
 	}
-	file_arcadedb_server_proto_msgTypes[56].OneofWrappers = []any{}
-	file_arcadedb_server_proto_msgTypes[67].OneofWrappers = []any{}
-	file_arcadedb_server_proto_msgTypes[106].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[58].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[69].OneofWrappers = []any{}
+	file_arcadedb_server_proto_msgTypes[108].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_arcadedb_server_proto_rawDesc), len(file_arcadedb_server_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   189,
+			NumMessages:   191,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

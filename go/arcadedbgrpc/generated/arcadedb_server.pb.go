@@ -1574,8 +1574,14 @@ type QueryResult struct {
 	RunningTotalEmitted int64                  `protobuf:"varint,3,opt,name=running_total_emitted,json=runningTotalEmitted,proto3" json:"running_total_emitted,omitempty"`
 	IsLastBatch         bool                   `protobuf:"varint,4,opt,name=is_last_batch,json=isLastBatch,proto3" json:"is_last_batch,omitempty"`
 	Facets              *GrpcFacets            `protobuf:"bytes,5,opt,name=facets,proto3" json:"facets,omitempty"` // FACETS queries only, on the terminal batch (is_last_batch=true)
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Column names of the first row, in projection order, when the rows are a projection (RETURN a, b, c). GrpcRecord.properties is a
+	// protobuf map, which carries no order guarantee: a client that needs positional access reads the order from here. A row that is a
+	// single node or relationship (RETURN n) is sent as that record: its one column name is the projection's. A record row a projection
+	// reshaped (SELECT *, x AS y) lists its projected columns. Empty when the result has no rows or its rows are plain records
+	// (SELECT FROM T). ExecuteQuery sets it on its result; StreamQuery sets the first row's names on every batch that carries rows.
+	ColumnNames   []string `protobuf:"bytes,6,rep,name=column_names,json=columnNames,proto3" json:"column_names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QueryResult) Reset() {
@@ -1639,6 +1645,13 @@ func (x *QueryResult) GetIsLastBatch() bool {
 func (x *QueryResult) GetFacets() *GrpcFacets {
 	if x != nil {
 		return x.Facets
+	}
+	return nil
+}
+
+func (x *QueryResult) GetColumnNames() []string {
+	if x != nil {
+		return x.ColumnNames
 	}
 	return nil
 }
@@ -3423,8 +3436,10 @@ type ExecuteCommandResponse struct {
 	Records         []*GrpcRecord          `protobuf:"bytes,5,rep,name=records,proto3" json:"records,omitempty"` // optional row payload if return_rows=true
 	Stats           *QueryUpdateStats      `protobuf:"bytes,6,opt,name=stats,proto3" json:"stats,omitempty"`     // present only for write commands that mutated data
 	Facets          *GrpcFacets            `protobuf:"bytes,7,opt,name=facets,proto3" json:"facets,omitempty"`   // FACETS queries only
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Column names of the first row, in projection order (see QueryResult.column_names).
+	ColumnNames   []string `protobuf:"bytes,8,rep,name=column_names,json=columnNames,proto3" json:"column_names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ExecuteCommandResponse) Reset() {
@@ -3502,6 +3517,13 @@ func (x *ExecuteCommandResponse) GetStats() *QueryUpdateStats {
 func (x *ExecuteCommandResponse) GetFacets() *GrpcFacets {
 	if x != nil {
 		return x.Facets
+	}
+	return nil
+}
+
+func (x *ExecuteCommandResponse) GetColumnNames() []string {
+	if x != nil {
+		return x.ColumnNames
 	}
 	return nil
 }
@@ -12135,13 +12157,14 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\n" +
 	"\x06CURSOR\x10\x00\x12\x13\n" +
 	"\x0fMATERIALIZE_ALL\x10\x01\x12\t\n" +
-	"\x05PAGED\x10\x02\"\x8a\x02\n" +
+	"\x05PAGED\x10\x02\"\xad\x02\n" +
 	"\vQueryResult\x127\n" +
 	"\arecords\x18\x01 \x03(\v2\x1d.com.arcadedb.grpc.GrpcRecordR\arecords\x123\n" +
 	"\x16total_records_in_batch\x18\x02 \x01(\x05R\x13totalRecordsInBatch\x122\n" +
 	"\x15running_total_emitted\x18\x03 \x01(\x03R\x13runningTotalEmitted\x12\"\n" +
 	"\ris_last_batch\x18\x04 \x01(\bR\visLastBatch\x125\n" +
-	"\x06facets\x18\x05 \x01(\v2\x1d.com.arcadedb.grpc.GrpcFacetsR\x06facets\"\xbc\x02\n" +
+	"\x06facets\x18\x05 \x01(\v2\x1d.com.arcadedb.grpc.GrpcFacetsR\x06facets\x12!\n" +
+	"\fcolumn_names\x18\x06 \x03(\tR\vcolumnNames\"\xbc\x02\n" +
 	"\x0fGrpcFacetBucket\x122\n" +
 	"\x05value\x18\x01 \x01(\v2\x1c.com.arcadedb.grpc.GrpcValueR\x05value\x12\x15\n" +
 	"\x03key\x18\x02 \x01(\tH\x00R\x03key\x88\x01\x01\x120\n" +
@@ -12327,7 +12350,7 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x12projectionSettings\x18\t \x01(\v2%.com.arcadedb.grpc.ProjectionSettingsR\x12projectionSettings\x1a[\n" +
 	"\x0fParametersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x122\n" +
-	"\x05value\x18\x02 \x01(\v2\x1c.com.arcadedb.grpc.GrpcValueR\x05value:\x028\x01\"\xce\x02\n" +
+	"\x05value\x18\x02 \x01(\v2\x1c.com.arcadedb.grpc.GrpcValueR\x05value:\x028\x01\"\xf1\x02\n" +
 	"\x16ExecuteCommandResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12)\n" +
@@ -12335,7 +12358,8 @@ const file_arcadedb_server_proto_rawDesc = "" +
 	"\x11execution_time_ms\x18\x04 \x01(\x03R\x0fexecutionTimeMs\x127\n" +
 	"\arecords\x18\x05 \x03(\v2\x1d.com.arcadedb.grpc.GrpcRecordR\arecords\x129\n" +
 	"\x05stats\x18\x06 \x01(\v2#.com.arcadedb.grpc.QueryUpdateStatsR\x05stats\x125\n" +
-	"\x06facets\x18\a \x01(\v2\x1d.com.arcadedb.grpc.GrpcFacetsR\x06facets\"\x8e\x04\n" +
+	"\x06facets\x18\a \x01(\v2\x1d.com.arcadedb.grpc.GrpcFacetsR\x06facets\x12!\n" +
+	"\fcolumn_names\x18\b \x03(\tR\vcolumnNames\"\x8e\x04\n" +
 	"\x10QueryUpdateStats\x12#\n" +
 	"\rnodes_created\x18\x01 \x01(\x05R\fnodesCreated\x12#\n" +
 	"\rnodes_deleted\x18\x02 \x01(\x05R\fnodesDeleted\x123\n" +

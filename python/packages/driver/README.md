@@ -483,18 +483,25 @@ these facades wrap defaults its own timeout to `None` and forwards it the same w
 srv = ArcadeDBServer(base_url="http://localhost:2480", timeout=httpx.Timeout(5.0))
 ```
 
-`query`, `command`, `query_stream` and `command_stream` (sync and async) also take a per-call
-`timeout`, which replaces the client's timeout for that one call: a `float` (all four httpx phases),
-an `httpx.Timeout`, or `None` (no timeout for this call). Omitting it keeps the client's own.
+`query`, `command`, `query_stream`, `command_stream`, `batch_load` and `batch_load_stream` (sync
+and async) also take a per-call `timeout`, which replaces the client's timeout for that one call: a
+`float` (all four httpx phases), an `httpx.Timeout`, or `None` (no timeout for this call). Omitting
+it keeps the client's own.
 
 ```python
 db = srv.db("mydb")
 db.query(language="sql", command="SELECT FROM Person", timeout=2.0)
+db.batch_load(vertices=[{"type": "Person", "id": "p1"}], timeout=60.0)
 ```
 
 httpx counts a timeout per phase (connect, write, read, pool), not as a deadline for the whole
 call, so a stream that keeps delivering rows never trips the read timeout. A phase that runs out
 raises `httpx.TimeoutException` (for example `httpx.ReadTimeout`), not `ArcadeDBError`.
+
+On a batch load, the buffered `batch_load` answer reports what the load created, so give the read
+timeout room for the server to finish. A load that timed out may have committed some or all of its
+records ([a load is not atomic](#a-load-is-not-atomic)), so check the database before sending it
+again.
 
 ### The `http.client` transport
 

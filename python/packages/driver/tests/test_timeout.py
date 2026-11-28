@@ -1,5 +1,5 @@
-"""Tests for the per-call `timeout` argument of `query`, `command`, `query_stream` and
-`command_stream`, sync and async.
+"""Tests for the per-call `timeout` argument of `query`, `command`, `query_stream`,
+`command_stream`, `batch_load` and `batch_load_stream`, sync and async.
 
 No network and no server: every case goes through `httpx.MockTransport`. The transport cannot make
 a real clock run out, but httpx hands it the timeout it resolved for the request as
@@ -12,12 +12,13 @@ phase is shorter than that, which is what the real transport does when the wait 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 import httpx
 import pytest
 from arcadedb_driver import ArcadeDBDatabase, ArcadeDBError, ArcadeDBServer, AsyncArcadeDBDatabase, AsyncArcadeDBServer
+from arcadedb_driver.facade import batch
 
 BASE_URL = "http://db.test"
 SERVER_DELAY_S = 5.0
@@ -28,7 +29,13 @@ NDJSON = (
     json.dumps({"record": {"a": 1}}) + "\n" + json.dumps({"stats": {"limit": 100, "returned": 1, "truncated": False}})
 ).encode()
 
-KINDS = ["query", "command", "query_stream", "command_stream"]
+BATCH_SUMMARY = {"verticesCreated": 1, "edgesCreated": 0}
+BATCH_NDJSON = json.dumps({"summary": BATCH_SUMMARY}).encode()
+VERTICES = [{"type": "Person", "id": "a"}]
+LINES = ['{"@type": "vertex", "@class": "Person", "@id": "a"}']
+
+BATCH_KINDS = ["batch_load", "batch_load_stream"]
+KINDS = ["query", "command", "query_stream", "command_stream", *BATCH_KINDS]
 
 Seen = list[dict[str, float | None]]
 
@@ -41,8 +48,9 @@ def _handler(kind: str, seen: Seen) -> Callable[[httpx.Request], httpx.Response]
         if read is not None and read < SERVER_DELAY_S:
             raise httpx.ReadTimeout("the server did not answer in time", request=request)
         if kind.endswith("_stream"):
-            return httpx.Response(200, content=NDJSON, headers={"Content-Type": "application/x-ndjson"})
-        return httpx.Response(200, json=ENVELOPE)
+            content = BATCH_NDJSON if kind in BATCH_KINDS else NDJSON
+            return httpx.Response(200, content=content, headers={"Content-Type": "application/x-ndjson"})
+        return httpx.Response(200, json=BATCH_SUMMARY if kind in BATCH_KINDS else ENVELOPE)
 
     return handle
 
@@ -65,13 +73,19 @@ def async_db(kind: str, seen: Seen, client_timeout: httpx.Timeout | None) -> Asy
     return srv.db("mydb")
 
 
+def arguments(kind: str) -> dict[str, Any]:
+    if kind in BATCH_KINDS:
+        return {"vertices": VERTICES}
+    return {"language": "sql", "command": "SELECT 1"}
+
+
 def call(db: ArcadeDBDatabase, kind: str, **kwargs: Any) -> object:
-    result = getattr(db, kind)(language="sql", command="SELECT 1", **kwargs)
+    result = getattr(db, kind)(**arguments(kind), **kwargs)
     return list(result) if kind.endswith("_stream") else result
 
 
 async def acall(db: AsyncArcadeDBDatabase, kind: str, **kwargs: Any) -> object:
-    result = getattr(db, kind)(language="sql", command="SELECT 1", **kwargs)
+    result = getattr(db, kind)(**arguments(kind), **kwargs)
     if kind.endswith("_stream"):
         return [event async for event in result]
     return await result
@@ -183,3 +197,60 @@ class TestAsync:
     async def test_without_the_argument_the_same_slow_server_is_not_cut_short(self, kind: str) -> None:
         seen: Seen = []
         assert await acall(async_db(kind, seen, None), kind) != []
+
+
+# --- the batch calls: the `lines=` body, and the module functions behind the methods ----------
+
+
+async def _alines() -> AsyncIterator[str]:
+    for line in LINES:
+        yield line
+
+
+@pytest.mark.parametrize("kind", BATCH_KINDS)
+class TestBatchSync:
+    @pytest.mark.parametrize(("kwargs", "expected"), [({"timeout": 7.5}, 7.5), ({"timeout": None}, None), ({}, 30.0)])
+    def test_a_lines_body_takes_the_same_timeout(
+        self, kind: str, kwargs: dict[str, Any], expected: float | None
+    ) -> None:
+        seen: Seen = []
+        result = getattr(sync_db(kind, seen, CLIENT_TIMEOUT), kind)(lines=iter(LINES), **kwargs)
+        if kind.endswith("_stream"):
+            list(result)
+        assert seen == [phases(expected)]
+
+    @pytest.mark.parametrize(("kwargs", "expected"), [({"timeout": 7.5}, 7.5), ({}, 30.0)])
+    def test_the_module_function_takes_it_too(self, kind: str, kwargs: dict[str, Any], expected: float) -> None:
+        seen: Seen = []
+        db = sync_db(kind, seen, CLIENT_TIMEOUT)
+        result = getattr(batch, kind)(db._client, db.name, vertices=VERTICES, **kwargs)
+        if kind.endswith("_stream"):
+            list(result)
+        assert seen == [phases(expected)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", BATCH_KINDS)
+class TestBatchAsync:
+    @pytest.mark.parametrize(("kwargs", "expected"), [({"timeout": 7.5}, 7.5), ({"timeout": None}, None), ({}, 30.0)])
+    async def test_an_async_lines_body_takes_the_same_timeout(
+        self, kind: str, kwargs: dict[str, Any], expected: float | None
+    ) -> None:
+        seen: Seen = []
+        result = getattr(async_db(kind, seen, CLIENT_TIMEOUT), kind)(lines=_alines(), **kwargs)
+        if kind.endswith("_stream"):
+            [event async for event in result]
+        else:
+            await result
+        assert seen == [phases(expected)]
+
+    @pytest.mark.parametrize(("kwargs", "expected"), [({"timeout": 7.5}, 7.5), ({}, 30.0)])
+    async def test_the_module_function_takes_it_too(self, kind: str, kwargs: dict[str, Any], expected: float) -> None:
+        seen: Seen = []
+        db = async_db(kind, seen, CLIENT_TIMEOUT)
+        result = getattr(batch, f"a{kind}")(db._client, db.name, vertices=VERTICES, **kwargs)
+        if kind.endswith("_stream"):
+            [event async for event in result]
+        else:
+            await result
+        assert seen == [phases(expected)]

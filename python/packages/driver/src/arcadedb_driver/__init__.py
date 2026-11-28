@@ -428,6 +428,7 @@ class ArcadeDBDatabase:
         lines: Iterable[str | bytes] | None = None,
         options: BatchOptions | None = None,
         query_tag: str | None = None,
+        timeout: CallTimeout = USE_CLIENT_DEFAULT,
     ) -> dict[str, Any]:
         """Bulk-loads vertices and edges via `POST /api/v1/batch/{database}`, buffering the
         whole response before returning. `serialize_rows` (via `vertices`/`edges`) always emits
@@ -456,9 +457,27 @@ class ArcadeDBDatabase:
         parameter, unlike `options` - so `list queries` shows the load and
         `terminate queries tag <label>` can stop it. No header is sent when it is `None` or
         empty; its length and characters are not checked client-side.
+
+        `timeout` applies to THIS call only and replaces the client's timeout for it. A `float` sets
+        all four httpx phases (connect, write, read, pool) to that many seconds, an `httpx.Timeout`
+        sets them separately, `None` removes every timeout for the call, and omitting it keeps the
+        client's own timeout (the `timeout` given to the server object, which is no timeout when
+        that was omitted too). httpx counts a timeout per phase, not as a deadline for the whole
+        call. The buffered answer reports what the load created, so give the read timeout room for
+        the server to finish the load. A phase that runs out raises `httpx.TimeoutException` (for
+        example `httpx.ReadTimeout`), the same exception the client-level timeout raises; it is not
+        wrapped in `ArcadeDBError`. A load that timed out may have committed some or all of its
+        records, so check the database before sending it again.
         """
         return batch_load(
-            self._client, self.name, vertices=vertices, edges=edges, lines=lines, options=options, query_tag=query_tag
+            self._client,
+            self.name,
+            vertices=vertices,
+            edges=edges,
+            lines=lines,
+            options=options,
+            query_tag=query_tag,
+            timeout=timeout,
         )
 
     def batch_load_stream(
@@ -469,6 +488,7 @@ class ArcadeDBDatabase:
         lines: Iterable[str | bytes] | None = None,
         options: BatchOptions | None = None,
         query_tag: str | None = None,
+        timeout: CallTimeout = USE_CLIENT_DEFAULT,
     ) -> Generator[dict[str, Any], None, None]:
         """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a
         `progress` event at every vertex commit and every `options["commitEvery"]` edges, then
@@ -500,9 +520,26 @@ class ArcadeDBDatabase:
         parameter, unlike `options` - so `list queries` shows the load and
         `terminate queries tag <label>` can stop it. No header is sent when it is `None` or
         empty; its length and characters are not checked client-side.
+
+        `timeout` applies to THIS call only and replaces the client's timeout for it: a `float` sets
+        all four httpx phases (connect, write, read, pool), an `httpx.Timeout` sets them
+        separately, `None` removes every timeout for the call, and omitting it keeps the client's
+        own. httpx counts a timeout per phase, not as a deadline for the whole call, so the read
+        timeout bounds each wait for the next chunk of the answer, not the load. A phase that runs
+        out raises `httpx.TimeoutException` from the iterator (for example `httpx.ReadTimeout`,
+        possibly after progress events were already yielded); it is not wrapped in `ArcadeDBError`.
+        A load that timed out may have committed some or all of its records, so check the database
+        before sending it again.
         """
         return batch_load_stream(
-            self._client, self.name, vertices=vertices, edges=edges, lines=lines, options=options, query_tag=query_tag
+            self._client,
+            self.name,
+            vertices=vertices,
+            edges=edges,
+            lines=lines,
+            options=options,
+            query_tag=query_tag,
+            timeout=timeout,
         )
 
     def transaction(

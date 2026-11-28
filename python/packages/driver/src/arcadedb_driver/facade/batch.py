@@ -12,7 +12,8 @@ the four entries `scripts/check_codegen_skips.py` pins in `EXPECTED_SKIPS`. `fac
 hand-written `write` is the closer relative: both issue a raw request through the generated
 `Client`'s own pooled `httpx.Client`/`httpx.AsyncClient`, so auth headers, timeout and connection
 pooling still apply, and both return `dict[str, Any]` rather than a generated model, because there
-is no generated model to return here at all.
+is no generated model to return here at all. The batch calls' timeout is the client's unless a call
+passes its own `timeout`, which `.post()` and `.stream()` take per request.
 
 Two things about the contract's declared shapes are worth knowing before reading `batch_load` and
 `batch_load_stream` below - and only one of them is the gap it looks like:
@@ -89,6 +90,7 @@ from typing_extensions import NotRequired, TypedDict
 from .._generated.client import Client
 from .._internal.batch_rows import EdgeRow, VertexRow, aiter_body, iter_body, iter_rows, serialize_rows
 from .._internal.ndjson import aiter_ndjson_lines, araise_for_status, iter_ndjson_lines, raise_for_status
+from .._internal.timeout import USE_CLIENT_DEFAULT, CallTimeout
 from ..errors import ArcadeDBError, _int_or_none, _status_or
 from .data import query_tag_headers
 
@@ -205,6 +207,7 @@ def batch_load(
     lines: Iterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> dict[str, Any]:
     """Bulk-loads vertices and edges in one call to `POST /api/v1/batch/{database}`, buffering
     the whole response before returning.
@@ -242,6 +245,17 @@ def batch_load(
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
+
+    `timeout` applies to THIS call only and replaces the client's timeout for it. A `float` sets
+    all four httpx phases (connect, write, read, pool) to that many seconds, an `httpx.Timeout`
+    sets them separately, `None` removes every timeout for the call, and omitting it keeps the
+    client's own timeout (the `timeout` given to the server object, which is no timeout when
+    that was omitted too). httpx counts a timeout per phase, not as a deadline for the whole
+    call. The buffered answer reports what the load created, so give the read timeout room for
+    the server to finish the load. A phase that runs out raises `httpx.TimeoutException` (for
+    example `httpx.ReadTimeout`), the same exception the client-level timeout raises; it is not
+    wrapped in `ArcadeDBError`. A load that timed out may have committed some or all of its
+    records, so check the database before sending it again.
     """
     _check_lines(vertices, edges, lines)
     raw = client.get_httpx_client().post(
@@ -249,6 +263,7 @@ def batch_load(
         content=_content(vertices, edges, lines),
         headers={"Content-Type": "application/x-ndjson", **query_tag_headers(query_tag)},
         params=_params(options),
+        timeout=timeout,
     )
     raise_for_status(raw)
     body: dict[str, Any] = raw.json()
@@ -264,6 +279,7 @@ def batch_load_stream(
     lines: Iterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> Generator[dict[str, Any], None, None]:
     """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a `progress`
     event at every vertex commit and every `options["commitEvery"]` edges, then exactly one
@@ -300,9 +316,19 @@ def batch_load_stream(
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
+
+    `timeout` applies to THIS call only and replaces the client's timeout for it: a `float` sets
+    all four httpx phases (connect, write, read, pool), an `httpx.Timeout` sets them
+    separately, `None` removes every timeout for the call, and omitting it keeps the client's
+    own. httpx counts a timeout per phase, not as a deadline for the whole call, so the read
+    timeout bounds each wait for the next chunk of the answer, not the load. A phase that runs
+    out raises `httpx.TimeoutException` from the iterator (for example `httpx.ReadTimeout`,
+    possibly after progress events were already yielded); it is not wrapped in `ArcadeDBError`.
+    A load that timed out may have committed some or all of its records, so check the database
+    before sending it again.
     """
     _check_lines(vertices, edges, lines)
-    return _stream_load(client, database, vertices, edges, lines, options, query_tag)
+    return _stream_load(client, database, vertices, edges, lines, options, query_tag, timeout)
 
 
 def _stream_load(
@@ -313,6 +339,7 @@ def _stream_load(
     lines: Iterable[str | bytes] | None,
     options: BatchOptions | None,
     query_tag: str | None,
+    timeout: CallTimeout,
 ) -> Generator[dict[str, Any], None, None]:
     """The generator behind `batch_load_stream`, which is a plain function so that a bad `lines`
     argument raises at the call and not at the first `next()`. The body is built here, on the
@@ -327,6 +354,7 @@ def _stream_load(
             **query_tag_headers(query_tag),
         },
         params=_params(options),
+        timeout=timeout,
     ) as response:
         raise_for_status(response)
         for line in iter_ndjson_lines(response.iter_text()):
@@ -344,6 +372,7 @@ async def abatch_load(
     lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> dict[str, Any]:
     """Bulk-loads vertices and edges in one call to `POST /api/v1/batch/{database}`, buffering
     the whole response before returning.
@@ -381,6 +410,17 @@ async def abatch_load(
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
+
+    `timeout` applies to THIS call only and replaces the client's timeout for it. A `float` sets
+    all four httpx phases (connect, write, read, pool) to that many seconds, an `httpx.Timeout`
+    sets them separately, `None` removes every timeout for the call, and omitting it keeps the
+    client's own timeout (the `timeout` given to the server object, which is no timeout when
+    that was omitted too). httpx counts a timeout per phase, not as a deadline for the whole
+    call. The buffered answer reports what the load created, so give the read timeout room for
+    the server to finish the load. A phase that runs out raises `httpx.TimeoutException` (for
+    example `httpx.ReadTimeout`), the same exception the client-level timeout raises; it is not
+    wrapped in `ArcadeDBError`. A load that timed out may have committed some or all of its
+    records, so check the database before sending it again.
     """
     _check_lines(vertices, edges, lines)
     raw = await client.get_async_httpx_client().post(
@@ -388,6 +428,7 @@ async def abatch_load(
         content=_acontent(vertices, edges, lines),
         headers={"Content-Type": "application/x-ndjson", **query_tag_headers(query_tag)},
         params=_params(options),
+        timeout=timeout,
     )
     await araise_for_status(raw)
     body: dict[str, Any] = raw.json()
@@ -403,6 +444,7 @@ def abatch_load_stream(
     lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None = None,
     options: BatchOptions | None = None,
     query_tag: str | None = None,
+    timeout: CallTimeout = USE_CLIENT_DEFAULT,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Streams the same bulk load as `batch_load`, but as `application/x-ndjson`: a `progress`
     event at every vertex commit and every `options["commitEvery"]` edges, then exactly one
@@ -439,9 +481,19 @@ def abatch_load_stream(
     `terminate queries tag <label>` can stop it. No header is sent when it is `None` or empty,
     and its length and characters are not checked client-side - the contract's 256-character cap
     is the server's rule, and not one to count on a refusal from.
+
+    `timeout` applies to THIS call only and replaces the client's timeout for it: a `float` sets
+    all four httpx phases (connect, write, read, pool), an `httpx.Timeout` sets them
+    separately, `None` removes every timeout for the call, and omitting it keeps the client's
+    own. httpx counts a timeout per phase, not as a deadline for the whole call, so the read
+    timeout bounds each wait for the next chunk of the answer, not the load. A phase that runs
+    out raises `httpx.TimeoutException` from the iterator (for example `httpx.ReadTimeout`,
+    possibly after progress events were already yielded); it is not wrapped in `ArcadeDBError`.
+    A load that timed out may have committed some or all of its records, so check the database
+    before sending it again.
     """
     _check_lines(vertices, edges, lines)
-    return _astream_load(client, database, vertices, edges, lines, options, query_tag)
+    return _astream_load(client, database, vertices, edges, lines, options, query_tag, timeout)
 
 
 async def _astream_load(
@@ -452,6 +504,7 @@ async def _astream_load(
     lines: Iterable[str | bytes] | AsyncIterable[str | bytes] | None,
     options: BatchOptions | None,
     query_tag: str | None,
+    timeout: CallTimeout,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """The async twin of `_stream_load`."""
     async with client.get_async_httpx_client().stream(
@@ -464,6 +517,7 @@ async def _astream_load(
             **query_tag_headers(query_tag),
         },
         params=_params(options),
+        timeout=timeout,
     ) as response:
         await araise_for_status(response)
         async for line in aiter_ndjson_lines(response.aiter_text()):

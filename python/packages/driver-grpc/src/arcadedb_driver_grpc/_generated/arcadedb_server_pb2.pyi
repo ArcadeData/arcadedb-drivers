@@ -754,6 +754,7 @@ class QueryResult(_message.Message):
     RUNNING_TOTAL_EMITTED_FIELD_NUMBER: _builtins.int
     IS_LAST_BATCH_FIELD_NUMBER: _builtins.int
     FACETS_FIELD_NUMBER: _builtins.int
+    COLUMN_NAMES_FIELD_NUMBER: _builtins.int
     total_records_in_batch: _builtins.int
     running_total_emitted: _builtins.int
     is_last_batch: _builtins.bool
@@ -763,6 +764,15 @@ class QueryResult(_message.Message):
     def facets(self) -> Global___GrpcFacets:
         """FACETS queries only, on the terminal batch (is_last_batch=true)"""
 
+    @_builtins.property
+    def column_names(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Column names of the first row, in projection order, when the rows are a projection (RETURN a, b, c). GrpcRecord.properties is a
+        protobuf map, which carries no order guarantee: a client that needs positional access reads the order from here. A row that is a
+        single node or relationship (RETURN n) is sent as that record: its one column name is the projection's. A record row a projection
+        reshaped (SELECT *, x AS y) lists its projected columns. Empty when the result has no rows or its rows are plain records
+        (SELECT FROM T). ExecuteQuery sets it on its result; StreamQuery sets the first row's names on every batch that carries rows.
+        """
+
     def __init__(
         self,
         *,
@@ -771,10 +781,11 @@ class QueryResult(_message.Message):
         running_total_emitted: _builtins.int = ...,
         is_last_batch: _builtins.bool = ...,
         facets: Global___GrpcFacets | None = ...,
+        column_names: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["facets", b"facets"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["facets", b"facets", "is_last_batch", b"is_last_batch", "records", b"records", "running_total_emitted", b"running_total_emitted", "total_records_in_batch", b"total_records_in_batch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["column_names", b"column_names", "facets", b"facets", "is_last_batch", b"is_last_batch", "records", b"records", "running_total_emitted", b"running_total_emitted", "total_records_in_batch", b"total_records_in_batch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
@@ -1772,6 +1783,7 @@ class ExecuteCommandResponse(_message.Message):
     RECORDS_FIELD_NUMBER: _builtins.int
     STATS_FIELD_NUMBER: _builtins.int
     FACETS_FIELD_NUMBER: _builtins.int
+    COLUMN_NAMES_FIELD_NUMBER: _builtins.int
     success: _builtins.bool
     message: _builtins.str
     affected_records: _builtins.int
@@ -1789,6 +1801,10 @@ class ExecuteCommandResponse(_message.Message):
     def facets(self) -> Global___GrpcFacets:
         """FACETS queries only"""
 
+    @_builtins.property
+    def column_names(self) -> _containers.RepeatedScalarFieldContainer[_builtins.str]:
+        """Column names of the first row, in projection order (see QueryResult.column_names)."""
+
     def __init__(
         self,
         *,
@@ -1799,10 +1815,11 @@ class ExecuteCommandResponse(_message.Message):
         records: _abc.Iterable[Global___GrpcRecord] | None = ...,
         stats: Global___QueryUpdateStats | None = ...,
         facets: Global___GrpcFacets | None = ...,
+        column_names: _abc.Iterable[_builtins.str] | None = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["facets", b"facets", "stats", b"stats"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["affected_records", b"affected_records", "execution_time_ms", b"execution_time_ms", "facets", b"facets", "message", b"message", "records", b"records", "stats", b"stats", "success", b"success"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["affected_records", b"affected_records", "column_names", b"column_names", "execution_time_ms", b"execution_time_ms", "facets", b"facets", "message", b"message", "records", b"records", "stats", b"stats", "success", b"success"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
